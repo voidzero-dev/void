@@ -1,17 +1,11 @@
 /**
- * The GitHub and R2 side of the T1 source diff (design doc 0095, M11). Called by
- * `prepare.ts` at scan start, once the base snapshot is known to exist:
+ * The GitHub and R2 side of the T1 source diff (M11), called by `prepare.ts` at scan start:
  *
- *   managedBuilds? connection? base and head commit? build? ─► start (t1.ts)
- *   scoped installation token (this repository, contents: read)
- *   compare(base...head) ─► ahead / identical, not truncated
- *   head tarball ─► R2 (`…/scans/{scan}/source-{attempt}-{uuid}.tar.gz`, multipart, 100 MB)
- *     pass 1: path, size, sha256 of each file ─► map the bundle, content check, plan
- *     pass 2: the planned files' text
- *   the tarball is deleted when the input is built (a retry fetches it again)
+ *   start (t1.ts) ─► repo-scoped token ─► compare(base...head)
+ *   head tarball ─► R2 (multipart, 100 MB) ─► pass 1: size + sha256 ─► map, check, plan
+ *     ─► pass 2: the planned files' text ─► tarball deleted
  *
- * Anything that fails here falls back to T2 with a coverage note; it never fails
- * the scan.
+ * Anything that fails here falls back to T2 with a coverage note; it never fails the scan.
  */
 import { createHash } from 'node:crypto';
 import { and, eq, or } from 'drizzle-orm';
@@ -49,23 +43,15 @@ export type SecuritySourceDiffEnv = Pick<
   'STATIC_ASSETS_R2' | 'PLATFORM_CAPABILITIES' | 'GITHUB_APP_ID' | 'GITHUB_APP_PRIVATE_KEY'
 >;
 
-/** The head tarball, compressed, at most. */
-export const SECURITY_SOURCE_TARBALL_MAX_BYTES = 100 * 1024 * 1024;
-/** Its files, uncompressed, at most … */
-export const SECURITY_SOURCE_MAX_BYTES = 512 * 1024 * 1024;
-/** … and how many. */
-export const SECURITY_SOURCE_MAX_FILES = 100_000;
+/** Compressed tarball, then its files uncompressed (bytes, count), at most. */
+const TARBALL_MAX_BYTES = 100 * 1024 * 1024;
+const LIMITS = { maxFiles: 100_000, maxBytes: 512 * 1024 * 1024 };
 const COMPARE_TIMEOUT_MS = 15_000;
 const TARBALL_TIMEOUT_MS = 60_000;
 /** Every R2 multipart part but the last: at least 5 MiB, and all the same size. */
-export const SECURITY_SOURCE_TARBALL_PART_BYTES = 8 * 1024 * 1024;
-const PART_BYTES = SECURITY_SOURCE_TARBALL_PART_BYTES;
+const PART_BYTES = 8 * 1024 * 1024;
 
-const LIMITS = { maxFiles: SECURITY_SOURCE_MAX_FILES, maxBytes: SECURITY_SOURCE_MAX_BYTES };
-
-type Fallback = SecurityT1Fallback;
-
-function fallback(note: string | null): Fallback {
+function fallback(note: string | null): SecurityT1Fallback {
   return { ok: false, note };
 }
 
@@ -87,11 +73,7 @@ async function loadHeadBuild(db: Db, deploymentId: string): Promise<SecurityHead
   return build ?? null;
 }
 
-/**
- * Streams the response body into R2 in parts; `false` when it is too large. R2 wants
- * every part but the last to be the same size, so each one is exactly `PART_BYTES`
- * and what is left of a chunk starts the next.
- */
+/** Streams the body into R2 in `PART_BYTES` parts; `false` when it is too large. */
 async function storeTarball(r2: R2Bucket, key: string, body: ReadableStream<Uint8Array>) {
   const upload = await r2.createMultipartUpload(key);
   const parts: Array<R2UploadedPart> = [];
@@ -99,9 +81,6 @@ async function storeTarball(r2: R2Bucket, key: string, body: ReadableStream<Uint
   let part = new Uint8Array(PART_BYTES);
   let filled = 0;
   let total = 0;
-  const send = async (bytes: Uint8Array) => {
-    parts.push(await upload.uploadPart(parts.length + 1, bytes));
-  };
   try {
     for (;;) {
       const { value, done } = await reader.read();
@@ -109,7 +88,7 @@ async function storeTarball(r2: R2Bucket, key: string, body: ReadableStream<Uint
         break;
       }
       total += value.length;
-      if (total > SECURITY_SOURCE_TARBALL_MAX_BYTES) {
+      if (total > TARBALL_MAX_BYTES) {
         await reader.cancel();
         await upload.abort();
         return false;
@@ -121,14 +100,14 @@ async function storeTarball(r2: R2Bucket, key: string, body: ReadableStream<Uint
         filled += size;
         at += size;
         if (filled === PART_BYTES) {
-          await send(part);
+          parts.push(await upload.uploadPart(parts.length + 1, part));
           part = new Uint8Array(PART_BYTES);
           filled = 0;
         }
       }
     }
     if (filled > 0 || parts.length === 0) {
-      await send(part.subarray(0, filled));
+      parts.push(await upload.uploadPart(parts.length + 1, part.subarray(0, filled)));
     }
     await upload.complete(parts);
     return true;
@@ -166,7 +145,7 @@ async function fetchTarball(
     return SECURITY_T1_NOTES.unavailable;
   }
   const length = Number(res.headers.get('content-length'));
-  if (Number.isFinite(length) && length > SECURITY_SOURCE_TARBALL_MAX_BYTES) {
+  if (Number.isFinite(length) && length > TARBALL_MAX_BYTES) {
     await res.body.cancel();
     return SECURITY_T1_NOTES.tooLarge;
   }
@@ -197,7 +176,6 @@ async function indexTarball(r2: R2Bucket, key: string): Promise<Map<string, Secu
         hash.update(chunk);
         return;
       }
-      // A path listed twice: the later entry is what extraction would leave.
       index.set(entry.path, { sha256: hash.digest('hex'), size: entry.size });
     };
   });
@@ -243,17 +221,12 @@ export type SecuritySourceDiffRequest = Readonly<{
   projectId: string;
   deploymentId: string;
   baseDeploymentId: string;
-  /** The head deployment's claimed commit. */
   headCommit: string | null;
-  /**
-   * The bundle's sources (`bundleSources`), in import-graph order. Built only once T1
-   * can start, so a T2 scan (self-hosted, no connection) never reads them here.
-   */
+  /** The bundle's sources, read only once T1 can start. */
   bundle: () => SecurityBundleSources;
   headModules: ReadonlyMap<string, string>;
   baseModules: ReadonlyMap<string, string>;
   baseSources: ReadonlyMap<string, string> | null;
-  /** What the repo files may take of the input, next to everything else. */
   budget: Readonly<{ bytes: number; files: number }>;
 }>;
 
@@ -268,7 +241,6 @@ export async function loadSecuritySourceDiff(
   request: SecuritySourceDiffRequest,
 ): Promise<SecuritySourceDiffResult> {
   if (!getPlatformCapabilities(env).managedBuilds) {
-    // Self-hosted: GitHub routes need `managedBuilds`, so nothing is asked of GitHub.
     return fallback(null);
   }
   const [connection] = await db
@@ -301,8 +273,7 @@ export async function loadSecuritySourceDiff(
   if (!start.ok) {
     return start;
   }
-  // The same trust rule as a managed build: an active installation that still selects
-  // the repository, connected by the project owner or an admin.
+  // The same trust rule as a managed build.
   if (
     !(await installationCoversRepo(
       db,
@@ -337,8 +308,7 @@ export async function loadSecuritySourceDiff(
   }
 
   const r2 = env.STATIC_ASSETS_R2;
-  // One key per call: an older attempt still running, or a retried call, never deletes
-  // or overwrites this one's archive. The raw-output sweep removes any left behind.
+  // One key per call, so another attempt never touches this archive; the sweep cleans up.
   const key = `${securityRawOutputPrefix(request.projectId, request.scanId)}source-${request.attempt}-${crypto.randomUUID()}.tar.gz`;
   try {
     const stored = await fetchTarball(r2, key, token, start.connection.repoFullName, start.head);
@@ -362,12 +332,7 @@ export async function loadSecuritySourceDiff(
     const changedRepoPaths = comparisonChangedPaths(compare.files);
     if (
       !start.managed &&
-      claimedCommitMismatch({
-        mapping,
-        changedRepoPaths,
-        builtChanged,
-        noSourceMaps,
-      })
+      claimedCommitMismatch({ mapping, changedRepoPaths, builtChanged, noSourceMaps })
     ) {
       return fallback(SECURITY_T1_NOTES.commitMismatch);
     }
@@ -386,13 +351,12 @@ export async function loadSecuritySourceDiff(
       builtChanged,
       budget: request.budget,
     });
-    // The repo lockfile comes along in the same pass: registry packages are dropped by
-    // package identity (spec §7.4), never by path text.
+    // The repo lockfile comes along: registry packages are dropped by identity (§7.4).
     const lockfilePath = pickSecurityLockfile(repo, mapping.root);
     const wanted = new Map(plan.read.map((file) => [file.repoPath, file.sha256]));
-    const lockfileEntry = lockfilePath === null ? undefined : repo.get(lockfilePath);
-    if (lockfilePath !== null && lockfileEntry) {
-      wanted.set(lockfilePath, lockfileEntry.sha256);
+    const lockSha = lockfilePath === null ? undefined : repo.get(lockfilePath)?.sha256;
+    if (lockfilePath !== null && lockSha !== undefined) {
+      wanted.set(lockfilePath, lockSha);
     }
     const texts = await readTarballFiles(r2, key, wanted);
     const lockText = lockfilePath === null ? undefined : texts.get(lockfilePath);

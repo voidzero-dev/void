@@ -1,25 +1,13 @@
 /**
- * T1 source diff (spec §7.1, §7.4; design doc 0095, M11). Pure functions; the
- * GitHub and R2 side is `t1-github.ts`.
+ * T1 source diff (spec §7.1, §7.4; M11). Pure; the GitHub and R2 side is `t1-github.ts`.
  *
- *   managedBuilds + GitHub connection + base and head commit ──► start
- *     managed (container build at a known sha) ─► no content check
- *     GitHub Actions (OIDC) ─► claimed commit = the token's `sha` claim, then the check
- *     any other deploy ─► content check
- *   compare(base...head): `ahead` / `identical`, not truncated ──► else T2 (edge #9)
+ *   compare(base...head) ahead/identical, not truncated ──► else T2
  *   bundle sources ─► repo paths (same text) ─► project root + shared folders
- *     not one line of folders ─► T2 + `monorepo-shared-code` (edge #32)
- *   content check: a changed server file whose text differs from the commit, no
- *   source maps, or nothing matched ─► T2 + `commit-mismatch` (edge #38)
- *   scope = project root ∪ repo files the source maps list (outside it)
+ *     not one line of folders ─► T2 + monorepo-shared-code
+ *   unmanaged: changed server text differs, no source maps, nothing matched ─► commit-mismatch
  *   changed = compare files in scope ∪ server sources the built output changed
  *
- * The built-output changes are part of T1 so the code that went live is scanned
- * even when the base's claimed commit was not what it shipped.
- *
- * Input paths match T2's: a repo file the bundle lists keeps the bundle's source
- * path, any other file is relative to the project root. A finding keeps its file
- * when a project moves between T1 and T2.
+ * Input paths match T2's, so a finding keeps its file when a project moves between tiers.
  */
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
 import { utf8Length } from './build.ts';
@@ -47,7 +35,6 @@ export type SecurityGithubConnection = Readonly<{
 /** The build that made the head deployment, when a platform build did. */
 export type SecurityHeadBuild = Readonly<{
   executor: 'container' | 'github_actions';
-  /** The commit the server fetched (container) or the OIDC token's `sha` claim. */
   commitSha: string | null;
 }>;
 
@@ -57,7 +44,6 @@ export type SecurityT1Start =
       connection: SecurityGithubConnection;
       base: string;
       head: string;
-      /** The server built the source at `head` itself: no content check. */
       managed: boolean;
     }>
   | SecurityT1Fallback;
@@ -68,8 +54,7 @@ export function isCommitSha(value: string | null): value is string {
     return false;
   }
   for (const char of value) {
-    const isHex = (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f');
-    if (!isHex && !(char >= 'A' && char <= 'F')) {
+    if (!'0123456789abcdefABCDEF'.includes(char)) {
       return false;
     }
   }
@@ -79,25 +64,24 @@ export function isCommitSha(value: string | null): value is string {
 /** Whether T1 can be tried at all; `note: null` when it never applied. */
 export function startSecuritySourceDiff(
   input: Readonly<{
-    /** Hosted only: a standard self-hosted install has no `managedBuilds`. */
     managedBuilds: boolean;
     connection: SecurityGithubConnection | null;
     baseCommit: string | null;
-    /** The head deployment's claimed commit. */
     headCommit: string | null;
     build: SecurityHeadBuild | null;
   }>,
 ): SecurityT1Start {
-  if (!input.managedBuilds || input.connection === null) {
-    return { ok: false, note: null };
-  }
-  if (!isCommitSha(input.baseCommit) || !isCommitSha(input.headCommit)) {
+  if (
+    !input.managedBuilds ||
+    input.connection === null ||
+    !isCommitSha(input.baseCommit) ||
+    !isCommitSha(input.headCommit)
+  ) {
     return { ok: false, note: null };
   }
   const build = input.build;
   if (build !== null && build.commitSha !== input.headCommit) {
-    // A platform build deployed a commit other than the one it built (container) or
-    // the one its OIDC token names (GitHub Actions).
+    // A platform build deployed a commit other than the one it built or its token names.
     return { ok: false, note: SECURITY_T1_NOTES.commitMismatch };
   }
   return {
@@ -120,26 +104,18 @@ export function securityCompareProblem(compare: SecurityCompareSummary | null): 
     return SECURITY_T1_NOTES.unavailable;
   }
   if (compare.status !== 'ahead' && compare.status !== 'identical') {
-    // `behind` / `diverged`: a force push or a rollback moved the head off the base.
     return SECURITY_T1_NOTES.notAncestor;
   }
-  if (compare.truncated) {
-    return SECURITY_T1_NOTES.truncated;
-  }
-  return null;
+  return compare.truncated ? SECURITY_T1_NOTES.truncated : null;
 }
 
-/** One file of the head tarball. */
 export type SecurityRepoFile = Readonly<{ sha256: string; size: number }>;
 export type SecurityRepoIndex = ReadonlyMap<string, SecurityRepoFile>;
 
 /** A lockfile bigger than this is not read (T1); its packages stay unverified. */
 export const SECURITY_LOCKFILE_MAX_BYTES = 32 * 1024 * 1024;
 
-/**
- * The lockfile nearest the project's folder in the repository, walking up to the repo
- * root (a monorepo keeps one at its root); `null` when there is none.
- */
+/** The lockfile nearest the project's folder, walking up to the repo root. */
 export function pickSecurityLockfile(repo: SecurityRepoIndex, root: string): string | null {
   let folder = root;
   for (;;) {
@@ -160,13 +136,10 @@ export function pickSecurityLockfile(repo: SecurityRepoIndex, root: string): str
 
 export type SecurityRepoMapping = Readonly<{
   ok: true;
-  /** The project's folder in the repository: `''` or ending in `/`. */
+  /** The project's folder: `''` or ending in `/`. Chain: source folders, deepest first. */
   root: string;
-  /** Folders the bundle's sources sit under, deepest (the root) first. */
   chain: ReadonlyArray<string>;
-  /** Bundle source path → its repo file, with whether the texts are the same. */
   mapped: ReadonlyMap<string, Readonly<{ repoPath: string; same: boolean }>>;
-  /** Sources whose text was found in the repository. */
   verified: number;
 }>;
 
@@ -175,14 +148,9 @@ function isAncestorFolder(folder: string, of: string): boolean {
 }
 
 /**
- * Places the bundle's sources in the repository. A source path is the map's path
- * with any `..` above the output folder dropped, so it ends a repo path: the folder
- * in front of it is the source's prefix. Each source whose text is found at
- * exactly one such path votes for that prefix. The prefixes must sit on one line
- * of folders (project root, then the folders shared code sits under), else the
- * project cannot be told apart from the rest of a monorepo.
- *
- * A managed build ran at the repository root, so its root is `''`.
+ * Places the bundle's sources in the repo: each source found at exactly one path ending in
+ * its own votes for that prefix; the prefixes must sit on one line of folders. A managed
+ * build ran at the repo root.
  */
 export function mapBundleToRepo(
   sources: ReadonlyArray<SecuritySourceFile>,
@@ -195,7 +163,6 @@ export function mapBundleToRepo(
       wanted.set(source.path, source);
     }
   }
-  // Source path → repo paths that end with it.
   const candidates = new Map<string, Array<string>>();
   for (const repoPath of repo.keys()) {
     let at = 0;
@@ -272,17 +239,11 @@ export function mapBundleToRepo(
   return { ok: true, root, chain, mapped, verified };
 }
 
-/**
- * The claimed commit check for a deploy the server did not build (spec §7.1, D36):
- * every changed server file the bundle lists must have the commit's text, and the
- * bundle must have source maps. `true` when it fails.
- */
+/** Claimed commit check (§7.1, D36): `true` when a changed server file differs or maps are missing. */
 export function claimedCommitMismatch(
   input: Readonly<{
     mapping: SecurityRepoMapping;
-    /** Repo paths the comparison changed. */
     changedRepoPaths: ReadonlySet<string>;
-    /** Bundle source paths the built output changed (T2's rule). */
     builtChanged: ReadonlySet<string>;
     noSourceMaps: number;
   }>,
@@ -324,10 +285,7 @@ function baseName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
 }
 
-/**
- * Priority of a repo file that is not server code (spec §7.4, T1 order): config,
- * then other code (client code), then tests and docs.
- */
+/** Rank of a non-server repo file (§7.4): config, other code, then tests and docs. */
 export function securityRepoRank(path: string): number {
   const name = baseName(path).toLowerCase();
   if (CONFIG_NAMES.some((start) => name.startsWith(start))) {
@@ -357,32 +315,22 @@ export type SecurityRepoRead = Readonly<{
 }>;
 
 export type SecuritySourceDiffPlan = Readonly<{
-  /** Repo files to read, in priority order. */
   read: ReadonlyArray<SecurityRepoRead>;
-  /** In-scope files left unread (the read limits), in priority order. */
   unread: ReadonlyArray<Readonly<{ path: string; bytes: number; sha256: string }>>;
-  /** Secret-like files in scope: never read, listed in the coverage notes. */
   secret: ReadonlyArray<Readonly<{ path: string; bytes: number }>>;
-  /** Bundle sources with no repo file (generated code, packages), under their own path. */
   bundleOnly: ReadonlyArray<SecuritySourceFile>;
-  /** Input paths that changed since the base. */
   changed: ReadonlySet<string>;
 }>;
 
 /**
- * What a source diff reads: the project root and the repo files the bundle lists
- * outside it, server code first (bundle order), then config, other code, tests and
- * docs; changed files before the rest. `budget` is what repo files and bundle-only
- * sources may hold together, next to assets and memory: changed repo files may use
- * all of it, unchanged ones only what the bundle-only sources leave.
+ * What a source diff reads, server code first, then config, code, tests and docs; changed
+ * files first. Changed repo files may use all of `budget`, others what bundle-only leaves.
  */
 export function planSecuritySourceDiff(
   input: Readonly<{
     mapping: SecurityRepoMapping;
     repo: SecurityRepoIndex;
-    /** The server built the head itself: a source whose text differs still reads the repo. */
     managed: boolean;
-    /** The bundle's sources, in import-graph order. */
     sources: ReadonlyArray<SecuritySourceFile>;
     changedRepoPaths: ReadonlySet<string>;
     builtChanged: ReadonlySet<string>;
@@ -406,7 +354,6 @@ export function planSecuritySourceDiff(
   const secret: Array<{ path: string; bytes: number }> = [];
   const bundleOnly: Array<SecuritySourceFile> = [];
   const changed = new Set<string>();
-  /** Repo files whose bundle text differs on a deploy the server did not build. */
   const shadowed = new Set<string>();
   const fromRepo = (path: string): boolean => {
     const entry = mapping.mapped.get(path);
@@ -428,9 +375,7 @@ export function planSecuritySourceDiff(
     if (byRepoPath.has(entry.repoPath)) {
       continue;
     }
-    const filter = securityInputFilter(entry.repoPath);
-    if (filter !== null) {
-      // A secret-like file the bundle lists is noted with the rest below.
+    if (securityInputFilter(entry.repoPath) !== null) {
       continue;
     }
     const placed: Entry = {
@@ -507,16 +452,12 @@ export function planSecuritySourceDiff(
   }
 
   const ordered = entries.sort((left, right) => {
-    const leftChanged = changed.has(left.inputPath) ? 0 : 1;
-    const rightChanged = changed.has(right.inputPath) ? 0 : 1;
-    return leftChanged - rightChanged || left.rank - right.rank || left.order - right.order;
+    const first = Number(changed.has(right.inputPath)) - Number(changed.has(left.inputPath));
+    return first || left.rank - right.rank || left.order - right.order;
   });
   const read: Array<SecurityRepoRead> = [];
   const unread: Array<{ path: string; bytes: number; sha256: string }> = [];
-  let reservedBytes = 0;
-  for (const source of bundleOnly) {
-    reservedBytes += utf8Length(source.text);
-  }
+  const reservedBytes = bundleOnly.reduce((sum, source) => sum + utf8Length(source.text), 0);
   let bytes = 0;
   let files = 0;
   for (const entry of ordered) {
@@ -537,12 +478,7 @@ export function planSecuritySourceDiff(
     }
     bytes += file.size;
     files++;
-    read.push({
-      repoPath: entry.repoPath,
-      inputPath: entry.inputPath,
-      sha256: file.sha256,
-      size: file.size,
-    });
+    read.push({ repoPath: entry.repoPath, inputPath: entry.inputPath, ...file });
   }
   return { read, unread, secret, bundleOnly, changed };
 }

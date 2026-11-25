@@ -4,16 +4,15 @@ import type {
   SecurityPolicyLimits,
 } from '@void/platform/security-policy';
 /**
- * The scan queue in PostgreSQL (spec §6.2): what the `SecurityScanScheduler` DO and
- * the hourly jobs read and write. Every write that ends or restarts an attempt is a
- * compare-and-set on `status` + `attempt`, the fencing token: a late write from an
- * older attempt, or one the reaper already ended, changes nothing (edge #33).
+ * The scan queue in PostgreSQL (spec §6.2). Every write that ends or restarts an attempt
+ * is a compare-and-set on `status` + `attempt` (the fence, edge #33).
  *
  *   queued ──claim──► running ──end──► succeeded | failed | timed_out | skipped:budget …
  *     │                  └──requeue (one infra retry)──► queued
  *     └──claim refuses──► skipped:protected | skipped:backlog | canceled
  */
 import { and, asc, eq, gt, inArray, lt, ne, notExists, notInArray, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db, DbOrTx } from '../db.ts';
 import { hasSqlState } from '../pg-errors.ts';
@@ -31,43 +30,40 @@ import type { SecurityScanTrigger } from './schema.ts';
 
 /** One start plus one retry after an infrastructure error (spec §6.2). */
 export const SECURITY_SCAN_MAX_ATTEMPTS = 2;
-/** The lease is the hard cap (2× the wall clock) plus this. */
-export const SECURITY_SCAN_LEASE_GRACE_MS = 5 * 60_000;
-/** A scan waiting longer than this from `first_queued_at` is `skipped:backlog`. */
-export const SECURITY_SCAN_MAX_QUEUE_WAIT_MS = 24 * 60 * 60_000;
-/** Queued scans one scheduler pass looks at, oldest first. */
-export const SECURITY_SCAN_CANDIDATE_LIMIT = 200;
+const LEASE_GRACE_MS = 5 * 60_000;
+const MAX_QUEUE_WAIT_MS = 24 * 60 * 60_000;
 /** A `pending_input` row older than this lost its after-commit step. */
-export const SECURITY_SCAN_PENDING_INPUT_REPOKE_MS = 10 * 60_000;
+const PENDING_INPUT_REPOKE_MS = 10 * 60_000;
 
 const WAITING_STATUSES = ['pending_input', 'queued'] as const;
 const ACTIVE_STATUSES = [...WAITING_STATUSES, 'running'] as const;
 
-export type SecurityScanTimes = Readonly<{
-  wallClockMs: number;
-  hardCapMs: number;
-  leaseUntil: string;
-}>;
+/** The fence: the row of `scanId` is in `status` at exactly `attempt`. */
+export function securityScanAt(
+  scanId: string,
+  attempt: number,
+  status: 'running' | 'queued' = 'running',
+): SQL | undefined {
+  return and(
+    eq(securityScans.id, scanId),
+    eq(securityScans.status, status),
+    eq(securityScans.attempt, attempt),
+  );
+}
 
 /** Wall clock from the policy, hard cap 2× it, lease the hard cap + 5 min (spec §6.2, §6.3). */
 export function securityScanTimes(
   limits: Pick<SecurityPolicyLimits, 'timeoutMinutes'>,
   now: number,
-): SecurityScanTimes {
+) {
   const wallClockMs = limits.timeoutMinutes * 60_000;
   const hardCapMs = wallClockMs * 2;
   return {
     wallClockMs,
     hardCapMs,
-    leaseUntil: new Date(now + hardCapMs + SECURITY_SCAN_LEASE_GRACE_MS).toISOString(),
+    leaseUntil: new Date(now + hardCapMs + LEASE_GRACE_MS).toISOString(),
   };
 }
-
-export type SecurityRunningScan = Readonly<{
-  scanId: string;
-  projectId: string;
-  modelUsed: string | null;
-}>;
 
 export type SecurityScanCandidate = Readonly<{
   scanId: string;
@@ -86,7 +82,7 @@ export type SecurityScanCandidate = Readonly<{
 }>;
 
 export type SecurityScanQueueView = Readonly<{
-  running: ReadonlyArray<SecurityRunningScan>;
+  running: ReadonlyArray<Readonly<{ scanId: string; projectId: string; modelUsed: string | null }>>;
   /** Queued scans of projects with no running scan, oldest first. */
   candidates: ReadonlyArray<SecurityScanCandidate>;
   /** Every queued scan, startable or not. */
@@ -95,7 +91,7 @@ export type SecurityScanQueueView = Readonly<{
 
 export async function readSecurityScanQueue(
   db: DbOrTx,
-  limit = SECURITY_SCAN_CANDIDATE_LIMIT,
+  limit = 200,
 ): Promise<SecurityScanQueueView> {
   const running = await db
     .select({
@@ -153,7 +149,7 @@ export async function readSecurityScanQueue(
 }
 
 export type SecurityClaimOutcome =
-  | Readonly<{ kind: 'claimed'; attempt: number; times: SecurityScanTimes }>
+  | Readonly<{ kind: 'claimed'; attempt: number; times: ReturnType<typeof securityScanTimes> }>
   /** Ended at claim: `skipped:protected`, `skipped:project_policy`, `skipped:backlog` or `canceled`. */
   | Readonly<{ kind: 'ended'; status: 'skipped' | 'canceled'; reason: string }>
   /** Another scan of the project is running; the row stays queued. */
@@ -181,13 +177,8 @@ async function projectIsProtected(tx: DbOrTx, projectId: string): Promise<boolea
 }
 
 /**
- * Moves one queued scan to `running` with a new attempt and lease, under the project
- * row lock. The checks the enqueue made are made again, since the row may have waited:
- * a project being deleted or a suspended owner cancels it, a wait past 24 h skips it
- * (`backlog`), and under `public` a non-gate scan of a project that is now protected is
- * `skipped:protected` (spec §5.4 All → Public), unless its project rule is `always`. A
- * non-gate scan of a project whose rule is now `never` is `skipped:project_policy` (M34).
- * A gate scan still runs (§5.5).
+ * Moves one queued scan to `running` with a new attempt and lease, under the project row
+ * lock, after the enqueue checks are made again (`claimRefusal`).
  */
 export async function claimSecurityScan(
   db: Db,
@@ -200,6 +191,7 @@ export async function claimSecurityScan(
     now: number;
   }>,
 ): Promise<SecurityClaimOutcome> {
+  const gone = { kind: 'gone' } as const;
   try {
     return await db.transaction(async (tx) => {
       const [scan] = await tx
@@ -208,10 +200,9 @@ export async function claimSecurityScan(
         .where(eq(securityScans.id, input.scanId))
         .limit(1);
       if (!scan) {
-        return { kind: 'gone' } as const;
+        return gone;
       }
-      // Lock order as at enqueue: project row, then the policy lock (shared), so an
-      // Off write waits for this claim instead of missing it.
+      // Lock order as at enqueue: project row, then the policy lock (shared).
       await tx.execute(sql`SELECT id FROM projects WHERE id = ${scan.projectId} FOR UPDATE`);
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock_shared(hashtextextended('void:platform:security-policy', 0))`,
@@ -232,11 +223,11 @@ export async function claimSecurityScan(
         .where(eq(securityScans.id, input.scanId))
         .limit(1);
       if (!row || row.status !== 'queued' || row.attempt !== input.attempt) {
-        return { kind: 'gone' } as const;
+        return gone;
       }
       const policy = await readSecurityPolicyLenient(tx);
       if (policy.mode === 'disabled') {
-        return { kind: 'gone' } as const;
+        return gone;
       }
       const end = await claimRefusal(tx, policy.mode, scan.projectId, row, input.now);
       if (end) {
@@ -257,18 +248,9 @@ export async function claimSecurityScan(
           model_used: input.model.used,
           engine: input.model.engine,
         })
-        .where(
-          and(
-            eq(securityScans.id, input.scanId),
-            eq(securityScans.status, 'queued'),
-            eq(securityScans.attempt, input.attempt),
-          ),
-        )
+        .where(securityScanAt(input.scanId, input.attempt, 'queued'))
         .returning({ attempt: securityScans.attempt });
-      if (!claimed) {
-        return { kind: 'gone' } as const;
-      }
-      return { kind: 'claimed', attempt: claimed.attempt, times } as const;
+      return claimed ? ({ kind: 'claimed', attempt: claimed.attempt, times } as const) : gone;
     });
   } catch (error) {
     // `security_scans_running_project`: one running scan per project.
@@ -279,6 +261,15 @@ export async function claimSecurityScan(
   }
 }
 
+function ended(status: 'skipped' | 'canceled', reason: string) {
+  return { kind: 'ended', status, reason } as const;
+}
+
+/**
+ * A deleting project or a suspended owner cancels; a 24 h wait skips (`backlog`). A
+ * non-gate scan is skipped by the project rule `never` (M34), or under `public` when the
+ * project is now protected and its rule is not `always` (spec §5.4). Gate scans run (§5.5).
+ */
 async function claimRefusal(
   tx: DbOrTx,
   mode: SecurityMode,
@@ -293,30 +284,25 @@ async function claimRefusal(
   now: number,
 ): Promise<Extract<SecurityClaimOutcome, { kind: 'ended' }> | null> {
   if (row.projectStatus === 'deleting') {
-    return { kind: 'ended', status: 'canceled', reason: 'project_deleted' };
+    return ended('canceled', 'project_deleted');
   }
   if (row.suspended !== null) {
-    return { kind: 'ended', status: 'canceled', reason: 'owner_suspended' };
+    return ended('canceled', 'owner_suspended');
   }
-  if (
-    row.firstQueuedAt !== null &&
-    now - Date.parse(row.firstQueuedAt) > SECURITY_SCAN_MAX_QUEUE_WAIT_MS
-  ) {
-    return { kind: 'ended', status: 'skipped', reason: 'backlog' };
+  if (row.firstQueuedAt !== null && now - Date.parse(row.firstQueuedAt) > MAX_QUEUE_WAIT_MS) {
+    return ended('skipped', 'backlog');
   }
   // A fallback of a gate scan (M26) runs for the same public request.
-  const forRequest =
-    row.trigger === 'gate' || (row.trigger === 'fallback' && row.publicRequestId !== null);
-  if (forRequest) {
+  if (row.trigger === 'gate' || (row.trigger === 'fallback' && row.publicRequestId !== null)) {
     return null;
   }
   // Read under the project lock the rule write takes too (M34).
   const override = await readSecurityProjectPolicyOverride(tx, projectId);
   if (override === 'never') {
-    return { kind: 'ended', status: 'skipped', reason: SECURITY_PROJECT_POLICY_SKIP_REASON };
+    return ended('skipped', SECURITY_PROJECT_POLICY_SKIP_REASON);
   }
   if (mode === 'public' && override !== 'always' && (await projectIsProtected(tx, projectId))) {
-    return { kind: 'ended', status: 'skipped', reason: 'protected' };
+    return ended('skipped', 'protected');
   }
   return null;
 }
@@ -328,10 +314,19 @@ export type SecurityScanEnd = Readonly<{
   failureCause?: 'installation' | 'project' | null;
 }>;
 
+function endColumns(end: SecurityScanEnd) {
+  return {
+    status: end.status,
+    status_reason: end.reason,
+    error_class: end.errorClass ?? null,
+    failure_cause: end.failureCause ?? null,
+    finished_at: sql`now()`,
+  };
+}
+
 /**
- * Ends a running attempt and gives its budget reserve back, in one transaction. Fenced:
- * only the running row of exactly this attempt changes. `false` when it was not
- * (already ended, or a newer attempt runs).
+ * Ends a running attempt (fenced) and gives its reserve back, in one transaction. `false`
+ * when it was not the running row of exactly this attempt.
  */
 export async function endSecurityScanAttempt(
   db: Db,
@@ -342,20 +337,8 @@ export async function endSecurityScanAttempt(
   return db.transaction(async (tx) => {
     const ended = await tx
       .update(securityScans)
-      .set({
-        status: end.status,
-        status_reason: end.reason,
-        error_class: end.errorClass ?? null,
-        failure_cause: end.failureCause ?? null,
-        finished_at: sql`now()`,
-      })
-      .where(
-        and(
-          eq(securityScans.id, scanId),
-          eq(securityScans.status, 'running'),
-          eq(securityScans.attempt, attempt),
-        ),
-      )
+      .set(endColumns(end))
+      .where(securityScanAt(scanId, attempt))
       .returning({ id: securityScans.id });
     if (ended.length === 0) {
       return false;
@@ -365,7 +348,7 @@ export async function endSecurityScanAttempt(
   });
 }
 
-/** Ends a scan that never started (no model may run). Fenced like a claim. */
+/** Ends a scan that never started. Fenced like a claim. */
 export async function endQueuedSecurityScan(
   db: DbOrTx,
   scanId: string,
@@ -374,28 +357,15 @@ export async function endQueuedSecurityScan(
 ): Promise<boolean> {
   const ended = await db
     .update(securityScans)
-    .set({
-      status: end.status,
-      status_reason: end.reason,
-      error_class: end.errorClass ?? null,
-      failure_cause: end.failureCause ?? null,
-      finished_at: sql`now()`,
-    })
-    .where(
-      and(
-        eq(securityScans.id, scanId),
-        eq(securityScans.status, 'queued'),
-        eq(securityScans.attempt, attempt),
-      ),
-    )
+    .set(endColumns(end))
+    .where(securityScanAt(scanId, attempt, 'queued'))
     .returning({ id: securityScans.id });
   return ended.length > 0;
 }
 
 /**
- * After a failed start: back to `queued` for one more attempt. In one transaction the
- * reserve is given back (from the month of `started_at`, so before that is cleared)
- * and the row moves; the next start takes a new reserve.
+ * After a failed start: back to `queued`. The reserve is given back first (from the month
+ * of `started_at`, so before that is cleared), in the same transaction.
  */
 export async function requeueSecurityScan(
   db: Db,
@@ -406,13 +376,7 @@ export async function requeueSecurityScan(
     const moved = await tx
       .update(securityScans)
       .set({ status: 'queued', lease_until: null, queued_at: sql`now()` })
-      .where(
-        and(
-          eq(securityScans.id, scanId),
-          eq(securityScans.status, 'running'),
-          eq(securityScans.attempt, attempt),
-        ),
-      )
+      .where(securityScanAt(scanId, attempt))
       .returning({ id: securityScans.id });
     if (moved.length === 0) {
       return false;
@@ -423,7 +387,6 @@ export async function requeueSecurityScan(
   });
 }
 
-/** After a start that worked: is the attempt still the running one? */
 export async function isSecurityScanRunning(
   db: DbOrTx,
   scanId: string,
@@ -432,13 +395,7 @@ export async function isSecurityScanRunning(
   const [row] = await db
     .select({ id: securityScans.id })
     .from(securityScans)
-    .where(
-      and(
-        eq(securityScans.id, scanId),
-        eq(securityScans.status, 'running'),
-        eq(securityScans.attempt, attempt),
-      ),
-    )
+    .where(securityScanAt(scanId, attempt))
     .limit(1);
   return row !== undefined;
 }
@@ -450,11 +407,9 @@ export type SecurityCanceledScan = Readonly<{
 }>;
 
 /**
- * Cancels the waiting and running scans of a project (teardown, edge #26) or the
- * named scans (operator cancel) and gives back the running ones' reserves, in one
- * transaction. One `SELECT … FOR UPDATE` over every active status picks the rows: a
- * claim committing meanwhile is waited for and its row, now `running`, still matches,
- * so a scan claimed at the same moment is canceled too (with its new attempt).
+ * Cancels a project's waiting and running scans (teardown, edge #26) or the named ones
+ * (operator) and releases the running ones' reserves. One `SELECT … FOR UPDATE` over every
+ * active status waits for a claim committing meanwhile, so that scan is canceled too.
  */
 export async function cancelSecurityScanRows(
   db: Db,
@@ -503,11 +458,7 @@ export async function cancelSecurityScanRows(
   });
 }
 
-/**
- * Hourly: gives back the reserve of any ended scan that still holds one. Every end
- * releases in the same transaction, so this finds only rows from before that, or a
- * write path that missed it; it keeps the platform month's cap from shrinking for good.
- */
+/** Hourly: releases the reserve of any ended scan that still holds one (an older write path). */
 export async function releaseStrandedSecurityScanReserves(db: Db, limit = 100): Promise<number> {
   const stranded = await db
     .select({ scanId: securityScans.id })
@@ -568,10 +519,7 @@ export async function skipBackloggedSecurityScans(db: DbOrTx, now: number): Prom
     .where(
       and(
         inArray(securityScans.status, [...WAITING_STATUSES]),
-        lt(
-          securityScans.first_queued_at,
-          new Date(now - SECURITY_SCAN_MAX_QUEUE_WAIT_MS).toISOString(),
-        ),
+        lt(securityScans.first_queued_at, new Date(now - MAX_QUEUE_WAIT_MS).toISOString()),
       ),
     )
     .returning({ id: securityScans.id });
@@ -579,9 +527,8 @@ export async function skipBackloggedSecurityScans(db: DbOrTx, now: number): Prom
 }
 
 /**
- * Hourly re-poke: a `pending_input` row whose after-commit step was lost moves to
- * `queued`. Only rows already waiting; a deployment with no row is never picked. A
- * local check (M32) waits for its upload instead (`sweepSecurityLocalChecks`).
+ * Hourly re-poke: a `pending_input` row whose after-commit step was lost moves to `queued`.
+ * A local check (M32) waits for its upload instead (`sweepSecurityLocalChecks`).
  */
 export async function queueStalePendingSecurityScans(db: DbOrTx, now: number): Promise<number> {
   const moved = await db
@@ -591,10 +538,7 @@ export async function queueStalePendingSecurityScans(db: DbOrTx, now: number): P
       and(
         eq(securityScans.status, 'pending_input'),
         ne(securityScans.trigger, 'local'),
-        lt(
-          securityScans.created_at,
-          new Date(now - SECURITY_SCAN_PENDING_INPUT_REPOKE_MS).toISOString(),
-        ),
+        lt(securityScans.created_at, new Date(now - PENDING_INPUT_REPOKE_MS).toISOString()),
       ),
     )
     .returning({ id: securityScans.id });

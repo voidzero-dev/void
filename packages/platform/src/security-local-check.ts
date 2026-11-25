@@ -1,23 +1,11 @@
 /**
- * Local tree checks (`void project security check`, design doc 0095 M32), shared by
- * the CLI that packs the tree and the platform API that reads it.
- *
- *   git-tracked files ─► securityInputFilter ─► secret: never sent, counted
- *                                           └► skipped: never sent (lockfiles, binaries…)
- *   the rest ─► securityLocalTreeTar (ustar, `tree/` top folder) ─► gzip ─► one R2 PUT
- *
- * The same filter runs on every scan input on the platform side, so a file the CLI
- * would never send is also never read from a deployed bundle.
+ * Local tree checks (design doc 0095 M32), shared by the CLI that packs the tree and the
+ * API that reads it. The same filter runs on every scan input on the platform side.
  */
 
 /**
- * - `secret`: secret-like files, always dropped and listed in the coverage notes
- *   (`.env*`, `*.pem`, `*.key`, `id_*` key files, `*.p12`, `.npmrc`, `.git*`).
- * - `skipped`: lockfiles, `.void/` generated files, `.d.ts`, binaries, images,
- *   fonts and wasm. Out of scope, not counted as dropped code.
- *
- * Plain string checks on the path, no regex. Never drop first-party code because it
- * looks minified.
+ * `secret`: always dropped and listed in the coverage notes. `skipped`: lockfiles,
+ * generated files, `.d.ts`, binaries and media; out of scope, not counted as dropped.
  */
 export type SecurityInputFilter = 'secret' | 'skipped';
 
@@ -31,57 +19,19 @@ const LOCKFILES = new Set([
   'deno.lock',
 ]);
 
-const SKIPPED_EXTENSIONS = new Set([
-  // binaries and archives
-  'wasm',
-  'exe',
-  'dll',
-  'so',
-  'dylib',
-  'node',
-  'bin',
-  'dat',
-  'zip',
-  'gz',
-  'tgz',
-  'br',
-  'zst',
-  'tar',
-  '7z',
-  'pdf',
-  // images
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'avif',
-  'ico',
-  'bmp',
-  'tif',
-  'tiff',
-  'heic',
-  // fonts
-  'woff',
-  'woff2',
-  'ttf',
-  'otf',
-  'eot',
-  // media
-  'mp3',
-  'mp4',
-  'webm',
-  'ogg',
-  'wav',
-  'mov',
-]);
+const SKIPPED_EXTENSIONS = new Set(
+  [
+    // binaries and archives
+    'wasm exe dll so dylib node bin dat zip gz tgz br zst tar 7z pdf',
+    'png jpg jpeg gif webp avif ico bmp tif tiff heic',
+    'woff woff2 ttf otf eot',
+    'mp3 mp4 webm ogg wav mov',
+  ]
+    .join(' ')
+    .split(' '),
+);
 
 const SECRET_EXTENSIONS = new Set(['pem', 'key', 'p12', 'pfx']);
-
-function baseName(path: string): string {
-  const slash = path.lastIndexOf('/');
-  return slash === -1 ? path : path.slice(slash + 1);
-}
 
 function extension(name: string): string {
   const dot = name.lastIndexOf('.');
@@ -102,14 +52,9 @@ function isKeyFileName(name: string): boolean {
 
 export function securityInputFilter(path: string): SecurityInputFilter | null {
   const segments = path.split('/');
-  const name = baseName(path);
-  const lower = name.toLowerCase();
-  for (const segment of segments) {
-    if (segment.startsWith('.git')) {
-      return 'secret';
-    }
-  }
+  const lower = path.slice(path.lastIndexOf('/') + 1).toLowerCase();
   if (
+    segments.some((segment) => segment.startsWith('.git')) ||
     lower.startsWith('.env') ||
     lower === '.npmrc' ||
     SECRET_EXTENSIONS.has(extension(lower)) ||
@@ -117,31 +62,18 @@ export function securityInputFilter(path: string): SecurityInputFilter | null {
   ) {
     return 'secret';
   }
-  if (segments.includes('.void')) {
-    return 'skipped';
-  }
-  if (LOCKFILES.has(lower)) {
-    return 'skipped';
-  }
-  if (lower.endsWith('.d.ts') || lower.endsWith('.d.mts') || lower.endsWith('.d.cts')) {
-    return 'skipped';
-  }
-  if (SKIPPED_EXTENSIONS.has(extension(lower))) {
-    return 'skipped';
-  }
-  return null;
+  const skipped =
+    segments.includes('.void') ||
+    LOCKFILES.has(lower) ||
+    ['.d.ts', '.d.mts', '.d.cts'].some((suffix) => lower.endsWith(suffix)) ||
+    SKIPPED_EXTENSIONS.has(extension(lower));
+  return skipped ? 'skipped' : null;
 }
 
-/**
- * What one local check may send. The CLI checks them before it uploads; the API
- * checks the declared sizes when it signs the upload, and the real ones while it reads.
- */
-export interface SecurityLocalCheckLimits {
-  readonly maxFiles: number;
-  readonly maxBytes: number;
-  readonly maxArchiveBytes: number;
-}
-export const SECURITY_LOCAL_CHECK_LIMITS: SecurityLocalCheckLimits = {
+/** What one local check may send; the CLI checks before upload, the API again when it reads. */
+export const SECURITY_LOCAL_CHECK_LIMITS: Readonly<
+  Record<'maxFiles' | 'maxBytes' | 'maxArchiveBytes', number>
+> = {
   /** Files in the tree. */
   maxFiles: 10_000,
   /** Their bytes, uncompressed (what one scan input can hold). */
@@ -161,18 +93,13 @@ export function isSecurityLocalTreePath(path: string): boolean {
   if (path.length === 0 || path.startsWith('/')) {
     return false;
   }
-  for (const segment of path.split('/')) {
-    if (segment === '' || segment === '.' || segment === '..') {
-      return false;
-    }
+  if (path.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return false;
   }
-  for (let index = 0; index < path.length; index++) {
-    const code = path.charCodeAt(index);
-    if (code < 0x20 || code === 0x7f || code === 0x5c) {
-      return false;
-    }
-  }
-  return true;
+  return Array.from(path).every((char) => {
+    const code = char.charCodeAt(0);
+    return code >= 0x20 && code !== 0x7f && code !== 0x5c;
+  });
 }
 
 const BLOCK = 512;
@@ -217,15 +144,6 @@ function paxPathRecord(path: string): Uint8Array {
   return encoder.encode(`${length}${body}`);
 }
 
-function isPlainAscii(text: string): boolean {
-  for (let index = 0; index < text.length; index++) {
-    if (text.charCodeAt(index) > 0x7e) {
-      return false;
-    }
-  }
-  return true;
-}
-
 export type SecurityLocalTreeFile = Readonly<{ path: string; data: Uint8Array }>;
 
 /**
@@ -250,7 +168,10 @@ export function securityLocalTreeTar(files: ReadonlyArray<SecurityLocalTreeFile>
       throw new Error(`security check: ${JSON.stringify(file.path)} is not a usable path`);
     }
     let name = `${SECURITY_LOCAL_TREE_ROOT}/${file.path}`;
-    if (encoder.encode(name).length > 99 || !isPlainAscii(name)) {
+    if (
+      encoder.encode(name).length > 99 ||
+      Array.from(name).some((char) => char.charCodeAt(0) > 0x7e)
+    ) {
       const record = paxPathRecord(name);
       push(header('PaxHeader', record.length, 'x'));
       push(record);

@@ -12,7 +12,7 @@ import { huntPrompt, STANDARD_HUNT_FOCUS, systemPrompt, verifyPrompt } from './p
 import { REPORT_LIMITS, SEVERITIES } from './report.ts';
 import type { FindingRecord, ScanReport } from './report.ts';
 import { withoutRuntimeFields, withVerdictSource } from './runtime/copy.ts';
-import type { CopyClient, CopyRequestRecord } from './runtime/copy.ts';
+import type { CopyClient } from './runtime/copy.ts';
 import { outcomeStatus } from './status.ts';
 import type { StatusFields, StatusFile } from './status.ts';
 import type { ScanTask } from './task.ts';
@@ -67,7 +67,9 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
   const hunt =
     task.profile === 'standard'
       ? await standardHunt(task, options.hasMemory, run)
-      : await deployDiffHunt(task, options.hasMemory, run);
+      : huntResult(
+          await run({ phase: 'hunt', index: 0, prompt: huntPrompt(task, options.hasMemory) }),
+        );
   if (hunt.kind === 'ended') {
     return { ...result, ...hunt.fields };
   }
@@ -116,7 +118,10 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
       const kept = fields.status === 'incomplete' ? confirmedOnly(verified) : [];
       return { ...result, ...fields, findings: kept };
     }
-    verified.push(sourced(verifiedRecord(candidate, outcome.report), session?.requests ?? null));
+    const answer = verifiedRecord(candidate, outcome.report);
+    verified.push(
+      session ? withVerdictSource(answer, session.requests) : withoutRuntimeFields(answer),
+    );
   }
 
   const all = [...verified, ...unverified, ...rejected];
@@ -140,16 +145,11 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
 }
 
 /**
- * A session that read no code cannot clear any: the prompt names files but never holds
- * their text. A report from it with nothing but rejections (an empty hunt, or a verify
- * that drops its candidate) is bad output, not a clean result. Spike S9 B5: a model that
- * declines by handing in an empty report would otherwise pass the public gate. Only a
- * read that returned lines of a file under /scan/input counts (`SessionStats.reads`):
- * reading the memory index, listing or searching first and then declining is still a
- * decline. A model that reads one file and then declines still looks clean; the plan
- * names that as the remaining risk.
+ * A session that read no code file cannot clear any (spike S9 B5): a report from it with
+ * nothing but rejections is bad output, else a model that declines by handing in an empty
+ * report would pass the public gate.
  */
-export function readNothing(outcome: SessionOutcome): SessionOutcome {
+function readNothing(outcome: SessionOutcome): SessionOutcome {
   if (
     outcome.kind !== 'submitted' ||
     outcome.stats.reads > 0 ||
@@ -169,7 +169,7 @@ export function readNothing(outcome: SessionOutcome): SessionOutcome {
 const REPORT_FRAME_BYTES = 1024;
 
 /** Whether `findings` fit one findings file (`validate-findings.ts` limits). */
-export function fitsReport(findings: ReadonlyArray<FindingRecord>): boolean {
+function fitsReport(findings: ReadonlyArray<FindingRecord>): boolean {
   return (
     findings.length <= REPORT_LIMITS.maxRecords &&
     Buffer.byteLength(JSON.stringify(findings), 'utf8') <=
@@ -178,12 +178,10 @@ export function fitsReport(findings: ReadonlyArray<FindingRecord>): boolean {
 }
 
 /**
- * The focus hunts' records, one per fingerprint. Every hunt reads the same memory and
- * keeps its fingerprints, so one issue can come back from several areas with different
- * verdicts; the strongest is kept (confirmed, then lead, then rejected; then severity),
- * so a rejection by one area never hides a confirmation by another.
+ * The focus hunts' records, one per fingerprint, the strongest kept: a rejection by one
+ * area never hides a confirmation by another.
  */
-export function mergeHuntFindings(findings: ReadonlyArray<FindingRecord>): Array<FindingRecord> {
+function mergeHuntFindings(findings: ReadonlyArray<FindingRecord>): Array<FindingRecord> {
   const byFingerprint = new Map<string, FindingRecord>();
   for (const finding of findings) {
     const kept = byFingerprint.get(finding.fingerprint);
@@ -199,23 +197,17 @@ type RunSession = (
   maxTurns?: number,
 ) => Promise<SessionOutcome>;
 
-async function deployDiffHunt(
-  task: ScanTask,
-  hasMemory: boolean,
-  run: RunSession,
-): Promise<HuntResult> {
-  const hunt = await run({ phase: 'hunt', index: 0, prompt: huntPrompt(task, hasMemory) });
-  if (hunt.kind !== 'submitted') {
-    return { kind: 'ended', fields: outcomeStatus(hunt) };
-  }
-  return { kind: 'done', report: hunt.report, failed: false };
+function huntResult(hunt: SessionOutcome): HuntResult {
+  return hunt.kind === 'submitted'
+    ? { kind: 'done', report: hunt.report, failed: false }
+    : { kind: 'ended', fields: outcomeStatus(hunt) };
 }
 
 /**
  * Hunt turns per focus session in the `standard` profile: half the session limit, so
  * the hunts together stay near one deploy-diff hunt and leave calls for verify.
  */
-export function standardHuntTurns(task: ScanTask): number {
+function standardHuntTurns(task: ScanTask): number {
   return Math.max(1, Math.ceil(task.maxTurns / 2));
 }
 
@@ -281,13 +273,8 @@ function record(
   result.tokensOut += outcome.stats.outputTokens;
 }
 
-type SplitCandidates = {
-  candidates: Array<FindingRecord>;
-  rejected: Array<FindingRecord>;
-};
-
 /** Hunt candidates to verify (confirmed first, by severity), and the hunt's own rejections. */
-export function splitCandidates(report: ScanReport): SplitCandidates {
+function splitCandidates(report: ScanReport) {
   const seen = new Set<string>();
   const candidates: Array<FindingRecord> = [];
   const rejected: Array<FindingRecord> = [];
@@ -316,7 +303,7 @@ function oneRecordAtMost(report: ScanReport): string | null {
 }
 
 /** The verify session's call on one candidate. The hunt's fingerprint is kept so keys stay stable. */
-export function verifiedRecord(candidate: FindingRecord, report: ScanReport): FindingRecord {
+function verifiedRecord(candidate: FindingRecord, report: ScanReport): FindingRecord {
   const answer = report.findings[0];
   if (answer === undefined) {
     return {
@@ -327,14 +314,6 @@ export function verifiedRecord(candidate: FindingRecord, report: ScanReport): Fi
     };
   }
   return { ...answer, fingerprint: candidate.fingerprint };
-}
-
-/** The verify record with the runtime claim checked (a session with no copy: none). */
-function sourced(
-  record: FindingRecord,
-  requests: ReadonlyArray<CopyRequestRecord> | null,
-): FindingRecord {
-  return requests === null ? withoutRuntimeFields(record) : withVerdictSource(record, requests);
 }
 
 function asLead(finding: FindingRecord): FindingRecord {

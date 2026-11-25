@@ -1,18 +1,7 @@
 /**
- * Per-attempt model call state kept in the `SecurityScanScheduler` DO storage for the
- * model proxy (design doc 0095, M7):
- *
- *   - calls per agent session: Codex has no max-turns setting, so the proxy counts
- *     calls per session (spec §6.3). The session comes from the runner's
- *     `x-void-scan-session` header. It is a limit the runner keeps, not a wall: the
- *     per-scan call cap in Postgres is the hard bound.
- *   - the `@cf` rate guard: 10 calls per minute per model, a token bucket. A Workers AI
- *     429 puts the bucket into debt (`backOffModelRate`), so calls wait and the scheduler
- *     starts no new scan on that model until it recovers.
- *   - the last refused or failed call, which the runner asks for (Engine C sees a
- *     proxy stop only as a failed call, spec §8.4).
- *
- * Plain functions over a small storage interface so tests need no DO.
+ * Model call state in the `SecurityScanScheduler` DO storage (design doc 0095, M7): calls
+ * per agent session (spec §6.3; the per-scan cap in Postgres is the hard bound), the `@cf`
+ * rate bucket (10 a minute per model), and each attempt's last failed call (spec §8.4).
  */
 
 /** The parts of `DurableObjectStorage` this uses. */
@@ -59,21 +48,11 @@ export type AdmitModelCallResult =
 
 type Bucket = { tokens: number; at: number };
 
-function attemptPrefix(scanId: string, attempt: number): string {
-  return `call:${scanId}:${attempt}:`;
-}
-
-function sessionKey(scanId: string, attempt: number, session: number): string {
-  return `${attemptPrefix(scanId, attempt)}session:${session}`;
-}
-
-function failureKey(scanId: string, attempt: number): string {
-  return `${attemptPrefix(scanId, attempt)}failure`;
-}
-
-function rateKey(model: string): string {
-  return `rate:${model}`;
-}
+const attemptPrefix = (scanId: string, attempt: number) => `call:${scanId}:${attempt}:`;
+const sessionKey = (scanId: string, attempt: number, session: number) =>
+  `${attemptPrefix(scanId, attempt)}session:${session}`;
+const failureKey = (scanId: string, attempt: number) => `${attemptPrefix(scanId, attempt)}failure`;
+const rateKey = (model: string) => `rate:${model}`;
 
 /** The bucket after refilling to `now`: 10 tokens a minute, at most 10 held. */
 export function refillRateBucket(bucket: Bucket | undefined, now: number): Bucket {
@@ -88,11 +67,7 @@ export function refillRateBucket(bucket: Bucket | undefined, now: number): Bucke
   return { tokens, at: now };
 }
 
-/**
- * Counts one call for its session and takes one `@cf` rate token. Neither is taken
- * when the other refuses. DO storage calls in one method run without interleaving, so
- * the read and the write cannot race.
- */
+/** Counts one session call and takes one `@cf` rate token, or neither (DO calls do not race). */
 export async function admitModelCall(
   storage: CallLedgerStorage,
   input: AdmitModelCall,
@@ -124,12 +99,7 @@ export const SECURITY_CF_BACKOFF_TOKENS = SECURITY_CF_CALLS_PER_MINUTE / 2;
 /** … and the debt never grows past one minute, however many 429s come in. */
 const MAX_RATE_DEBT = SECURITY_CF_CALLS_PER_MINUTE;
 
-/**
- * Workers AI answered 429 for `model`: the account's own limit is shared with tenant
- * apps, so every scan on that model waits. The bucket goes into debt (empty, then
- * minus 30 s of calls per 429, at most one minute), so the next call waits for the
- * refill and the scheduler starts no new scan on the model until the debt is paid.
- */
+/** Workers AI answered 429: the bucket goes into debt, so every scan on the model waits. */
 export async function backOffModelRate(
   storage: CallLedgerStorage,
   model: string,

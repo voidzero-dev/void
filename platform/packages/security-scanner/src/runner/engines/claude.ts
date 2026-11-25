@@ -1,22 +1,18 @@
 // Engine A: the Claude Agent SDK for `anthropic/*` models (spec §8.1, §15.3). Each hunt or
 // verify session is one `query()`: three read tools only, no shell, no web, no sub-agents,
 // no settings or MCP servers, an explicit env with no token, and a hook that refuses paths
-// outside the scan folders. The SDK sits in the Engine A image, not in the runner bundle, so
-// it is loaded when the first session starts.
+// outside the scan folders. The SDK sits in the Engine A image, not in the runner bundle.
 
 import { realpathSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path/posix';
 import { submitFindingsParameters } from '../report.ts';
 import { classifyClaudeResult, safeLabel } from '../status.ts';
-import type { OutcomeBody } from '../status.ts';
-import { readLastFailure, stopSince } from './proxy-failure.ts';
-import { emptyStats } from './types.ts';
-import type { Engine, SessionOutcome, SessionSpec } from './types.ts';
+import { count } from '../util.ts';
+import { CONTAINER_CA_FILE, runSdkSession } from './proxy-failure.ts';
+import type { Engine } from './types.ts';
 
 export const CLAUDE_ENGINE_VERSION = 'agent-sdk/1';
-export const CLAUDE_BASE_URL = 'http://model.void.internal';
-export const CLAUDE_CA_FILE = '/etc/cloudflare/certs/cloudflare-containers-ca.crt';
 const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk';
 
 export const CLAUDE_TOOLS = ['Read', 'Glob', 'Grep'] as const;
@@ -33,20 +29,20 @@ export const CLAUDE_DISALLOWED_TOOLS = [
   'mcp__*',
 ] as const;
 
+type Json = Record<string, unknown>;
 /** The slice of an Agent SDK message the engine reads. */
-export type ClaudeMessage = { type: string; subtype?: string } & Record<string, unknown>;
-export type ClaudeQuery = (args: {
-  prompt: string;
-  options: Record<string, unknown>;
-}) => AsyncIterable<ClaudeMessage>;
-export type ClaudeSdk = { query: ClaudeQuery };
+export type ClaudeMessage = { type: string; subtype?: string } & Json;
+export type ClaudeSdk = {
+  query: (args: { prompt: string; options: Json }) => AsyncIterable<ClaudeMessage>;
+};
+type Hook = (input: Json) => Promise<Json>;
 
 export type ClaudeEngineOptions = {
   /** `anthropic/claude-sonnet-5.5`; the gateway name `claude-sonnet-5.5` goes to the SDK. */
   model: string;
   /** The real directory that stands for `/scan`. */
   root: string;
-  baseUrl?: string;
+  baseUrl: string;
   fetch?: typeof fetch;
   /** Where each session's config folder is made. Default: the scanner user's home. */
   configBase?: string;
@@ -59,25 +55,6 @@ const ENGINE_NOTE = [
   'There is no submit_findings tool here. End the session with the structured output: the same fields as the report described above, exactly once.',
 ].join('\n');
 
-async function defaultLoadSdk(): Promise<ClaudeSdk> {
-  // A variable specifier keeps the SDK out of the bundle; the Engine A image installs it.
-  return (await import(SDK_PACKAGE)) as ClaudeSdk;
-}
-
-export function gatewayName(model: string): string {
-  return model.slice(model.indexOf('/') + 1);
-}
-
-/** The Agent SDK `query` options; the SDK checks them. */
-export interface ClaudeQueryOptions {
-  [option: string]: unknown;
-}
-
-/** What a hook answers the Agent SDK. */
-interface ClaudeHookOutput {
-  [field: string]: unknown;
-}
-
 /** The SDK `options` for one session. Pure, so a test can pin every lockdown setting. */
 export function claudeOptions(input: {
   model: string;
@@ -89,16 +66,15 @@ export function claudeOptions(input: {
   configDir: string;
   caFile: string;
   abortController: AbortController;
-  hook: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  hook: Hook;
   /** PostToolUse: sees what a Read returned (`stats.reads`). */
-  afterTool: (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  afterTool: Hook;
   onStderr: (data: string) => void;
-}): ClaudeQueryOptions {
-  const { root } = input;
+}) {
   return {
-    cwd: `${root}/input`,
-    additionalDirectories: [`${root}/memory`],
-    model: gatewayName(input.model),
+    cwd: `${input.root}/input`,
+    additionalDirectories: [`${input.root}/memory`],
+    model: input.model.slice(input.model.indexOf('/') + 1),
     systemPrompt: `${input.system}\n\n${ENGINE_NOTE}`,
     tools: [...CLAUDE_TOOLS],
     allowedTools: [...CLAUDE_TOOLS],
@@ -149,92 +125,77 @@ const real = (path: string): string => {
   }
 };
 
+const DENY = {
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'deny',
+    permissionDecisionReason: 'Only files under /scan/input and /scan/memory can be read.',
+  },
+};
+
 /** PreToolUse hook: only paths under `<root>/input` and `<root>/memory`, after realpath. */
-export function createPathHook(root: string) {
+export function createPathHook(root: string): Hook {
   const allowed = [`${root}/input`, `${root}/memory`].map(real);
   const under = (candidate: unknown): boolean => {
     if (candidate === undefined || candidate === '') {
       return true;
     }
-    if (typeof candidate !== 'string' || candidate !== candidate.trim()) {
-      // Claude Code trims a Glob or Grep `path` before it reads `~` or resolves it, and
-      // Glob and Grep reach the hook untrimmed: ` /etc` would resolve to a folder named
-      // ` ` under input here and to `/etc` there. Read reaches it already normalized.
+    // Claude Code trims a Glob or Grep `path` before it resolves it, and they reach the
+    // hook untrimmed: ` /etc` would be a folder named ` ` here and `/etc` there. It also
+    // reads `~` as its home (the config folder), not as a name in the cwd.
+    if (
+      typeof candidate !== 'string' ||
+      candidate !== candidate.trim() ||
+      candidate.startsWith('~')
+    ) {
       return false;
     }
-    if (candidate.startsWith('~')) {
-      // Claude Code reads `~` as its home (the config folder), not as a name in the cwd.
-      return false;
-    }
-    const absolute = resolve(real(`${root}/input`), candidate);
     // A missing file is judged by its lexical path.
-    const resolved = real(absolute);
+    const resolved = real(resolve(real(`${root}/input`), candidate));
     return allowed.some((base) => resolved === base || resolved.startsWith(`${base}/`));
   };
-  return async (input: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+  return async (input) => {
+    const toolInput = (input.tool_input ?? {}) as Json;
     const paths = [toolInput.file_path, toolInput.path, toolInput.notebook_path];
     const pattern = toolInput.pattern;
     if (typeof pattern === 'string') {
-      if (input.tool_name === 'Grep') {
-        // A Grep pattern is search text; only an absolute one is checked, as before.
-        if (pattern.startsWith('/')) {
-          paths.push(pattern);
-        }
-      } else {
+      if (input.tool_name !== 'Grep') {
         // A Glob pattern is a path: `../../**/*` lists names outside the scan folders.
         const reach = globReach(pattern, toolInput.path);
         if (reach === null) {
-          return deny();
+          return DENY;
         }
         paths.push(reach);
+      } else if (pattern.startsWith('/')) {
+        // A Grep pattern is search text; only an absolute one is checked.
+        paths.push(pattern);
       }
     }
-    if (paths.every(under)) {
-      return {};
-    }
-    return deny();
+    return paths.every(under) ? {} : DENY;
   };
 }
 
 /**
- * PostToolUse hook: counts a Read that returned text from a file under `<root>/input`
- * (`stats.reads`). A list, a search, a memory read, a failed Read or an empty answer
- * does not count: a session must have seen code before its report can clear any.
+ * PostToolUse hook: counts a Read that returned non-blank text from a file under
+ * `<root>/input` (`stats.reads`). Read reaches the hooks with `file_path` already absolute.
  */
-export function createReadCounter(root: string, onRead: () => void) {
+export function createReadCounter(root: string, onRead: () => void): Hook {
   const input = real(`${root}/input`);
-  return async (event: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    if (event.tool_name !== 'Read') {
-      return {};
-    }
-    // Read reaches the hooks with `file_path` already made absolute (S11 follow-up probe).
-    const path = (event.tool_input as Record<string, unknown> | undefined)?.file_path;
-    const response = event.tool_response as Record<string, unknown> | undefined;
-    const file = response?.file as Record<string, unknown> | undefined;
+  return async (event) => {
+    const path = (event.tool_input as Json | undefined)?.file_path;
+    const response = event.tool_response as Json | undefined;
+    const content = (response?.file as Json | undefined)?.content;
     if (
-      typeof path !== 'string' ||
-      response?.type !== 'text' ||
-      typeof file?.content !== 'string' ||
-      file.content.trim() === ''
+      event.tool_name === 'Read' &&
+      typeof path === 'string' &&
+      response?.type === 'text' &&
+      typeof content === 'string' &&
+      content.trim() !== '' &&
+      real(resolve(input, path)).startsWith(`${input}/`)
     ) {
-      return {};
-    }
-    const resolved = real(resolve(input, path));
-    if (resolved.startsWith(`${input}/`)) {
       onRead();
     }
     return {};
-  };
-}
-
-function deny(): ClaudeHookOutput {
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'deny',
-      permissionDecisionReason: 'Only files under /scan/input and /scan/memory can be read.',
-    },
   };
 }
 
@@ -246,25 +207,18 @@ const GLOB_CHARS = ['*', '?', '[', '{'];
  * a `..` anywhere, a `~` home, a backslash escape, or a brace choice that starts a
  * new root (`{/etc,src}/*`).
  */
-export function globReach(pattern: string, searchPath: unknown): string | null {
+function globReach(pattern: string, searchPath: unknown): string | null {
   if (pattern.includes('..') || pattern.startsWith('~') || pattern.includes('\\')) {
     return null;
   }
-  let previous = '';
-  for (const char of pattern) {
-    if ((previous === '{' || previous === ',') && (char === '/' || char === '~')) {
+  for (let index = 1; index < pattern.length; index++) {
+    if ('{,'.includes(pattern[index - 1]) && '/~'.includes(pattern[index])) {
       return null;
     }
-    previous = char;
   }
-  const fixed: Array<string> = [];
-  for (const segment of pattern.split('/')) {
-    if (GLOB_CHARS.some((char) => segment.includes(char))) {
-      break;
-    }
-    fixed.push(segment);
-  }
-  const prefix = fixed.join('/');
+  const segments = pattern.split('/');
+  const cut = segments.findIndex((segment) => GLOB_CHARS.some((char) => segment.includes(char)));
+  const prefix = (cut === -1 ? segments : segments.slice(0, cut)).join('/');
   if (pattern.startsWith('/')) {
     // An absolute pattern ignores the search folder.
     return prefix === '' ? '/' : prefix;
@@ -284,8 +238,8 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
   'description',
 ]);
 
-/** The report schema without the size keywords structured output does not take; `validate-findings` still enforces them. */
-export function structuredOutputSchema(): Record<string, unknown> {
+/** The report schema without the keywords structured output does not take; the validator still enforces them. */
+function structuredOutputSchema(): Json {
   // oxlint-disable-next-line quality/no-unknown-returns -- Walks an arbitrary JSON Schema tree.
   const strip = (value: unknown): unknown => {
     if (Array.isArray(value)) {
@@ -300,155 +254,106 @@ export function structuredOutputSchema(): Record<string, unknown> {
     }
     return value;
   };
-  return strip(submitFindingsParameters()) as Record<string, unknown>;
+  return strip(submitFindingsParameters()) as Json;
 }
 
-function text(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function stopCategory(details: unknown): string | null {
-  return typeof details === 'object' && details !== null
-    ? text((details as Record<string, unknown>).category)
-    : null;
-}
-
-function assistantRefused(message: ClaudeMessage): boolean {
-  const inner = message.message;
-  return (
-    typeof inner === 'object' &&
-    inner !== null &&
-    (inner as Record<string, unknown>).stop_reason === 'refusal'
-  );
-}
-
-/** The refusal category on an assistant message that stopped with `refusal`. */
-function assistantRefusalCategory(message: ClaudeMessage): string | null {
-  return assistantRefused(message)
-    ? stopCategory((message.message as Record<string, unknown>).stop_details)
-    : null;
-}
-
-function count(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
-}
+const text = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+const category = (details: unknown): string | null =>
+  typeof details === 'object' && details !== null ? text((details as Json).category) : null;
 
 export function createClaudeEngine(options: ClaudeEngineOptions): Engine {
-  const baseUrl = options.baseUrl ?? CLAUDE_BASE_URL;
-  const doFetch = options.fetch ?? fetch;
-  const loadSdk = options.loadSdk ?? defaultLoadSdk;
-
+  const { baseUrl } = options;
+  const session = {
+    // A variable specifier keeps the SDK out of the bundle; the Engine A image installs it.
+    loadSdk: options.loadSdk ?? (async () => (await import(SDK_PACKAGE)) as ClaudeSdk),
+    sdkName: 'Agent SDK',
+    baseUrl,
+    fetch: options.fetch ?? fetch,
+  };
   return {
     id: 'agent_sdk',
     version: CLAUDE_ENGINE_VERSION,
-    async runSession(spec: SessionSpec): Promise<SessionOutcome> {
-      const stats = emptyStats();
-      const done = (outcome: OutcomeBody): SessionOutcome => ({ ...outcome, stats });
-      if (spec.signal?.aborted) {
-        return done({ kind: 'aborted' });
-      }
-      let sdk: ClaudeSdk;
-      try {
-        sdk = await loadSdk();
-      } catch {
-        return done({
-          kind: 'infrastructure',
-          errorClass: 'engine_unavailable',
-          detail: 'the Agent SDK is not in this scanner image',
-        });
-      }
-      const abortController = new AbortController();
-      const stop = () => abortController.abort();
-      spec.signal?.addEventListener('abort', stop, { once: true });
-      const configDir = await mkdtemp(join(options.configBase ?? '/home/scanner', 'claude-'));
-      const before = await readLastFailure(baseUrl, doFetch, spec.signal);
-      let result: ClaudeMessage | null = null;
-      // Claude Code puts `stop_details` on the assistant message, not on the result.
-      let refusalSeen = false;
-      let refusalCategory: string | null = null;
-      let failed = false;
-      try {
-        const messages = sdk.query({
-          prompt: spec.prompt,
-          options: claudeOptions({
-            model: options.model,
-            root: options.root,
-            system: spec.system,
-            maxTurns: spec.maxTurns,
-            session: spec.index,
-            baseUrl,
-            configDir,
-            caFile: options.caFile ?? CLAUDE_CA_FILE,
-            abortController,
-            hook: createPathHook(options.root),
-            afterTool: createReadCounter(options.root, () => stats.reads++),
-            onStderr: () => undefined,
-          }),
-        });
-        for await (const message of messages) {
-          if (message.type === 'result') {
-            result = message;
-          } else if (message.type === 'assistant' && assistantRefused(message)) {
-            refusalSeen = true;
-            refusalCategory = assistantRefusalCategory(message) ?? refusalCategory;
+    runSession: (spec) =>
+      runSdkSession(spec, session, async ({ sdk, stats, abort, proxyStop }) => {
+        const configDir = await mkdtemp(join(options.configBase ?? '/home/scanner', 'claude-'));
+        let result: ClaudeMessage | null = null;
+        // Claude Code puts `stop_details` on the assistant message, not on the result.
+        let refusalSeen = false;
+        let refusalCategory: string | null = null;
+        let failed = false;
+        try {
+          const messages = sdk.query({
+            prompt: spec.prompt,
+            options: claudeOptions({
+              model: options.model,
+              root: options.root,
+              system: spec.system,
+              maxTurns: spec.maxTurns,
+              session: spec.index,
+              baseUrl,
+              configDir,
+              caFile: options.caFile ?? CONTAINER_CA_FILE,
+              abortController: abort,
+              hook: createPathHook(options.root),
+              afterTool: createReadCounter(options.root, () => stats.reads++),
+              onStderr: () => undefined,
+            }),
+          });
+          for await (const message of messages) {
+            const inner = message.message as Json | undefined;
+            if (message.type === 'result') {
+              result = message;
+            } else if (message.type === 'assistant' && inner?.stop_reason === 'refusal') {
+              refusalSeen = true;
+              refusalCategory = category(inner.stop_details) ?? refusalCategory;
+            }
           }
+        } catch {
+          failed = true;
+        } finally {
+          await rm(configDir, { recursive: true, force: true }).catch(() => undefined);
         }
-      } catch {
-        failed = true;
-      } finally {
-        spec.signal?.removeEventListener('abort', stop);
-        await rm(configDir, { recursive: true, force: true }).catch(() => undefined);
-      }
-      if (spec.signal?.aborted) {
-        return done({ kind: 'aborted' });
-      }
-      if (result !== null) {
-        const turns = count(result.num_turns);
-        stats.turns = turns;
-        stats.modelCalls = turns;
-        const usage = (result.usage ?? {}) as Record<string, unknown>;
-        stats.inputTokens =
-          count(usage.input_tokens) +
-          count(usage.cache_creation_input_tokens) +
-          count(usage.cache_read_input_tokens);
-        stats.outputTokens = count(usage.output_tokens);
-      }
-      const submittedOutput = result?.structured_output;
-      const needsReason =
-        failed || result === null || result.is_error === true || submittedOutput === undefined;
-      const proxyStop = needsReason
-        ? stopSince(before, await readLastFailure(baseUrl, doFetch, spec.signal))
-        : null;
-      if (result === null) {
-        return done(
-          proxyStop
-            ? classifyClaudeResult({ subtype: 'error_during_execution', proxyStop })
+        if (spec.signal?.aborted) {
+          return { kind: 'aborted' };
+        }
+        if (result !== null) {
+          stats.turns = stats.modelCalls = count(result.num_turns);
+          const usage = (result.usage ?? {}) as Json;
+          stats.inputTokens =
+            count(usage.input_tokens) +
+            count(usage.cache_creation_input_tokens) +
+            count(usage.cache_read_input_tokens);
+          stats.outputTokens = count(usage.output_tokens);
+        }
+        const output = result?.structured_output;
+        const stop =
+          failed || result === null || result.is_error === true || output === undefined
+            ? await proxyStop()
+            : null;
+        if (result === null) {
+          return stop
+            ? classifyClaudeResult({ subtype: 'error_during_execution', proxyStop: stop })
             : {
                 kind: 'infrastructure',
                 errorClass: 'agent_sdk_error',
                 detail: 'the Agent SDK stopped without a result',
-              },
-        );
-      }
-      const outcome = classifyClaudeResult({
-        subtype: safeLabel(String(result.subtype ?? '')),
-        // A refused turn with no report is a refusal, whatever the result says after it
-        // (an `is_error` result, or a stop reason a later turn wrote over).
-        stopReason:
-          refusalSeen && submittedOutput === undefined ? 'refusal' : text(result.stop_reason),
-        stopCategory: stopCategory(result.stop_details) ?? refusalCategory,
-        structuredOutput: submittedOutput,
-        isError: result.is_error === true,
-        resultText: text(result.result),
-        proxyStop,
-      });
-      if (outcome.kind === 'submitted') {
-        const problem = spec.check?.(outcome.report) ?? null;
-        if (problem !== null) {
-          return done({ kind: 'bad_output', errorKind: 'shape', message: problem });
+              };
         }
-      }
-      return done(outcome);
-    },
+        const outcome = classifyClaudeResult({
+          subtype: safeLabel(String(result.subtype ?? '')),
+          // A refused turn with no report is a refusal, whatever the result says after it.
+          stopReason: refusalSeen && output === undefined ? 'refusal' : text(result.stop_reason),
+          stopCategory: category(result.stop_details) ?? refusalCategory,
+          structuredOutput: output,
+          isError: result.is_error === true,
+          resultText: text(result.result),
+          proxyStop: stop,
+        });
+        const problem =
+          outcome.kind === 'submitted' ? (spec.check?.(outcome.report) ?? null) : null;
+        return problem === null
+          ? outcome
+          : { kind: 'bad_output', errorKind: 'shape', message: problem };
+      }),
   };
 }

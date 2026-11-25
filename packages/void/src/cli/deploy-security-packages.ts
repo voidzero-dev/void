@@ -1,13 +1,6 @@
 /**
- * The package claims a deploy sends for security scans (`securityPackages`, design doc
- * 0095 M10): which packages named by the Worker bundle's source maps come from the
- * registry, read from the project's lockfile. The platform drops registry code from the
- * scan input by package identity; with no claims it keeps that code, ranked last.
- *
- *   worker *.map ─► `sources` ─► package names (after the last `node_modules/`)
- *   nearest lockfile (project folder, then up to the repository root)
- *     ─► registry | local per name ─► { registry, local }
- *
+ * The package claims a deploy sends for security scans (design doc 0095 M10): which
+ * packages the Worker source maps name come from the registry, per the nearest lockfile.
  * Best effort: any problem sends no claims and never fails the deploy.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';

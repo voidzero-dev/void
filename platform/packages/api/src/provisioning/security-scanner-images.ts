@@ -22,7 +22,7 @@
 import type { SecurityScannerImagePin } from '../security/scanner-images.ts';
 import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
 
-export const CLOUDFLARE_REGISTRY = 'registry.cloudflare.com';
+const CLOUDFLARE_REGISTRY = 'registry.cloudflare.com';
 const MANIFEST_TYPES = [
   'application/vnd.oci.image.manifest.v1+json',
   'application/vnd.docker.distribution.manifest.v2+json',
@@ -32,9 +32,10 @@ const INDEX_TYPES = [
   'application/vnd.docker.distribution.manifest.list.v2+json',
 ];
 const ACCEPT = [...MANIFEST_TYPES, ...INDEX_TYPES].join(', ');
-/** The config blob is JSON; a few MiB at most. */
-const CONFIG_LIMIT = 4 * 1024 * 1024;
-const MANIFEST_LIMIT = 4 * 1024 * 1024;
+/** The manifest and the config blob are JSON; a few MiB at most. */
+const JSON_LIMIT = 4 * 1024 * 1024;
+const NOT_FINISHED =
+  'The scanner image copy is not finished yet. The parts already copied are kept.';
 const REQUEST_TIMEOUT_MS = 30_000;
 const BLOB_TIMEOUT_MS = 10 * 60_000;
 const PREPARE_POLL_MS = 2000;
@@ -44,24 +45,18 @@ const MIN_REQUEST_MS = 1000;
 /** The deadline of one copy; each request gets what is left of it (capped). */
 type Clock = Readonly<{ deadline: number; now: () => number }>;
 
-function within(clock: Clock | undefined, capMs: number): AbortSignal {
-  const left = clock ? clock.deadline - clock.now() : capMs;
+function within(clock: Clock, capMs: number): AbortSignal {
+  const left = clock.deadline - clock.now();
   return AbortSignal.timeout(Math.max(MIN_REQUEST_MS, Math.min(capMs, left)));
 }
 
-export type ScannerImageStep =
-  | 'unpublished'
-  | 'credentials'
-  | 'source'
-  | 'copy'
-  | 'prepare'
-  | 'pending';
+type ScannerImageStep = 'unpublished' | 'credentials' | 'source' | 'copy' | 'prepare' | 'pending';
 
 export type ScannerImageResult = Readonly<
   { ok: true; ref: string; copied: boolean } | { ok: false; step: ScannerImageStep; detail: string }
 >;
 
-export type ScannerImageTarget = Readonly<{ accountId: string; apiToken: string }>;
+type ScannerImageTarget = Readonly<{ accountId: string; apiToken: string }>;
 
 class ImageStepError extends Error {
   readonly step: ScannerImageStep;
@@ -85,16 +80,7 @@ function registryBase(accountId: string, repository: string): string {
   return `https://${CLOUDFLARE_REGISTRY}/v2/${accountId}/${repository}`;
 }
 
-/** A tag that names the digest, so the copy is listed and can be found to delete it. */
-export function digestTag(digest: string): string {
-  return digest.replace(':', '-');
-}
-
-async function registryAuth(
-  target: ScannerImageTarget,
-  permissions: ReadonlyArray<'push' | 'pull'>,
-  clock?: Clock,
-): Promise<string> {
+async function registryAuth(target: ScannerImageTarget, clock: Clock): Promise<string> {
   let credentials: { username?: unknown; password?: unknown };
   try {
     credentials = await cfFetch<{ username?: unknown; password?: unknown }>(
@@ -102,7 +88,7 @@ async function registryAuth(
       target.apiToken,
       {
         method: 'POST',
-        body: JSON.stringify({ expiration_minutes: 15, permissions }),
+        body: JSON.stringify({ expiration_minutes: 15, permissions: ['push', 'pull'] }),
         signal: within(clock, REQUEST_TIMEOUT_MS),
       },
     );
@@ -119,17 +105,29 @@ async function registryAuth(
   return `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`;
 }
 
-async function readLimited(response: Response, limit: number): Promise<Uint8Array<ArrayBuffer>> {
-  const length = Number(response.headers.get('content-length') ?? '0');
-  if (length > limit) {
+/** The manifest or config bytes, size-capped and checked against their digest, and as JSON. */
+async function readPinnedJson<T>(
+  response: Response,
+  digest: string,
+  what: 'manifest' | 'config',
+): Promise<{ bytes: Uint8Array<ArrayBuffer>; value: T }> {
+  const tooLarge = 'The published image manifest or config is too large.';
+  if (Number(response.headers.get('content-length') ?? '0') > JSON_LIMIT) {
     await response.body?.cancel();
-    throw new ImageStepError('source', 'The published image manifest or config is too large.');
+    throw new ImageStepError('source', tooLarge);
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > limit) {
-    throw new ImageStepError('source', 'The published image manifest or config is too large.');
+  if (bytes.byteLength > JSON_LIMIT) {
+    throw new ImageStepError('source', tooLarge);
   }
-  return bytes;
+  if (`sha256:${await sha256Hex(bytes)}` !== digest) {
+    throw new ImageStepError('source', `The published image ${what} does not match its digest.`);
+  }
+  try {
+    return { bytes, value: JSON.parse(new TextDecoder().decode(bytes)) as T };
+  } catch {
+    throw new ImageStepError('source', `The published image ${what} is not JSON.`);
+  }
 }
 
 type Manifest = {
@@ -191,16 +189,7 @@ async function readManifest(
       `The published scanner image ${digest} is not readable (HTTP ${response.status}).`,
     );
   }
-  const bytes = await readLimited(response, MANIFEST_LIMIT);
-  if (`sha256:${await sha256Hex(bytes)}` !== digest) {
-    throw new ImageStepError('source', 'The published image manifest does not match its digest.');
-  }
-  let manifest: Manifest;
-  try {
-    manifest = JSON.parse(new TextDecoder().decode(bytes)) as Manifest;
-  } catch {
-    throw new ImageStepError('source', 'The published image manifest is not JSON.');
-  }
+  const { bytes, value: manifest } = await readPinnedJson<Manifest>(response, digest, 'manifest');
   const mediaType =
     manifest.mediaType ?? response.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
   if (INDEX_TYPES.includes(mediaType) || Array.isArray(manifest.manifests)) {
@@ -228,10 +217,11 @@ async function fetchBlob(source: Source, blob: BlobRef, signal: AbortSignal): Pr
   return response;
 }
 
-async function hasBlob(base: string, auth: string, digest: string, clock: Clock): Promise<boolean> {
-  const response = await fetch(`${base}/blobs/${digest}`, {
+/** Whether the account registry already holds this blob or manifest. */
+async function has(url: string, auth: string, clock: Clock, manifest = false): Promise<boolean> {
+  const response = await fetch(url, {
     method: 'HEAD',
-    headers: { Authorization: auth },
+    headers: manifest ? { Authorization: auth, Accept: ACCEPT } : { Authorization: auth },
     signal: within(clock, REQUEST_TIMEOUT_MS),
   });
   await response.body?.cancel();
@@ -295,30 +285,6 @@ async function pushBlob(
   }
 }
 
-async function hasManifest(
-  base: string,
-  auth: string,
-  digest: string,
-  clock: Clock,
-): Promise<boolean> {
-  const response = await fetch(`${base}/manifests/${digest}`, {
-    method: 'HEAD',
-    headers: { Authorization: auth, Accept: ACCEPT },
-    signal: within(clock, REQUEST_TIMEOUT_MS),
-  });
-  await response.body?.cancel();
-  return response.ok;
-}
-
-function timeLeft(clock: Clock): void {
-  if (clock.deadline - clock.now() <= 0) {
-    throw new ImageStepError(
-      'pending',
-      'The scanner image copy is not finished yet. The parts already copied are kept.',
-    );
-  }
-}
-
 /** Copies the pinned image unless the account registry already holds that digest. */
 async function copyImage(
   target: ScannerImageTarget,
@@ -326,9 +292,9 @@ async function copyImage(
   repository: string,
   clock: Clock,
 ): Promise<boolean> {
-  const auth = await registryAuth(target, ['push', 'pull'], clock);
+  const auth = await registryAuth(target, clock);
   const base = registryBase(target.accountId, repository);
-  if (await hasManifest(base, auth, pin.digest, clock)) {
+  if (await has(`${base}/manifests/${pin.digest}`, auth, clock, true)) {
     return false;
   }
   const source = await openSource(pin, clock);
@@ -340,39 +306,32 @@ async function copyImage(
   }
   // The config is small: read it, check its digest and that the image is linux/amd64
   // (Cloudflare runs amd64), then upload the same bytes.
-  const configResponse = await fetchBlob(source, config, within(clock, REQUEST_TIMEOUT_MS));
-  const configBytes = await readLimited(configResponse, CONFIG_LIMIT);
-  if (`sha256:${await sha256Hex(configBytes)}` !== config.digest) {
-    throw new ImageStepError('source', 'The published image config does not match its digest.');
-  }
-  let platform: { os?: unknown; architecture?: unknown };
-  try {
-    platform = JSON.parse(new TextDecoder().decode(configBytes)) as typeof platform;
-  } catch {
-    throw new ImageStepError('source', 'The published image config is not JSON.');
-  }
+  const { bytes: configBytes, value: platform } = await readPinnedJson<{
+    os?: unknown;
+    architecture?: unknown;
+  }>(await fetchBlob(source, config, within(clock, REQUEST_TIMEOUT_MS)), config.digest, 'config');
   if (platform.os !== 'linux' || platform.architecture !== 'amd64') {
     throw new ImageStepError('source', 'The pinned scanner image is not linux/amd64.');
   }
-  if (!(await hasBlob(base, auth, config.digest, clock))) {
+  if (!(await has(`${base}/blobs/${config.digest}`, auth, clock))) {
     await pushBlob(base, auth, config, configBytes, clock, within(clock, REQUEST_TIMEOUT_MS));
   }
   for (const layer of layers) {
-    timeLeft(clock);
-    if (await hasBlob(base, auth, layer.digest, clock)) {
+    if (clock.deadline - clock.now() <= 0) {
+      throw new ImageStepError('pending', NOT_FINISHED);
+    }
+    if (await has(`${base}/blobs/${layer.digest}`, auth, clock)) {
       continue;
     }
     // One signal for the read and the write: a layer still in flight at the deadline is
     // cut off and copied again by the next probe.
     const signal = within(clock, BLOB_TIMEOUT_MS);
     const { body } = await fetchBlob(source, layer, signal);
-    if (!body) {
-      throw new ImageStepError('source', 'A published image layer is not readable.');
-    }
-    await pushBlob(base, auth, layer, body, clock, signal);
+    await pushBlob(base, auth, layer, body as ReadableStream<Uint8Array>, clock, signal);
   }
   // The destination registry checked every blob digest; the manifest is the pinned bytes.
-  const put = await fetch(`${base}/manifests/${digestTag(pin.digest)}`, {
+  // A tag that names the digest, so the copy is listed and can be found to delete it.
+  const put = await fetch(`${base}/manifests/${pin.digest.replace(':', '-')}`, {
     method: 'PUT',
     headers: { Authorization: auth, 'Content-Type': mediaType },
     body: bytes,
@@ -465,11 +424,7 @@ export async function ensureSecurityScannerImage(
     }
     if (clock.deadline - clock.now() <= 0) {
       // A request cut off by the deadline: the next probe goes on from what is copied.
-      return {
-        ok: false,
-        step: 'pending',
-        detail: 'The scanner image copy is not finished yet. The parts already copied are kept.',
-      };
+      return { ok: false, step: 'pending', detail: NOT_FINISHED };
     }
     return {
       ok: false,
@@ -477,73 +432,4 @@ export async function ensureSecurityScannerImage(
       detail: `The scanner image copy failed (${error instanceof Error ? error.message : 'error'}).`,
     };
   }
-}
-
-/**
- * Uninstall: removes every manifest in the installation's scanner image repositories,
- * then asks the registry to drop the unreferenced layers. A missing repository is fine.
- */
-export async function deleteSecurityScannerImages(
-  target: ScannerImageTarget,
-  repositories: ReadonlyArray<string>,
-): Promise<ReadonlyArray<string>> {
-  const auth = await registryAuth(target, ['push', 'pull']);
-  const deleted: Array<string> = [];
-  for (const repository of repositories) {
-    const base = registryBase(target.accountId, repository);
-    const list = await fetch(`${base}/tags/list`, {
-      headers: { Authorization: auth },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (list.status === 404) {
-      await list.body?.cancel();
-      continue;
-    }
-    if (!list.ok) {
-      await list.body?.cancel();
-      throw new Error(`Listing scanner images failed (HTTP ${list.status}).`);
-    }
-    const { tags } = await list.json<{ tags?: unknown }>();
-    for (const tag of Array.isArray(tags) ? tags : []) {
-      if (typeof tag !== 'string') {
-        continue;
-      }
-      const head = await fetch(`${base}/manifests/${tag}`, {
-        method: 'HEAD',
-        headers: { Authorization: auth, Accept: ACCEPT },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      await head.body?.cancel();
-      if (head.status === 404) {
-        continue;
-      }
-      const digest = head.headers.get('docker-content-digest');
-      if (head.status !== 200 || !digest) {
-        // Never report a cleanup as done while an image may still be stored.
-        throw new Error(`Reading scanner image ${repository}:${tag} failed (HTTP ${head.status}).`);
-      }
-      const removed = await fetch(`${base}/manifests/${digest}`, {
-        method: 'DELETE',
-        headers: { Authorization: auth, Accept: ACCEPT },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      await removed.body?.cancel();
-      if (!removed.ok && removed.status !== 404) {
-        throw new Error(`Deleting a scanner image failed (HTTP ${removed.status}).`);
-      }
-      deleted.push(`${repository}@${digest}`);
-    }
-  }
-  if (deleted.length > 0) {
-    const gc = await fetch(`https://${CLOUDFLARE_REGISTRY}/v2/gc/layers`, {
-      method: 'PUT',
-      headers: { Authorization: auth, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    await gc.body?.cancel();
-    if (!gc.ok) {
-      throw new Error(`The registry layer cleanup failed (HTTP ${gc.status}).`);
-    }
-  }
-  return deleted;
 }

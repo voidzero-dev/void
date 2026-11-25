@@ -50,14 +50,9 @@ export function securityUsdArgument(cents: number): string {
   return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
 }
 
-// ---------------------------------------------------------------------------
-// Who sets what (spec §16.2)
-// ---------------------------------------------------------------------------
+// --- Who sets what (spec §16.2) ---
 
-/**
- * The cap columns of `project_security_settings` (a missing row is all `null`) and the
- * cap of the owner's plan (`plans:security-caps`, M27; `inherit` when it has none).
- */
+/** The cap columns of `project_security_settings` and the owner's plan cap (M27). */
 export type SecurityProjectCapSettings = Readonly<{
   monthlyCapCents: number | null;
   capCeilingCents: number | null;
@@ -68,10 +63,8 @@ export type SecurityProjectCapSettings = Readonly<{
 export type SecurityCeilingSource = 'project' | 'plan' | 'default';
 
 /**
- * `ceiling(p)` and where it comes from, in this order: the installation admin's limit
- * for this project, else the cap of the owner's plan (an amount, or `none` = no
- * ceiling), else the default project amount while project caps are on, else none.
- * A plan cap applies with project caps off too: it is set for that plan on purpose.
+ * `ceiling(p)` and its source: the admin's limit for this project, else the plan cap
+ * (`none` = no ceiling; applies with project caps off too), else the default while on.
  */
 export function securityProjectCeiling(
   settings: SecurityProjectCapSettings,
@@ -161,9 +154,7 @@ export function assertSecurityProjectCapAllowed(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Month math (UTC calendar month)
-// ---------------------------------------------------------------------------
+// --- Month math (UTC calendar month) ---
 
 /** First day of the month after `month` (`YYYY-MM-01`). */
 export function securityNextSpendMonth(month: string): string {
@@ -172,20 +163,7 @@ export function securityNextSpendMonth(month: string): string {
   return index === 12 ? `${year + 1}-01-01` : `${year}-${String(index + 1).padStart(2, '0')}-01`;
 }
 
-const MONTH_NAMES = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-] as const;
+const MONTH_NAMES = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
 
 /** `Dec 1`: when the budget of the month that holds `now` resets. */
 export function securityBudgetResetLabel(now: number): string {
@@ -212,9 +190,7 @@ export function securityScanReserveNano(
   return securityModelCostNanoUsd(model, limits.maxInputTokens, limits.maxOutputTokens);
 }
 
-// ---------------------------------------------------------------------------
-// Spend meter writes
-// ---------------------------------------------------------------------------
+// --- Spend meter writes ---
 
 function within(total: SQL, capNano: number | null): SQL | undefined {
   return capNano === null ? undefined : sql`${total} <= ${capNano}`;
@@ -228,9 +204,79 @@ async function ensureSpendRows(tx: DbOrTx, projectId: string, month: string): Pr
   await tx.insert(securityPlatformSpend).values({ month }).onConflictDoNothing();
 }
 
-export type SecurityCapName = 'project' | 'platform';
+type SpendTable = typeof securityProjectSpend | typeof securityPlatformSpend;
+type SpendColumn = 'spent_nano_usd' | 'reserved_nano_usd';
 
-export type SecurityBudgetRefusal = Readonly<{
+function spendSet(table: SpendTable, column: SpendColumn, delta: number, floor: boolean) {
+  const value = floor
+    ? sql`GREATEST(0, ${table[column]} + ${delta})`
+    : sql`${table[column]} + ${delta}`;
+  const set =
+    column === 'spent_nano_usd' ? { spent_nano_usd: value } : { reserved_nano_usd: value };
+  return { ...set, updated_at: sql`now()` };
+}
+
+/**
+ * Adds `delta` to one column of the project's, then the platform's, spend row of `month`.
+ * With `caps`, a row whose spend (plus reserve, for a reserve) would pass its cap is not
+ * written and `CapRefused` is thrown. Returns the rows' spend after the change.
+ */
+async function changeSpend(
+  tx: DbOrTx,
+  projectId: string,
+  month: string,
+  column: SpendColumn,
+  delta: number,
+  options: Readonly<{ floor?: boolean; caps?: SecuritySpendCaps; countScan?: boolean }> = {},
+): Promise<Readonly<{ project?: number; platform?: number }>> {
+  const { caps, floor = false } = options;
+  const capped = (table: SpendTable, capNano: number | null | undefined) =>
+    caps === undefined
+      ? undefined
+      : within(
+          column === 'spent_nano_usd'
+            ? sql`${table.spent_nano_usd} + ${delta}`
+            : sql`${table.spent_nano_usd} + ${table.reserved_nano_usd} + ${delta}`,
+          capNano ?? null,
+        );
+  const projectRow = securityProjectSpend;
+  const scans =
+    options.countScan === undefined
+      ? {}
+      : { scans: sql`${projectRow.scans} + ${options.countScan ? 1 : 0}` };
+  const [project] = await tx
+    .update(projectRow)
+    .set({ ...spendSet(projectRow, column, delta, floor), ...scans })
+    .where(
+      and(
+        eq(projectRow.project_id, projectId),
+        eq(projectRow.month, month),
+        capped(projectRow, caps?.projectNano),
+      ),
+    )
+    .returning({ spent: projectRow.spent_nano_usd });
+  if (caps && !project) {
+    throw new CapRefused('project');
+  }
+  const [platform] = await tx
+    .update(securityPlatformSpend)
+    .set(spendSet(securityPlatformSpend, column, delta, floor))
+    .where(
+      and(
+        eq(securityPlatformSpend.month, month),
+        capped(securityPlatformSpend, caps?.platformNano),
+      ),
+    )
+    .returning({ spent: securityPlatformSpend.spent_nano_usd });
+  if (caps && !platform) {
+    throw new CapRefused('platform');
+  }
+  return { project: project?.spent, platform: platform?.spent };
+}
+
+type SecurityCapName = 'project' | 'platform';
+
+type SecurityBudgetRefusal = Readonly<{
   ok: false;
   cap: SecurityCapName;
   capNano: number;
@@ -285,14 +331,10 @@ export type SecurityReserveResult =
 class ScanGone extends Error {}
 
 /**
- * Scan start: reserve the scan's worst case on both spend rows of this month, each
- * only if `spent + reserved + reserve ≤ cap`. A refusal writes nothing
- * (`skipped:budget`). Stores the reserve on the scan and sets `started_at` to now: the
- * reserve is released from the month of `started_at`. Fenced like every attempt write:
- * only the row running at `attempt` takes it, so a cancel that landed after the claim
- * leaves nothing reserved (`gone`). A scan that already holds a reserve is refused
- * (release it first), so a retry never reserves twice. The month's `scans` count only
- * goes up on the first attempt.
+ * Scan start: reserve the worst case on both spend rows if `spent + reserved + reserve ≤ cap`
+ * (a refusal writes nothing). Fenced: a cancel after the claim reserves nothing (`gone`),
+ * and a scan already holding a reserve throws, so a retry never reserves twice.
+ * `started_at` is the month the reserve is released from.
  */
 export async function reserveSecurityScanBudget(
   db: Db,
@@ -336,46 +378,12 @@ export async function reserveSecurityScanBudget(
         throw new ScanGone();
       }
       await ensureSpendRows(tx, input.projectId, month);
-      const project = await tx
-        .update(securityProjectSpend)
-        .set({
-          reserved_nano_usd: sql`${securityProjectSpend.reserved_nano_usd} + ${reserve}`,
-          scans: sql`${securityProjectSpend.scans} + ${input.attempt <= 1 ? 1 : 0}`,
-          updated_at: sql`now()`,
-        })
-        .where(
-          and(
-            eq(securityProjectSpend.project_id, input.projectId),
-            eq(securityProjectSpend.month, month),
-            within(
-              sql`${securityProjectSpend.spent_nano_usd} + ${securityProjectSpend.reserved_nano_usd} + ${reserve}`,
-              input.caps.projectNano,
-            ),
-          ),
-        )
-        .returning({ month: securityProjectSpend.month });
-      if (project.length === 0) {
-        throw new CapRefused('project');
-      }
-      const platform = await tx
-        .update(securityPlatformSpend)
-        .set({
-          reserved_nano_usd: sql`${securityPlatformSpend.reserved_nano_usd} + ${reserve}`,
-          updated_at: sql`now()`,
-        })
-        .where(
-          and(
-            eq(securityPlatformSpend.month, month),
-            within(
-              sql`${securityPlatformSpend.spent_nano_usd} + ${securityPlatformSpend.reserved_nano_usd} + ${reserve}`,
-              input.caps.platformNano,
-            ),
-          ),
-        )
-        .returning({ month: securityPlatformSpend.month });
-      if (platform.length === 0) {
-        throw new CapRefused('platform');
-      }
+      // The month's `scans` count goes up on the first attempt only.
+      const countScan = input.attempt <= 1;
+      await changeSpend(tx, input.projectId, month, 'reserved_nano_usd', reserve, {
+        caps: input.caps,
+        countScan,
+      });
     });
   } catch (error) {
     if (error instanceof CapRefused) {
@@ -389,20 +397,12 @@ export async function reserveSecurityScanBudget(
   return { ok: true, month, reserveNano: reserve };
 }
 
-/**
- * Scan end: give the scan's reserve back to the month it was taken in (the month of
- * `started_at`), even when the scan ran past midnight UTC (edge #52). Safe to call
- * twice: the second call finds no reserve.
- */
+/** Scan end: the reserve goes back to the month of `started_at` (edge #52); safe twice. */
 export async function releaseSecurityScanReserve(db: Db, scanId: string): Promise<number> {
   return db.transaction((tx) => releaseSecurityScanReserveIn(tx, scanId));
 }
 
-/**
- * `releaseSecurityScanReserve` inside the caller's transaction, so the write that ends
- * or requeues an attempt and the release commit together: a row never ends with its
- * reserve still held. Lock order: scan row, then project, then platform.
- */
+/** `releaseSecurityScanReserve` in the caller's transaction, so it commits with the row's end. */
 export async function releaseSecurityScanReserveIn(tx: DbOrTx, scanId: string): Promise<number> {
   const [scan] = await tx
     .select({
@@ -419,25 +419,7 @@ export async function releaseSecurityScanReserveIn(tx: DbOrTx, scanId: string): 
   }
   const month = securitySpendMonth(scan.startedAt ? Date.parse(scan.startedAt) : Date.now());
   const reserved = scan.reserved;
-  await tx
-    .update(securityProjectSpend)
-    .set({
-      reserved_nano_usd: sql`GREATEST(0, ${securityProjectSpend.reserved_nano_usd} - ${reserved})`,
-      updated_at: sql`now()`,
-    })
-    .where(
-      and(
-        eq(securityProjectSpend.project_id, scan.projectId),
-        eq(securityProjectSpend.month, month),
-      ),
-    );
-  await tx
-    .update(securityPlatformSpend)
-    .set({
-      reserved_nano_usd: sql`GREATEST(0, ${securityPlatformSpend.reserved_nano_usd} - ${reserved})`,
-      updated_at: sql`now()`,
-    })
-    .where(eq(securityPlatformSpend.month, month));
+  await changeSpend(tx, scan.projectId, month, 'reserved_nano_usd', -reserved, { floor: true });
   await tx.update(securityScans).set({ reserved_nano_usd: 0 }).where(eq(securityScans.id, scanId));
   return reserved;
 }
@@ -458,11 +440,8 @@ export type SecurityCallHold = Readonly<{
 }>;
 
 /**
- * Before a model call: in one transaction, count the call on the scan (current
- * attempt, running, inside its lease, under the call and token caps) and charge its
- * worst case to both spend rows of this month, each only if `spent + worst ≤ cap`.
- * The worst case stays charged until `settleSecurityModelCall` puts in the real cost,
- * so a call whose answer never arrives counts at its worst case.
+ * Before a model call: count it on the scan (fenced, under the call and token caps) and
+ * charge its worst case to both spend rows if `spent + worst ≤ cap`, until it is settled.
  */
 export async function holdSecurityModelCall(
   db: Db,
@@ -505,42 +484,7 @@ export async function holdSecurityModelCall(
         throw new CallRefused(await callRefusalReason(tx, input, now));
       }
       await ensureSpendRows(tx, input.projectId, month);
-      const project = await tx
-        .update(securityProjectSpend)
-        .set({
-          spent_nano_usd: sql`${securityProjectSpend.spent_nano_usd} + ${worst}`,
-          updated_at: sql`now()`,
-        })
-        .where(
-          and(
-            eq(securityProjectSpend.project_id, input.projectId),
-            eq(securityProjectSpend.month, month),
-            within(sql`${securityProjectSpend.spent_nano_usd} + ${worst}`, input.caps.projectNano),
-          ),
-        )
-        .returning({ month: securityProjectSpend.month });
-      if (project.length === 0) {
-        throw new CapRefused('project');
-      }
-      const platform = await tx
-        .update(securityPlatformSpend)
-        .set({
-          spent_nano_usd: sql`${securityPlatformSpend.spent_nano_usd} + ${worst}`,
-          updated_at: sql`now()`,
-        })
-        .where(
-          and(
-            eq(securityPlatformSpend.month, month),
-            within(
-              sql`${securityPlatformSpend.spent_nano_usd} + ${worst}`,
-              input.caps.platformNano,
-            ),
-          ),
-        )
-        .returning({ month: securityPlatformSpend.month });
-      if (platform.length === 0) {
-        throw new CapRefused('platform');
-      }
+      await changeSpend(tx, input.projectId, month, 'spent_nano_usd', worst, { caps: input.caps });
       return { ok: true, month, holdNano: worst, modelCalls: scan.modelCalls } as const;
     });
   } catch (error) {
@@ -607,10 +551,8 @@ export type SecurityCallSettlement = Readonly<{
 }>;
 
 /**
- * After a model call: replace the held worst case with the real cost on the scan and
- * on both spend rows of the month the hold was taken in, and add the tokens. Runs
- * for every hold, also for a stale attempt: the money was spent either way. Returns
- * the month totals after the change, for the 80% / 100% alerts (M15).
+ * After a model call: the real cost replaces the hold on the scan and the hold's month, and
+ * the tokens are added, also for a stale attempt. Returns the month totals for the alerts.
  */
 export async function settleSecurityModelCall(
   db: Db,
@@ -635,39 +577,19 @@ export async function settleSecurityModelCall(
       })
       .where(eq(securityScans.id, input.scanId));
     // A project deleted mid-call has no row left; the platform total still counts.
-    const [project] = await tx
-      .update(securityProjectSpend)
-      .set({
-        spent_nano_usd: sql`GREATEST(0, ${securityProjectSpend.spent_nano_usd} + ${delta})`,
-        updated_at: sql`now()`,
-      })
-      .where(
-        and(
-          eq(securityProjectSpend.project_id, input.projectId),
-          eq(securityProjectSpend.month, input.month),
-        ),
-      )
-      .returning({ spent: securityProjectSpend.spent_nano_usd });
-    const [platform] = await tx
-      .update(securityPlatformSpend)
-      .set({
-        spent_nano_usd: sql`GREATEST(0, ${securityPlatformSpend.spent_nano_usd} + ${delta})`,
-        updated_at: sql`now()`,
-      })
-      .where(eq(securityPlatformSpend.month, input.month))
-      .returning({ spent: securityPlatformSpend.spent_nano_usd });
-    return {
-      projectSpentNano: project?.spent ?? 0,
-      platformSpentNano: platform?.spent ?? 0,
-    };
+    const { project, platform } = await changeSpend(
+      tx,
+      input.projectId,
+      input.month,
+      'spent_nano_usd',
+      delta,
+      { floor: true },
+    );
+    return { projectSpentNano: project ?? 0, platformSpentNano: platform ?? 0 };
   });
 }
 
-/**
- * The runtime copy's cost (M30, spec §8.6 and §16): one Worker script and throwaway
- * stores, counted on the scan's meter and on both month rows. It is cents of a cent, so
- * it never waits on a cap; it only counts while this attempt runs.
- */
+/** The runtime copy's cost (M30): fractions of a cent, so no cap check; only while running. */
 export async function chargeSecurityScanCopy(
   db: Db,
   input: Readonly<{
@@ -696,25 +618,7 @@ export async function chargeSecurityScanCopy(
       return false;
     }
     await ensureSpendRows(tx, input.projectId, month);
-    await tx
-      .update(securityProjectSpend)
-      .set({
-        spent_nano_usd: sql`${securityProjectSpend.spent_nano_usd} + ${nano}`,
-        updated_at: sql`now()`,
-      })
-      .where(
-        and(
-          eq(securityProjectSpend.project_id, input.projectId),
-          eq(securityProjectSpend.month, month),
-        ),
-      );
-    await tx
-      .update(securityPlatformSpend)
-      .set({
-        spent_nano_usd: sql`${securityPlatformSpend.spent_nano_usd} + ${nano}`,
-        updated_at: sql`now()`,
-      })
-      .where(eq(securityPlatformSpend.month, month));
+    await changeSpend(tx, input.projectId, month, 'spent_nano_usd', nano);
     return true;
   });
 }

@@ -1,27 +1,21 @@
 /**
- * The public gate's drivers (design doc 0095 M16, spec §5.5): the code that runs the
- * flip re-check, the bypass and the hourly backstop through the Zero Trust checkpoint
- * (`zero-trust/project.ts`), which holds the project and Zero Trust locks. The
- * transaction-level pieces are in `public-gate.ts`.
+ * The public gate's drivers (M16, spec §5.5): the flip re-check, the bypass and the hourly
+ * backstop, run through the Zero Trust checkpoint (`zero-trust/project.ts`), which holds
+ * the project and Zero Trust locks. Transaction pieces are in `public-gate.ts`.
  *
- *   re-check triggers                      what runs
- *   request, ingest, resolve / reopen,     reconcileProjectZeroTrustGated (gate: flip)
- *   cutover, rollback, bypass, hourly        judge ─ hold: stays protected, state saved
- *                                                  └ pass: desired_protected = false and
- *                                                    the request closes, one transaction;
- *                                                    then the normal reconcile
+ *   request, ingest, resolve, cutover, rollback, bypass, hourly
+ *     ─► judge ─ hold: stays protected │ pass: desired_protected = false, request closes
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { ZeroTrustConfigurationError } from '../zero-trust/configuration.ts';
-import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
+import { errorMessage, ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
 import { reconcileProjectZeroTrustGated } from '../zero-trust/project.ts';
 import type { GatedReconciliation } from '../zero-trust/project.ts';
 import { MAX_ROUTING_KEYS_PER_RUN } from '../zero-trust/routing.ts';
 import type { RoutingBudget } from '../zero-trust/routing.ts';
-import { pokeSecurityScanScheduler } from './enqueue.ts';
+import { pokeSecurityScanScheduler, securityAuditsOn } from './enqueue.ts';
 import { SecurityApiError } from './errors.ts';
 import { securityWorkPaused } from './paused.ts';
 import { parseBypassReason, readOpenPublicRequest } from './public-gate.ts';
@@ -32,18 +26,9 @@ import {
   securityScans,
 } from './schema.ts';
 
-function capabilityOn(env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>): boolean {
-  try {
-    return getPlatformCapabilities(env).securityAudits;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Judges the project's open request again and, on a pass, goes public. `null` when no
- * request is open (or the capability is off). A Zero Trust installation that is busy or
- * misconfigured leaves the request where the judge put it; the hourly backstop retries.
+ * Judges the open request again and, on a pass, goes public; `null` when none is open. A
+ * busy or misconfigured Zero Trust installation leaves it for the hourly backstop.
  */
 export async function recheckPublicRequest(
   env: ApiEnv['Bindings'],
@@ -51,7 +36,7 @@ export async function recheckPublicRequest(
   projectId: string,
   options: Readonly<{ routingBudget?: RoutingBudget }> = {},
 ): Promise<PublicRequestRow | null> {
-  if (!capabilityOn(env)) {
+  if (!securityAuditsOn(env)) {
     return null;
   }
   const open = await readOpenPublicRequest(db, projectId);
@@ -76,10 +61,7 @@ export async function recheckPublicRequest(
   }
 }
 
-/**
- * The re-check after a state change (ingest, resolve, cutover, rollback): never throws.
- * Returns the request as it is now (open, or just closed), or `null`.
- */
+/** The re-check after a state change: never throws; the request as it is now, or `null`. */
 export async function recheckPublicRequestBestEffort(
   env: ApiEnv['Bindings'],
   db: Db,
@@ -91,7 +73,7 @@ export async function recheckPublicRequestBestEffort(
   } catch (error) {
     console.error(`[security-gate] re-check after ${what} failed`, {
       projectId,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     return null;
   }
@@ -103,9 +85,8 @@ export async function recheckPublicRequestForScan(
   db: Db,
   scanId: string,
 ): Promise<void> {
-  // A scan that was running when the platform was disabled still ends. Its request
-  // stays open, with no Access change, until the platform is enabled again.
-  if (!capabilityOn(env) || (await securityWorkPaused(env))) {
+  // While the platform is disabled, a request stays open with no Access change.
+  if (!securityAuditsOn(env) || (await securityWorkPaused(env))) {
     return;
   }
   const [scan] = await db
@@ -120,20 +101,13 @@ export async function recheckPublicRequestForScan(
 
 export type BypassInput = Readonly<{
   projectId: string;
-  /**
-   * The open request the caller saw. Under the lock, a request closed meanwhile (a
-   * protect, a pass, another bypass) is a 409 `public request closed` with its state.
-   */
+  /** The open request the caller saw; closed meanwhile is a 409 under the lock. */
   requestId?: string | null;
   reason: unknown;
   actor: GateActor & { kind: 'user' | 'installation_admin'; userId: string };
 }>;
 
-/**
- * Bypass the gate scan of the open request (spec §5.5). The checks run under the lock
- * the flip re-check holds: the request is still open, installation Zero Trust and the
- * project row are ready, and no urgent finding is open. Refusals record nothing.
- */
+/** Bypass the open request's gate scan (§5.5), checked under the flip lock; refusals record nothing. */
 export async function bypassPublicRequest(
   env: ApiEnv['Bindings'],
   db: Db,
@@ -160,21 +134,16 @@ export async function bypassPublicRequest(
 }
 
 /**
- * Hourly backstop (spec §5.5): judge every open request again, for example after an
- * installation operation ends. Holds need no routing budget, so every picked request is
- * judged. A pass that finds the run's remaining routing budget too small commits its
- * checkpoint and leaves the project reconciling for the next batch (the checkpoint's
- * own rule). Each judged request moves to the back of the line (`updated_at`), so
- * a held request does not keep the same twenty in front of the others.
+ * Hourly backstop (§5.5): judge open requests again, oldest `updated_at` first; each one
+ * judged moves to the back of the line, so held requests do not block the others.
  */
 export async function reconcilePendingPublicRequests(
   env: ApiEnv['Bindings'],
   db: Db,
   limit = 20,
-  /** The cron run's remaining routing budget (shared with the project reconcile). */
   routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN },
 ): Promise<number> {
-  if (!capabilityOn(env)) {
+  if (!securityAuditsOn(env)) {
     return 0;
   }
   const rows = await db
@@ -191,7 +160,7 @@ export async function reconcilePendingPublicRequests(
     } catch (error) {
       console.error('[security-gate] hourly re-check failed', {
         projectId: row.projectId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
     }
     // Rotate: a hold that changed nothing did not touch the row.

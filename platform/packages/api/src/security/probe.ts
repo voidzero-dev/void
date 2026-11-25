@@ -1,23 +1,14 @@
 /**
- * The entitlement probe (spec §5.2): checks 1–6. `void platform security probe` runs
- * it, and so does a policy change that leaves `disabled` (M6) and the daily hourly-cron
- * job while the policy is on (M9). Checks 1–4 must pass to leave `disabled`; check 5
- * decides per third-party host whether its models can be picked; check 6 only warns.
+ * The entitlement probe (spec §5.2), checks 1–6: run by `void platform security probe`, a
+ * policy change that leaves `disabled` (M6) and the daily job (M9). Checks 1–4 must pass
+ * to leave `disabled`; check 5 decides per third-party host; check 6 only warns.
  *
- *   1 capability
- *   4 Workers AI 1-token call
- *   5 per third-party host: one call ─► copy + prepare its engine image   (all in parallel;
- *     only when the call passed and not every model of the host is blocked; M13b)
- *   2 provision + container self-test ─► 3 egress lock
- *   5 image: the same self-test in each deployed engine image        (in parallel with 2)
- *   6 email binding
+ *   1 capability   4 Workers AI 1-token call   6 email binding
+ *   5 per host: one call (on a saved key, M33) ─► copy + prepare its engine image
+ *   2 provision + container self-test ─► 3 egress lock; 5 image: the same self-test per image
  *
- * The model calls and the image work end by `SECURITY_IMAGE_BUDGET_MS` after the start.
- * The controller keeps every engine image it already runs at the current release pin, so a
- * failed call or copy only decides whether the host can be picked, never what is deployed.
- * A third-party host can be picked only when its call and its engine image both pass.
- * With a saved provider key (M33) the host's call goes out on that key, the way its scans
- * do; the report keeps the key ids it ran with, so a key changed meanwhile is not covered.
+ * Model calls and image work end by `SECURITY_IMAGE_BUDGET_MS`. A failed call or copy only
+ * decides whether the host can be picked, never what is deployed.
  */
 import {
   getSecurityModel,
@@ -48,6 +39,7 @@ import type {
   SecurityScannerNames,
 } from '../provisioning/security-scanner.ts';
 import type { ScannerEngine, SelfTestResult } from '../security-scanner-controller-runtime.ts';
+import { errorMessage } from '../zero-trust/errors.ts';
 import {
   readStoredSecurityPolicy,
   recordSecurityEntitlement,
@@ -62,7 +54,7 @@ import type { SecurityProviderKeyIds, SecurityProviderKeySlots } from './provide
 import { securityImageEngineForHost, securityScannerImagePins } from './scanner-images.ts';
 import type { SecurityImageEngine } from './scanner-images.ts';
 
-export type SecurityProbeCheckName =
+type SecurityProbeCheckName =
   | 'capability'
   | 'container'
   | 'egress'
@@ -72,7 +64,7 @@ export type SecurityProbeCheckName =
   | 'email';
 
 /** The checks that must pass to leave `disabled`. */
-export const SECURITY_PROBE_REQUIRED: ReadonlyArray<SecurityProbeCheckName> = [
+const SECURITY_PROBE_REQUIRED: ReadonlyArray<SecurityProbeCheckName> = [
   'capability',
   'container',
   'egress',
@@ -106,7 +98,7 @@ export type SecurityProbeReport = Readonly<{
   keyIds: SecurityProviderKeyIds;
 }>;
 
-export type SecurityProbeProvisioned = Readonly<{
+type SecurityProbeProvisioned = Readonly<{
   names: SecurityScannerNames;
   /** The engine images the controller runs after provisioning. */
   deployed: SecurityScannerImages;
@@ -130,7 +122,7 @@ export type SecurityProbeDeps = Readonly<{
   keys: SecurityProviderKeySlots;
 }>;
 
-export const SECURITY_PROBE_COPY = {
+const SECURITY_PROBE_COPY = {
   capability: 'Security audits are not installed. Run: void platform upgrade --security-audits',
   container:
     'Scans run in a Cloudflare Container. They need Workers Paid, and the runtime token needs Account → Containers → Edit and Account → Cloudchamber → Edit.',
@@ -168,27 +160,20 @@ export const SECURITY_PROBE_COPY = {
     `The ${host}/* scanner image failed its self-test (probe ${probeId}), so these models stay off. Run void platform security probe again; if it keeps failing, report probe ${probeId} with void platform logs.`,
 } as const;
 
-/**
- * How long, from the probe start, the model calls and the engine image copy may take; the
- * copy resumes next time. With provisioning and the self-test (at most 240 s) the probe
- * stays under the CLI's 5-minute request timeout.
- */
-export const SECURITY_IMAGE_BUDGET_MS = 45_000;
+/** Model calls and image copy end this long after the start, so the probe fits the CLI's 5 min. */
+const SECURITY_IMAGE_BUDGET_MS = 45_000;
 
-export const SECURITY_CREDITS_LINK = 'https://dash.cloudflare.com/?to=/:account/ai/ai-gateway';
+const SECURITY_CREDITS_LINK = 'https://dash.cloudflare.com/?to=/:account/ai/ai-gateway';
 const AI_TIMEOUT_MS = 30_000;
-/**
- * How long the API waits for the controller's self-test. The controller's own limits
- * (ready 90 s + setup 30 s + run 90 s) end first, so a slow start reports its own error.
- */
-export const SECURITY_SELF_TEST_TIMEOUT_MS = 240_000;
+/** The controller's own self-test limits (ready 90 s + setup 30 s + run 90 s) end first. */
+const SECURITY_SELF_TEST_TIMEOUT_MS = 240_000;
 const PROBE_PROMPT = 'Reply with ok.';
 const DEFAULT_GATEWAY_ID = 'void';
 /** Probe calls are not a project's usage; they carry this tag instead of a scan tag. */
 const PROBE_METADATA = { securityScan: 'probe' };
 
 /** The `@cf` model check 4 calls: the default when it is `@cf`, else the fallback. */
-export function securityProbeWorkersAiModel(policy: SecurityPolicy): SecurityModelId {
+function securityProbeWorkersAiModel(policy: SecurityPolicy): SecurityModelId {
   const model = getSecurityModel(policy.defaultModel);
   if (model.host === 'workers-ai' && !policy.blockedModels.includes(model.id)) {
     return model.id;
@@ -252,27 +237,17 @@ export function judgeSelfTest(result: SelfTestResult, probeId: string): SelfTest
   };
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+/** Check 2 copy for a failed provisioning step; more permissions would not fix these kinds. */
+function securityProvisionMessage(error: unknown): string {
+  const own = ['ownership', 'outdated', 'missing', 'gate'];
+  return error instanceof SecurityScannerError && own.includes(error.kind)
+    ? error.message
+    : SECURITY_PROBE_COPY.container;
 }
 
-/**
- * Check 2 copy for a failed provisioning step. Plan and token problems get the
- * Workers Paid / permissions copy; a name owned by another installation, an outdated
- * or missing controller and a changed gate say what they are, since more permissions
- * would not fix them.
- */
-export function securityProvisionMessage(error: unknown): string {
-  if (
-    error instanceof SecurityScannerError &&
-    (error.kind === 'ownership' ||
-      error.kind === 'outdated' ||
-      error.kind === 'missing' ||
-      error.kind === 'gate')
-  ) {
-    return error.message;
-  }
-  return SECURITY_PROBE_COPY.container;
+/** A self-test that gave no answer. */
+function noSelfTest(error: unknown): SelfTestResult {
+  return { started: false, coldStartMs: null, report: null, error: errorMessage(error) };
 }
 
 async function timed<T>(
@@ -286,19 +261,13 @@ async function timed<T>(
   }
 }
 
-function gatewayId(env: ApiEnv['Bindings']): string {
-  return env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID;
-}
-
-/**
- * The real calls: Cloudflare API, the dispatch gate, Workers AI and AI Gateway REST, or
- * the provider-native route on a saved key (`keys`, read by `loadSecurityProviderKeySlots`).
- */
-export function securityProbeDeps(
+/** The real calls: Cloudflare API, the dispatch gate, Workers AI, AI Gateway or a saved key. */
+function securityProbeDeps(
   env: ApiEnv['Bindings'],
   keys: SecurityProviderKeySlots,
 ): SecurityProbeDeps {
   const target = securityScannerTarget(env);
+  const gatewayId = env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID;
   // No image is copied into an account that cannot run containers (checked once).
   let containers: Promise<void> | undefined;
   return {
@@ -353,12 +322,7 @@ export function securityProbeDeps(
         model as keyof AiModels,
         { messages: [{ role: 'user', content: PROBE_PROMPT }], max_tokens: 1 } as never,
         {
-          gateway: {
-            id: gatewayId(env),
-            skipCache: true,
-            collectLog: true,
-            metadata: PROBE_METADATA,
-          },
+          gateway: { id: gatewayId, skipCache: true, collectLog: true, metadata: PROBE_METADATA },
           extraHeaders: { 'cf-aig-collect-log-payload': 'false', 'cf-aig-skip-cache': 'true' },
           signal: AbortSignal.timeout(AI_TIMEOUT_MS),
         },
@@ -371,7 +335,7 @@ export function securityProbeDeps(
         throw new Error('the saved key cannot be read');
       }
       if (slot) {
-        return testSecurityProviderKey(env.AI, gatewayId(env), slot, model);
+        return testSecurityProviderKey(env.AI, gatewayId, slot, model);
       }
       // The routes and bodies the engines use: Messages for anthropic/* (Engine A),
       // Responses with the cyber access program for openai/* (Engine C).
@@ -395,7 +359,7 @@ export function securityProbeDeps(
         headers: {
           Authorization: `Bearer ${env.CF_API_TOKEN}`,
           'content-type': 'application/json',
-          'cf-aig-gateway-id': gatewayId(env),
+          'cf-aig-gateway-id': gatewayId,
           'cf-aig-collect-log-payload': 'false',
           'cf-aig-skip-cache': 'true',
           'cf-aig-metadata': JSON.stringify(PROBE_METADATA),
@@ -410,7 +374,15 @@ export function securityProbeDeps(
 }
 
 const HOSTS: ReadonlyArray<SecurityThirdPartyHost> = ['openai', 'anthropic'];
+const CAPABILITY_LABEL = 'Capability securityAudits';
 const CONTAINER_LABEL = 'Container + token permissions';
+const EGRESS_SKIPPED: SecurityProbeCheck = {
+  check: 3,
+  name: 'egress',
+  label: 'Egress lock',
+  status: 'skipped',
+  message: SECURITY_PROBE_COPY.egressSkipped,
+};
 
 const creditsLabel = (host: SecurityThirdPartyHost) => `Credits     ${host}/*`;
 const ownKeyLabel = (host: SecurityThirdPartyHost) => `Own key     ${host}/*`;
@@ -451,7 +423,7 @@ function imageCheck(input: {
   const image: ScannerImageResult = input.image.value ?? {
     ok: false,
     step: 'copy',
-    detail: errorText(input.image.error ?? 'no answer'),
+    detail: errorMessage(input.image.error ?? 'no answer'),
   };
   // A deployed image is judged by its self-test, even when this run's copy step failed.
   if (!input.deployed && !image.ok) {
@@ -468,12 +440,7 @@ function imageCheck(input: {
   if (!input.deployed) {
     return { ...base, status: 'skipped', message: SECURITY_PROBE_COPY.imageSkipped };
   }
-  const result: SelfTestResult = input.selfTest?.value ?? {
-    started: false,
-    coldStartMs: null,
-    report: null,
-    error: errorText(input.selfTest?.error ?? 'no answer'),
-  };
+  const result = input.selfTest?.value ?? noSelfTest(input.selfTest?.error ?? 'no answer');
   const verdict = judgeSelfTest(result, probeId);
   if (verdict.container.ok && verdict.egress.ok) {
     return { ...base, status: 'ok', ms: input.selfTest?.ms };
@@ -510,70 +477,34 @@ export async function runSecurityProbe(
   let coldStartMs: number | null = null;
   if (!capability) {
     // Nothing else runs: no provisioning call, no model call.
+    const skipped = { status: 'skipped', message: SECURITY_PROBE_COPY.skipped } as const;
+    const capabilityMessage = SECURITY_PROBE_COPY.capability;
     checks.push(
       {
         check: 1,
         name: 'capability',
-        label: 'Capability securityAudits',
+        label: CAPABILITY_LABEL,
         status: 'fail',
-        message: SECURITY_PROBE_COPY.capability,
+        message: capabilityMessage,
       },
-      {
-        check: 2,
-        name: 'container',
-        label: CONTAINER_LABEL,
-        status: 'skipped',
-        message: SECURITY_PROBE_COPY.skipped,
-      },
-      {
-        check: 3,
-        name: 'egress',
-        label: 'Egress lock',
-        status: 'skipped',
-        message: SECURITY_PROBE_COPY.skipped,
-      },
-      {
-        check: 4,
-        name: 'workers_ai',
-        label: `Workers AI  ${aiModel}`,
-        model: aiModel,
-        status: 'skipped',
-        message: SECURITY_PROBE_COPY.skipped,
-      },
+      { check: 2, name: 'container', label: CONTAINER_LABEL, ...skipped },
+      { ...EGRESS_SKIPPED, ...skipped },
+      { check: 4, name: 'workers_ai', label: `Workers AI  ${aiModel}`, model: aiModel, ...skipped },
       ...HOSTS.flatMap((host): Array<SecurityProbeCheck> => [
-        {
-          check: 5,
-          name: 'credits',
-          label: creditsLabel(host),
-          host,
-          status: 'skipped',
-          message: SECURITY_PROBE_COPY.skipped,
-        },
-        {
-          check: 5,
-          name: 'image',
-          label: imageLabel(host),
-          host,
-          status: 'skipped',
-          message: SECURITY_PROBE_COPY.skipped,
-        },
+        { check: 5, name: 'credits', label: creditsLabel(host), host, ...skipped },
+        { check: 5, name: 'image', label: imageLabel(host), host, ...skipped },
       ]),
     );
   } else {
-    checks.push({ check: 1, name: 'capability', label: 'Capability securityAudits', status: 'ok' });
-    // An engine image is copied right after its host's call passes, unless every model of
-    // the host is blocked. All of it ends by the deadline; a copy cut off goes on next time.
+    checks.push({ check: 1, name: 'capability', label: CAPABILITY_LABEL, status: 'ok' });
+    // An image is copied once its host's call passes (unless every model is blocked).
     const deadline = Date.now() + SECURITY_IMAGE_BUDGET_MS;
     const [ai, ...hosts] = await Promise.all([
       timed(() => deps.workersAi(aiModel)),
       ...HOSTS.map(async (host) => {
         const model = securityProbeHostModel(host);
         const credits = await timed(() => deps.thirdParty(host, model));
-        const ok =
-          credits.error === undefined &&
-          credits.value !== undefined &&
-          credits.value >= 200 &&
-          credits.value < 300;
+        const ok = credits.value !== undefined && credits.value >= 200 && credits.value < 300;
         const blocked = hostBlocked(policy, host);
         const engine = securityImageEngineForHost(host);
         const image = ok && !blocked ? await timed(() => deps.image(engine, deadline)) : undefined;
@@ -590,8 +521,7 @@ export async function runSecurityProbe(
     const provisioned = await timed(() => deps.provision(ready));
     const deployed = provisioned.value?.deployed ?? {};
     const names = provisioned.value?.names;
-    // Engine B and each deployed engine image of a callable, unblocked host run the same
-    // self-test, in parallel.
+    // Engine B and each deployed image of a callable, unblocked host: the same self-test.
     const testedEngines = hosts
       .filter((entry) => entry.ok && !entry.blocked && deployed[entry.engine] !== undefined)
       .map((entry) => entry.engine);
@@ -612,26 +542,13 @@ export async function runSecurityProbe(
           label: CONTAINER_LABEL,
           status: 'fail',
           message: securityProvisionMessage(provisioned.error),
-          detail: errorText(provisioned.error),
+          detail: errorMessage(provisioned.error),
           ms: provisioned.ms,
         },
-        {
-          check: 3,
-          name: 'egress',
-          label: 'Egress lock',
-          status: 'skipped',
-          message: SECURITY_PROBE_COPY.egressSkipped,
-        },
+        EGRESS_SKIPPED,
       );
     } else {
-      const result: SelfTestResult =
-        selfTest?.value ??
-        ({
-          started: false,
-          coldStartMs: null,
-          report: null,
-          error: errorText(selfTest?.error ?? 'no answer'),
-        } satisfies SelfTestResult);
+      const result = selfTest?.value ?? noSelfTest(selfTest?.error ?? 'no answer');
       coldStartMs = result.coldStartMs;
       const verdict = judgeSelfTest(result, probeId);
       checks.push({
@@ -645,13 +562,7 @@ export async function runSecurityProbe(
         ms: selfTest?.ms,
       });
       if (!verdict.container.ok) {
-        checks.push({
-          check: 3,
-          name: 'egress',
-          label: 'Egress lock',
-          status: 'skipped',
-          message: SECURITY_PROBE_COPY.egressSkipped,
-        });
+        checks.push(EGRESS_SKIPPED);
       } else {
         if (!verdict.egress.ok) {
           // The probe id in the copy finds this line in `void platform logs`.
@@ -681,7 +592,7 @@ export async function runSecurityProbe(
       ms: ai.ms,
       ...(ai.error === undefined
         ? {}
-        : { message: SECURITY_PROBE_COPY.workersAi(aiModel), detail: errorText(ai.error) }),
+        : { message: SECURITY_PROBE_COPY.workersAi(aiModel), detail: errorMessage(ai.error) }),
     });
     HOSTS.forEach((host, index) => {
       const entry = hosts[index];
@@ -689,7 +600,7 @@ export async function runSecurityProbe(
       const status = result.value;
       const ok = creditsOk[index];
       const permission = status === 401 || status === 403;
-      const detail = result.error !== undefined ? errorText(result.error) : `HTTP ${status}`;
+      const detail = result.error !== undefined ? errorMessage(result.error) : `HTTP ${status}`;
       const slot = deps.keys[host];
       checks.push(
         {

@@ -1,16 +1,7 @@
 /**
  * Per-plan monthly scan caps (Phase 2, M27), stored apart from the plan catalog in
- * `platform_settings['plans:security-caps']` as `{ <planId>: cents | null }`.
- *
- *   operator `config plans set --security-cap` ─┐
- *   admin Plans page (Security scan cap) ───────┴─► mutateOperatorPlanCatalog (plan lock)
- *                                                    └─► proposePlanSecurityCaps ─► setting row
- *   scheduler reserve · model proxy · status · alerts · budget PUT
- *     └─► securityPlanCapSql(projects.user_id) ─► SecurityProjectCapSettings.planCap
- *           └─► securityProjectCeiling: project limit → plan cap → policy default
- *
- * Nothing is published: every reader looks the cap up when it needs it, so a plan
- * change applies to the next scan start and the next model call.
+ * `platform_settings['plans:security-caps']` as `{ <planId>: cents | null }`. Every reader
+ * looks the cap up when it needs it, so a plan change applies to the next scan start.
  */
 import { parsePlatformPlanId } from '@void/platform/plans';
 import {
@@ -62,11 +53,8 @@ export async function writeSecurityPlanCaps(db: DbOrTx, caps: PlanSecurityCaps):
 }
 
 /**
- * A correlated subquery for the cap of the plan of `ownerUserId`: JSON text `[cents]`
- * or `[null]`, or SQL `NULL` when the plan has no entry (`->` gives SQL `NULL` only for
- * a missing key; a stored JSON `null` stays a value). Read it with
- * `readSecurityPlanCapCell`. An account on a plan missing from the catalog has no
- * entry (removing a plan drops its entry), so it gets the policy default.
+ * The cap of the plan of `ownerUserId`: JSON text `[cents]` or `[null]`, or SQL `NULL`
+ * when the plan has no entry. Read it with `readSecurityPlanCapCell`.
  */
 export function securityPlanCapSql(ownerUserId: AnyPgColumn | SQL): SQL<string | null> {
   return sql<string | null>`(SELECT CASE WHEN cap_row."value" -> cap_owner."plan" IS NOT NULL
@@ -94,11 +82,7 @@ export function readSecurityPlanCapCell(cell: string | null | undefined): Securi
   return cap;
 }
 
-/**
- * `securityPlanCapSql` for the owner of the project in `projectId`, for a query on
- * another table. A writer that decides from the cap reads it in its `FOR UPDATE`
- * select this way: Hyperdrive may answer a plain read from its cache.
- */
+/** `securityPlanCapSql` for a project's owner (a `FOR UPDATE` select skips Hyperdrive's cache). */
 export function securityProjectPlanCapSql(projectId: AnyPgColumn): SQL<string | null> {
   return securityPlanCapSql(
     sql`(SELECT cap_project."user_id" FROM ${projects} cap_project WHERE cap_project."id" = ${projectId})`,
@@ -122,9 +106,7 @@ export function planSecurityCapInput(body: Record<string, unknown>): SecurityPla
 
 /**
  * Per-plan caps after a catalog change, like `proposePlanAiLogging`: `add` copies the
- * source plan's cap unless `securityCap` is given, `set` with `securityCap` changes it
- * (`inherit` removes the entry), `remove` drops the removed plan's entry (its accounts
- * move to the replacement and get its cap). Other actions keep every cap.
+ * source plan's cap unless given, `set` changes it, `remove` drops the entry.
  */
 export function proposePlanSecurityCaps(
   caps: PlanSecurityCaps,
@@ -138,12 +120,8 @@ export function proposePlanSecurityCaps(
     throw new Error('securityCap can be set only when adding or editing a plan.');
   }
   if (action === 'add') {
-    const planId = parsePlatformPlanId(body.id);
-    return withPlanSecurityCap(
-      caps,
-      planId,
-      input ?? planSecurityCap(caps, parsePlatformPlanId(body.copyFrom)),
-    );
+    const copied = () => planSecurityCap(caps, parsePlatformPlanId(body.copyFrom));
+    return withPlanSecurityCap(caps, parsePlatformPlanId(body.id), input ?? copied());
   }
   if (action === 'set' && id && input !== undefined) {
     return withPlanSecurityCap(caps, id, input);

@@ -210,6 +210,20 @@ export function sanitizeTerminalText(value: string): string {
   return value.replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
 }
 
+/** Text from a model or a user: no escape sequences, one line. */
+export function cleanLine(value: unknown): string {
+  return sanitizeTerminalText(stripVTControlCharacters(String(value ?? '')));
+}
+
+/** Text from a model that may span lines: keeps line breaks, drops every other control. */
+export function cleanBlock(value: unknown): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  return stripVTControlCharacters(text ?? '')
+    .split('\n')
+    .map(sanitizeTerminalText)
+    .join('\n');
+}
+
 export function helpLine(command: string, description: string): string {
   return `${pc.reset(command.padEnd(34))} ${pc.dim(description)}`;
 }

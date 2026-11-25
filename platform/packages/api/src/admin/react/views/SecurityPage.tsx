@@ -4,14 +4,7 @@ import { Badge } from '@astryxdesign/core/Badge';
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
 import { RadioList, RadioListItem } from '@astryxdesign/core/RadioList';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableHeaderCell,
-  TableRow,
-} from '@astryxdesign/core/Table';
+import { Table, TableBody, TableCell, TableRow } from '@astryxdesign/core/Table';
 import { Heading } from '@astryxdesign/core/Text';
 import { useState } from 'react';
 import { useRequest, useView } from 'react-fate';
@@ -22,6 +15,8 @@ import { formatDateTime } from './format.ts';
 import { FormCheckbox, FormNumberInput, FormSelector } from './FormControls.tsx';
 import { Layout } from './Layout.tsx';
 import { PageStack } from './PageStack.tsx';
+import { Pagination } from './Pagination.tsx';
+import { bypassActor, scanStatusText, TableHead, usd } from './ProjectSecuritySection.tsx';
 import { SectionStack } from './SectionStack.tsx';
 
 const HOME = '/admin/security';
@@ -29,32 +24,19 @@ const UPGRADE = 'void platform upgrade --security-audits';
 
 type Variant = 'neutral' | 'info' | 'success' | 'warning' | 'error';
 
-function usd(value: number | null | undefined): string {
-  return value === null || value === undefined ? '-' : `$${value.toFixed(2)}`;
+interface VariantByValue {
+  readonly [value: string]: Variant;
 }
-
-function severityVariant(severity: string | null): Variant {
-  if (severity === 'critical') {
-    return 'error';
-  }
-  if (severity === 'high') {
-    return 'warning';
-  }
-  return 'neutral';
-}
-
-function scanVariant(status: string): Variant {
-  if (status === 'succeeded') {
-    return 'success';
-  }
-  if (status === 'running' || status === 'queued' || status === 'pending_input') {
-    return 'info';
-  }
-  if (status === 'failed' || status === 'timed_out' || status === 'refused') {
-    return 'error';
-  }
-  return 'neutral';
-}
+const SEVERITY_VARIANT: VariantByValue = { critical: 'error', high: 'warning' };
+const SCAN_VARIANT: VariantByValue = {
+  succeeded: 'success',
+  running: 'info',
+  queued: 'info',
+  pending_input: 'info',
+  failed: 'error',
+  timed_out: 'error',
+  refused: 'error',
+};
 
 function withQuery(path: string, changes: Readonly<Record<string, string | null>>): string {
   const url = new URL(path, 'https://admin.invalid');
@@ -99,37 +81,6 @@ function Tabs({
         'requests',
         `${HOME}/requests`,
         `Public requests${unseenBypasses ? ` · ${unseenBypasses} new bypass${unseenBypasses === 1 ? '' : 'es'}` : ''}`,
-      )}
-    </nav>
-  );
-}
-
-function Pager({ path, page, totalPages }: { path: string; page: number; totalPages: number }) {
-  if (totalPages <= 1) {
-    return null;
-  }
-  return (
-    <nav aria-label="Pagination" className="void-admin-pagination">
-      {page > 1 ? (
-        <Button
-          href={withQuery(path, { page: String(page - 1) })}
-          label="Previous"
-          variant="secondary"
-        />
-      ) : (
-        <Button label="Previous" variant="secondary" isDisabled />
-      )}
-      <span>
-        {page} / {totalPages}
-      </span>
-      {page < totalPages ? (
-        <Button
-          href={withQuery(path, { page: String(page + 1) })}
-          label="Next"
-          variant="secondary"
-        />
-      ) : (
-        <Button label="Next" variant="secondary" isDisabled />
       )}
     </nav>
   );
@@ -215,16 +166,12 @@ export function SecurityPage({ path, platformName, username }: AdminPageProps) {
           />
         )}
         {section !== 'settings' && (
-          <Pager path={path} page={data.page} totalPages={data.totalPages} />
+          <Pagination page={data.page} totalPages={data.totalPages} baseUrl={path} />
         )}
       </PageStack>
     </Layout>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Settings
-// ---------------------------------------------------------------------------
 
 function useSecurityData(path: string) {
   const { security: ref } = useRequest(securityRequest(path), { mode: 'stale-while-revalidate' });
@@ -428,10 +375,6 @@ function SettingsSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Findings
-// ---------------------------------------------------------------------------
-
 function FindingsSection({
   path,
   findings,
@@ -474,17 +417,9 @@ function FindingsSection({
         <p>No findings match.</p>
       ) : (
         <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHeaderCell>ID</TableHeaderCell>
-              <TableHeaderCell>Project</TableHeaderCell>
-              <TableHeaderCell>Severity</TableHeaderCell>
-              <TableHeaderCell>Title</TableHeaderCell>
-              <TableHeaderCell>File</TableHeaderCell>
-              <TableHeaderCell>First seen</TableHeaderCell>
-              <TableHeaderCell>State</TableHeaderCell>
-            </TableRow>
-          </TableHeader>
+          <TableHead
+            labels={['ID', 'Project', 'Severity', 'Title', 'File', 'First seen', 'State']}
+          />
           <TableBody>
             {findings.findings.map((finding) => (
               <TableRow key={`${finding.projectId}:${finding.id}`}>
@@ -495,7 +430,7 @@ function FindingsSection({
                 <TableCell>
                   <Badge
                     label={finding.severity ?? 'lead'}
-                    variant={severityVariant(finding.severity)}
+                    variant={SEVERITY_VARIANT[finding.severity ?? ''] ?? 'neutral'}
                   />
                 </TableCell>
                 <TableCell>
@@ -520,10 +455,6 @@ function FindingsSection({
     </AdminCard>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Scans
-// ---------------------------------------------------------------------------
 
 const CANCELABLE = new Set(['pending_input', 'queued', 'running']);
 
@@ -590,26 +521,16 @@ function ScansSection({
               changes: { status: null, trigger: null },
               on: !filter.status && !filter.gate,
             },
-            {
-              label: 'Failed',
-              changes: { status: 'failed', trigger: null },
-              on: filter.status === 'failed',
-            },
-            {
-              label: 'Refused',
-              changes: { status: 'refused', trigger: null },
-              on: filter.status === 'refused',
-            },
-            {
-              label: 'Running',
-              changes: { status: 'running', trigger: null },
-              on: filter.status === 'running',
-            },
-            {
-              label: 'Skipped',
-              changes: { status: 'skipped', trigger: null },
-              on: filter.status === 'skipped',
-            },
+            ...[
+              ['failed', 'Failed'],
+              ['refused', 'Refused'],
+              ['running', 'Running'],
+              ['skipped', 'Skipped'],
+            ].map(([status = '', label = '']) => ({
+              label,
+              changes: { status, trigger: null },
+              on: filter.status === status,
+            })),
             { label: 'Gate scans', changes: { status: null, trigger: 'gate' }, on: filter.gate },
           ]}
         />
@@ -617,25 +538,24 @@ function ScansSection({
           <p>No scans match.</p>
         ) : (
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell>Project</TableHeaderCell>
-                <TableHeaderCell>Coverage</TableHeaderCell>
-                <TableHeaderCell>Model</TableHeaderCell>
-                <TableHeaderCell>Metered</TableHeaderCell>
-                <TableHeaderCell>Gateway</TableHeaderCell>
-                <TableHeaderCell>Started</TableHeaderCell>
-                <TableHeaderCell>Actions</TableHeaderCell>
-              </TableRow>
-            </TableHeader>
+            <TableHead
+              labels={[
+                'Status',
+                'Project',
+                'Coverage',
+                'Model',
+                'Metered',
+                'Gateway',
+                'Started',
+                'Actions',
+              ]}
+            />
             <TableBody>
               {scans.scans.map((scan) => (
                 <TableRow key={scan.id}>
                   <TableCell>
-                    <Badge label={scan.status} variant={scanVariant(scan.status)} />
-                    {scan.statusReason ? ` ${scan.statusReason.split('_').join(' ')}` : ''}
-                    {scan.failureCause ? ` (${scan.failureCause})` : ''}
+                    <Badge label={scan.status} variant={SCAN_VARIANT[scan.status] ?? 'neutral'} />
+                    {scanStatusText(scan)}
                     {scan.trigger === 'gate' ? ' gate' : ''}
                   </TableCell>
                   <TableCell>
@@ -667,10 +587,6 @@ function ScansSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Public requests and bypasses
-// ---------------------------------------------------------------------------
-
 function RequestsSection({
   path,
   requests,
@@ -697,31 +613,31 @@ function RequestsSection({
         <FilterLinks
           path={path}
           items={[
-            { label: 'Open', changes: { state: null }, on: requests.state === 'open' },
-            {
-              label: 'Bypassed',
-              changes: { state: 'bypassed' },
-              on: requests.state === 'bypassed',
-            },
-            { label: 'Closed', changes: { state: 'closed' }, on: requests.state === 'closed' },
-            { label: 'All', changes: { state: 'all' }, on: requests.state === 'all' },
-          ]}
+            ['open', 'Open'],
+            ['bypassed', 'Bypassed'],
+            ['closed', 'Closed'],
+            ['all', 'All'],
+          ].map(([state = '', label = '']) => ({
+            label,
+            changes: { state: state === 'open' ? null : state },
+            on: requests.state === state,
+          }))}
         />
         {requests.requests.length === 0 ? (
           <p>No requests match.</p>
         ) : (
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Project</TableHeaderCell>
-                <TableHeaderCell>State</TableHeaderCell>
-                <TableHeaderCell>Held reason</TableHeaderCell>
-                <TableHeaderCell>Asked via</TableHeaderCell>
-                <TableHeaderCell>Asked at</TableHeaderCell>
-                <TableHeaderCell>Gate scan</TableHeaderCell>
-                <TableHeaderCell>Blockers</TableHeaderCell>
-              </TableRow>
-            </TableHeader>
+            <TableHead
+              labels={[
+                'Project',
+                'State',
+                'Held reason',
+                'Asked via',
+                'Asked at',
+                'Gate scan',
+                'Blockers',
+              ]}
+            />
             <TableBody>
               {requests.requests.map((request) => (
                 <TableRow key={request.id}>
@@ -768,16 +684,9 @@ function RequestsSection({
           <p>No bypasses.</p>
         ) : (
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHeaderCell>Project</TableHeaderCell>
-                <TableHeaderCell>Who</TableHeaderCell>
-                <TableHeaderCell>When</TableHeaderCell>
-                <TableHeaderCell>Reason</TableHeaderCell>
-                <TableHeaderCell>Request then</TableHeaderCell>
-                <TableHeaderCell>Deployment</TableHeaderCell>
-              </TableRow>
-            </TableHeader>
+            <TableHead
+              labels={['Project', 'Who', 'When', 'Reason', 'Request then', 'Deployment']}
+            />
             <TableBody>
               {requests.bypasses.map((bypass) => (
                 <TableRow key={bypass.id}>
@@ -787,10 +696,7 @@ function RequestsSection({
                     {bypass.unseen && <Badge label="new" variant="warning" />}
                   </TableCell>
                   <TableCell>
-                    {bypass.actorKind === 'installation_admin'
-                      ? 'installation admin'
-                      : (bypass.actorRole ?? 'member')}{' '}
-                    ({bypass.actorUserId})
+                    {bypassActor(bypass)} ({bypass.actorUserId})
                   </TableCell>
                   <TableCell>
                     {bypass.createdAt ? formatDateTime(bypass.createdAt, tz) : '-'}
@@ -810,10 +716,6 @@ function RequestsSection({
     </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// The plan a change would make, before it is applied
-// ---------------------------------------------------------------------------
 
 export function SecurityPreviewPage({
   platformName,

@@ -26,15 +26,11 @@ import {
 import { useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { formatPlatformPageTitle } from '../../../platform-identity.ts';
+import type { SecurityChrome } from '../../security-data.ts';
 import { PageStack } from './PageStack.tsx';
 import { VoidLogo } from './VoidLogo.tsx';
 
 let isSideNavCollapsed = false;
-
-type SecurityChrome = Readonly<{
-  banners: ReadonlyArray<Readonly<{ status: 'warning' | 'error'; text: string; href: string }>>;
-  unseenBypasses: number;
-}>;
 
 /** The navigation fallback renders the shell outside a Void page, where there is no shared data. */
 function useSecurityChrome(): SecurityChrome | undefined {

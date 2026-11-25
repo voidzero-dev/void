@@ -1,20 +1,10 @@
 /**
- * The runtime copy's Cloudflare side (design doc 0095, M30; spec §8.6; spike S13).
- *
- *   SecurityScanControl.copy(scan, attempt)            (the controller asks, after the runner starts)
- *     fence ─► plan (manifest, secret names) ─► modules from the scan snapshot (R2)
- *     ─► empty D1 / KV / R2 in parallel ─► D1: the live database's schema, no rows
- *     ─► upload `void-sec-copy-<h>-<scan>-a<n>` into the copy namespace:
- *          guard + entry modules, the deployed modules unchanged, rewired bindings
- *     ─► cost on the scan meter
- *   SecurityScanControl.result ─► deleteSecurityRuntimeCopy (script, then its stores)
- *   hourly reaper ─► sweepSecurityRuntimeCopies: every copy resource of this
- *     installation whose scan attempt is not running any more
- *
- * Names carry the installation suffix, scan id and attempt, so the reaper finds every
- * leftover (a crash between two calls included) from Cloudflare's own lists, without a
- * database row. The live app, its data and its secrets are never touched: the D1 schema
- * read is the only call on a live resource and it reads `sqlite_master` only.
+ * The runtime copy's Cloudflare side (M30, spec §8.6). `SecurityScanControl.copy`: fence ─►
+ * plan ─► snapshot modules ─► empty D1 / KV / R2 (D1 gets the live schema, no rows) ─►
+ * upload `void-sec-copy-<h>-<scan>-a<n>` with guard + entry modules ─► cost on the meter.
+ * The result path deletes it; the hourly reaper deletes any copy whose attempt is over.
+ * Names carry installation, scan and attempt, so leftovers are found from Cloudflare's own
+ * lists. The live app is never touched beyond one `sqlite_master` read.
  */
 import { and, eq, sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';
@@ -22,10 +12,11 @@ import { getProjectResources } from '../db/resources.ts';
 import { getProjectSecrets } from '../db/secrets.ts';
 import type { ApiEnv } from '../env.ts';
 import { decryptProjectSecret } from '../project-secrets.ts';
-import { CF_API_BASE, cfFetch } from '../provisioning/cloudflare-api.ts';
+import { CF_API_BASE, cfFetch, CloudflareApiError } from '../provisioning/cloudflare-api.ts';
 import { securityScannerNames, securityScannerTarget } from '../provisioning/security-scanner.ts';
 import type { SecurityScannerTarget } from '../provisioning/security-scanner.ts';
 import { deployments, projects } from '../schema.ts';
+import { errorMessage } from '../zero-trust/errors.ts';
 import { chargeSecurityScanCopy } from './budget.ts';
 import { checkScanFence } from './fence.ts';
 import { modulesKey, parseSnapshotModules } from './input/prepare.ts';
@@ -33,7 +24,8 @@ import { createSecurityRedactor } from './input/redact.ts';
 import type { SecuritySecret } from './input/redact.ts';
 import { SECURITY_RUNTIME_COPY_NOT_MADE_NOTE } from './input/tier.ts';
 import { readSecurityManifest } from './manifest.ts';
-import { runtimeCopyScriptName } from './runtime-copy-names.ts';
+import { securityScanAt } from './queue.ts';
+import { runtimeCopyScriptName, runtimeCopyStoreOwner } from './runtime-copy-names.ts';
 import {
   planSecurityRuntimeCopy,
   SECURITY_COPY_FAKE_PREFIX,
@@ -47,39 +39,22 @@ import {
   COPY_GUARD_MODULE_NAME,
   copyEntryModule,
 } from './runtime-copy-sources.ts';
-import {
-  deleteCopyScript,
-  deleteSecurityRuntimeCopy,
-  deleteStore,
-  securityCopyScriptUrl,
-  sweepSecurityRuntimeCopies,
-} from './runtime-copy-sweep.ts';
-import type { CreatedStore, SecurityCopyTarget } from './runtime-copy-sweep.ts';
 import { securityScans } from './schema.ts';
 
-export type { SecurityCopyTarget } from './runtime-copy-sweep.ts';
-
 /** The copy holds the deployed modules in memory for the upload: at most this many bytes. */
-export const SECURITY_COPY_MAX_MODULE_BYTES = 32 * 1024 * 1024;
+const SECURITY_COPY_MAX_MODULE_BYTES = 32 * 1024 * 1024;
 /** Schema statements replayed into one copy D1, at most. */
-export const SECURITY_COPY_MAX_SCHEMA_STATEMENTS = 500;
+const SECURITY_COPY_MAX_SCHEMA_STATEMENTS = 500;
 
-/**
- * List prices behind the copy's charge (Workers for Platforms and storage, 2026-11):
- * one script for an hour, one D1 row write per schema statement, one R2 class A
- * operation per bucket. The $25 Workers for Platforms base is already paid by the
- * platform's dispatch namespace.
- */
-export const SECURITY_COPY_PRICES_NANO = {
+/** List prices behind the copy's charge (2026-11): a script hour, D1 row writes, R2 class A. */
+const SECURITY_COPY_PRICES_NANO = {
   scriptHour: Math.round((0.02 / 730) * 1e9),
   d1RowWritten: 1000,
   r2ClassA: 4500,
   kvWrite: 5000,
 } as const;
 
-export async function securityCopyTarget(
-  target: SecurityScannerTarget,
-): Promise<SecurityCopyTarget> {
+async function securityCopyTarget(target: SecurityScannerTarget): Promise<SecurityCopyTarget> {
   const names = await securityScannerNames(target.installationKey);
   return {
     accountId: target.accountId,
@@ -90,9 +65,9 @@ export async function securityCopyTarget(
   };
 }
 
-export type SecurityCopyModule = Readonly<{ name: string; type: string; bytes: Uint8Array }>;
+type SecurityCopyModule = Readonly<{ name: string; type: string; bytes: Uint8Array }>;
 
-export type SecurityCopyInput = Readonly<{
+type SecurityCopyInput = Readonly<{
   plan: SecurityCopyPlan;
   modules: ReadonlyArray<SecurityCopyModule>;
   /** Copy D1 binding → the live D1 uuid whose schema it gets. */
@@ -101,10 +76,7 @@ export type SecurityCopyInput = Readonly<{
   projectSlug: string;
   /** Random bytes for the fake values (tests pass a fixed source). */
   random?: (bytes: number) => Uint8Array;
-  /**
-   * Whether a text holds a stored secret value (spec §7.3). The schema read from the live
-   * D1 is checked with it: the model can read the copy's schema back.
-   */
+  /** Whether a text holds a stored secret value (§7.3); the live schema is checked with it. */
   holdsSecret?: (text: string) => boolean;
 }>;
 
@@ -115,7 +87,7 @@ export class SecurityCopySkipped extends Error {
   }
 }
 
-export type SecurityCopyCreated = Readonly<{
+type SecurityCopyCreated = Readonly<{
   script: string;
   /** Statements replayed per copy D1 binding. */
   schema: Readonly<Record<string, number>>;
@@ -142,26 +114,11 @@ const SCHEMA_QUERY =
   "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name, 1, 7) <> 'sqlite_' AND substr(name, 1, 4) <> '_cf_' ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 1 WHEN 'index' THEN 2 ELSE 3 END, rowid";
 
 /** Shadow tables a virtual table's CREATE makes itself (FTS5, FTS3/4, R*Tree). */
-const SHADOW_SUFFIXES = [
-  '_data',
-  '_idx',
-  '_content',
-  '_docsize',
-  '_config',
-  '_segments',
-  '_segdir',
-  '_stat',
-  '_node',
-  '_rowid',
-  '_parent',
-] as const;
+const SHADOW_SUFFIXES =
+  '_data _idx _content _docsize _config _segments _segdir _stat _node _rowid _parent'.split(' ');
 
-/**
- * Turns `sqlite_master` rows into statements. A virtual table's own shadow tables
- * (`<name>_data`, …) are made by its CREATE and are left out; any other table, even one
- * named `<name>_meta`, is kept.
- */
-export function securityCopySchemaStatements(rows: ReadonlyArray<SchemaRow>): Array<string> {
+/** `sqlite_master` rows as statements, without virtual tables' own shadow tables. */
+function securityCopySchemaStatements(rows: ReadonlyArray<SchemaRow>): Array<string> {
   const shadows = new Set<string>();
   for (const row of rows) {
     if (
@@ -175,16 +132,13 @@ export function securityCopySchemaStatements(rows: ReadonlyArray<SchemaRow>): Ar
       }
     }
   }
-  const statements: Array<string> = [];
-  for (const row of rows) {
-    if (typeof row.sql !== 'string' || typeof row.name !== 'string') {
-      continue;
-    }
-    if (row.type === 'table' && shadows.has(row.name)) {
-      continue;
-    }
-    statements.push(row.sql);
-  }
+  const statements = rows.flatMap((row) =>
+    typeof row.sql === 'string' &&
+    typeof row.name === 'string' &&
+    !(row.type === 'table' && shadows.has(row.name))
+      ? [row.sql]
+      : [],
+  );
   return statements.slice(0, SECURITY_COPY_MAX_SCHEMA_STATEMENTS);
 }
 
@@ -196,10 +150,7 @@ async function d1Query(
   return cfFetch(
     `${CF_API_BASE}/${target.accountId}/d1/database/${databaseId}/query`,
     target.apiToken,
-    {
-      method: 'POST',
-      body: JSON.stringify({ sql }),
-    },
+    { method: 'POST', body: JSON.stringify({ sql }) },
   );
 }
 
@@ -230,10 +181,7 @@ async function createStore(
   return { kind, name, id: name };
 }
 
-/**
- * Creates one copy. On any failure, what this call made is deleted again (best effort;
- * the reaper takes what is left) and the error is thrown.
- */
+/** Creates one copy; on a failure what it made is deleted again (best effort) and it throws. */
 export async function createSecurityRuntimeCopy(
   target: SecurityCopyTarget,
   input: SecurityCopyInput,
@@ -245,17 +193,9 @@ export async function createSecurityRuntimeCopy(
   let uploaded = false;
   try {
     // 1. Empty stores, in parallel; each is recorded as soon as it exists.
-    const results = await Promise.allSettled(
-      plan.stores.map(async (store) => {
-        const made = await createStore(target, store.kind, store.name);
-        created.push(made);
-        return made;
-      }),
-    );
-    const failed = results.find((result) => result.status === 'rejected');
-    if (failed) {
-      throw failed.reason;
-    }
+    await settleAll(plan.stores, async (store) => {
+      created.push(await createStore(target, store.kind, store.name));
+    });
     const ids = new Map(created.map((store) => [store.name, store.id]));
 
     // 2. D1: the live schema, no rows.
@@ -306,18 +246,10 @@ export async function createSecurityRuntimeCopy(
     );
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append(
-      COPY_ENTRY_MODULE_NAME,
-      new File([copyEntryModule(plan.mainModule)], COPY_ENTRY_MODULE_NAME, {
-        type: 'application/javascript+module',
-      }),
-    );
-    form.append(
-      COPY_GUARD_MODULE_NAME,
-      new File([COPY_GUARD_MODULE], COPY_GUARD_MODULE_NAME, {
-        type: 'application/javascript+module',
-      }),
-    );
+    const js = { type: 'application/javascript+module' };
+    const entry = copyEntryModule(plan.mainModule);
+    form.append(COPY_ENTRY_MODULE_NAME, new File([entry], COPY_ENTRY_MODULE_NAME, js));
+    form.append(COPY_GUARD_MODULE_NAME, new File([COPY_GUARD_MODULE], COPY_GUARD_MODULE_NAME, js));
     for (const module of input.modules) {
       form.append(
         module.name,
@@ -357,13 +289,229 @@ async function rollback(
   } catch (error) {
     console.error('[security-copy] rollback left resources for the reaper', {
       script,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
   }
 }
 
-// ---------------------------------------------------------------------------
-// Database side: which scan, which deployment, the meter.
+// --- Listing and deleting copies by name (the result path, the reaper, uninstall) ---
+
+export type SecurityCopyTarget = Readonly<{
+  accountId: string;
+  apiToken: string;
+  /** Dispatch namespace of this installation's copies. */
+  namespace: string;
+  sandbox: string;
+  /** Every copy resource name of this installation starts with it. */
+  prefix: string;
+}>;
+
+function securityCopyScriptUrl(target: SecurityCopyTarget, script: string): string {
+  return `${CF_API_BASE}/${target.accountId}/workers/dispatch/namespaces/${target.namespace}/scripts/${script}`;
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof CloudflareApiError && error.status === 404;
+}
+
+/** `run`, with a Cloudflare 404 answered as `missing`. */
+async function unless404<T, Missing>(
+  run: () => Promise<T>,
+  missing: Missing,
+): Promise<T | Missing> {
+  try {
+    return await run();
+  } catch (error) {
+    if (isNotFound(error)) {
+      return missing;
+    }
+    throw error;
+  }
+}
+
+/** Runs every task, then throws the first failure. */
+async function settleAll<T, R>(items: ReadonlyArray<T>, run: (item: T) => Promise<R>) {
+  const results = await Promise.allSettled(items.map(run));
+  const failed = results.find((result) => result.status === 'rejected');
+  if (failed) {
+    throw failed.reason;
+  }
+}
+
+type CreatedStore = { kind: 'd1' | 'kv' | 'r2'; name: string; id: string };
+
+async function deleteStore(target: SecurityCopyTarget, store: CreatedStore): Promise<void> {
+  const base = `${CF_API_BASE}/${target.accountId}`;
+  const url =
+    store.kind === 'd1'
+      ? `${base}/d1/database/${store.id}`
+      : store.kind === 'kv'
+        ? `${base}/storage/kv/namespaces/${store.id}`
+        : `${base}/r2/buckets/${store.name}`;
+  await unless404(() => cfFetch(url, target.apiToken, { method: 'DELETE' }), null);
+}
+
+async function deleteCopyScript(target: SecurityCopyTarget, script: string): Promise<void> {
+  const url = `${securityCopyScriptUrl(target, script)}?force=true`;
+  await unless404(() => cfFetch(url, target.apiToken, { method: 'DELETE' }), null);
+}
+
+type SecurityCopyResources = Readonly<{
+  scripts: ReadonlyArray<string>;
+  stores: ReadonlyArray<CreatedStore>;
+}>;
+
+const PAGE = 100;
+
+/** Every resource whose name starts with `namePart` (the prefix, or one copy's script). */
+async function listSecurityRuntimeCopyResources(
+  target: SecurityCopyTarget,
+  namePart: string,
+): Promise<SecurityCopyResources> {
+  const base = `${CF_API_BASE}/${target.accountId}`;
+  // No copy namespace (none yet, or uninstall removed it): stores may still be left.
+  const scripts = await unless404(
+    () =>
+      cfFetch<Array<{ id?: unknown }>>(
+        `${base}/workers/dispatch/namespaces/${target.namespace}/scripts`,
+        target.apiToken,
+      ),
+    [],
+  );
+  const mine = (name: unknown): name is string =>
+    typeof name === 'string' && name.startsWith(namePart);
+  const stores: Array<CreatedStore> = [];
+  const pages = async <Row>(url: string, take: (row: Row) => void) => {
+    for (let page = 1; page <= 50; page++) {
+      const rows = await cfFetch<Array<Row>>(
+        `${url}per_page=${PAGE}&page=${page}`,
+        target.apiToken,
+      );
+      rows.forEach(take);
+      if (rows.length < PAGE) {
+        break;
+      }
+    }
+  };
+  await pages<{ uuid?: unknown; name?: unknown }>(
+    `${base}/d1/database?name=${encodeURIComponent(namePart)}&`,
+    (row) => {
+      if (mine(row.name) && typeof row.uuid === 'string') {
+        stores.push({ kind: 'd1', name: row.name, id: row.uuid });
+      }
+    },
+  );
+  await pages<{ id?: unknown; title?: unknown }>(`${base}/storage/kv/namespaces?`, (row) => {
+    if (mine(row.title) && typeof row.id === 'string') {
+      stores.push({ kind: 'kv', name: row.title, id: row.id });
+    }
+  });
+  const buckets = await cfFetch<{ buckets?: Array<{ name?: unknown }> }>(
+    `${base}/r2/buckets?name_contains=${encodeURIComponent(namePart)}&per_page=1000`,
+    target.apiToken,
+  );
+  for (const bucket of buckets?.buckets ?? []) {
+    if (mine(bucket.name)) {
+      stores.push({ kind: 'r2', name: bucket.name, id: bucket.name });
+    }
+  }
+  return { scripts: scripts.map((script) => script.id).filter(mine), stores };
+}
+
+/**
+ * Deletes every copy resource whose script is not in `keep`, scripts first, then stores;
+ * returns the copies deleted. A `keep` function is called after the listing, so a scan
+ * that starts meanwhile is still kept.
+ */
+async function sweepSecurityRuntimeCopies(
+  target: SecurityCopyTarget,
+  keep: ReadonlySet<string> | (() => Promise<ReadonlySet<string>>),
+  namePart: string = target.prefix,
+): Promise<number> {
+  const found = await listSecurityRuntimeCopyResources(target, namePart);
+  const kept = typeof keep === 'function' ? await keep() : keep;
+  return deleteListedCopies(target, found, kept);
+}
+
+async function deleteListedCopies(
+  target: SecurityCopyTarget,
+  found: SecurityCopyResources,
+  keep: ReadonlySet<string>,
+): Promise<number> {
+  const scripts = found.scripts.filter((script) => !keep.has(script));
+  for (const script of scripts) {
+    await deleteCopyScript(target, script);
+  }
+  const stores = found.stores.filter((store) => !keep.has(runtimeCopyStoreOwner(store.name)));
+  await settleAll(stores, (store) => deleteStore(target, store));
+  return new Set([...scripts, ...stores.map((store) => runtimeCopyStoreOwner(store.name))]).size;
+}
+
+type ScriptBinding = {
+  type?: unknown;
+  id?: unknown;
+  namespace_id?: unknown;
+  bucket_name?: unknown;
+};
+
+/**
+ * One copy, without listing the account: the script's bindings name its stores. No script:
+ * no copy was uploaded (stores a crash left before the upload are the reaper's).
+ */
+async function deleteSecurityRuntimeCopy(target: SecurityCopyTarget, script: string) {
+  const settings = await unless404(
+    () =>
+      cfFetch<{ bindings?: Array<ScriptBinding> }>(
+        `${securityCopyScriptUrl(target, script)}/settings`,
+        target.apiToken,
+      ),
+    'missing' as const,
+  );
+  if (settings === 'missing') {
+    return;
+  }
+  const bindings = settings?.bindings ?? [];
+  const own = `${script}-`;
+  const stores: Array<CreatedStore> = [];
+  for (const binding of bindings) {
+    if (binding.type === 'd1' && typeof binding.id === 'string') {
+      stores.push({ kind: 'd1', name: own, id: binding.id });
+    } else if (binding.type === 'kv_namespace' && typeof binding.namespace_id === 'string') {
+      stores.push({ kind: 'kv', name: own, id: binding.namespace_id });
+    } else if (
+      binding.type === 'r2_bucket' &&
+      typeof binding.bucket_name === 'string' &&
+      binding.bucket_name.startsWith(own)
+    ) {
+      stores.push({ kind: 'r2', name: binding.bucket_name, id: binding.bucket_name });
+    }
+  }
+  await deleteCopyScript(target, script);
+  await settleAll(stores, async (store) => {
+    // A D1 or KV binding names only an id: its name must prove it is this copy's.
+    if (store.kind === 'r2' || (await storeNamedFor(target, store, own))) {
+      await deleteStore(target, store);
+    }
+  });
+}
+
+async function storeNamedFor(
+  target: SecurityCopyTarget,
+  store: CreatedStore,
+  own: string,
+): Promise<boolean> {
+  const base = `${CF_API_BASE}/${target.accountId}`;
+  const d1 = store.kind === 'd1';
+  const url = d1 ? `${base}/d1/database/${store.id}` : `${base}/storage/kv/namespaces/${store.id}`;
+  const found = await unless404(
+    () => cfFetch<{ name?: unknown; title?: unknown }>(url, target.apiToken),
+    null,
+  );
+  const name = d1 ? found?.name : found?.title;
+  return typeof name === 'string' && name.startsWith(own);
+}
+
+// --- Database side: which scan, which deployment, the meter ---
 
 export type SecurityCopyOutcome =
   | Readonly<{ ok: true; script: string; ms: number }>
@@ -384,9 +532,8 @@ type CopyEnv = Pick<
 const moduleText = new TextDecoder('utf-8', { fatal: false });
 
 /**
- * The redaction the model's input gets (spec §7.3), as a yes/no: the copy runs the raw
- * bundle and its answers reach the model, so a copy whose code, kept vars or schema hold
- * a stored secret value is not made. Fake values replace secrets in `env` only.
+ * The model input's redaction (§7.3) as a yes/no: the copy runs the raw bundle, so one whose
+ * code, vars or schema hold a stored secret value is not made.
  */
 function secretCheck(secrets: ReadonlyArray<SecuritySecret>): (text: string) => boolean {
   const redactor = createSecurityRedactor(secrets);
@@ -402,11 +549,7 @@ async function readModules(
   if (!entries) {
     return null;
   }
-  let total = 0;
-  for (const entry of entries) {
-    total += entry.size;
-  }
-  if (total > SECURITY_COPY_MAX_MODULE_BYTES) {
+  if (entries.reduce((sum, entry) => sum + entry.size, 0) > SECURITY_COPY_MAX_MODULE_BYTES) {
     return null;
   }
   const modules: Array<SecurityCopyModule> = [];
@@ -424,10 +567,7 @@ async function readModules(
   return modules;
 }
 
-/**
- * Makes the copy for one running scan attempt (`SecurityScanControl.copy`). Never
- * throws: a copy that cannot be made leaves the scan static-only.
- */
+/** Makes the copy for one running attempt; never throws (no copy: the scan runs static-only). */
 export async function prepareSecurityRuntimeCopy(
   env: CopyEnv,
   db: Db,
@@ -518,8 +658,7 @@ export async function prepareSecurityRuntimeCopy(
       throw error;
     }
     if (!charged) {
-      // The attempt ended while the copy was made (cancel, lease): its result path may
-      // have deleted already, so this copy goes now instead of waiting for the reaper.
+      // The attempt ended meanwhile: its result path may have deleted already, so drop it now.
       await dropCopy(target, created.script, scanId, attempt);
       return { ok: false, reason: 'fence' };
     }
@@ -535,11 +674,7 @@ export async function prepareSecurityRuntimeCopy(
     if (error instanceof SecurityCopySkipped) {
       return { ok: false, reason: error.reason };
     }
-    console.error('[security-copy] copy failed', {
-      scanId,
-      attempt,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.error('[security-copy] copy failed', { scanId, attempt, error: errorMessage(error) });
     return { ok: false, reason: 'create_failed' };
   }
 }
@@ -553,32 +688,23 @@ async function dropCopy(
   try {
     await deleteSecurityRuntimeCopy(target, script);
   } catch (error) {
-    console.error('[security-copy] copy delete failed; the reaper retries', {
-      scanId,
-      attempt,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const failure = { scanId, attempt, error: errorMessage(error) };
+    console.error('[security-copy] copy delete failed; the reaper retries', failure);
   }
 }
 
-/**
- * Copy outcomes that are not a failure: the attempt is over (`fence`), or this deployment
- * gets no copy by design (`planSecurityRuntimeCopy` skips).
- */
+/** Not a failure: the attempt is over (`fence`), or no copy by design (plan skips). */
 const COPY_NOT_WANTED: ReadonlySet<string> = new Set(['fence', 'no_manifest', 'static', 'engine']);
 
 /** The coverage note for a copy that was wanted and not made: the scan ran static-only. */
-export function securityRuntimeCopyNote(outcome: SecurityCopyOutcome): string | null {
+function securityRuntimeCopyNote(outcome: SecurityCopyOutcome): string | null {
   if (outcome.ok || COPY_NOT_WANTED.has(outcome.reason)) {
     return null;
   }
   return `${SECURITY_RUNTIME_COPY_NOT_MADE_NOTE} (${outcome.reason})`;
 }
 
-/**
- * Adds the copy's coverage note to the running attempt, once, so `status`, the project
- * page and the panel say the scan ran static-only. Ingest keeps the row's notes.
- */
+/** Adds the copy's coverage note to the running attempt once (the scan ran static-only). */
 export async function noteSecurityRuntimeCopyOutcome(
   db: Db,
   scanId: string,
@@ -594,9 +720,7 @@ export async function noteSecurityRuntimeCopyOutcome(
     .set({ coverage_notes: sql`array_append(${securityScans.coverage_notes}, ${note})` })
     .where(
       and(
-        eq(securityScans.id, scanId),
-        eq(securityScans.attempt, attempt),
-        eq(securityScans.status, 'running'),
+        securityScanAt(scanId, attempt),
         sql`NOT (${note} = ANY(${securityScans.coverage_notes}))`,
       ),
     );
@@ -613,9 +737,8 @@ export async function deleteSecurityRuntimeCopyForScan(
 }
 
 /**
- * Hourly: every copy whose scan attempt is not running any more. The running scans are
- * read after Cloudflare is listed: a copy is made only once the fence saw its attempt
- * running, so a listed copy whose attempt is not running then is truly finished.
+ * Hourly: every copy whose attempt is not running. Running scans are read after the listing
+ * (a copy is made only after its fence passed), so a listed copy not running is finished.
  */
 export async function reapSecurityRuntimeCopies(env: CopyEnv, db: Db): Promise<number> {
   const target = await securityCopyTarget(securityScannerTarget(env));

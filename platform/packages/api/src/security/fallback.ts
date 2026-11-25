@@ -1,16 +1,8 @@
 /**
- * Opt-in fallback to the `@cf` default (design doc 0095 M26, spec §8.5). With the policy's
- * `fallbackToCf` on, a scan on a third-party model that is refused, gives bad output or
- * times out is followed by one `trigger=fallback` scan of the same deployment:
- *
- *   scan on anthropic/… or openai/… ends refused | failed (bad_output) | timed_out
- *     └─ still the project's newest scan, its deployment still live, ended < 24 h ago
- *          └─► queueSecurityRescan(trigger: fallback) ─► runs on securityCfDefaultModel
- *
- * Never from `@cf` to a third-party model, and never a fallback of a fallback. The scan
- * covers what the failed one did: the base rule, or a full scan again after a rescan or
- * a sweep. A fallback of a gate scan keeps its request and the gate rules. Run right after
- * ingest and by the hourly job (a reaper `timed_out`, a lost call).
+ * Opt-in fallback to the `@cf` default (design doc 0095 M26, spec §8.5): when the newest
+ * scan of the live deployment ran on a third-party model and was refused, gave bad output
+ * or timed out in the last 24 h, one `trigger=fallback` scan covers the same work on
+ * `securityCfDefaultModel`. Never a fallback of a fallback. Runs after ingest and hourly.
  */
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { sql } from 'drizzle-orm';
@@ -46,13 +38,6 @@ export function securityScanWantsFallback(scan: SecurityFallbackFacts): boolean 
   );
 }
 
-export type SecurityFallbackQueued = Readonly<{
-  projectId: string;
-  /** The failed scan. */
-  fromScanId: string;
-  scanId: string;
-}>;
-
 type Candidate = Readonly<{
   project_id: string;
   id: string;
@@ -61,17 +46,13 @@ type Candidate = Readonly<{
   open_request_id: string | null;
 }>;
 
-/**
- * Queues the fallback scans that are due. With `projectId`, only that project (after an
- * ingest). Returns what was queued; a refusal (no stored code, a scan already waiting)
- * is logged and skipped.
- */
+/** Queues the fallback scans that are due; a refusal is logged and skipped. */
 export async function queueSecurityFallbackScans(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>,
   db: Db,
   policy: SecurityPolicy,
   options: Readonly<{ now: number; projectId?: string }>,
-): Promise<Array<SecurityFallbackQueued>> {
+) {
   if (
     !policy.fallbackToCf ||
     policy.mode === 'disabled' ||
@@ -82,9 +63,7 @@ export async function queueSecurityFallbackScans(
   const since = new Date(options.now - SECURITY_FALLBACK_MAX_AGE_MS).toISOString();
   const project =
     options.projectId === undefined ? sql`` : sql`AND s.project_id = ${options.projectId}`;
-  // The project's newest scan, if it is a third-party failure of the live deployment
-  // (the same rule as `securityScanWantsFallback`). A local check (M32) scans no
-  // deployment, so a newer one never hides the deploy scan's failure.
+  // The newest non-local scan, by the rule of `securityScanWantsFallback`.
   const result = await db.execute(sql`
     SELECT latest.project_id, latest.id, latest.trigger, latest.coverage_notes,
            (SELECT r.id FROM security_public_requests r
@@ -108,7 +87,7 @@ export async function queueSecurityFallbackScans(
     ORDER BY latest.finished_at ASC
     LIMIT 50`);
   const rows = result.rows as Array<Candidate>;
-  const queued: Array<SecurityFallbackQueued> = [];
+  const queued: Array<{ projectId: string; fromScanId: string; scanId: string }> = [];
   for (const row of rows) {
     try {
       const { scanId } = await queueSecurityRescan(env, db, row.project_id, {

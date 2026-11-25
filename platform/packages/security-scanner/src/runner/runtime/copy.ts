@@ -4,17 +4,20 @@
 // get one tool, `copy_request`; every call is recorded so a confirmation that names a
 // request can be checked against what really happened.
 
+import {
+  COPY_CONTROL_PREFIX,
+  COPY_HEADER,
+  COPY_HOST,
+  COPY_READY_PATH,
+} from '../../../../api/src/security/runtime-copy-names.ts';
 import type { SessionTool } from '../engines/types.ts';
 import { RUNTIME_PROOF_METHODS } from '../report.ts';
 import type { FindingRecord } from '../report.ts';
+import { delay } from '../util.ts';
 
-export const COPY_BASE_URL = 'http://copy.void.internal';
-export const COPY_HEADER = 'x-void-copy';
-export const COPY_READY_PATH = '/__void_copy/ready';
-/** Routes the copy's own entry answers before the app runs (ready check, test rows). */
-export const COPY_CONTROL_PREFIX = '/__void_copy/';
+const COPY_BASE_URL = `http://${COPY_HOST}`;
 
-export const COPY_LIMITS = {
+const COPY_LIMITS = {
   /** Requests one verify session may send. */
   requestsPerSession: 20,
   bodyBytes: 64 * 1024,
@@ -38,15 +41,13 @@ export type CopyRequestRecord = {
   status: number;
   /** The copy itself answered (not the controller saying it is unavailable). */
   dispatched: boolean;
-  /** A copy setup route (`/__void_copy/…`): the app's code never ran, so never proof. */
-  control: boolean;
 };
 
 /**
- * Whether a request reaches the copy's own setup routes. The path is read the way
- * `fetch` and the copy's entry read it (`/x/../__void_copy/d1` included).
+ * Whether a request reaches the copy's own setup routes, where the app's code never runs.
+ * The path is read the way `fetch` and the copy's entry read it (`/x/../__void_copy/d1`).
  */
-export function isCopyControlPath(path: string): boolean {
+function isCopyControlPath(path: string): boolean {
   try {
     return new URL(path, COPY_BASE_URL).pathname.startsWith(COPY_CONTROL_PREFIX);
   } catch {
@@ -54,28 +55,40 @@ export function isCopyControlPath(path: string): boolean {
   }
 }
 
-export type CopyClientOptions = {
-  baseUrl?: string;
-  fetch?: typeof fetch;
-  signal?: AbortSignal;
-  /** Tests shorten the ready wait. */
-  readyWaitMs?: number;
-  readyPollMs?: number;
+const COPY_TOOL_DESCRIPTION = [
+  'Send one HTTP request to a throwaway copy of this deployment: the same code, with EMPTY databases (tables exist, no rows), fake secrets and no outbound network. It is never the live app.',
+  'Use it to prove or disprove the candidate at runtime. Seed test data first when you need rows: POST /__void_copy/d1 with {"binding","sql","params"} runs one SQL statement on a copy D1 binding; POST /__void_copy/kv with {"binding","key","value"} writes one KV key; GET /__void_copy/ready lists the bindings.',
+  `Each call gets an id (r1, r2, …). At most ${COPY_LIMITS.requestsPerSession} calls.`,
+].join(' ');
+
+const COPY_TOOL_PARAMETERS = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['method', 'path'],
+  properties: {
+    method: { type: 'string', enum: [...RUNTIME_PROOF_METHODS] },
+    path: {
+      type: 'string',
+      maxLength: COPY_LIMITS.pathChars,
+      description: 'Path and query, starting with "/" (for example "/api/items?id=2").',
+    },
+    headers: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description: 'Request headers, for example a cookie for a test user.',
+    },
+    body: { type: 'string', maxLength: COPY_LIMITS.bodyBytes },
+  },
 };
 
-/** One session's `copy_request` tool and the requests it sent. */
-export type CopySessionTool = { tool: SessionTool; requests: Array<CopyRequestRecord> };
-
 export class CopyClient {
-  readonly #baseUrl: string;
   readonly #fetch: typeof fetch;
-  readonly #options: CopyClientOptions;
+  readonly #signal: AbortSignal | undefined;
   #next = 1;
 
-  constructor(options: CopyClientOptions = {}) {
-    this.#baseUrl = options.baseUrl ?? COPY_BASE_URL;
+  constructor(options: { fetch?: typeof fetch; signal?: AbortSignal } = {}) {
     this.#fetch = options.fetch ?? fetch;
-    this.#options = options;
+    this.#signal = options.signal;
   }
 
   /**
@@ -83,15 +96,10 @@ export class CopyClient {
    * is no copy route at all (an older controller: the catch-all deny), or the wait ends.
    */
   async waitReady(): Promise<boolean> {
-    const waitMs = this.#options.readyWaitMs ?? COPY_LIMITS.readyWaitMs;
-    const pollMs = this.#options.readyPollMs ?? COPY_LIMITS.readyPollMs;
-    const until = Date.now() + waitMs;
-    for (;;) {
-      if (this.#options.signal?.aborted) {
-        return false;
-      }
+    const until = Date.now() + COPY_LIMITS.readyWaitMs;
+    while (!this.#signal?.aborted) {
       try {
-        const response = await this.#fetch(`${this.#baseUrl}${COPY_READY_PATH}`, {
+        const response = await this.#fetch(`${COPY_BASE_URL}${COPY_READY_PATH}`, {
           signal: AbortSignal.timeout(COPY_LIMITS.timeoutMs),
         });
         const marker = response.headers.get(COPY_HEADER);
@@ -106,42 +114,21 @@ export class CopyClient {
       } catch {
         // Not reachable yet.
       }
-      if (Date.now() + pollMs > until) {
+      if (Date.now() + COPY_LIMITS.readyPollMs > until) {
         return false;
       }
-      await delay(pollMs, this.#options.signal);
+      await delay(COPY_LIMITS.readyPollMs, this.#signal);
     }
+    return false;
   }
 
   /** A `copy_request` tool for one verify session, with its own record of requests. */
-  sessionTool(): CopySessionTool {
+  sessionTool() {
     const requests: Array<CopyRequestRecord> = [];
     const tool: SessionTool = {
       name: 'copy_request',
-      description: [
-        'Send one HTTP request to a throwaway copy of this deployment: the same code, with EMPTY databases (tables exist, no rows), fake secrets and no outbound network. It is never the live app.',
-        'Use it to prove or disprove the candidate at runtime. Seed test data first when you need rows: POST /__void_copy/d1 with {"binding","sql","params"} runs one SQL statement on a copy D1 binding; POST /__void_copy/kv with {"binding","key","value"} writes one KV key; GET /__void_copy/ready lists the bindings.',
-        `Each call gets an id (r1, r2, …). At most ${COPY_LIMITS.requestsPerSession} calls.`,
-      ].join(' '),
-      parameters: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['method', 'path'],
-        properties: {
-          method: { type: 'string', enum: [...RUNTIME_PROOF_METHODS] },
-          path: {
-            type: 'string',
-            maxLength: COPY_LIMITS.pathChars,
-            description: 'Path and query, starting with "/" (for example "/api/items?id=2").',
-          },
-          headers: {
-            type: 'object',
-            additionalProperties: { type: 'string' },
-            description: 'Request headers, for example a cookie for a test user.',
-          },
-          body: { type: 'string', maxLength: COPY_LIMITS.bodyBytes },
-        },
-      },
+      description: COPY_TOOL_DESCRIPTION,
+      parameters: COPY_TOOL_PARAMETERS,
       run: (args) => this.#send(args, requests),
     };
     return { tool, requests };
@@ -159,16 +146,15 @@ export class CopyClient {
       return { ok: false, text: `error: ${checked}` };
     }
     const id = `r${this.#next++}`;
+    const timeout = AbortSignal.timeout(COPY_LIMITS.timeoutMs);
     let response: Response;
     try {
-      response = await this.#fetch(`${this.#baseUrl}${checked.path}`, {
+      response = await this.#fetch(`${COPY_BASE_URL}${checked.path}`, {
         method: checked.method,
         headers: checked.headers,
-        ...(checked.body !== undefined ? { body: checked.body } : {}),
+        body: checked.body,
         redirect: 'manual',
-        signal: this.#options.signal
-          ? AbortSignal.any([this.#options.signal, AbortSignal.timeout(COPY_LIMITS.timeoutMs)])
-          : AbortSignal.timeout(COPY_LIMITS.timeoutMs),
+        signal: this.#signal ? AbortSignal.any([this.#signal, timeout]) : timeout,
       });
     } catch (error) {
       return {
@@ -184,7 +170,6 @@ export class CopyClient {
       path: checked.path,
       status: response.status,
       dispatched,
-      control: isCopyControlPath(checked.path),
     });
     const headerLines: Array<string> = [];
     response.headers.forEach((value, name) => {
@@ -205,16 +190,13 @@ export class CopyClient {
   }
 }
 
-type CheckedArgs = {
-  method: Method;
-  path: string;
-  headers: Record<string, string>;
-  body?: string;
-};
+type CheckedArgs = { method: Method; path: string; headers: Record<string, string>; body?: string };
 
 function checkArgs(args: Record<string, unknown>): CheckedArgs | string {
-  const method = typeof args.method === 'string' ? args.method.trim().toUpperCase() : '';
-  if (!(RUNTIME_PROOF_METHODS as ReadonlyArray<string>).includes(method)) {
+  const method = RUNTIME_PROOF_METHODS.find(
+    (name) => typeof args.method === 'string' && name === args.method.trim().toUpperCase(),
+  );
+  if (method === undefined) {
     return `method must be one of ${RUNTIME_PROOF_METHODS.join(', ')}`;
   }
   const path = args.path;
@@ -245,24 +227,22 @@ function checkArgs(args: Record<string, unknown>): CheckedArgs | string {
       if (typeof value !== 'string' || value.length > COPY_LIMITS.headerChars) {
         return `header ${JSON.stringify(name.slice(0, 64))} must be a string`;
       }
-      const lower = name.toLowerCase();
       // The controller owns the route: no host or copy marker from the model.
-      if (lower === 'host' || lower === COPY_HEADER || lower === 'content-length') {
-        continue;
+      if (!['host', COPY_HEADER, 'content-length'].includes(name.toLowerCase())) {
+        headers[name] = value;
       }
-      headers[name] = value;
     }
   }
-  if (args.body !== undefined && args.body !== null) {
-    if (typeof args.body !== 'string' || Buffer.byteLength(args.body) > COPY_LIMITS.bodyBytes) {
-      return `body must be a string of at most ${COPY_LIMITS.bodyBytes} bytes`;
-    }
-    if (method === 'GET' || method === 'HEAD') {
-      return 'a GET or HEAD request has no body';
-    }
-    return { method: method as Method, path, headers, body: args.body };
+  if (args.body === undefined || args.body === null) {
+    return { method, path, headers };
   }
-  return { method: method as Method, path, headers };
+  if (typeof args.body !== 'string' || Buffer.byteLength(args.body) > COPY_LIMITS.bodyBytes) {
+    return `body must be a string of at most ${COPY_LIMITS.bodyBytes} bytes`;
+  }
+  if (method === 'GET' || method === 'HEAD') {
+    return 'a GET or HEAD request has no body';
+  }
+  return { method, path, headers, body: args.body };
 }
 
 async function readCapped(response: Response, maxChars: number): Promise<string> {
@@ -273,12 +253,8 @@ async function readCapped(response: Response, maxChars: number): Promise<string>
   const decoder = new TextDecoder();
   let text = '';
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      text += decoder.decode(value, { stream: true });
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) {
+      text += decoder.decode(chunk.value, { stream: true });
       if (text.length > maxChars) {
         await reader.cancel().catch(() => undefined);
         return `${text.slice(0, maxChars)}\n[cut at ${maxChars} characters]`;
@@ -305,7 +281,7 @@ export function withVerdictSource(
     return rest;
   }
   const proof = requests.find((request) => request.id === proofRequest.trim());
-  if (!proof || !proof.dispatched || proof.control || isCopyControlPath(proof.path)) {
+  if (!proof?.dispatched || isCopyControlPath(proof.path)) {
     return rest;
   }
   return {
@@ -329,19 +305,4 @@ export function withoutRuntimeFields(record: FindingRecord): FindingRecord {
     ...rest
   } = record;
   return rest;
-}
-
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0 || signal?.aborted) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal?.addEventListener('abort', done, { once: true });
-  });
 }

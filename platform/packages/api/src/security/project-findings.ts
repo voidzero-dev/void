@@ -1,13 +1,8 @@
 /**
- * Findings for the project API (spec §9, §13.5): paged lists, one finding, comments,
- * resolve, reopen and severity edits (M35). The role filter is `securityDetailLevel`:
- *
- *   counts: open findings show F-id, severity, verdict and state only; resolved ones
- *           also show the title (spec §3)
- *   full:   everything, plus the history with comments
- *
- * Every lookup is `WHERE project_id = :id AND (id = :fid OR number = :n)`, so a finding
- * of another project is a 404.
+ * Findings for the project API (spec §9, §13.5): lists, one finding, comments, resolve,
+ * reopen and severity edits (M35). At `counts` level an open finding shows its F-id,
+ * severity, verdict and state, a resolved one its title too (spec §3). Every lookup is
+ * scoped to the project, so a finding of another project is a 404.
  */
 import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
@@ -25,6 +20,7 @@ import {
   securityDuplicateHints,
   securityFindingLabel,
   securityIso,
+  securityUrgentSql,
 } from './project-view.ts';
 import type { SecurityDetailLevel, SecurityDuplicateHint } from './project-view.ts';
 import { SECURITY_SEVERITIES, securityFindingEvents, securityFindings } from './schema.ts';
@@ -74,47 +70,11 @@ const findingColumns = {
   updatedAt: securityFindings.updated_at,
 };
 
-type FindingRow = Readonly<{
-  id: string;
-  number: number;
-  verdict: 'confirmed' | 'needs_validation';
-  severity: SecuritySeverity | null;
-  scanSeverity: SecuritySeverity | null;
-  severityOverride: SecuritySeverity | null;
-  confidence: string | null;
-  title: string;
-  category: string;
-  cwe: string | null;
-  file: string | null;
-  lineStart: number | null;
-  lineEnd: number | null;
-  detail: unknown;
-  state: 'open' | 'resolved';
-  resolution: SecurityResolution | null;
-  resolvedAt: string | null;
-  resolvedByUserId: string | null;
-  notSeenInLatest: boolean;
-  possibleDuplicateOf: string | null;
-  reopenCount: number;
-  revision: number;
-  outsideDiff: boolean;
-  source: 'scanner' | 'server';
-  verdictSource: 'static' | 'runtime';
-  fixChecked: string | null;
-  firstScanId: string;
-  lastSeenScanId: string;
-  firstDeploymentId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}>;
-
-function isUrgent(row: Pick<FindingRow, 'verdict' | 'state' | 'severity'>): boolean {
-  return (
-    row.verdict === 'confirmed' &&
-    row.state === 'open' &&
-    (row.severity === 'critical' || row.severity === 'high')
-  );
+function findingRows(db: DbOrTx, where: SQL | undefined) {
+  return db.select(findingColumns).from(securityFindings).where(where);
 }
+
+type FindingRow = Awaited<ReturnType<typeof findingRows>>[number];
 
 export interface SecurityFindingView {
   readonly [field: string]: unknown;
@@ -132,7 +92,7 @@ export function securityFindingView(
     verdict: row.verdict,
     severity: row.severity,
     state: row.state,
-    urgent: isUrgent(row),
+    urgent: row.verdict === 'confirmed' && row.state === 'open' && isUrgentSeverity(row.severity),
   };
   if (level === 'counts') {
     // Readers: titles only for resolved findings; an open one is an exploit write-up.
@@ -182,10 +142,6 @@ export function securityFindingView(
     fix: detail.fix ?? null,
   };
 }
-
-// ---------------------------------------------------------------------------
-// List and show
-// ---------------------------------------------------------------------------
 
 export type SecurityFindingFilter = Readonly<{
   state: 'open' | 'resolved' | 'all';
@@ -316,18 +272,11 @@ export async function listSecurityFindings(
   const conditions: Array<SQL | undefined> = [
     eq(securityFindings.project_id, projectId),
     filter.state === 'all' ? undefined : eq(securityFindings.state, filter.state),
-    filter.urgent
-      ? sql`${securityFindings.verdict} = 'confirmed' AND ${securityFindings.state} = 'open' AND COALESCE(${securityFindings.severity_override}, ${securityFindings.severity}) IN ('critical', 'high')`
-      : undefined,
-    filter.severity
-      ? sql`COALESCE(${securityFindings.severity_override}, ${securityFindings.severity}) = ${filter.severity}`
-      : undefined,
+    filter.urgent ? securityUrgentSql : undefined,
+    filter.severity ? sql`${effectiveSeverity} = ${filter.severity}` : undefined,
     page.afterNumber === null ? undefined : gt(securityFindings.number, page.afterNumber),
   ];
-  const rows: ReadonlyArray<FindingRow> = await db
-    .select(findingColumns)
-    .from(securityFindings)
-    .where(and(...conditions))
+  const rows = await findingRows(db, and(...conditions))
     .orderBy(asc(securityFindings.number))
     .limit(page.limit + 1);
   const more = rows.length > page.limit;
@@ -377,11 +326,7 @@ export async function showSecurityFinding(
   ref: string,
   level: SecurityDetailLevel,
 ) {
-  const [row]: ReadonlyArray<FindingRow> = await db
-    .select(findingColumns)
-    .from(securityFindings)
-    .where(refCondition(projectId, ref))
-    .limit(1);
+  const [row] = await findingRows(db, refCondition(projectId, ref)).limit(1);
   if (!row) {
     throw new SecurityFindingNotFoundError();
   }
@@ -409,10 +354,6 @@ export async function showSecurityFinding(
     ...(level === 'full' ? { events } : {}),
   };
 }
-
-// ---------------------------------------------------------------------------
-// Comment, resolve, reopen
-// ---------------------------------------------------------------------------
 
 /** A comment or reason text: a string, 1 to 4,000 characters once trimmed. */
 export function parseSecurityComment(value: unknown, field: string): string {
@@ -453,16 +394,9 @@ export async function commentOnSecurityFinding(
   }
   // The role was checked by the route, outside a transaction. A comment never changes state,
   // so a demotion landing mid-request can leave one comment with the older role. Accepted.
-  await db.insert(securityFindingEvents).values({
-    id: generateId('sfe'),
-    finding_id: row.id,
-    project_id: input.projectId,
-    actor_kind: input.actor ?? 'user',
-    actor_user_id: input.userId,
-    actor_role: input.actor ? null : input.role,
-    action: 'commented',
-    comment: input.text,
-  });
+  await db
+    .insert(securityFindingEvents)
+    .values(findingEvent(input, row.id, input.actor ? null : input.role, 'commented', input.text));
   return { ok: true as const, id: securityFindingLabel(row.number) };
 }
 
@@ -520,6 +454,26 @@ export function parseSecurityResolution(value: unknown): SecurityResolution {
 /** Who changes a finding when it is not a project member. */
 export type SecurityFindingActor = 'installation_admin';
 
+/** A history row of the finding by this caller. */
+function findingEvent(
+  input: Readonly<{ projectId: string; userId: string; actor?: SecurityFindingActor }>,
+  findingId: string,
+  role: ProjectRole | null,
+  action: 'commented' | 'resolved' | 'reopened' | 'severity_edited',
+  comment: string,
+) {
+  return {
+    id: generateId('sfe'),
+    finding_id: findingId,
+    project_id: input.projectId,
+    actor_kind: input.actor ?? ('user' as const),
+    actor_user_id: input.userId,
+    actor_role: role,
+    action,
+    comment,
+  };
+}
+
 type ChangeInput = Readonly<{
   projectId: string;
   ref: string;
@@ -541,18 +495,10 @@ async function lockFindingForChange(tx: DbOrTx, input: ChangeInput) {
   const access = input.actor
     ? { role: null }
     : await requireProjectCapability(tx, input.projectId, input.userId, 'settings');
-  const parsed = parseSecurityFindingRef(input.ref);
-  const [row]: ReadonlyArray<FindingRow & { sinkContentHash: string | null }> = await tx
+  const [row] = await tx
     .select({ ...findingColumns, sinkContentHash: securityFindings.sink_content_hash })
     .from(securityFindings)
-    .where(
-      and(
-        eq(securityFindings.project_id, input.projectId),
-        'number' in parsed
-          ? eq(securityFindings.number, parsed.number)
-          : eq(securityFindings.id, parsed.id),
-      ),
-    )
+    .where(refCondition(input.projectId, input.ref))
     .for('update')
     .limit(1);
   if (!row) {
@@ -589,15 +535,8 @@ export async function resolveSecurityFinding(
       .where(eq(securityFindings.id, row.id))
       .returning({ revision: securityFindings.revision });
     await tx.insert(securityFindingEvents).values({
-      id: generateId('sfe'),
-      finding_id: row.id,
-      project_id: input.projectId,
-      actor_kind: input.actor ?? 'user',
-      actor_user_id: input.userId,
-      actor_role: access.role,
-      action: 'resolved',
+      ...findingEvent(input, row.id, access.role, 'resolved', input.comment),
       resolution: input.resolution,
-      comment: input.comment,
     });
     return {
       ok: true as const,
@@ -632,19 +571,11 @@ export async function reopenSecurityFinding(db: Db, input: ChangeInput) {
       })
       .where(eq(securityFindings.id, row.id))
       .returning({ revision: securityFindings.revision });
-    await tx.insert(securityFindingEvents).values({
-      id: generateId('sfe'),
-      finding_id: row.id,
-      project_id: input.projectId,
-      actor_kind: input.actor ?? 'user',
-      actor_user_id: input.userId,
-      actor_role: access.role,
-      action: 'reopened',
-      comment: input.comment,
-    });
+    await tx
+      .insert(securityFindingEvents)
+      .values(findingEvent(input, row.id, access.role, 'reopened', input.comment));
     // A human reopen of an urgent finding (confirmed critical or high) is emailed (M15).
-    const urgent = row.verdict === 'confirmed' && isUrgentSeverity(row.severity);
-    if (urgent) {
+    if (row.verdict === 'confirmed' && isUrgentSeverity(row.severity)) {
       await enqueueSecurityNotification(tx, {
         kind: 'reopen',
         projectId: input.projectId,
@@ -661,10 +592,6 @@ export async function reopenSecurityFinding(db: Db, input: ChangeInput) {
     };
   });
 }
-
-// ---------------------------------------------------------------------------
-// Severity edit (M35)
-// ---------------------------------------------------------------------------
 
 /**
  * The `severity` of an edit: one of the five levels, or `null` to drop the human value
@@ -690,16 +617,10 @@ function notEditable(label: string, why: string): SecurityApiError {
 }
 
 /**
- * A person sets the severity of an open, confirmed finding (M35):
- *
- *   severity_override = the value (null: back to the scan value), sticky across scans
- *   event severity_edited {from, to, comment}, revision + 1
- *
- * Every rule reads `COALESCE(severity_override, severity)`, so lowering a critical or high
- * finding takes it out of the urgent count the way a resolve does (the route re-checks an
- * open public request after this returns), and the reopen rule compares the human value.
- * Same locks and revision check as resolve. Leads (no severity) and resolved findings
- * (reopen first) are refused.
+ * A person sets the severity of an open, confirmed finding (M35): `severity_override`,
+ * sticky across scans (`null`: back to the scan value). Every rule reads the override, so
+ * lowering an urgent finding takes it out of the urgent count like a resolve (the route
+ * re-checks an open public request). Same locks and revision check as resolve.
  */
 export async function editSecurityFindingSeverity(
   db: Db,
@@ -746,14 +667,7 @@ export async function editSecurityFindingSeverity(
       .where(eq(securityFindings.id, row.id))
       .returning({ revision: securityFindings.revision });
     await tx.insert(securityFindingEvents).values({
-      id: generateId('sfe'),
-      finding_id: row.id,
-      project_id: input.projectId,
-      actor_kind: input.actor ?? 'user',
-      actor_user_id: input.userId,
-      actor_role: access.role,
-      action: 'severity_edited',
-      comment: input.comment,
+      ...findingEvent(input, row.id, access.role, 'severity_edited', input.comment),
       severity_from: before,
       severity_to: after,
     });

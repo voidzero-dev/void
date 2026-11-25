@@ -5,7 +5,7 @@ import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { PlanAiLoggingPublishProgress } from '../../ai-logging-plans.ts';
 import { isAiLoggingMode } from '../../ai-logging-policy.ts';
-import { getPlatformCapabilities } from '../../capabilities.ts';
+import { securityAuditsEnabled } from '../../capabilities.ts';
 import type { ApiEnv } from '../../env.ts';
 import { executeAuditedMutation, operatorAuditIntent } from '../../operator/audit.ts';
 import { OperatorError, readBody } from '../../operator/common.ts';
@@ -80,11 +80,9 @@ function progress(result: {
 type PlanForm = Record<string, string | File | Array<string | File>>;
 
 /**
- * The plan's security scan cap from the edit form (M27): `securityCapMode` is
- * `inherit`, `none` or `amount` (with `securityCapUsd`). Like the AI logging
- * selector, the form may come from a cached read, so only a changed value
- * (against `securityCapInitial`) becomes part of the change. `undefined` = unchanged
- * or not shown (security audits off).
+ * The plan's scan cap from the edit form: `securityCapMode` is `inherit`, `none` or
+ * `amount`. The form may come from a cached read, so only a value changed against
+ * `securityCapInitial` is sent; `undefined` = unchanged or not shown.
  */
 function formSecurityCap(form: PlanForm): number | 'none' | 'inherit' | undefined {
   const mode = form.securityCapMode;
@@ -217,13 +215,6 @@ app.post('/preview', async (context) => {
   ) {
     throw new Error('Plan preview is unavailable.');
   }
-  // The scan cap row shows only while security audits are on (M27), as on the Plans page.
-  let securityAudits: boolean;
-  try {
-    securityAudits = getPlatformCapabilities(context.env).securityAudits;
-  } catch {
-    securityAudits = false;
-  }
   const preview: AdminPlanPreview = {
     action: selectedAction,
     target,
@@ -236,7 +227,8 @@ app.post('/preview', async (context) => {
     aiLoggingAfter: result.aiLogging.modes,
     securityCapsBefore: result.securityCaps.capsBefore,
     securityCapsAfter: result.securityCaps.caps,
-    securityAudits,
+    // The scan cap row shows only while security audits are on, as on the Plans page.
+    securityAudits: securityAuditsEnabled(context.env),
     affectedAccounts: result.affectedAccounts,
     warnings: result.warnings,
     overLimitAccounts: result.overLimitAccounts,

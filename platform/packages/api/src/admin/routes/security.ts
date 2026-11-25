@@ -5,24 +5,25 @@ import {
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { getPlatformCapabilities } from '../../capabilities.ts';
-import { getProject } from '../../db.ts';
 import type { ApiEnv } from '../../env.ts';
 import { executeAuditedMutation, operatorAuditIntent } from '../../operator/audit.ts';
 import { OperatorError } from '../../operator/common.ts';
-import { securityOperatorError } from '../../operator/security-routes.ts';
+import {
+  cancelScanThroughScheduler,
+  requireCancelableScan,
+  requireProject,
+  securityOperatorError,
+} from '../../operator/security-routes.ts';
 import { getPlatformDisplayName } from '../../platform-identity.ts';
 import { pokeSecurityScanScheduler } from '../../security/enqueue.ts';
 import {
   changeSecurityBudgets,
   parseSecurityCeilingRequest,
   queueSecurityRescan,
-  readCancelableScan,
-  SECURITY_SCAN_CANCELABLE,
   setProjectSecurityCeiling,
   setProjectSecurityPolicyOverride,
 } from '../../security/operator.ts';
 import { changeSecurityPolicy, readStoredSecurityPolicy } from '../../security/policy.ts';
-import type { SecurityPolicyChangeResult } from '../../security/policy.ts';
 import { probeAndRecord, runSecurityProbe } from '../../security/probe.ts';
 import { parseSecurityProjectPolicyRequest } from '../../security/project-policy.ts';
 import {
@@ -36,13 +37,14 @@ import { renderAdminPage } from '../react/server.ts';
 import { markBypassesSeen, SECURITY_HOME } from '../security-data.ts';
 
 type Form = Record<string, string | File | Array<string | File>>;
+type AdminContext = Context<ApiEnv>;
 
 function text(form: Form, name: string): string {
   const value = form[name];
   return typeof value === 'string' ? value : '';
 }
 
-function requireCapability(context: Pick<Context<ApiEnv>, 'env'>): void {
+function requireCapability(context: Pick<AdminContext, 'env'>): void {
   if (!getPlatformCapabilities(context.env).securityAudits) {
     throw new OperatorError(
       501,
@@ -73,9 +75,79 @@ function dollars(form: Form, name: string): number {
   return value;
 }
 
-function revision(form: Form): number | undefined {
+function withRevision(form: Form) {
   const value = Number(text(form, 'expectedRevision'));
-  return text(form, 'expectedRevision') !== '' && Number.isSafeInteger(value) ? value : undefined;
+  return text(form, 'expectedRevision') !== '' && Number.isSafeInteger(value)
+    ? { expectedRevision: value }
+    : {};
+}
+
+function acceptNotice(form: Form) {
+  return text(form, 'acceptNotice') === 'yes'
+    ? { acceptProviderNoticeVersion: SECURITY_PROVIDER_NOTICE_VERSION }
+    : {};
+}
+
+/** The form fields to post again on apply: these text fields plus the ticked boxes. */
+function repost(
+  form: Form,
+  expectedRevision: number,
+  names: ReadonlyArray<string>,
+  boxes: ReadonlyArray<string>,
+): Array<[string, string]> {
+  return [
+    ['expectedRevision', String(expectedRevision)],
+    ...names.map((name): [string, string] => [name, text(form, name)]),
+    ...boxes.flatMap((name): Array<[string, string]> =>
+      text(form, name) === 'yes' ? [[name, 'yes']] : [],
+    ),
+  ];
+}
+
+/**
+ * An audited write: refusals of the security operations map to the operator error (so
+ * the audit row keeps their status), then the browser goes to `redirect`.
+ */
+function audited<T>(
+  context: AdminContext,
+  action: string,
+  body: Record<string, unknown> | undefined,
+  redirect: string,
+  run: () => Promise<T>,
+) {
+  return executeAuditedMutation(context, operatorAuditIntent(action, body), async () => {
+    try {
+      await run();
+    } catch (error) {
+      throw securityOperatorError(error);
+    }
+    return { response: context.redirect(redirect), succeeded: true };
+  });
+}
+
+async function preview<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw securityOperatorError(error);
+  }
+}
+
+function previewPage(
+  context: AdminContext,
+  props: Readonly<{
+    title: string;
+    lines: ReadonlyArray<string>;
+    action: string;
+    fields: ReadonlyArray<[string, string]>;
+  }>,
+) {
+  return renderAdminPage(context, 'securityPreview', props.title, {
+    ...props,
+    back: SECURITY_HOME,
+    platformName: getPlatformDisplayName(context.env, context.req.url),
+    username: context.get('user').login,
+  });
 }
 
 const app = new Hono<ApiEnv>();
@@ -92,19 +164,16 @@ app.use('*', async (context, next) => {
   await next();
 });
 
-app.get('/', (context) => renderFateListPage(context, 'security'));
-app.get('/findings', (context) => renderFateListPage(context, 'security'));
-app.get('/scans', (context) => renderFateListPage(context, 'security'));
-app.get('/requests', (context) => renderFateListPage(context, 'security'));
+for (const path of ['/', '/findings', '/scans', '/requests']) {
+  app.get(path, (context) => renderFateListPage(context, 'security'));
+}
 
-// ---------------------------------------------------------------------------
-// Policy and budgets: a preview step shows the plan, a second step applies it
-// ---------------------------------------------------------------------------
+// Policy and budgets: a preview step shows the plan, a second step applies it.
 
-function policyBody(form: Form) {
-  const expectedRevision = revision(form);
-  return {
-    ...(expectedRevision === undefined ? {} : { expectedRevision }),
+app.post('/policy', async (context) => {
+  const form = (await context.req.parseBody()) as Form;
+  const body = {
+    ...withRevision(form),
     mode: text(form, 'mode'),
     publicGate: text(form, 'publicGate') === 'yes',
     defaultModel: text(form, 'defaultModel'),
@@ -114,62 +183,12 @@ function policyBody(form: Form) {
       concurrency: wholeNumber(form, 'concurrency'),
       timeoutMinutes: wholeNumber(form, 'timeoutMinutes'),
     },
-    ...(text(form, 'acceptNotice') === 'yes'
-      ? { acceptProviderNoticeVersion: SECURITY_PROVIDER_NOTICE_VERSION }
-      : {}),
+    ...acceptNotice(form),
   };
-}
-
-function policyFields(form: Form, expectedRevision: number): Array<[string, string]> {
-  const fields: Array<[string, string]> = [
-    ['expectedRevision', String(expectedRevision)],
-    ['mode', text(form, 'mode')],
-    ['defaultModel', text(form, 'defaultModel')],
-    ['concurrency', text(form, 'concurrency')],
-    ['timeoutMinutes', text(form, 'timeoutMinutes')],
-  ];
-  for (const name of ['publicGate', 'acceptNotice']) {
-    if (text(form, name) === 'yes') {
-      fields.push([name, 'yes']);
-    }
-  }
-  for (const id of SECURITY_MODEL_IDS) {
-    if (text(form, `allow:${id}`) === 'yes') {
-      fields.push([`allow:${id}`, 'yes']);
-    }
-  }
-  return fields;
-}
-
-function previewPage(
-  context: Context<ApiEnv>,
-  props: Readonly<{
-    title: string;
-    lines: ReadonlyArray<string>;
-    action: string;
-    fields: ReadonlyArray<[string, string]>;
-  }>,
-) {
-  return renderAdminPage(context, 'securityPreview', props.title, {
-    ...props,
-    back: SECURITY_HOME,
-    platformName: getPlatformDisplayName(context.env, context.req.url),
-    username: context.get('user').login,
-  });
-}
-
-app.post('/policy', async (context) => {
-  const form = (await context.req.parseBody()) as Form;
-  const body = policyBody(form);
   const db = context.get('db');
   const userId = context.get('user').id;
   if (text(form, 'step') !== 'apply') {
-    let result: SecurityPolicyChangeResult;
-    try {
-      result = await changeSecurityPolicy(db, body, { userId, preview: true });
-    } catch (error) {
-      throw securityOperatorError(error);
-    }
+    const result = await preview(() => changeSecurityPolicy(db, body, { userId, preview: true }));
     if (!('dryRun' in result)) {
       throw new OperatorError(500, 'The preview did not return a plan.');
     }
@@ -177,38 +196,27 @@ app.post('/policy', async (context) => {
       title: 'Review the security policy change',
       lines: result.preview,
       action: `${SECURITY_HOME}/policy`,
-      fields: policyFields(form, result.expectedRevision),
+      fields: repost(
+        form,
+        result.expectedRevision,
+        ['mode', 'defaultModel', 'concurrency', 'timeoutMinutes'],
+        ['publicGate', 'acceptNotice', ...SECURITY_MODEL_IDS.map((id) => `allow:${id}`)],
+      ),
     });
   }
-  return executeAuditedMutation(context, operatorAuditIntent('security/policy', body), async () => {
-    try {
-      const result = await changeSecurityPolicy(db, body, {
-        userId,
-        preview: false,
-        // Leaving `disabled` re-runs the probe (and provisions the scanner) first.
-        probe: async () =>
-          runSecurityProbe(context.env, db, (await readStoredSecurityPolicy(db)).policy),
-      });
-      if ('canceledRequests' in result && result.canceledRequests > 0) {
-        await pokeSecurityScanScheduler(context.env);
-      }
-    } catch (error) {
-      throw securityOperatorError(error);
+  return audited(context, 'security/policy', body, SECURITY_HOME, async () => {
+    const result = await changeSecurityPolicy(db, body, {
+      userId,
+      preview: false,
+      // Leaving `disabled` re-runs the probe (and provisions the scanner) first.
+      probe: async () =>
+        runSecurityProbe(context.env, db, (await readStoredSecurityPolicy(db)).policy),
+    });
+    if ('canceledRequests' in result && result.canceledRequests > 0) {
+      await pokeSecurityScanScheduler(context.env);
     }
-    return { response: context.redirect(SECURITY_HOME), succeeded: true };
   });
 });
-
-function budgetBody(form: Form) {
-  const expectedRevision = revision(form);
-  return {
-    ...(expectedRevision === undefined ? {} : { expectedRevision }),
-    platformMonthlyUsd:
-      text(form, 'platformCapOn') === 'yes' ? dollars(form, 'platformMonthlyUsd') : null,
-    projectDefaultMonthlyUsd:
-      text(form, 'projectCapsOn') === 'yes' ? dollars(form, 'projectDefaultMonthlyUsd') : null,
-  };
-}
 
 function capLine(label: string, on: boolean, usd: number): string {
   return `${label}: ${on ? `on, $${usd} / month` : 'off'}`;
@@ -216,27 +224,18 @@ function capLine(label: string, on: boolean, usd: number): string {
 
 app.post('/budget', async (context) => {
   const form = (await context.req.parseBody()) as Form;
-  const body = budgetBody(form);
+  const body = {
+    ...withRevision(form),
+    platformMonthlyUsd:
+      text(form, 'platformCapOn') === 'yes' ? dollars(form, 'platformMonthlyUsd') : null,
+    projectDefaultMonthlyUsd:
+      text(form, 'projectCapsOn') === 'yes' ? dollars(form, 'projectDefaultMonthlyUsd') : null,
+  };
   const db = context.get('db');
   if (text(form, 'step') !== 'apply') {
-    let result: Awaited<ReturnType<typeof changeSecurityBudgets>>;
-    try {
-      result = await changeSecurityBudgets(db, body, { preview: true });
-    } catch (error) {
-      throw securityOperatorError(error);
-    }
+    const result = await preview(() => changeSecurityBudgets(db, body, { preview: true }));
     if (!result.dryRun || !result.from || !result.to) {
       throw new OperatorError(500, 'The preview did not return a plan.');
-    }
-    const fields: Array<[string, string]> = [
-      ['expectedRevision', String(result.expectedRevision)],
-      ['platformMonthlyUsd', text(form, 'platformMonthlyUsd')],
-      ['projectDefaultMonthlyUsd', text(form, 'projectDefaultMonthlyUsd')],
-    ];
-    for (const name of ['platformCapOn', 'projectCapsOn']) {
-      if (text(form, name) === 'yes') {
-        fields.push([name, 'yes']);
-      }
     }
     const { from, to } = result;
     return previewPage(context, {
@@ -246,74 +245,49 @@ app.post('/budget', async (context) => {
         `${capLine('Project caps', from.projectCapsOn, from.projectDefaultMonthlyUsd)} -> ${capLine('Project caps', to.projectCapsOn, to.projectDefaultMonthlyUsd)}`,
       ],
       action: `${SECURITY_HOME}/budget`,
-      fields,
+      fields: repost(
+        form,
+        result.expectedRevision,
+        ['platformMonthlyUsd', 'projectDefaultMonthlyUsd'],
+        ['platformCapOn', 'projectCapsOn'],
+      ),
     });
   }
-  return executeAuditedMutation(context, operatorAuditIntent('security/budget', body), async () => {
-    try {
-      await changeSecurityBudgets(db, body, { preview: false });
-    } catch (error) {
-      throw securityOperatorError(error);
-    }
-    return { response: context.redirect(SECURITY_HOME), succeeded: true };
-  });
+  return audited(context, 'security/budget', body, SECURITY_HOME, () =>
+    changeSecurityBudgets(db, body, { preview: false }),
+  );
 });
 
 app.post('/probe', async (context) =>
-  executeAuditedMutation(context, operatorAuditIntent('security/probe'), async () => {
-    await probeAndRecord(context.env, context.get('db'));
-    return { response: context.redirect(SECURITY_HOME), succeeded: true };
-  }),
+  audited(context, 'security/probe', undefined, SECURITY_HOME, () =>
+    probeAndRecord(context.env, context.get('db')),
+  ),
 );
 
 app.post('/scans/:sid/cancel', async (context) => {
   const scanId = context.req.param('sid');
-  return executeAuditedMutation(
+  return audited(
     context,
-    operatorAuditIntent(`security/scans/${scanId}/cancel`),
+    `security/scans/${scanId}/cancel`,
+    undefined,
+    `${SECURITY_HOME}/scans`,
     async () => {
-      const scan = await readCancelableScan(context.get('db'), scanId);
-      if (!scan) {
-        throw new OperatorError(404, 'Scan not found.', 'not_found');
-      }
-      if (!SECURITY_SCAN_CANCELABLE.includes(scan.status)) {
-        throw new OperatorError(
-          409,
-          `Scan ${scan.id} is ${scan.status}; only a waiting or running scan can be canceled.`,
-          'security_scan_not_cancelable',
-        );
-      }
-      try {
-        const scheduler = context.env.SECURITY_SCAN_SCHEDULER;
-        await scheduler
-          .get(scheduler.idFromName('global'))
-          .cancelScans([scan.id], 'operator_canceled');
-      } catch (error) {
-        console.error('[security-scan] admin cancel failed', error);
-        throw new OperatorError(
-          502,
-          'The scan scheduler did not answer. Run the cancel again.',
-          'security_scheduler_unavailable',
-        );
-      }
-      return { response: context.redirect(`${SECURITY_HOME}/scans`), succeeded: true };
+      const scan = await requireCancelableScan(context.get('db'), scanId);
+      await cancelScanThroughScheduler(context.env, scan.id);
     },
   );
 });
 
 app.post('/bypasses/seen', async (context) =>
-  executeAuditedMutation(context, operatorAuditIntent('security/bypasses-seen'), async () => {
+  audited(context, 'security/bypasses-seen', undefined, `${SECURITY_HOME}/requests`, async () => {
     const form = (await context.req.parseBody()) as Form;
     await markBypassesSeen(context.get('db'), context.get('user').id, text(form, 'through'));
-    return { response: context.redirect(`${SECURITY_HOME}/requests`), succeeded: true };
   }),
 );
 
 export default app;
 
-// ---------------------------------------------------------------------------
-// Project detail: model, budget limit, rescan and the bypass
-// ---------------------------------------------------------------------------
+// Project detail: model, budget limit, scan rule, rescan and the bypass.
 
 export const adminProjectSecurity = new Hono<ApiEnv>();
 adminProjectSecurity.onError(renderOperationError);
@@ -329,132 +303,86 @@ adminProjectSecurity.use('/:id/security/*', async (context, next) => {
   await next();
 });
 
-async function requireProject(context: Context<ApiEnv>, projectId: string) {
-  const project = await getProject(context.get('db'), projectId);
-  if (!project) {
-    throw new OperatorError(404, 'Project not found.', 'not_found');
-  }
-  return project;
+/** One project form: audited, the project must exist, then back to its section. */
+function projectForm<T>(
+  path: string,
+  readBody: (form: Form) => Record<string, unknown>,
+  run: (context: AdminContext, projectId: string, body: Record<string, unknown>) => Promise<T>,
+) {
+  const bypass = path === 'bypass';
+  const auditPath = path === 'rescan' ? 'scans' : bypass ? 'public-request/bypass' : path;
+  adminProjectSecurity.post(`/:id/security/${path}`, async (context) => {
+    const projectId = context.req.param('id');
+    const body = readBody((await context.req.parseBody()) as Form);
+    return audited(
+      context,
+      `projects/${projectId}/security/${auditPath}`,
+      // The bypass reason is stored with the bypass record, never in the audit row.
+      bypass ? undefined : body,
+      `/admin/projects/${encodeURIComponent(projectId)}#${bypass ? 'zero-trust' : 'security'}`,
+      async () => {
+        await requireProject(context.get('db'), projectId);
+        await run(context, projectId, body);
+      },
+    );
+  });
 }
 
-function back(context: Context<ApiEnv>, projectId: string, anchor: string): Response {
-  return context.redirect(`/admin/projects/${encodeURIComponent(projectId)}#${anchor}`);
-}
+projectForm(
+  'model',
+  (form) => {
+    const model = text(form, 'model');
+    return { model: model === '' ? null : model, ...acceptNotice(form) };
+  },
+  (context, projectId, body) =>
+    setProjectSecurityModel(context.get('db'), {
+      projectId,
+      userId: context.get('user').id,
+      request: parseSecurityModelRequest(body),
+    }),
+);
 
-adminProjectSecurity.post('/:id/security/model', async (context) => {
-  const projectId = context.req.param('id');
-  const form = (await context.req.parseBody()) as Form;
-  const model = text(form, 'model');
-  const body = {
-    model: model === '' ? null : model,
-    ...(text(form, 'acceptNotice') === 'yes'
-      ? { acceptProviderNoticeVersion: SECURITY_PROVIDER_NOTICE_VERSION }
-      : {}),
-  };
-  return executeAuditedMutation(
-    context,
-    operatorAuditIntent(`projects/${projectId}/security/model`, body),
-    async () => {
-      await requireProject(context, projectId);
-      try {
-        await setProjectSecurityModel(context.get('db'), {
-          projectId,
-          userId: context.get('user').id,
-          request: parseSecurityModelRequest(body),
-        });
-      } catch (error) {
-        throw securityOperatorError(error);
-      }
-      return { response: back(context, projectId, 'security'), succeeded: true };
-    },
-  );
-});
+projectForm(
+  'budget',
+  (form) => {
+    const raw = text(form, 'monthlyUsd').trim();
+    return { monthlyUsd: raw === '' ? null : Number(raw) };
+  },
+  (context, projectId, body) =>
+    setProjectSecurityCeiling(context.get('db'), {
+      projectId,
+      userId: context.get('user').id,
+      cents: parseSecurityCeilingRequest(body),
+    }),
+);
 
-adminProjectSecurity.post('/:id/security/budget', async (context) => {
-  const projectId = context.req.param('id');
-  const form = (await context.req.parseBody()) as Form;
-  const raw = text(form, 'monthlyUsd').trim();
-  const body = { monthlyUsd: raw === '' ? null : Number(raw) };
-  return executeAuditedMutation(
-    context,
-    operatorAuditIntent(`projects/${projectId}/security/budget`, body),
-    async () => {
-      await requireProject(context, projectId);
-      try {
-        await setProjectSecurityCeiling(context.get('db'), {
-          projectId,
-          userId: context.get('user').id,
-          cents: parseSecurityCeilingRequest(body),
-        });
-      } catch (error) {
-        throw securityOperatorError(error);
-      }
-      return { response: back(context, projectId, 'security'), succeeded: true };
-    },
-  );
-});
+projectForm(
+  'policy',
+  (form) => ({ override: text(form, 'override') }),
+  (context, projectId, body) =>
+    setProjectSecurityPolicyOverride(context.get('db'), {
+      projectId,
+      userId: context.get('user').id,
+      override: parseSecurityProjectPolicyRequest(body),
+    }),
+);
 
-adminProjectSecurity.post('/:id/security/policy', async (context) => {
-  const projectId = context.req.param('id');
-  const form = (await context.req.parseBody()) as Form;
-  const body = { override: text(form, 'override') };
-  return executeAuditedMutation(
-    context,
-    operatorAuditIntent(`projects/${projectId}/security/policy`, body),
-    async () => {
-      await requireProject(context, projectId);
-      try {
-        await setProjectSecurityPolicyOverride(context.get('db'), {
-          projectId,
-          userId: context.get('user').id,
-          override: parseSecurityProjectPolicyRequest(body),
-        });
-      } catch (error) {
-        throw securityOperatorError(error);
-      }
-      return { response: back(context, projectId, 'security'), succeeded: true };
-    },
-  );
-});
+projectForm(
+  'rescan',
+  () => ({}),
+  async (context, projectId) => {
+    await queueSecurityRescan(context.env, context.get('db'), projectId);
+    await pokeSecurityScanScheduler(context.env);
+  },
+);
 
-adminProjectSecurity.post('/:id/security/rescan', async (context) => {
-  const projectId = context.req.param('id');
-  return executeAuditedMutation(
-    context,
-    operatorAuditIntent(`projects/${projectId}/security/scans`),
-    async () => {
-      await requireProject(context, projectId);
-      try {
-        await queueSecurityRescan(context.env, context.get('db'), projectId);
-      } catch (error) {
-        throw securityOperatorError(error);
-      }
-      await pokeSecurityScanScheduler(context.env);
-      return { response: back(context, projectId, 'security'), succeeded: true };
-    },
-  );
-});
-
-adminProjectSecurity.post('/:id/security/bypass', async (context) => {
-  const projectId = context.req.param('id');
-  const form = (await context.req.parseBody()) as Form;
-  // The reason is stored with the bypass record and never copied into the audit row.
-  const reason = text(form, 'reason');
-  return executeAuditedMutation(
-    context,
-    operatorAuditIntent(`projects/${projectId}/security/public-request/bypass`),
-    async () => {
-      await requireProject(context, projectId);
-      try {
-        await bypassPublicRequest(context.env, context.get('db'), {
-          projectId,
-          reason,
-          actor: { kind: 'installation_admin', userId: context.get('user').id, role: null },
-        });
-      } catch (error) {
-        throw securityOperatorError(error);
-      }
-      return { response: back(context, projectId, 'zero-trust'), succeeded: true };
-    },
-  );
-});
+projectForm(
+  'bypass',
+  (form) => ({ reason: text(form, 'reason') }),
+  (context, projectId, body) =>
+    bypassPublicRequest(context.env, context.get('db'), {
+      projectId,
+      reason: body.reason,
+      actor: { kind: 'installation_admin', userId: context.get('user').id, role: null },
+    }),
+);

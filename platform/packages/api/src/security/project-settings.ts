@@ -1,8 +1,8 @@
 /**
- * Project-level security settings (spec §8.3, §16.2): the scan model and the monthly
- * cap. Both need `settings` and a platform with the capability on; the route checks
- * those. The rules for what may be picked live here.
+ * Project security settings (spec §8.3, §16.2): the scan model and the monthly cap, with
+ * the rules for what may be picked. The route checks `settings` and the capability.
  */
+import { isRecord } from '@void/deploy-core';
 import {
   isSecurityModelId,
   isSecurityModelPriced,
@@ -39,10 +39,6 @@ import {
   securityScans,
 } from './schema.ts';
 
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
-
 export type SecurityModelRequest = Readonly<{
   /** `null` = use the installation default. */
   model: string | null;
@@ -50,14 +46,13 @@ export type SecurityModelRequest = Readonly<{
 }>;
 
 export function parseSecurityModelRequest(body: unknown): SecurityModelRequest {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+  if (!isRecord(body)) {
     throw SecurityApiError.invalid('Send a JSON body such as {"model":"@cf/zai-org/glm-5.3"}.');
   }
-  const record = body as Record<string, unknown>;
-  if (!('model' in record) || (record.model !== null && typeof record.model !== 'string')) {
+  if (!('model' in body) || (body.model !== null && typeof body.model !== 'string')) {
     throw SecurityApiError.invalid('model must be a model id, or null for the platform default.');
   }
-  const accept = record.acceptProviderNoticeVersion;
+  const accept = body.acceptProviderNoticeVersion;
   if (
     accept !== undefined &&
     accept !== null &&
@@ -65,27 +60,20 @@ export function parseSecurityModelRequest(body: unknown): SecurityModelRequest {
   ) {
     throw SecurityApiError.invalid('acceptProviderNoticeVersion must be a whole number.');
   }
-  return { model: record.model, acceptProviderNoticeVersion: accept ?? null };
+  return { model: body.model, acceptProviderNoticeVersion: accept ?? null };
 }
 
-// ---------------------------------------------------------------------------
-// Refusal rate (PRD §16: "high refusal" badge above 30%)
-// ---------------------------------------------------------------------------
-
-/** A model is badged "High refusal" above this share of refused scans… */
-export const SECURITY_HIGH_REFUSAL_RATE = 0.3;
-/** …over the scans that ended in these many days… */
-export const SECURITY_HIGH_REFUSAL_DAYS = 30;
-/** …once at least this many ended (fewer says nothing). */
-export const SECURITY_HIGH_REFUSAL_MIN_SCANS = 10;
 export const SECURITY_HIGH_REFUSAL_BADGE = 'High refusal';
 
-/** Models whose scans of the last 30 days were refused more than 30% of the time. */
+/**
+ * Models badged "High refusal" (PRD §16): over 30% of the scans that ended in the last 30
+ * days were refused, once at least 10 ended (fewer says nothing).
+ */
 export async function readSecurityHighRefusalModels(
   db: Db,
   now: number = Date.now(),
 ): Promise<ReadonlySet<string>> {
-  const since = new Date(now - SECURITY_HIGH_REFUSAL_DAYS * 24 * 60 * 60_000).toISOString();
+  const since = new Date(now - 30 * 24 * 60 * 60_000).toISOString();
   const rows = await db
     .select({
       model: securityScans.model_used,
@@ -109,11 +97,7 @@ export async function readSecurityHighRefusalModels(
     .groupBy(securityScans.model_used);
   const models = new Set<string>();
   for (const row of rows) {
-    if (
-      row.model !== null &&
-      row.ended >= SECURITY_HIGH_REFUSAL_MIN_SCANS &&
-      row.refused > row.ended * SECURITY_HIGH_REFUSAL_RATE
-    ) {
+    if (row.model !== null && row.ended >= 10 && row.refused > row.ended * 0.3) {
       models.add(row.model);
     }
   }
@@ -132,37 +116,19 @@ export function securityPickerBadges(
   return badges;
 }
 
-/** One model a project admin may pick now: the same rules `setProjectSecurityModel` checks. */
-export type SecurityModelChoice = Readonly<{
-  id: SecurityModelId;
-  provider: string;
-  thirdParty: boolean;
-  badges: ReadonlyArray<string>;
-  /** The provider notice to read before a third-party model is used; `null` for `@cf/*`. */
-  notice: ReadonlyArray<string> | null;
-}>;
+export type SecurityModelChoices = ReturnType<typeof securityProjectModelChoices>;
 
-export type SecurityModelChoices = Readonly<{
-  defaultModel: SecurityModelId;
-  /**
-   * The project's saved model, `null` when it follows the platform default. The picker
-   * selects this, so a project that named the default model keeps that choice on save.
-   */
-  saved: string | null;
-  /** The platform default's provider notice when it is a third-party model, else `null`. */
-  defaultNotice: Readonly<{ provider: string; notice: ReadonlyArray<string> }> | null;
-  /** The notice version a form sends back when its box is ticked. */
-  noticeVersion: number;
-  choices: ReadonlyArray<SecurityModelChoice>;
-}>;
-
-/** The page and dashboard model pickers list these; anything else would be refused. */
-export function securityProjectModelChoices(
+/**
+ * What the page and dashboard model pickers list: the same rules `setProjectSecurityModel`
+ * checks. `saved` is the project's own model (`null`: it follows the default), so a project
+ * that named the default keeps that choice on save.
+ */
+function securityProjectModelChoices(
   policy: SecurityPolicy,
   saved: string | null,
-  highRefusal: ReadonlySet<string> = new Set(),
-): SecurityModelChoices {
-  const choices = SECURITY_MODELS.flatMap((model): Array<SecurityModelChoice> => {
+  highRefusal: ReadonlySet<string>,
+) {
+  const choices = SECURITY_MODELS.flatMap((model) => {
     if (!isSecurityModelPriced(model.id) || policy.blockedModels.includes(model.id)) {
       return [];
     }
@@ -304,16 +270,16 @@ export async function setProjectSecurityModel(
   return { ok: true as const, model: securityProjectModelView(policy, next) };
 }
 
-// ---------------------------------------------------------------------------
-// Budget
-// ---------------------------------------------------------------------------
-
-/** The new own cap in cents; `null` clears it. Whole cents, $0 up to $1,000,000. */
+/** The new own cap in cents; `null` clears it. */
 export function parseSecurityBudgetRequest(body: unknown): number | null {
-  if (!body || typeof body !== 'object' || Array.isArray(body) || !('monthlyUsd' in body)) {
+  if (!isRecord(body) || !('monthlyUsd' in body)) {
     throw SecurityApiError.invalid('Send a JSON body such as {"monthlyUsd":50}, or null to clear.');
   }
-  const usd = body.monthlyUsd;
+  return parseSecurityMonthlyUsd(body.monthlyUsd);
+}
+
+/** `monthlyUsd` in whole cents, $0 up to $1,000,000; `null` clears the cap. */
+export function parseSecurityMonthlyUsd(usd: unknown): number | null {
   if (usd === null) {
     return null;
   }
@@ -329,7 +295,7 @@ export function parseSecurityBudgetRequest(body: unknown): number | null {
   return cents;
 }
 
-/** `PUT /projects/:id/security/budget`. Writes a `cap_changed` event when the cap moves. */
+/** `PUT /projects/:id/security/budget`: a project admin sets the project's own cap. */
 export async function setProjectSecurityBudget(
   db: Db,
   input: Readonly<{
@@ -340,9 +306,26 @@ export async function setProjectSecurityBudget(
     cents: number | null;
   }>,
 ) {
+  return writeSecurityProjectCap(db, { ...input, by: { role: input.role, slug: input.slug } });
+}
+
+/**
+ * Sets a project's own cap (`by` a project admin, within the ceiling) or the ceiling (`by`
+ * an installation admin), and writes a `cap_changed` event when it moves.
+ */
+export async function writeSecurityProjectCap(
+  db: Db,
+  input: Readonly<{
+    projectId: string;
+    userId: string;
+    cents: number | null;
+    by: Readonly<{ role: ProjectRole; slug: string }> | 'installation_admin';
+  }>,
+) {
   const policy = await readSecurityPolicyLenient(db);
+  const admin = input.by === 'installation_admin' ? null : input.by;
   const caps = await db.transaction(async (tx) => {
-    // The row is created first so the update below can lock it.
+    // The row is created first so the select below can lock it.
     await tx
       .insert(projectSecuritySettings)
       .values({ project_id: input.projectId })
@@ -361,15 +344,18 @@ export async function setProjectSecurityBudget(
       capCeilingCents: current?.capCeilingCents ?? null,
       planCap: readSecurityPlanCapCell(current?.planCap),
     };
-    assertSecurityProjectCapAllowed(input.cents, securityProjectCeiling(before, policy.budgets), {
-      id: input.projectId,
-      slug: input.slug,
-    });
-    if (before.monthlyCapCents !== input.cents) {
+    if (admin) {
+      assertSecurityProjectCapAllowed(input.cents, securityProjectCeiling(before, policy.budgets), {
+        id: input.projectId,
+        slug: admin.slug,
+      });
+    }
+    const old = admin ? before.monthlyCapCents : before.capCeilingCents;
+    if (old !== input.cents) {
       await tx
         .update(projectSecuritySettings)
         .set({
-          monthly_cap_cents: input.cents,
+          ...(admin ? { monthly_cap_cents: input.cents } : { cap_ceiling_cents: input.cents }),
           cap_updated_by_user_id: input.userId,
           cap_updated_at: sql`now()`,
           updated_by_user_id: input.userId,
@@ -379,20 +365,18 @@ export async function setProjectSecurityBudget(
       await tx.insert(securityProjectEvents).values({
         id: generateId('spe'),
         project_id: input.projectId,
-        actor_kind: 'user',
+        actor_kind: admin ? 'user' : 'installation_admin',
         actor_user_id: input.userId,
-        actor_role: input.role,
+        actor_role: admin?.role ?? null,
         action: 'cap_changed',
-        cap_kind: 'own',
-        old_cents: before.monthlyCapCents,
+        cap_kind: admin ? 'own' : 'ceiling',
+        old_cents: old,
         new_cents: input.cents,
       });
     }
-    return {
-      monthlyCapCents: input.cents,
-      capCeilingCents: before.capCeilingCents,
-      planCap: before.planCap,
-    };
+    return admin
+      ? { ...before, monthlyCapCents: input.cents }
+      : { ...before, capCeilingCents: input.cents };
   });
   return {
     ok: true as const,

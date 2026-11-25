@@ -3,16 +3,9 @@ import {
   parseSecurityFindingLabel,
   parseSecurityUsdText,
 } from '@void/platform/security-policy';
-/**
- * The project security page in the dashboard (Phase 2, M29). It reads and writes only
- * through the API's project security routes, so the rules (roles, revisions, caps, the
- * provider notice, the public gate) are the API's:
- *
- *   loader  GET /projects ─► slug → id + role ─► GET …/security, …/findings, …/scans
- *   ?resolve ?comment ?model ?budget ?bypass
- *           same origin? ─► POST/PUT on the API with the session token
- *           ok ─► 303 back with ?done=<what>   refused ─► the page again with the reason
- */
+// The project security page (M29). It reads and writes only through the API's project
+// security routes, so every rule is the API's. Actions redirect with `?done=`, or show
+// the page again with the API's reason.
 import type { Context } from 'hono';
 import { defineHandler, defineHead } from 'void';
 import { apiClient, fetchApi, getApiErrorMessage, readApiJson } from '../../../lib/api.ts';
@@ -59,22 +52,13 @@ export const SECURITY_DONE_COPY: SecurityDoneCopy = {
 };
 
 /** A project id as the API writes it: 1 to 64 of `A-Z a-z 0-9 _ -`. */
+const PROJECT_ID_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
 function isProjectId(value: string): boolean {
-  if (value.length === 0 || value.length > 64) {
-    return false;
-  }
-  for (const char of value) {
-    const ok =
-      (char >= 'a' && char <= 'z') ||
-      (char >= 'A' && char <= 'Z') ||
-      (char >= '0' && char <= '9') ||
-      char === '_' ||
-      char === '-';
-    if (!ok) {
-      return false;
-    }
-  }
-  return true;
+  return (
+    value.length > 0 &&
+    value.length <= 64 &&
+    Array.from(value).every((char) => PROJECT_ID_CHARS.includes(char))
+  );
 }
 
 export const head = defineHead<Props>((_context, props) => ({
@@ -110,8 +94,12 @@ async function getJson<T>(context: Context, url: URL): Promise<T> {
   return body;
 }
 
+function security(context: Context) {
+  return apiClient(context).projects[':id'].security;
+}
+
 function findingsUrl(context: Context, id: string, state: 'open' | 'resolved'): URL {
-  const url = apiClient(context).projects[':id'].security.findings.$url({ param: { id } });
+  const url = security(context).findings.$url({ param: { id } });
   url.searchParams.set('state', state);
   url.searchParams.set('limit', '100');
   return url;
@@ -128,7 +116,7 @@ export const loader = defineHandler<Props>(async (context) => {
     if (!project) {
       return { ...empty, project: null, status: null };
     }
-    const client = apiClient(context).projects[':id'].security;
+    const client = security(context);
     const param = { param: { id: project.id } };
     const [status, open, resolved, scans] = await Promise.all([
       getJson<ProjectSecurityBody>(context, client.$url(param)),
@@ -229,7 +217,7 @@ function findingUrl(
   if (parseSecurityFindingLabel(fid) === null) {
     return null;
   }
-  return apiClient(context).projects[':id'].security.findings[':fid'][action].$url({
+  return security(context).findings[':fid'][action].$url({
     param: { id: projectId, fid },
   });
 }
@@ -257,30 +245,22 @@ export const actions = {
   model: securityAction('model', async (context, projectId, body) => {
     const model = field(body, 'model');
     const version = Number(field(body, 'noticeVersion'));
-    return send(
-      context,
-      apiClient(context).projects[':id'].security.model.$url({ param: { id: projectId } }),
-      'PUT',
-      {
-        model: model === '' ? null : model,
-        // The version the page showed: a notice changed since then is refused.
-        ...(field(body, 'acceptProviderNotice') === '1'
-          ? { acceptProviderNoticeVersion: version }
-          : {}),
-      },
-    );
+    return send(context, security(context).model.$url({ param: { id: projectId } }), 'PUT', {
+      model: model === '' ? null : model,
+      // The version the page showed: a notice changed since then is refused.
+      ...(field(body, 'acceptProviderNotice') === '1'
+        ? { acceptProviderNoticeVersion: version }
+        : {}),
+    });
   }),
   budget: securityAction('budget', async (context, projectId, body) => {
     const monthlyUsd = parseSecurityUsdText(field(body, 'usd'));
     if (monthlyUsd === undefined) {
       return 'Enter a dollar amount such as 50 or 12.50, or leave it empty to remove the cap.';
     }
-    return send(
-      context,
-      apiClient(context).projects[':id'].security.budget.$url({ param: { id: projectId } }),
-      'PUT',
-      { monthlyUsd },
-    );
+    return send(context, security(context).budget.$url({ param: { id: projectId } }), 'PUT', {
+      monthlyUsd,
+    });
   }),
   bypass: securityAction('bypassed', async (context, projectId, body) => {
     if (field(body, 'confirm') !== '1') {

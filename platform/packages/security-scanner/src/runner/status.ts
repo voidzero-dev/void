@@ -39,67 +39,44 @@ const STOP_REASONS: Readonly<Record<StopReason, RunnerStatusReason>> = {
   budget: 'budget',
 };
 
+function fields(
+  status: RunnerScanStatus,
+  reason: RunnerStatusReason | null,
+  errorClass: string | null = null,
+  refusalCategory: string | null = null,
+): StatusFields {
+  return { status, reason, errorClass, refusalCategory };
+}
+
 /** Scan status for a session that ended without a usable report. */
 export function outcomeStatus(outcome: Exclude<OutcomeBody, { kind: 'submitted' }>): StatusFields {
   switch (outcome.kind) {
     case 'refused':
-      return {
-        status: 'refused',
-        reason: null,
-        errorClass: null,
-        refusalCategory: outcome.category,
-      };
+      return fields('refused', null, null, outcome.category);
     case 'bad_output':
-      return {
-        status: 'failed',
-        reason: 'bad_output',
-        errorClass: outcome.errorKind,
-        refusalCategory: null,
-      };
+      return fields('failed', 'bad_output', outcome.errorKind);
     case 'stopped':
-      return {
-        status: 'incomplete',
-        reason: STOP_REASONS[outcome.reason],
-        errorClass: null,
-        refusalCategory: null,
-      };
+      return fields('incomplete', STOP_REASONS[outcome.reason]);
     case 'credits':
-      return { status: 'failed', reason: 'credits', errorClass: null, refusalCategory: null };
+      return fields('failed', 'credits');
     case 'infrastructure':
-      return {
-        status: 'failed',
-        reason: 'infrastructure',
-        errorClass: outcome.errorClass,
-        refusalCategory: null,
-      };
+      return fields('failed', 'infrastructure', outcome.errorClass);
     case 'aborted':
-      return { status: 'timed_out', reason: 'wall_clock', errorClass: null, refusalCategory: null };
+      return fields('timed_out', 'wall_clock');
   }
 }
 
-// ---------------------------------------------------------------------------
-// Model proxy stops. The proxy (M7) answers a refused call with a non-2xx status
-// and `x-void-scan-stop: <reason>`; every engine reaches the model through it.
-// ---------------------------------------------------------------------------
+// Model proxy stops. The proxy (M7) answers a refused call with a non-2xx status and
+// `x-void-scan-stop: <reason>`; every engine reaches the model through it.
 
 export const PROXY_STOP_HEADER = 'x-void-scan-stop';
-export const PROXY_STOP_REASONS = [
-  'session_calls',
-  'scan_calls',
-  'tokens',
-  'budget',
-  'credits',
-] as const;
+const PROXY_STOP_REASONS = ['session_calls', 'scan_calls', 'tokens', 'budget', 'credits'] as const;
 export type ProxyStopReason = (typeof PROXY_STOP_REASONS)[number];
+export type ProxyStop = { httpStatus: number; reason: ProxyStopReason | null };
 
 export function readProxyStopReason(value: string | null | undefined): ProxyStopReason | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const trimmed = value.trim();
-  return (PROXY_STOP_REASONS as ReadonlyArray<string>).includes(trimmed)
-    ? (trimmed as ProxyStopReason)
-    : null;
+  const trimmed = value?.trim();
+  return PROXY_STOP_REASONS.find((reason) => reason === trimmed) ?? null;
 }
 
 /** A proxy stop, or `null` when the failure is not one (the caller treats it as infrastructure). */
@@ -110,17 +87,11 @@ export function classifyProxyStop(
   if (reason === 'credits' || (reason === null && httpStatus === 402)) {
     return { kind: 'credits' };
   }
-  if (reason !== null) {
-    return { kind: 'stopped', reason };
-  }
-  return null;
+  return reason === null ? null : { kind: 'stopped', reason };
 }
 
-// ---------------------------------------------------------------------------
-// Engine A (Claude Agent SDK) and Engine C (Codex SDK) signals. M13 feeds these
-// from the SDK result message and the Codex event stream; spikes S2/S3 record the
-// exact wording. Kept here so all three engines share one mapping.
-// ---------------------------------------------------------------------------
+// Engine A (Claude Agent SDK) and Engine C (Codex SDK) signals; spikes S2/S3 record the
+// exact wording.
 
 /** The parts of an Agent SDK `result` message the mapping needs. */
 export type ClaudeResultSignal = {
@@ -128,19 +99,18 @@ export type ClaudeResultSignal = {
   stopReason?: string | null;
   stopCategory?: string | null;
   structuredOutput?: unknown;
-  /** The result's `is_error`: Claude Code reports an API failure as `subtype: "success"` with this set (S2). */
+  /** Claude Code reports an API failure as `subtype: "success"` with `is_error` set (S2). */
   isError?: boolean;
   /** The result's `result` text, for example `API Error: 402 …`. */
   resultText?: string | null;
-  proxyStop?: { httpStatus: number; reason: ProxyStopReason | null } | null;
+  proxyStop?: ProxyStop | null;
 };
 
 export function classifyClaudeResult(signal: ClaudeResultSignal): OutcomeBody {
-  if (signal.proxyStop) {
-    const stop = classifyProxyStop(signal.proxyStop.httpStatus, signal.proxyStop.reason);
-    if (stop) {
-      return stop;
-    }
+  const stop =
+    signal.proxyStop && classifyProxyStop(signal.proxyStop.httpStatus, signal.proxyStop.reason);
+  if (stop) {
+    return stop;
   }
   if (signal.stopReason === 'refusal') {
     return { kind: 'refused', category: signal.stopCategory ?? null };
@@ -168,32 +138,32 @@ export function classifyClaudeResult(signal: ClaudeResultSignal): OutcomeBody {
   }
 }
 
-/** The HTTP status in an `API Error: 402 …` text, or `null`. */
-export function apiErrorStatus(text: string | null): number | null {
-  if (text === null) {
-    return null;
-  }
-  const marker = 'API Error: ';
-  const at = text.indexOf(marker);
-  if (at === -1) {
-    return null;
-  }
-  const digits = text.slice(at + marker.length, at + marker.length + 3);
-  const status = Number(digits);
-  return digits.length === 3 && Number.isInteger(status) && status >= 100 && status <= 599
-    ? status
-    : null;
-}
-
+/** The outcome of an `API Error: 402 …` text: credits, a model HTTP error, or an SDK error. */
 function apiErrorOutcome(text: string | null): OutcomeBody {
-  const status = apiErrorStatus(text);
+  const marker = 'API Error: ';
+  const at = text?.indexOf(marker) ?? -1;
+  const digits = text?.slice(at + marker.length, at + marker.length + 3) ?? '';
+  const status = Number(digits);
+  if (
+    at === -1 ||
+    digits.length !== 3 ||
+    !Number.isInteger(status) ||
+    status < 100 ||
+    status > 599
+  ) {
+    return {
+      kind: 'infrastructure',
+      errorClass: 'agent_sdk_error',
+      detail: 'agent SDK reported an error',
+    };
+  }
   if (status === 402) {
     return { kind: 'credits' };
   }
   return {
     kind: 'infrastructure',
-    errorClass: status === null ? 'agent_sdk_error' : `model_http_${status}`,
-    detail: status === null ? 'agent SDK reported an error' : `model call answered ${status}`,
+    errorClass: `model_http_${status}`,
+    detail: `model call answered ${status}`,
   };
 }
 
@@ -208,15 +178,14 @@ export type CodexRunSignal = {
   finalMessage: string | null;
   exitCode: number | null;
   /** Codex sees a proxy stop only as a failed call, so the runner asks the proxy why. */
-  proxyStop: { httpStatus: number; reason: ProxyStopReason | null } | null;
+  proxyStop: ProxyStop | null;
 };
 
 const CODEX_POLICY_CODES = ['cyber_policy', 'trusted_access_for_cyber'];
 
 /**
- * The failure text as lower-case letters and digits only, so `cyber_policy`, Codex's own
- * `cyber policy: <message>` (spike S9), `cyber  policy`, a line break between the words
- * and the Debug form `CyberPolicy { … }` all read the same.
+ * Lower-case letters and digits only, so `cyber_policy`, Codex's `cyber policy: …`
+ * (spike S9), a line break between the words and `CyberPolicy { … }` read the same.
  */
 function policyText(value: string): string {
   let out = '';
@@ -229,11 +198,10 @@ function policyText(value: string): string {
 }
 
 export function classifyCodexRun(signal: CodexRunSignal): OutcomeBody {
-  if (signal.proxyStop) {
-    const stop = classifyProxyStop(signal.proxyStop.httpStatus, signal.proxyStop.reason);
-    if (stop) {
-      return stop;
-    }
+  const stop =
+    signal.proxyStop && classifyProxyStop(signal.proxyStop.httpStatus, signal.proxyStop.reason);
+  if (stop) {
+    return stop;
   }
   const failureText = policyText(`${signal.failure?.code ?? ''} ${signal.failure?.message ?? ''}`);
   const policyCode = CODEX_POLICY_CODES.find((code) => failureText.includes(policyText(code)));
@@ -251,11 +219,7 @@ export function classifyCodexRun(signal: CodexRunSignal): OutcomeBody {
     };
   }
   if (signal.failure) {
-    return {
-      kind: 'infrastructure',
-      errorClass: 'codex_turn_failed',
-      detail: 'codex turn failed',
-    };
+    return { kind: 'infrastructure', errorClass: 'codex_turn_failed', detail: 'codex turn failed' };
   }
   if (signal.exitCode !== null && signal.exitCode !== 0) {
     return {

@@ -49,14 +49,14 @@ function securityCapOf(caps: unknown, planId: string): SecurityPlanCap {
   return planSecurityCap(readPlanSecurityCaps(caps).caps, planId);
 }
 
-/** Refuses a plan scan cap on a platform whose API would refuse or drop it. */
-function assertPlanSecurityCapSupported(listing: Listing, body: Record<string, unknown>): void {
-  if (body.securityCap !== undefined && !listing.securityCaps) {
-    throw new Error(
-      'platform: This platform does not support plan security scan caps. Upgrade the platform first with `void platform upgrade`.',
-    );
-  }
-}
+const PLAN_FILE_FIELDS = [
+  'name',
+  'limits',
+  'buildInstanceType',
+  'allowShortSlugs',
+  'aiLogging',
+  'securityCap',
+];
 
 const aiLoggingLabels: Record<AiLoggingMode, string> = {
   inherit: 'inherit (AI Gateway setting)',
@@ -302,18 +302,9 @@ async function changesInput(
     }
     const object = input as Record<string, unknown>;
     for (const key of Object.keys(object)) {
-      if (
-        ![
-          'name',
-          'limits',
-          'buildInstanceType',
-          'allowShortSlugs',
-          'aiLogging',
-          'securityCap',
-        ].includes(key)
-      ) {
+      if (!PLAN_FILE_FIELDS.includes(key)) {
         throw new Error(
-          `platform: Unknown plan field ${key}. Use name, limits, buildInstanceType, allowShortSlugs, aiLogging, or securityCap.`,
+          `platform: Unknown plan field ${key}. Use ${PLAN_FILE_FIELDS.slice(0, -1).join(', ')}, or securityCap.`,
         );
       }
     }
@@ -486,7 +477,12 @@ async function apply(
 ): Promise<void> {
   const { catalog } = listing;
   assertPlanAiLoggingSupported(listing, body);
-  assertPlanSecurityCapSupported(listing, body);
+  // A platform whose API would refuse or drop a plan scan cap.
+  if (body.securityCap !== undefined && !listing.securityCaps) {
+    throw new Error(
+      'platform: This platform does not support plan security scan caps. Upgrade the platform first with `void platform upgrade`.',
+    );
+  }
   if (!args.plan && !args.yes && (!process.stdin.isTTY || args.json)) {
     throw new Error(
       'platform: Configuration changes require --yes or --plan in non-interactive mode.',

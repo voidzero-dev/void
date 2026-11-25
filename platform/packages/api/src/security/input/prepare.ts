@@ -1,34 +1,15 @@
 /**
- * The I/O side of the scan input (design doc 0095, M10). `SecurityScanControl.input()`
- * calls `prepareSecurityScanInput` once the container is up:
+ * The I/O side of the scan input (M10), for `SecurityScanControl.input()`:
  *
- *   fence (running, this attempt)
- *   head modules ─ snapshot in R2 (`input_r2_key`)
- *                ├ staged deploy input (`input_prefix`) ─► copy to the snapshot, release the hold
- *                ├ stored Worker bundle (`bundle_stored`, recovered inline deploys) ─► copy
- *                └ none ─► failed (input_missing), edge #12
- *   base = last succeeded scan ─► its snapshot hashes ─► tier
- *   assets, backlog, secrets, findings
- *   a diff tier on a hosted install with GitHub ─► T1 source diff (`t1-github.ts`), else T2
- *   build ─► row update ─► tar stream
+ *   fence ─► head modules: snapshot (`input_r2_key`), else copy the staged input or the
+ *            stored bundle to it, else failed (input_missing, edge #12)
+ *   base = last succeeded scan ─► tier ─► assets, backlog, secrets, findings
+ *   diff on a hosted install with GitHub ─► T1 (`t1-github.ts`), else T2 ─► build ─► tar
  *
- * Memory: modules are read one at a time (hashed, copied, turned into text, a map
- * into its sources) and their bytes counted as read, so more than 50 MB ends
- * `input_missing` whatever size was recorded. Assets: 400 files and 16 MB at most.
- * The tar is encoded entry by entry as the controller reads it.
- *
- * Snapshot layout, `security-scans/{project}/{deployment}/`:
- *   modules/{i}, modules.json (`{version, modules: [{name, type, size, key, sha256}]}`)
- *   sources.json (source path → sha256) and assets.json (asset path → hash), written
- *   by the first scan that reads the snapshot, so it can be the next scan's base.
- *   never-sent.json (`{version, files: {path: {sha256, kind}}}`): the project files
- *   that scan could never send, so the next diff scan notes them again (§7.4).
- * Per scan, next to its raw output (`security-scans/{project}/scans/{scan}/`):
- *   backlog.json (the backlog it leaves), server-leads.json and scope.json (what it
- *   looked at, with each input file's hash), for ingest (`../ingest.ts`).
- *
- * An empty diff (edge #14) never reaches the container: the scan is stored as
- * `succeeded` with no model call and `input()` answers `null`.
+ * Modules are read one at a time and their bytes counted (over 50 MB is input_missing).
+ * Snapshot `security-scans/{project}/{deployment}/`: modules/{i}, modules.json,
+ * sources.json, assets.json, never-sent.json (the next scan's base). Per scan
+ * (`…/scans/{scan}/`): backlog.json, server-leads.json, scope.json, for ingest.
  */
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
@@ -37,19 +18,23 @@ import type { ApiEnv } from '../../env.ts';
 import { loadStoredWorkerModules } from '../../provisioning/durable-objects.ts';
 import { deploymentOperations, deployments } from '../../schema.ts';
 import { WorkerModuleIntegrityError } from '../../worker-upload.ts';
+import { errorMessage } from '../../zero-trust/errors.ts';
 import {
   pokeSecurityScanScheduler,
   SECURITY_SCAN_COPY_MAX_BYTES,
   securityScanInputPrefix,
   securityScanProjectPrefix,
 } from '../enqueue.ts';
-import { ingestSecurityScanResult, serializeSecurityScanScope } from '../ingest.ts';
+import {
+  ingestSecurityScanResult,
+  parseVersionOne,
+  serializeSecurityScanScope,
+} from '../ingest.ts';
 import { securityRawOutputPrefix } from '../maintenance.ts';
 import { readSecurityManifest } from '../manifest.ts';
-import { endSecurityScanAttempt } from '../queue.ts';
+import { endSecurityScanAttempt, securityScanAt } from '../queue.ts';
 import { securityRuntimeCopyWanted } from '../runtime-copy-plan.ts';
 import { securityScans } from '../schema.ts';
-import type { SecurityScanTrigger } from '../schema.ts';
 import { parseSecurityBacklog, serializeSecurityBacklog } from './backlog.ts';
 import {
   buildSecurityScanInput,
@@ -78,7 +63,7 @@ import {
   assetInputPath,
   bundleSources,
   changedTextAssets,
-  oversizedTextAssets,
+  compareText,
   readSourceMap,
   SECURITY_CLIENT_PREFIX,
   securityModuleFile,
@@ -106,30 +91,23 @@ export type SecurityInputEnv = Pick<
 > &
   SecuritySourceDiffEnv;
 
-/** Text assets read per scan, at most (the focus holds 400 files) … */
+const MB = 1024 * 1024;
+// Text assets read per scan: files and bytes, so assets and modules fit the API isolate.
 const MAX_ASSETS_READ = 400;
-/** … and their bytes, so assets and modules together fit the API isolate. */
-const MAX_ASSET_BYTES_READ = 16 * 1024 * 1024;
-/** Client asset pass (M31): source maps read per scan, at most, … */
+const MAX_ASSET_BYTES_READ = 16 * MB;
+// Client asset pass (M31): source maps read, one map's size, all maps' bytes.
 const MAX_CLIENT_MAPS_READ = 100;
-/** … one map's size (a bigger one is not read) … */
-const MAX_CLIENT_MAP_BYTES = 8 * 1024 * 1024;
-/** … and all maps' bytes. Only their `sourcesContent` is kept, within what is left of the input limit. */
-const MAX_CLIENT_MAP_BYTES_READ = 24 * 1024 * 1024;
-/**
- * M31: text assets too big to read are searched for stored secret values, one at a
- * time (only the hits are kept): at most this many files, …
- */
+const MAX_CLIENT_MAP_BYTES = 8 * MB;
+const MAX_CLIENT_MAP_BYTES_READ = 24 * MB;
+// M31: assets too big to read, searched for secret values: files, size each, bytes in all.
 const MAX_SEARCHED_ASSETS = 50;
-/** … this size each … */
-const MAX_SEARCHED_ASSET_BYTES = 8 * 1024 * 1024;
-/** … and these bytes in all. */
-const MAX_SEARCHED_ASSET_BYTES_TOTAL = 64 * 1024 * 1024;
+const MAX_SEARCHED_ASSET_BYTES = 8 * MB;
+const MAX_SEARCHED_ASSET_BYTES_TOTAL = 64 * MB;
 
 /** The deployment's input is gone or too large: the scan ends `failed (input_missing)`. */
-export class SecurityInputMissing extends Error {}
+class SecurityInputMissing extends Error {}
 
-export type SnapshotModule = Readonly<{
+type SnapshotModule = Readonly<{
   name: string;
   type: string;
   size: number;
@@ -137,25 +115,7 @@ export type SnapshotModule = Readonly<{
   sha256?: string;
 }>;
 
-type ScanContext = Readonly<{
-  id: string;
-  projectId: string;
-  deploymentId: string;
-  trigger: SecurityScanTrigger;
-  /** The open public request a gate scan (or a fallback of one) runs for. */
-  publicRequestId: string | null;
-  /** Set when queued for a fallback that re-runs a full scan (`securityFallbackFullReason`). */
-  coverageNotes: ReadonlyArray<string>;
-  attempt: number;
-  engine: NonNullable<typeof securityScans.$inferSelect.engine>;
-  model: string;
-  inputPrefix: string | null;
-  inputR2Key: string | null;
-  commit: string | null;
-  manifest: string | null;
-  assetHashes: string | null;
-  bundleStored: boolean;
-}>;
+type ScanContext = Exclude<Awaited<ReturnType<typeof loadContext>>, 'local' | null>;
 
 const decoder = new TextDecoder();
 
@@ -168,95 +128,107 @@ async function readText(r2: R2Bucket, key: string): Promise<string | null> {
   return object ? object.text() : null;
 }
 
-function parseHashMap(text: string | null): Map<string, string> | null {
-  if (text === null) {
-    return null;
-  }
-  try {
-    const value = JSON.parse(text) as { version?: unknown; hashes?: unknown };
-    if (value.version !== 1 || typeof value.hashes !== 'object' || value.hashes === null) {
-      return null;
-    }
-    const out = new Map<string, string>();
-    for (const [key, hash] of Object.entries(value.hashes as Record<string, unknown>)) {
-      if (typeof hash === 'string') {
-        out.set(key, hash);
-      }
-    }
-    return out;
-  } catch {
-    return null;
-  }
+export function versionOneJson(field: string, value: unknown): string {
+  return JSON.stringify({ version: 1, [field]: value });
 }
 
-function serializeHashMap(map: ReadonlyMap<string, string>): string {
-  return JSON.stringify({ version: 1, hashes: Object.fromEntries(map) });
+function entriesOf(value: unknown): Array<[string, unknown]> | null {
+  return typeof value === 'object' && value !== null ? Object.entries(value) : null;
+}
+
+function parseHashMap(text: string | null): Map<string, string> | null {
+  const entries = entriesOf(parseVersionOne(text)?.hashes);
+  return entries === null
+    ? null
+    : new Map(entries.filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
 }
 
 const NEVER_SENT_KINDS: ReadonlyArray<SecurityNeverSentKind> = ['oversize', 'binary', 'bad_path'];
 
 /** `never-sent.json`, or `null` when it is missing (an older scan) or unreadable. */
 function parseNeverSent(text: string | null): SecurityNeverSent | null {
-  if (text === null) {
+  const entries = entriesOf(parseVersionOne(text)?.files);
+  if (entries === null) {
     return null;
   }
-  try {
-    const value = JSON.parse(text) as { version?: unknown; files?: unknown };
-    if (value.version !== 1 || typeof value.files !== 'object' || value.files === null) {
-      return null;
+  const out = new Map<string, { sha256: string; kind: SecurityNeverSentKind }>();
+  for (const [path, entry] of entries) {
+    const { sha256, kind } = (entry ?? {}) as { sha256?: unknown; kind?: unknown };
+    const known = NEVER_SENT_KINDS.find((item) => item === kind);
+    if (typeof sha256 === 'string' && known !== undefined) {
+      out.set(path, { sha256, kind: known });
     }
-    const out = new Map<string, { sha256: string; kind: SecurityNeverSentKind }>();
-    for (const [path, entry] of Object.entries(value.files as Record<string, unknown>)) {
-      const { sha256, kind } = (entry ?? {}) as { sha256?: unknown; kind?: unknown };
-      const known = NEVER_SENT_KINDS.find((item) => item === kind);
-      if (typeof sha256 === 'string' && known !== undefined) {
-        out.set(path, { sha256, kind: known });
-      }
-    }
-    return out;
-  } catch {
-    return null;
   }
-}
-
-function serializeNeverSent(map: SecurityNeverSent): string {
-  return JSON.stringify({ version: 1, files: Object.fromEntries(map) });
+  return out;
 }
 
 export function parseSnapshotModules(text: string | null): Array<SnapshotModule> | null {
-  if (text === null) {
+  const modules = parseVersionOne(text)?.modules;
+  if (!Array.isArray(modules)) {
     return null;
   }
-  try {
-    const value = JSON.parse(text) as { version?: unknown; modules?: unknown };
-    if (value.version !== 1 || !Array.isArray(value.modules)) {
+  const out: Array<SnapshotModule> = [];
+  for (const entry of modules) {
+    const { name, type, size, key, sha256 } = (entry ?? {}) as Record<string, unknown>;
+    if (
+      typeof name !== 'string' ||
+      typeof type !== 'string' ||
+      typeof size !== 'number' ||
+      typeof key !== 'string'
+    ) {
       return null;
     }
-    const out: Array<SnapshotModule> = [];
-    for (const entry of value.modules as Array<Record<string, unknown>>) {
-      const { name, type, size, key, sha256 } = entry;
-      if (
-        typeof name !== 'string' ||
-        typeof type !== 'string' ||
-        typeof size !== 'number' ||
-        typeof key !== 'string'
-      ) {
-        return null;
-      }
-      out.push({ name, type, size, key, ...(typeof sha256 === 'string' ? { sha256 } : {}) });
-    }
-    return out;
-  } catch {
-    return null;
+    out.push({ name, type, size, key, ...(typeof sha256 === 'string' ? { sha256 } : {}) });
   }
+  return out;
 }
 
-/** `local` for a running local check (M32): it has no deployment and its own input. */
-async function loadContext(
+function textBytes(files: ReadonlyArray<{ text: string }>): number {
+  return files.reduce((sum, file) => sum + utf8Length(file.text), 0);
+}
+
+/** Ends the attempt `failed (input_missing)` and pokes the scheduler; always `null`. */
+export async function endSecurityInputMissing(
+  env: SecurityInputEnv,
   db: Db,
   scanId: string,
   attempt: number,
-): Promise<ScanContext | 'local' | null> {
+): Promise<null> {
+  const end = { status: 'failed', reason: 'input_missing', errorClass: 'input_missing' } as const;
+  if (await endSecurityScanAttempt(db, scanId, attempt, { ...end, failureCause: 'project' })) {
+    await pokeSecurityScanScheduler(env);
+  }
+  return null;
+}
+
+/** Records the built input on the attempt's row; `false` when it is no longer running. */
+export async function recordSecurityBuiltInput(
+  db: Db,
+  scanId: string,
+  attempt: number,
+  built: SecurityBuiltInput,
+  extra: Partial<typeof securityScans.$inferInsert>,
+): Promise<boolean> {
+  const recorded = await db
+    .update(securityScans)
+    .set({
+      tier: built.tier,
+      coverage: built.coverage,
+      coverage_notes: [...built.notes],
+      backlog_files: built.backlog.length,
+      dropped_files: built.droppedFiles,
+      dropped_bytes: built.droppedBytes,
+      files_scanned: built.filesScanned,
+      input_bytes: built.inputBytes,
+      ...extra,
+    })
+    .where(securityScanAt(scanId, attempt))
+    .returning({ id: securityScans.id });
+  return recorded.length > 0;
+}
+
+/** `local` for a running local check (M32): it has no deployment and its own input. */
+async function loadContext(db: Db, scanId: string, attempt: number) {
   const [row] = await db
     .select({
       id: securityScans.id,
@@ -281,7 +253,7 @@ async function loadContext(
     .where(eq(securityScans.id, scanId))
     .limit(1);
   if (row?.trigger === 'local' && row.status === 'running' && row.attempt === attempt) {
-    return 'local';
+    return 'local' as const;
   }
   if (
     !row ||
@@ -331,10 +303,7 @@ type ModuleSource = Readonly<{
 
 const TOO_LARGE = 'the Worker modules are larger than the scan input limit';
 
-/**
- * Counts module bytes as they are read, so a missing or wrong recorded size cannot
- * get past the limit; past it the input counts as missing.
- */
+/** Counts module bytes as they are read, so a wrong recorded size cannot pass the limit. */
 function moduleBudget(): (bytes: number) => void {
   let total = 0;
   return (bytes) => {
@@ -371,21 +340,13 @@ function isBinaryModule(name: string, type: string): boolean {
   return name.endsWith('.wasm') || type.includes('wasm') || type === 'application/octet-stream';
 }
 
-/**
- * Reads the modules one at a time: each is hashed, copied to the snapshot when
- * `copyTo` is set, and turned into text (a map into its sources) before the next
- * is read. Only the text is kept, never the whole bundle's bytes.
- */
+/** Reads the modules one at a time (hashed, copied to `copyTo`, kept only as text). */
 async function readModules(
   r2: R2Bucket,
   sources: ReadonlyArray<ModuleSource>,
   copyTo: string | null,
 ): Promise<HeadInput> {
-  let declared = 0;
-  for (const source of sources) {
-    declared += source.size ?? 0;
-  }
-  if (declared > SECURITY_SCAN_COPY_MAX_BYTES) {
+  if (sources.reduce((sum, source) => sum + (source.size ?? 0), 0) > SECURITY_SCAN_COPY_MAX_BYTES) {
     throw new SecurityInputMissing(TOO_LARGE);
   }
   const charge = moduleBudget();
@@ -407,28 +368,14 @@ async function readModules(
   }
   if (copyTo !== null) {
     // `modules.json` last: a snapshot without it is incomplete.
-    await r2.put(modulesKey(copyTo), serializeModules(modules));
+    await r2.put(modulesKey(copyTo), versionOneJson('modules', modules));
   }
   return { modules, files };
 }
 
-function serializeModules(modules: ReadonlyArray<SnapshotModule>): string {
-  return JSON.stringify({
-    version: 1,
-    modules: modules.map(({ name, type, size, key, sha256 }) => ({
-      name,
-      type,
-      size,
-      key,
-      sha256,
-    })),
-  });
-}
-
 /**
- * The head deployment's modules. Staged input and a stored bundle are copied to the
- * scan snapshot here and the hold is released with a fenced write; `null` when that
- * write misses (the attempt is no longer the running one).
+ * The head deployment's modules. Staged input or a stored bundle is copied to the snapshot
+ * and the hold released with a fenced write; `null` when that write misses.
  */
 async function loadHeadModules(
   env: SecurityInputEnv,
@@ -482,7 +429,7 @@ async function loadHeadModules(
       stored = await loadStoredWorkerModules(env, scan.projectId, scan.deploymentId);
     } catch (error) {
       throw new SecurityInputMissing(
-        `the stored Worker bundle cannot be read: ${error instanceof Error ? error.message : String(error)}`,
+        `the stored Worker bundle cannot be read: ${errorMessage(error)}`,
       );
     }
     sources = stored.map((module) => ({
@@ -512,18 +459,9 @@ async function loadHeadModules(
   const released = await db
     .update(securityScans)
     .set({ input_r2_key: prefix, input_prefix: null })
-    .where(
-      and(
-        eq(securityScans.id, scan.id),
-        eq(securityScans.status, 'running'),
-        eq(securityScans.attempt, scan.attempt),
-      ),
-    )
+    .where(securityScanAt(scan.id, scan.attempt))
     .returning({ id: securityScans.id });
-  if (released.length === 0) {
-    return null;
-  }
-  return copied;
+  return released.length === 0 ? null : copied;
 }
 
 /** Where a deployment's package claims (`securityPackages`) are kept with its snapshot. */
@@ -532,11 +470,8 @@ function packagesKey(prefix: string): string {
 }
 
 /**
- * The lockfile claims of the deploy (spec §7.4): what the CLI read from the project's
- * lockfile for the packages its bundle names. Read from the staged deploy body the first
- * time and kept next to the head snapshot, so a retry (and nothing else) reads it back.
- * `null` (keep third-party code, ranked last) for an older CLI or a recovered inline
- * deploy, which send none.
+ * The deploy's lockfile claims (spec §7.4), from the staged deploy body the first time,
+ * then kept with the snapshot for a retry. `null` when the CLI sent none.
  */
 async function loadPackageClaims(
   db: Db,
@@ -579,14 +514,7 @@ async function loadPackageClaims(
 /** The bundle sources, filled by whichever step reads them first. */
 type BundleSourcesOnce = { value?: SecurityBundleSources };
 
-type BaseScan = Readonly<{
-  id: string;
-  deploymentId: string;
-  finishedAt: string | null;
-  ledgerSummary: unknown;
-}>;
-
-async function loadBase(db: Db, scan: ScanContext): Promise<BaseScan | null> {
+async function loadBase(db: Db, scan: ScanContext) {
   const [row] = await db
     .select({
       id: securityScans.id,
@@ -610,15 +538,8 @@ async function loadBase(db: Db, scan: ScanContext): Promise<BaseScan | null> {
   return { ...row, deploymentId: row.deploymentId };
 }
 
-type BaseSnapshot = Readonly<{
-  modules: Map<string, string>;
-  sources: Map<string, string> | null;
-  assets: Map<string, string> | null;
-  neverSent: SecurityNeverSent | null;
-}>;
-
 /** The base snapshot's hashes, or `null` when it is gone. */
-async function loadBaseSnapshot(r2: R2Bucket, prefix: string): Promise<BaseSnapshot | null> {
+async function loadBaseSnapshot(r2: R2Bucket, prefix: string) {
   const entries = parseSnapshotModules(await readText(r2, modulesKey(prefix)));
   if (entries === null) {
     return null;
@@ -675,11 +596,7 @@ async function readAsset(
   return stored ? decoder.decode(stored) : null;
 }
 
-/**
- * The text assets this scan reads: backlog ones first (they may be unchanged since),
- * then changed ones, at most 400 files and 16 MB. The rest, and any that storage no
- * longer has, are `unread`: the builder puts them in the backlog.
- */
+/** The text assets this scan reads, backlog ones first; the rest are `unread` (backlog). */
 async function loadAssets(
   env: SecurityInputEnv,
   projectId: string,
@@ -720,11 +637,8 @@ async function loadAssets(
 const bare = (path: string) => (path.startsWith('/') ? path.slice(1) : path);
 
 /**
- * The client asset pass (M31): the sources of the deployed client bundles, from their
- * source maps (the `sourceMappingURL` comment of a bundle this scan read, an inline map,
- * or `<bundle>.map` deployed next to it, which also covers a bundle too big to read).
- * A map shared by bundles is read once. Maps over the limits,
- * or gone from storage, are counted in `unread`.
+ * The client asset pass (M31): client bundle sources from their source maps, each map read
+ * once. Maps over the limits, or gone from storage, are counted in `unread`.
  */
 async function loadClientSources(
   env: SecurityInputEnv,
@@ -753,7 +667,7 @@ async function loadClientSources(
         (entry.path.endsWith('.js') || entry.path.endsWith('.mjs')) &&
         !entry.path.startsWith('/.void-deploy/'),
     )
-    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    .sort((left, right) => compareText(left.path, right.path));
   for (const asset of bundles) {
     const name = bare(asset.path);
     const ref = sourceMapFor({ name, text: texts.get(asset.path) ?? '' }, maps);
@@ -810,10 +724,8 @@ async function loadClientSources(
 }
 
 /**
- * M31: changed text assets over the read limit (every one for a full scan), searched
- * for stored secret values one at a time; only the hits are kept. Ones past the limits,
- * or gone from storage, are `unsearched`: left out of the head's asset index, so the
- * next scan searches them again.
+ * M31: changed text assets over the read limit, searched for stored secret values; only
+ * hits are kept. `unsearched` ones stay out of the asset index, so the next scan retries.
  */
 async function searchLargeAssets(
   env: SecurityInputEnv,
@@ -833,7 +745,7 @@ async function searchLargeAssets(
   const redactor = createSecurityRedactor(secrets);
   let files = 0;
   let bytes = 0;
-  for (const asset of oversizedTextAssets(head, base)) {
+  for (const asset of changedTextAssets(head, base, true)) {
     if (
       files >= MAX_SEARCHED_ASSETS ||
       asset.size > MAX_SEARCHED_ASSET_BYTES ||
@@ -864,9 +776,8 @@ export type SecurityPreparedInput = Readonly<{
 }>;
 
 /**
- * Builds and records the input of one running attempt. `null` when the attempt is not
- * the running one, or the input is missing (the row then ends `failed (input_missing)`).
- * Other errors throw: the controller reports `input_unavailable` and ingest decides.
+ * Builds and records the input of one running attempt; `null` when it is not the running
+ * one or the input is missing. Other errors throw (`input_unavailable`).
  */
 export async function prepareSecurityScanInputFiles(
   env: SecurityInputEnv,
@@ -893,16 +804,7 @@ export async function prepareSecurityScanInputFiles(
       throw error;
     }
     console.warn('[security-scan] scan input missing', { scanId, reason: error.message });
-    const ended = await endSecurityScanAttempt(db, scanId, attempt, {
-      status: 'failed',
-      reason: 'input_missing',
-      errorClass: 'input_missing',
-      failureCause: 'project',
-    });
-    if (ended) {
-      await pokeSecurityScanScheduler(env);
-    }
-    return null;
+    return endSecurityInputMissing(env, db, scanId, attempt);
   }
   if (head === null) {
     return null;
@@ -935,19 +837,15 @@ export async function prepareSecurityScanInputFiles(
   );
   const memory = await loadSecurityMemory(db, scan.projectId);
   const lastSucceededAt = base?.finishedAt ?? null;
-  const recheckFiles: Array<string> = [];
-  for (const finding of memory.findings) {
-    if (
-      finding.state === 'resolved' &&
-      finding.resolution === 'fixed' &&
-      finding.file !== null &&
-      (lastSucceededAt === null ||
-        (finding.resolvedAt !== null &&
-          Date.parse(finding.resolvedAt) > Date.parse(lastSucceededAt)))
-    ) {
-      recheckFiles.push(finding.file);
-    }
-  }
+  const recheckFiles = memory.findings.flatMap((finding) =>
+    finding.state === 'resolved' &&
+    finding.resolution === 'fixed' &&
+    finding.file !== null &&
+    (lastSucceededAt === null ||
+      (finding.resolvedAt !== null && Date.parse(finding.resolvedAt) > Date.parse(lastSucceededAt)))
+      ? [finding.file]
+      : [],
+  );
 
   // T1 when GitHub can show the change (hosted only); otherwise T2 stays, with a note.
   const manifest = readSecurityManifest(scan.manifest);
@@ -957,10 +855,7 @@ export async function prepareSecurityScanInputFiles(
   // The bundle's sources, read once: by T1 only when it can start, else by the build.
   const bundle: BundleSourcesOnce = {};
   if (tier.tier === 'built_diff' && base !== null && diffBase !== null) {
-    let assetBytes = 0;
-    for (const asset of assets) {
-      assetBytes += utf8Length(asset.text);
-    }
+    const assetBytes = textBytes(assets);
     const memoryFiles = 2 + Math.min(memory.findings.length, SECURITY_MEMORY_HISTORY_MAX_FILES);
     const result = await loadSecuritySourceDiff(env, db, {
       scanId: scan.id,
@@ -1007,13 +902,7 @@ export async function prepareSecurityScanInputFiles(
   if (clientAssets) {
     // Only what the read set can still take after the bundle's sources and the assets.
     const sources = (bundle.value ??= bundleSources(head.files, main));
-    let used = 0;
-    for (const file of sources.files) {
-      used += utf8Length(file.text);
-    }
-    for (const asset of assets) {
-      used += utf8Length(asset.text);
-    }
+    const used = textBytes(sources.files) + textBytes(assets);
     client = await loadClientSources(
       env,
       scan.projectId,
@@ -1055,8 +944,7 @@ export async function prepareSecurityScanInputFiles(
     backlog,
     recheckFiles,
     secrets,
-    // T1: the repo lockfile; else the deploy's claims from the project lockfile. With
-    // neither, third-party code stays, ranked last (`third-party-unverified`).
+    // T1: the repo lockfile, else the deploy's claims; with neither, third-party code ranks last.
     lockfile: sourceDiff?.lockfile ?? packageClaims,
     memory: {
       findings: memory.findings,
@@ -1071,70 +959,38 @@ export async function prepareSecurityScanInputFiles(
   // The head snapshot as a future base, and what ingest needs from this scan.
   const headPrefix = securityScanInputPrefix(scan.projectId, scan.deploymentId);
   // With every sha256 filled in (an inline copy made after the commit has none).
-  await r2.put(modulesKey(headPrefix), serializeModules(head.modules));
-  await r2.put(`${headPrefix}sources.json`, serializeHashMap(built.sourceIndex));
-  await r2.put(`${headPrefix}never-sent.json`, serializeNeverSent(built.neverSent));
+  await r2.put(modulesKey(headPrefix), versionOneJson('modules', head.modules));
   await r2.put(
-    `${headPrefix}assets.json`,
-    // Assets this scan did not read (or, too big to read, did not search) stay out,
-    // so the next scan sees them as changed.
-    serializeHashMap(
-      new Map(
-        headAssets
-          .filter(
-            (asset) => !built.unscannedAssets.has(asset.path) && !large.unsearched.has(asset.path),
-          )
-          .map((asset) => [asset.path, asset.hash]),
-      ),
-    ),
+    `${headPrefix}sources.json`,
+    versionOneJson('hashes', Object.fromEntries(built.sourceIndex)),
   );
+  await r2.put(
+    `${headPrefix}never-sent.json`,
+    versionOneJson('files', Object.fromEntries(built.neverSent)),
+  );
+  // Assets not read (or, too big, not searched) stay out, so the next scan sees them as changed.
+  const indexed = headAssets.filter(
+    (asset) => !built.unscannedAssets.has(asset.path) && !large.unsearched.has(asset.path),
+  );
+  const assetIndex = Object.fromEntries(indexed.map((asset) => [asset.path, asset.hash]));
+  await r2.put(`${headPrefix}assets.json`, versionOneJson('hashes', assetIndex));
   const scanPrefix = securityRawOutputPrefix(scan.projectId, scan.id);
   await r2.put(`${scanPrefix}backlog.json`, serializeSecurityBacklog(built.backlog));
-  await r2.put(
-    `${scanPrefix}server-leads.json`,
-    JSON.stringify({ version: 1, leads: built.serverLeads }),
-  );
+  await r2.put(`${scanPrefix}server-leads.json`, versionOneJson('leads', built.serverLeads));
   await r2.put(`${scanPrefix}scope.json`, scanScope(built));
 
-  const recorded = await db
-    .update(securityScans)
-    .set({
-      tier: built.tier,
-      coverage: built.coverage,
-      coverage_notes: [...built.notes],
-      backlog_files: built.backlog.length,
-      dropped_files: built.droppedFiles,
-      dropped_bytes: built.droppedBytes,
-      files_scanned: built.filesScanned,
-      input_bytes: built.inputBytes,
-      base_scan_id: base?.id ?? null,
-      base_deployment_id: base?.deploymentId ?? null,
-    })
-    .where(
-      and(
-        eq(securityScans.id, scan.id),
-        eq(securityScans.status, 'running'),
-        eq(securityScans.attempt, scan.attempt),
-      ),
-    )
-    .returning({ id: securityScans.id });
-  if (recorded.length === 0) {
+  const baseScanId = base?.id ?? null;
+  const baseDeploymentId = base?.deploymentId ?? null;
+  const extra = { base_scan_id: baseScanId, base_deployment_id: baseDeploymentId };
+  if (!(await recordSecurityBuiltInput(db, scan.id, scan.attempt, built, extra))) {
     return null;
   }
-  return {
-    built,
-    baseScanId: base?.id ?? null,
-    baseDeploymentId: base?.deploymentId ?? null,
-  };
+  return { built, baseScanId, baseDeploymentId };
 }
 
 const INPUT_ENTRY_PREFIX = 'input/';
 
-/**
- * What ingest needs to know about the files: the paths the scan looked at (a diff
- * scan's focus, or every input file of a full scan) and each input file's content
- * hash (a source's unredacted hash, else the hash of the text sent), for the sink.
- */
+/** The paths the scan looked at and each input file's hash (unredacted for a source). */
 function scanScope(built: SecurityBuiltInput): string {
   const hashes = new Map<string, string>();
   for (const entry of built.entries) {
@@ -1153,10 +1009,8 @@ function scanScope(built: SecurityBuiltInput): string {
 }
 
 /**
- * `SecurityScanControl.input()`: the tar stream, or `null` (see above). A diff scan with
- * no file to send is stored here as `succeeded` with no model call, the base moves, and
- * `null` stops the container: `no changes` for an empty diff (edge #14), else a partial
- * scan whose changed files all wait in the backlog.
+ * `SecurityScanControl.input()`: the tar stream, or `null`. A scan with no file to send is
+ * stored here as `succeeded` with no model call (edge #14) and `null` stops the container.
  */
 export async function prepareSecurityScanInput(
   env: SecurityInputEnv,

@@ -1,10 +1,11 @@
-import { stripVTControlCharacters } from 'node:util';
 import { securityPickProblemNote } from '@void/platform/security-models';
 import { securityTraceLines } from '@void/platform/security-policy';
 import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { isCI } from 'ci-info';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { getToken, openBrowser } from './auth.ts';
 import { PlatformApiError, PlatformClient } from './client.ts';
+import { cleanBlock, cleanLine } from './output.ts';
 import type { ProjectSecurityArgs } from './project-security-args.ts';
 import {
   checkEndedWithResult,
@@ -32,27 +33,6 @@ import { sarifToolVersion, securityFindingsSarif } from './security-sarif.ts';
 
 type Args = ProjectSecurityArgs;
 
-function scrub(value: string, keepNewline: boolean): string {
-  let out = '';
-  for (const char of stripVTControlCharacters(value)) {
-    const code = char.codePointAt(0) ?? 0;
-    const control = code < 0x20 || (code >= 0x7f && code <= 0x9f);
-    out += control && !(keepNewline && char === '\n') ? ' ' : char;
-  }
-  return out;
-}
-
-/** Text from a model or a user: no escape sequences, one line. */
-export function cleanLine(value: unknown): string {
-  return scrub(String(value ?? ''), false);
-}
-
-/** Text from a model that may span lines: keeps line breaks, drops every other control. */
-export function cleanBlock(value: unknown): string {
-  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  return scrub(text ?? '', true);
-}
-
 export const usd = (value: number) => `$${value.toFixed(2)}`;
 
 export function day(iso: string | null | undefined): string {
@@ -71,17 +51,6 @@ function stamp(iso: string | null | undefined): string {
   return Number.isNaN(time)
     ? '-'
     : `${day(iso)}, ${new Date(time).toISOString().slice(11, 16)} UTC`;
-}
-
-/** Where a platform limit comes from (`ceilingSource`); older platforms send none. */
-function platformLimitLabel(source: 'project' | 'plan' | 'default' | null | undefined): string {
-  if (source === 'project') {
-    return 'platform limit for this project';
-  }
-  if (source === 'plan') {
-    return 'platform limit for this plan';
-  }
-  return 'platform limit for every project';
 }
 
 function duration(scan: SecurityScanSummary): string | null {
@@ -175,9 +144,10 @@ export function budgetSkipCopy(
   model: string | null | undefined,
   projectId?: string,
 ): BudgetSkipCopy {
+  const none = { resets: null, next: null, raised: false };
   if (!budget) {
     // Readers see no amounts (spec §16.3).
-    return { why: 'the monthly scan budget is used up', resets: null, next: null, raised: false };
+    return { ...none, why: 'the monthly scan budget is used up' };
   }
   const resets = `Resets ${day(budget.resetsAt)}.`;
   const reserve = typeof budget.scanReserveUsd === 'number' ? budget.scanReserveUsd : null;
@@ -185,28 +155,21 @@ export function budgetSkipCopy(
   const oneScan = `one scan with ${cleanLine(model ?? 'this model')} can cost${reserve === null ? '' : ` up to ${usd(reserve)},`}`;
   const cheaper = 'pick a cheaper model: void project security model';
   if (cause === 'platform_cap') {
-    return {
-      why: "the platform's monthly scan budget is used up",
-      resets,
-      next: null,
-      raised: false,
-    };
+    return { ...none, why: "the platform's monthly scan budget is used up", resets };
   }
   if (cause === 'platform_reserve') {
     return {
+      ...none,
       why: `${oneScan} more than is left of the platform's monthly scan budget`,
-      resets: null,
       next: `Ask your platform admin, or ${cheaper}`,
-      raised: false,
     };
   }
   const cap = budget.capUsd;
   const usedUp = cause === 'project_cap' ? 'was used up' : 'had too little left for one scan';
   if (cap === null) {
     return {
+      ...none,
       why: `this project's monthly scan budget ${usedUp}; the cap was removed since`,
-      resets: null,
-      next: null,
       raised: true,
     };
   }
@@ -214,43 +177,52 @@ export function budgetSkipCopy(
   const fits = cause === 'project_cap' ? left > 0 : reserve !== null && reserve <= left;
   if (fits) {
     return {
+      ...none,
       why: `this project's monthly scan budget ${usedUp}; it was raised since (${usd(budget.spentUsd)} of ${usd(cap)} used)`,
-      resets: null,
-      next: null,
       raised: true,
     };
   }
   if (cause === 'project_reserve') {
     return {
+      ...none,
       why: `${oneScan} more than is left of this project's monthly scan budget (${usd(Math.max(0, left))} of ${usd(cap)})`,
-      resets: null,
       next: `${projectRaiseLine(budget, projectId)}. Or ${cheaper}`,
-      raised: false,
     };
   }
   return {
+    ...none,
     why: `this project's monthly scan budget is used up (${usd(budget.spentUsd)} of ${usd(cap)})`,
     resets,
     next: projectRaiseLine(budget, projectId),
-    raised: false,
   };
+}
+
+/** `2 critical, 1 high`. */
+export function urgentCounts(urgent: ProjectSecurityStatus['urgent']): string {
+  const { critical, high } = urgent.counts;
+  return [critical ? `${critical} critical` : '', high ? `${high} high` : '']
+    .filter(Boolean)
+    .join(', ');
 }
 
 const row = (label: string, text: string) => `  ${label.padEnd(10)} ${text}`;
 const cont = (text: string) => `  ${' '.repeat(10)} ${text}`;
+
+const MODEL_SOURCES = {
+  project: "your project's pick",
+  default: 'platform default',
+  fallback: 'fallback: the model you asked for cannot run now',
+};
 
 /** Where the model in use comes from; names the pick and why it does not run (spec §8.2). */
 function modelSource(model: ProjectSecurityStatus['model']): string {
   if (model.pickProblem) {
     return cleanLine(securityPickProblemNote(model.requested, model.pickProblem));
   }
-  return model.source === 'project'
-    ? "your project's pick"
-    : model.source === 'default'
-      ? 'platform default'
-      : model.source === 'fallback'
-        ? 'fallback: the model you asked for cannot run now'
-        : 'no model can run now';
+  // A source a newer platform added reads like none.
+  return model.source !== null && hasOwnKey(MODEL_SOURCES, model.source)
+    ? MODEL_SOURCES[model.source]
+    : 'no model can run now';
 }
 
 /** Spec §11.4 status copy for the last scan; `null` when the scan needs no explanation. */
@@ -314,6 +286,13 @@ export function scanStatusCopy(status: ProjectSecurityStatus, projectId?: string
       return null;
   }
 }
+
+const HELD_CAUSES = {
+  refused: 'refused',
+  timed_out: 'timed out',
+  findings_capped: 'it hit the findings limit, so more findings may be hidden',
+  failed_project: 'the scan of this project failed',
+};
 
 function withStop(text: string): string {
   return text.endsWith('.') ? text : `${text}.`;
@@ -398,15 +377,9 @@ export function publicRequestLines(
         }
       } else {
         const cause =
-          reason === 'refused'
-            ? 'refused'
-            : reason === 'timed_out'
-              ? 'timed out'
-              : reason === 'findings_capped'
-                ? 'it hit the findings limit, so more findings may be hidden'
-                : reason === 'failed_project'
-                  ? 'the scan of this project failed'
-                  : cleanLine((reason ?? 'no result').split('_').join(' '));
+          reason !== null && hasOwnKey(HELD_CAUSES, reason)
+            ? HELD_CAUSES[reason]
+            : cleanLine((reason ?? 'no result').split('_').join(' '));
         lines.push(
           `Stays protected: the security scan did not finish (${cause}). Ask again with void project zero-trust public, deploy again, or bypass the scan: ${bypass}`,
         );
@@ -442,14 +415,10 @@ export function formatStatus(
   if (urgent.count === 0) {
     lines.push(row('Urgent', 'none open'));
   } else {
-    const parts = [
-      urgent.counts.critical ? `${urgent.counts.critical} critical` : '',
-      urgent.counts.high ? `${urgent.counts.high} high` : '',
-    ].filter(Boolean);
     lines.push(
       row(
         'Urgent',
-        `${urgent.count} open (${parts.join(', ')}) · oldest ${day(urgent.oldestFirstSeenAt)}  → void project security list --urgent`,
+        `${urgent.count} open (${urgentCounts(urgent)}) · oldest ${day(urgent.oldestFirstSeenAt)}  → void project security list --urgent`,
       ),
     );
   }
@@ -668,7 +637,10 @@ export function formatScans(scans: Array<SecurityScanSummary>): Array<string> {
   );
 }
 
-async function resolveTarget(root: string, args: Args) {
+export async function resolveTarget(
+  root: string,
+  args: { projectSlug: string },
+): Promise<{ client: PlatformClient; projectId: string; slug: string }> {
   const token = getToken(root);
   if (!token) {
     throw new Error('project: Not logged in. Run `void account login` first.');
@@ -847,33 +819,29 @@ export async function runProjectSecurityCommand(
     return;
   }
 
+  const revision = async (id: string) =>
+    (await client.getProjectSecurityFinding(projectId, id)).finding.revision;
+
   if (args.action === 'reopen') {
-    const current = await client.getProjectSecurityFinding(projectId, args.id);
     const result = await client.reopenProjectSecurityFinding(projectId, args.id, {
       comment: args.comment,
-      expectedRevision: current.finding.revision,
+      expectedRevision: await revision(args.id),
     });
     print(args, result, [`✓ ${cleanLine(result.id)} reopened.`]);
     return;
   }
 
   if (args.action === 'severity') {
-    const current = await client.getProjectSecurityFinding(projectId, args.id);
     const result = await client.editProjectSecurityFindingSeverity(projectId, args.id, {
       severity: args.severity,
       comment: args.comment,
-      expectedRevision: current.finding.revision,
+      expectedRevision: await revision(args.id),
     });
     const id = cleanLine(result.id);
     const level = cleanLine(result.severity ?? '-');
     const lines = [severityChangeLine(id, level, result)];
     if (result.publicRequest) {
-      let status: ProjectSecurityStatus | null = null;
-      try {
-        status = await client.getProjectSecurity(projectId);
-      } catch {
-        // The line below is extra; the edit already happened.
-      }
+      const status = await statusAfterChange(client, projectId);
       const [first = '', ...rest] = publicRequestLines(slug, result.publicRequest, {
         ...(status ?? { backlogFiles: 0, budget: null }),
         projectId,
@@ -891,11 +859,10 @@ export async function runProjectSecurityCommand(
     let failed = 0;
     for (const id of args.ids) {
       try {
-        const current = await client.getProjectSecurityFinding(projectId, id);
         const result = await client.resolveProjectSecurityFinding(projectId, id, {
           reason: args.reason,
           comment: args.comment,
-          expectedRevision: current.finding.revision,
+          expectedRevision: await revision(id),
         });
         results.push(result);
         lastRequest = result.publicRequest ?? lastRequest;
@@ -910,12 +877,7 @@ export async function runProjectSecurityCommand(
       }
     }
     if (failed < args.ids.length) {
-      let status: ProjectSecurityStatus | null = null;
-      try {
-        status = await client.getProjectSecurity(projectId);
-      } catch {
-        // The lines below are extra; the resolves already happened.
-      }
+      const status = await statusAfterChange(client, projectId);
       const open = status?.urgent.findings ?? [];
       const describe = (id: string) => {
         const found = open.find((finding) => finding.id === id);
@@ -963,19 +925,12 @@ export async function runProjectSecurityCommand(
       );
     }
     if (!args.yes) {
-      const interactive = deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
-      if (args.json || !interactive) {
+      if (args.json || !isInteractive(deps)) {
         throw new Error('project: Add --yes to start the scan without a prompt.');
       }
       const [question, ...rest] = rescanConfirmLines(preview);
       console.log(['', ...rest].join('\n'));
-      const ask =
-        deps.confirm ??
-        (async (message: string) => {
-          const answer = await confirm({ message, initialValue: false });
-          return !isCancel(answer) && answer;
-        });
-      if (!(await ask(question))) {
+      if (!(await askYesNo(deps, question))) {
         console.log('Nothing was queued.');
         return;
       }
@@ -1014,35 +969,29 @@ export async function runProjectSecurityCommand(
     }
     const target = args.change === 'default' ? null : args.model;
     const lines: Array<string> = [];
+    // A version the platform does not know (0) is refused with the current version and notice.
+    const set = (version?: number) =>
+      client.setProjectSecurityModel(projectId, {
+        model: target,
+        ...(version === undefined ? {} : { acceptProviderNoticeVersion: version }),
+      });
     let result;
-    if (args.acceptNotice) {
-      try {
-        // A version the platform does not know is refused with the current version and notice.
-        result = await client.setProjectSecurityModel(projectId, {
-          model: target,
-          acceptProviderNoticeVersion: 0,
-        });
-      } catch (error) {
-        const notice = noticeOf(error);
-        if (!notice) {
-          throw error;
-        }
-        lines.push(...notice.notice.map((line) => cleanLine(line)), '');
-        result = await client.setProjectSecurityModel(projectId, {
-          model: target,
-          acceptProviderNoticeVersion: notice.version,
-        });
+    try {
+      result = await set(args.acceptNotice ? 0 : undefined);
+    } catch (error) {
+      const notice = noticeOf(error);
+      if (!notice) {
+        throw error;
       }
-    } else {
-      try {
-        result = await client.setProjectSecurityModel(projectId, { model: target });
-      } catch (error) {
-        const notice = noticeOf(error);
-        if (notice && !args.json) {
-          console.log(['', ...notice.notice.map((line) => cleanLine(line)), ''].join('\n'));
+      const text = notice.notice.map(cleanLine);
+      if (!args.acceptNotice) {
+        if (!args.json) {
+          console.log(['', ...text, ''].join('\n'));
         }
         throw error;
       }
+      lines.push(...text, '');
+      result = await set(notice.version);
     }
     const used = result.model?.id;
     lines.push(
@@ -1080,7 +1029,7 @@ export async function runProjectSecurityCommand(
       const cap =
         budget.capUsd === null
           ? 'no cap'
-          : `${usd(budget.capUsd)} / month (${budget.capSource === 'own' ? 'set for this project' : platformLimitLabel(budget.ceilingSource)})`;
+          : `${usd(budget.capUsd)} / month (${budget.capSource === 'own' ? 'set for this project' : `platform limit for ${budget.ceilingSource === 'project' ? 'this project' : budget.ceilingSource === 'plan' ? 'this plan' : 'every project'}`})`;
       print(args, { budget }, [
         `${slug} · scan budget (${month}, UTC; resets ${day(budget.resetsAt)})`,
         row('Cap', cap),
@@ -1128,26 +1077,38 @@ export async function runProjectSecurityCommand(
       link.url,
       `The link works for 15 minutes (until ${stamp(link.expiresAt)}).`,
     ]);
-    const interactive = deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
-    if (interactive && !args.json) {
+    if (isInteractive(deps) && !args.json) {
       (deps.openUrl ?? openBrowser)(link.url);
     }
     return;
   }
-
-  if (args.action === '') {
-    return;
-  }
 }
 
-async function askYesNo(deps: ProjectSecurityDeps, message: string): Promise<boolean> {
-  const ask =
-    deps.confirm ??
-    (async (text: string) => {
-      const answer = await confirm({ message: text, initialValue: false });
-      return !isCancel(answer) && answer;
-    });
-  return ask(message);
+export function isInteractive(deps: Pick<ProjectSecurityDeps, 'interactive'>): boolean {
+  return deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
+}
+
+export async function askYesNo(
+  deps: Pick<ProjectSecurityDeps, 'confirm'>,
+  message: string,
+): Promise<boolean> {
+  if (deps.confirm) {
+    return deps.confirm(message);
+  }
+  const answer = await confirm({ message, initialValue: false });
+  return !isCancel(answer) && answer;
+}
+
+/** The status for lines added after a change; the change already happened, so errors are dropped. */
+async function statusAfterChange(
+  client: PlatformClient,
+  projectId: string,
+): Promise<ProjectSecurityStatus | null> {
+  try {
+    return await client.getProjectSecurity(projectId);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1171,8 +1132,7 @@ async function runSecurityCheck(
   let checkId = args.checkId;
   const fresh = checkId === '';
   if (fresh) {
-    const interactive = deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
-    if (!args.yes && (args.json || !interactive)) {
+    if (!args.yes && (args.json || !isInteractive(deps))) {
       throw new Error('project: Add --yes to send the code without a prompt.');
     }
     const tree = collectSecurityLocalTree(root, deps.check?.listFiles);
@@ -1184,7 +1144,7 @@ async function runSecurityCheck(
     const packed = packSecurityLocalTree(tree);
     const preview = await client.previewProjectSecurityCheck(projectId, packed.request);
     const model = cleanLine(preview.model);
-    const lines = ['', ...checkSummaryLines(slug, tree, cleanLine)];
+    const lines = ['', ...checkSummaryLines(slug, tree)];
     if (preview.notice) {
       lines.push('', ...preview.notice.map((line) => `  ${cleanLine(line)}`));
     }
@@ -1193,14 +1153,13 @@ async function runSecurityCheck(
       `  The code goes to the platform and is reviewed by ${model}.${typeof preview.worstCaseUsd === 'number' ? ` It can cost up to ${usd(preview.worstCaseUsd)}; monthly caps apply.` : ' Monthly caps apply.'}`,
       '  The result is not saved as project findings. The platform keeps it for 30 days.',
     );
-    if (!args.yes) {
-      log(lines);
-      if (!(await askYesNo(deps, `Send these files for a security check with ${model}?`))) {
-        console.log('Nothing was sent.');
-        return;
-      }
-    } else {
-      log(lines);
+    log(lines);
+    if (
+      !args.yes &&
+      !(await askYesNo(deps, `Send these files for a security check with ${model}?`))
+    ) {
+      console.log('Nothing was sent.');
+      return;
     }
     checkId = await sendSecurityLocalCheck(client, projectId, packed, deps.check);
     log([`✓ Check ${cleanLine(checkId)} queued. It waits its turn like any scan.`]);
@@ -1247,8 +1206,8 @@ async function runSecurityCheck(
     ]);
     return;
   }
-  print(args, view, checkResultLines(slug, view, cleanLine, { fresh }));
+  print(args, view, checkResultLines(slug, view, { fresh }));
   if (!checkEndedWithResult(view)) {
-    throw new Error(checkFailureMessage(view, cleanLine, { fresh }));
+    throw new Error(checkFailureMessage(view, { fresh }));
   }
 }

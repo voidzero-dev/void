@@ -1,33 +1,26 @@
 /**
- * What the operator security routes do beyond the project routes (spec §13.5, design
- * doc 0095 M17): the installation budget, per-project cap ceilings, installation-wide
- * lists, and the operator rescan. The routes (`operator/security-routes.ts`) are thin;
- * every rule lives here so the admin panel (M18) can call the same functions.
- *
- * Operator lists page with `page` and `limit` (R16), like every other operator list.
+ * The operator security rules beyond the project routes (spec §13.5, design doc 0095 M17):
+ * the installation budget, cap ceilings, installation-wide lists (paged with `page` and
+ * `limit`, R16) and the rescan. The CLI routes and the admin panel (M18) share them.
  */
 import { parseSecurityUsd } from '@void/platform/security-policy';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, asc, count, desc, eq, inArray, ne, sql, TransactionRollbackError } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import type { Db } from '../db.ts';
+import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
+import type { Db, DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { OperatorError } from '../operator/common.ts';
 import { deployments, projects, projectZeroTrust, users } from '../schema.ts';
-import {
-  NANO_USD_PER_USD,
-  securityNextSpendMonth,
-  securityScanReserveNano,
-  securityUsdToCents,
-} from './budget.ts';
+import { NANO_USD_PER_USD, securityNextSpendMonth, securityScanReserveNano } from './budget.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
 import { SECURITY_CLIENT_ASSETS_NOTE } from './input/build.ts';
 import { SECURITY_FULL_REASON_NOTES } from './input/tier.ts';
 import type { SecurityFallbackFullReason } from './input/tier.ts';
-import { readSecurityPlanCapCell, securityProjectPlanCapSql } from './plan-caps.ts';
 import {
   lockSecurityPolicy,
+  parseSecurityWholeNumber,
   readSecurityPolicyLenient,
   readStoredSecurityPolicy,
   replaceSecurityPolicy,
@@ -36,22 +29,23 @@ import {
 } from './policy.ts';
 import { SECURITY_PROJECT_POLICY_COPY } from './project-policy.ts';
 import type { SecurityProjectPolicyOverride } from './project-policy.ts';
+import { parseSecurityMonthlyUsd, writeSecurityProjectCap } from './project-settings.ts';
 import {
   effectiveSeverity,
   readSecurityProjectSettings,
   scanColumns,
+  securityIso as iso,
   securityProjectBudgetView,
   securityProjectModelView,
   securityProjectPolicyView,
   securityScanView,
+  securityUrgentSql,
 } from './project-view.ts';
 import { findLiveInput } from './public-gate.ts';
 import {
-  MAX_CAP_CENTS,
   projectSecuritySettings,
   securityFindings,
   securityPlatformSpend,
-  securityProjectEvents,
   securityProjectSpend,
   securityPublicRequests,
   securityScanBypasses,
@@ -65,7 +59,19 @@ import type { SecurityPublicRequestState, SecurityScanStatus, SecuritySeverity }
 
 type Page = Readonly<{ page: number; limit: number; offset: number }>;
 
-function pageOf(total: number, paging: Page) {
+/** The page fields of a list: the rows of `table` (joined to their project) under `where`. */
+async function pageOf(
+  db: Db,
+  table: PgTable & { project_id: AnyPgColumn },
+  where: SQL | undefined,
+  paging: Page,
+) {
+  const [row] = await db
+    .select({ total: count() })
+    .from(table)
+    .innerJoin(projects, eq(projects.id, table.project_id))
+    .where(where);
+  const total = row?.total ?? 0;
   return {
     page: paging.page,
     limit: paging.limit,
@@ -73,18 +79,6 @@ function pageOf(total: number, paging: Page) {
     totalPages: Math.max(1, Math.ceil(total / paging.limit)),
   };
 }
-
-function iso(value: string | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const time = Date.parse(value);
-  return Number.isNaN(time) ? value : new Date(time).toISOString();
-}
-
-// ---------------------------------------------------------------------------
-// Installation budget
-// ---------------------------------------------------------------------------
 
 /** `GET /operator/v1/security/budget`: caps and what was spent this month. */
 export async function securityBudgetStatus(db: Db, now = Date.now()) {
@@ -153,12 +147,9 @@ export async function securityBudgetStatus(db: Db, now = Date.now()) {
   };
 }
 
-const BUDGET_KEYS = new Set([
-  'dryRun',
-  'expectedRevision',
-  'platformMonthlyUsd',
-  'projectDefaultMonthlyUsd',
-]);
+const BUDGET_KEYS = new Set(
+  'dryRun expectedRevision platformMonthlyUsd projectDefaultMonthlyUsd'.split(' '),
+);
 
 export type SecurityBudgetChangeRequest = Readonly<{
   expectedRevision?: number;
@@ -192,23 +183,12 @@ export function parseSecurityBudgetChange(
     -readonly [Key in keyof SecurityBudgetChangeRequest]: SecurityBudgetChangeRequest[Key];
   } = {};
   if (body.expectedRevision !== undefined) {
-    if (
-      typeof body.expectedRevision !== 'number' ||
-      !Number.isSafeInteger(body.expectedRevision) ||
-      body.expectedRevision < 0
-    ) {
-      throw SecurityApiError.invalid('expectedRevision must be a nonnegative whole number.');
+    request.expectedRevision = parseSecurityWholeNumber(body.expectedRevision, 'expectedRevision');
+  }
+  for (const key of ['platformMonthlyUsd', 'projectDefaultMonthlyUsd'] as const) {
+    if (body[key] !== undefined) {
+      request[key] = usdOrNull(body[key], key);
     }
-    request.expectedRevision = body.expectedRevision;
-  }
-  if (body.platformMonthlyUsd !== undefined) {
-    request.platformMonthlyUsd = usdOrNull(body.platformMonthlyUsd, 'platformMonthlyUsd');
-  }
-  if (body.projectDefaultMonthlyUsd !== undefined) {
-    request.projectDefaultMonthlyUsd = usdOrNull(
-      body.projectDefaultMonthlyUsd,
-      'projectDefaultMonthlyUsd',
-    );
   }
   if (request.platformMonthlyUsd === undefined && request.projectDefaultMonthlyUsd === undefined) {
     throw SecurityApiError.invalid(
@@ -236,11 +216,7 @@ function proposeBudgets(policy: SecurityPolicy, request: SecurityBudgetChangeReq
   };
 }
 
-/**
- * `POST /operator/v1/security/budget`: the platform cap, the project default and
- * whether project caps are on. Same lock and revision rule as the policy, so the two
- * never overwrite each other. A preview needs no `expectedRevision` and returns it.
- */
+/** `POST /operator/v1/security/budget`, under the policy's lock and revision rule. */
 export async function changeSecurityBudgets(
   db: Db,
   body: Record<string, unknown>,
@@ -278,110 +254,25 @@ export async function changeSecurityBudgets(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Per-project cap ceiling
-// ---------------------------------------------------------------------------
-
 /** The new ceiling in cents; `null` clears it (the policy default applies again). */
 export function parseSecurityCeilingRequest(body: Record<string, unknown>): number | null {
   if (!('monthlyUsd' in body)) {
     throw SecurityApiError.invalid('Send {"monthlyUsd":50}, or {"monthlyUsd":null} to clear.');
   }
-  const usd = body.monthlyUsd;
-  if (usd === null) {
-    return null;
-  }
-  if (typeof usd !== 'number' || !Number.isFinite(usd) || usd < 0) {
-    throw SecurityApiError.invalid('monthlyUsd must be a dollar amount of 0 or more, or null.');
-  }
-  const cents = securityUsdToCents(usd);
-  if (Math.abs(usd * 100 - cents) > 1e-6 || cents > MAX_CAP_CENTS) {
-    throw SecurityApiError.invalid(
-      `monthlyUsd must be whole cents, at most ${MAX_CAP_CENTS / 100}.`,
-    );
-  }
-  return cents;
+  return parseSecurityMonthlyUsd(body.monthlyUsd);
 }
 
-/**
- * `POST /operator/v1/projects/:id/security/budget`: an installation admin sets the
- * most a project admin may give the project (`cap_ceiling_cents`). Writes a
- * `cap_changed` event with `cap_kind = ceiling` when it moves.
- */
+/** `POST /operator/v1/projects/:id/security/budget`: the most a project admin may set. */
 export async function setProjectSecurityCeiling(
   db: Db,
-  input: Readonly<{
-    projectId: string;
-    userId: string;
-    cents: number | null;
-  }>,
+  input: Readonly<{ projectId: string; userId: string; cents: number | null }>,
 ) {
-  const policy = await readSecurityPolicyLenient(db);
-  const caps = await db.transaction(async (tx) => {
-    await tx
-      .insert(projectSecuritySettings)
-      .values({ project_id: input.projectId })
-      .onConflictDoNothing();
-    const [current] = await tx
-      .select({
-        monthlyCapCents: projectSecuritySettings.monthly_cap_cents,
-        capCeilingCents: projectSecuritySettings.cap_ceiling_cents,
-        planCap: securityProjectPlanCapSql(projectSecuritySettings.project_id),
-      })
-      .from(projectSecuritySettings)
-      .where(eq(projectSecuritySettings.project_id, input.projectId))
-      .for('update');
-    const before = {
-      monthlyCapCents: current?.monthlyCapCents ?? null,
-      capCeilingCents: current?.capCeilingCents ?? null,
-      planCap: readSecurityPlanCapCell(current?.planCap),
-    };
-    if (before.capCeilingCents !== input.cents) {
-      await tx
-        .update(projectSecuritySettings)
-        .set({
-          cap_ceiling_cents: input.cents,
-          cap_updated_by_user_id: input.userId,
-          cap_updated_at: sql`now()`,
-          updated_by_user_id: input.userId,
-          updated_at: sql`now()`,
-        })
-        .where(eq(projectSecuritySettings.project_id, input.projectId));
-      await tx.insert(securityProjectEvents).values({
-        id: generateId('spe'),
-        project_id: input.projectId,
-        actor_kind: 'installation_admin',
-        actor_user_id: input.userId,
-        actor_role: null,
-        action: 'cap_changed',
-        cap_kind: 'ceiling',
-        old_cents: before.capCeilingCents,
-        new_cents: input.cents,
-      });
-    }
-    return {
-      monthlyCapCents: before.monthlyCapCents,
-      capCeilingCents: input.cents,
-      planCap: before.planCap,
-    };
-  });
-  return {
-    ok: true as const,
-    budget: await securityProjectBudgetView(db, input.projectId, policy, caps),
-  };
+  return writeSecurityProjectCap(db, { ...input, by: 'installation_admin' });
 }
 
-// ---------------------------------------------------------------------------
-// Per-project scan rule (M34)
-// ---------------------------------------------------------------------------
-
 /**
- * `POST /operator/v1/projects/:id/security/policy`: an installation admin sets the
- * project's own scan rule (`inherit | always | never`, see `project-policy.ts`). It
- * takes the project row lock, the lock a deploy enqueue and a scan claim read the rule
- * under, so neither sees it half-written. Nothing is queued or canceled here: a waiting
- * scan of a `never` project is skipped when it would start, and `always` scans from the
- * next deploy, like turning a mode on. The operator audit row records the change.
+ * `POST /operator/v1/projects/:id/security/policy`: the project's own scan rule (M34),
+ * under the project row lock. Nothing is queued or canceled here.
  */
 export async function setProjectSecurityPolicyOverride(
   db: Db,
@@ -458,11 +349,7 @@ export async function setProjectSecurityPolicyOverride(
   };
 }
 
-/**
- * Runs a write the way the real request would, then undoes it: a preview that fails
- * wherever the real call fails and shows what it would return (`dryRun`). Everything
- * `run` writes is inside the transaction, so nothing is kept.
- */
+/** Runs a write as the real request would, then rolls it back: a faithful `dryRun`. */
 export async function previewInRollback<T>(db: Db, run: (tx: Db) => Promise<T>): Promise<T> {
   let result: { value: T } | undefined;
   try {
@@ -477,10 +364,6 @@ export async function previewInRollback<T>(db: Db, run: (tx: Db) => Promise<T>):
   }
   return (result as { value: T }).value;
 }
-
-// ---------------------------------------------------------------------------
-// Lists
-// ---------------------------------------------------------------------------
 
 /** Project filter: a project id or a slug. */
 function projectFilter(value: string | undefined): SQL | undefined {
@@ -528,12 +411,10 @@ export async function listOperatorSecurityFindings(
   const where = and(
     projectFilter(filter.project),
     filter.state === 'all' ? undefined : eq(securityFindings.state, filter.state),
-    filter.urgent
-      ? sql`${securityFindings.verdict} = 'confirmed' AND ${securityFindings.state} = 'open' AND COALESCE(${securityFindings.severity_override}, ${securityFindings.severity}) IN ('critical', 'high')`
-      : undefined,
+    filter.urgent ? securityUrgentSql : undefined,
     filter.severity ? sql`${effectiveSeverity} = ${filter.severity}` : undefined,
   );
-  const [rows, totals] = await Promise.all([
+  const [rows, page] = await Promise.all([
     db
       .select({
         projectId: securityFindings.project_id,
@@ -562,35 +443,18 @@ export async function listOperatorSecurityFindings(
       .orderBy(asc(securityFindings.created_at), asc(securityFindings.id))
       .limit(paging.limit)
       .offset(paging.offset),
-    db
-      .select({ total: count() })
-      .from(securityFindings)
-      .innerJoin(projects, eq(projects.id, securityFindings.project_id))
-      .where(where),
+    pageOf(db, securityFindings, where, paging),
   ]);
   return {
-    findings: rows.map((row) => ({
-      projectId: row.projectId,
-      project: row.slug,
-      id: `F-${row.number}`,
-      verdict: row.verdict,
-      severity: row.severity,
-      title: row.title,
-      category: row.category,
-      cwe: row.cwe,
-      file: row.file,
-      line: row.lineStart,
-      lineEnd: row.lineEnd,
-      verdictSource: row.verdict === 'confirmed' ? row.verdictSource : null,
-      state: row.state,
-      resolution: row.resolution,
-      notSeenInLatest: row.notSeenInLatest,
-      possibleDuplicateOf: row.possibleDuplicateOf,
-      revision: row.revision,
-      deploymentId: row.deploymentId,
-      firstSeenAt: iso(row.firstSeenAt),
+    findings: rows.map(({ slug, number, lineStart, verdictSource, firstSeenAt, ...row }) => ({
+      ...row,
+      project: slug,
+      id: `F-${number}`,
+      line: lineStart,
+      verdictSource: row.verdict === 'confirmed' ? verdictSource : null,
+      firstSeenAt: iso(firstSeenAt),
     })),
-    ...pageOf(totals[0]?.total ?? 0, paging),
+    ...page,
   };
 }
 
@@ -636,7 +500,7 @@ export async function listOperatorSecurityScans(
   const month = securitySpendMonth(now);
   // The month figures are installation-wide (they track the installation budget), so the
   // project, status and trigger filters shape the list only.
-  const [rows, totals, summary] = await Promise.all([
+  const [rows, page, summary] = await Promise.all([
     db
       .select({
         ...scanColumns,
@@ -653,11 +517,7 @@ export async function listOperatorSecurityScans(
       .orderBy(desc(securityScans.created_at), desc(securityScans.id))
       .limit(paging.limit)
       .offset(paging.offset),
-    db
-      .select({ total: count() })
-      .from(securityScans)
-      .innerJoin(projects, eq(projects.id, securityScans.project_id))
-      .where(where),
+    pageOf(db, securityScans, where, paging),
     db
       .select({
         status: securityScans.status,
@@ -690,7 +550,7 @@ export async function listOperatorSecurityScans(
       failed: monthTotal('failed') + monthTotal('timed_out'),
       skippedBudget: summary.reduce((sum, row) => sum + row.budgetSkipped, 0),
     },
-    ...pageOf(totals[0]?.total ?? 0, paging),
+    ...page,
   };
 }
 
@@ -723,7 +583,7 @@ export async function listOperatorPublicRequests(
             )})`
           : eq(securityPublicRequests.state, filter.state as SecurityPublicRequestState),
   );
-  const [rows, totals] = await Promise.all([
+  const [rows, page] = await Promise.all([
     db
       .select({
         id: securityPublicRequests.id,
@@ -747,29 +607,20 @@ export async function listOperatorPublicRequests(
       .orderBy(asc(securityPublicRequests.created_at), asc(securityPublicRequests.id))
       .limit(paging.limit)
       .offset(paging.offset),
-    db
-      .select({ total: count() })
-      .from(securityPublicRequests)
-      .innerJoin(projects, eq(projects.id, securityPublicRequests.project_id))
-      .where(where),
+    pageOf(db, securityPublicRequests, where, paging),
   ]);
   return {
-    requests: rows.map((row) => ({
-      id: row.id,
-      projectId: row.projectId,
-      project: row.slug,
-      state: row.state,
-      heldReason: row.heldReason,
-      requestedVia: row.requestedVia,
-      targetDeploymentId: row.targetDeploymentId,
-      gateScanId: row.gateScanId,
-      blockers: { count: row.blockers, ids: row.blockerIds },
-      cancelCause: row.cancelCause,
-      requestedAt: iso(row.createdAt),
-      updatedAt: iso(row.updatedAt),
-      closedAt: iso(row.closedAt),
-    })),
-    ...pageOf(totals[0]?.total ?? 0, paging),
+    requests: rows.map(
+      ({ slug, blockers, blockerIds, createdAt, updatedAt, closedAt, ...row }) => ({
+        ...row,
+        project: slug,
+        blockers: { count: blockers, ids: blockerIds },
+        requestedAt: iso(createdAt),
+        updatedAt: iso(updatedAt),
+        closedAt: iso(closedAt),
+      }),
+    ),
+    ...page,
   };
 }
 
@@ -780,7 +631,7 @@ export async function listOperatorBypasses(
   paging: Page,
 ) {
   const where = projectFilter(filter.project);
-  const [rows, totals] = await Promise.all([
+  const [rows, page] = await Promise.all([
     db
       .select({
         id: securityScanBypasses.id,
@@ -806,78 +657,54 @@ export async function listOperatorBypasses(
       .orderBy(desc(securityScanBypasses.created_at), desc(securityScanBypasses.id))
       .limit(paging.limit)
       .offset(paging.offset),
-    db
-      .select({ total: count() })
-      .from(securityScanBypasses)
-      .innerJoin(projects, eq(projects.id, securityScanBypasses.project_id))
-      .where(where),
+    pageOf(db, securityScanBypasses, where, paging),
   ]);
   return {
-    bypasses: rows.map((row) => ({
-      id: row.id,
-      projectId: row.projectId,
-      project: row.slug,
-      requestId: row.requestId,
-      deploymentId: row.deploymentId,
-      actorKind: row.actorKind,
-      actorUserId: row.actorUserId,
-      actorRole: row.actorRole,
-      reason: row.reason,
-      requestState: row.requestState,
-      heldReason: row.heldReason,
-      gateScanId: row.gateScanId,
-      blockers: { count: row.blockers, ids: row.blockerIds },
-      notifiedAt: iso(row.notifiedAt),
-      createdAt: iso(row.createdAt),
+    bypasses: rows.map(({ slug, blockers, blockerIds, notifiedAt, createdAt, ...row }) => ({
+      ...row,
+      project: slug,
+      blockers: { count: blockers, ids: blockerIds },
+      notifiedAt: iso(notifiedAt),
+      createdAt: iso(createdAt),
     })),
-    ...pageOf(totals[0]?.total ?? 0, paging),
+    ...page,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Rescan
-// ---------------------------------------------------------------------------
-
 const WAITING_OR_RUNNING = ['pending_input', 'queued', 'running'] as const;
 
-type RescanTarget = Readonly<{
-  projectId: string;
-  slug: string;
-  deploymentId: string;
-}>;
+/** A scan of the project that waits or runs. A local check (M32) scans no deployment. */
+async function busyScan(db: DbOrTx, projectId: string) {
+  const [busy] = await db
+    .select({ id: securityScans.id, status: securityScans.status })
+    .from(securityScans)
+    .where(
+      and(
+        eq(securityScans.project_id, projectId),
+        inArray(securityScans.status, [...WAITING_OR_RUNNING]),
+        ne(securityScans.trigger, 'local'),
+      ),
+    )
+    .limit(1);
+  return busy;
+}
 
-/**
- * Scans queued by a person or a schedule for the live deployment, not by a deploy.
- * `fallback` (M26) is the one re-scan on the `@cf` default after a failed scan.
- */
+/** Scans of the live deployment queued by a person or a schedule, not by a deploy. */
 export type SecurityManualTrigger = 'rescan' | 'backfill' | 'sweep' | 'fallback';
 
 export type SecurityRescanOptions = Readonly<{
   trigger?: SecurityManualTrigger;
   /** Who asks, for the wording of a refusal: only an operator can cancel a scan. */
   by?: 'operator' | 'project';
-  /**
-   * The open public request a fallback re-runs the gate scan for: the row carries it,
-   * so a protected project's fallback still runs under `public` (like a gate scan).
-   */
+  /** The open public request a fallback re-runs the gate scan for. */
   publicRequestId?: string | null;
-  /**
-   * A fallback of a rescan or a sweep is the same full scan: the note set here makes the
-   * scan start choose it (`securityFallbackFullReason`).
-   */
+  /** A fallback of a rescan or a sweep is the same full scan (a coverage note). */
   fallbackOf?: SecurityFallbackFullReason | null;
-  /**
-   * M31: also read the sources of the client bundles from their source maps (the client
-   * asset pass). A coverage note on the row; the scan start reads it.
-   */
+  /** M31: the client asset pass (a coverage note). */
   clientAssets?: boolean;
 }>;
 
-/**
- * Checks everything a rescan needs and says what it would do (cost preview, edge #43).
- * Reads only. Throws an `OperatorError` for a rescan that cannot run. The project
- * route (M25) and the batch scans (backfill, sweeps) use the same checks.
- */
+/** Every rescan check and the cost preview (edge #43). Reads only; `OperatorError` when refused. */
 export async function previewSecurityRescan(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>,
   db: Db,
@@ -941,18 +768,7 @@ export async function previewSecurityRescan(
       'no_live_deployment',
     );
   }
-  const [busy] = await db
-    .select({ id: securityScans.id, status: securityScans.status })
-    .from(securityScans)
-    .where(
-      and(
-        eq(securityScans.project_id, projectId),
-        inArray(securityScans.status, [...WAITING_OR_RUNNING]),
-        // A local check (M32) waits in the same queue but scans no deployment.
-        ne(securityScans.trigger, 'local'),
-      ),
-    )
-    .limit(1);
+  const busy = await busyScan(db, projectId);
   if (busy) {
     throw new OperatorError(
       409,
@@ -983,7 +799,7 @@ export async function previewSecurityRescan(
   const model = securityProjectModelView(policy, settings);
   const worstCase = model.id === null ? null : securityScanReserveNano(model.id, policy.limits);
   return {
-    target: { projectId, slug: project.slug, deploymentId: live.id } satisfies RescanTarget,
+    target: { projectId, slug: project.slug, deploymentId: live.id },
     alreadyScanned: scanned !== undefined,
     tier: 'full' as const,
     clientAssets: options.clientAssets === true,
@@ -995,11 +811,8 @@ export async function previewSecurityRescan(
 }
 
 /**
- * Queues a manual rescan of the live deployment: a full scan, never `no changes`
- * (edge #43). It waits in the queue like any scan, and the monthly caps apply when it
- * starts. Under the project lock it checks again that the deployment is still live and
- * that nothing else waits. `trigger` `backfill` and `sweep` queue the same row for
- * the batch scans.
+ * Queues a full scan of the live deployment (edge #43), checking again under the project
+ * lock that it is still live and that nothing else waits.
  */
 export async function queueSecurityRescan(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>,
@@ -1032,17 +845,7 @@ export async function queueSecurityRescan(
         'security_scan_in_progress',
       );
     }
-    const [busy] = await tx
-      .select({ id: securityScans.id })
-      .from(securityScans)
-      .where(
-        and(
-          eq(securityScans.project_id, projectId),
-          inArray(securityScans.status, [...WAITING_OR_RUNNING]),
-          ne(securityScans.trigger, 'local'),
-        ),
-      )
-      .limit(1);
+    const busy = await busyScan(tx, projectId);
     if (busy) {
       throw new OperatorError(
         409,
@@ -1082,10 +885,6 @@ export async function queueSecurityRescan(
   });
   return { preview, scanId };
 }
-
-// ---------------------------------------------------------------------------
-// Scan lookup for cancel
-// ---------------------------------------------------------------------------
 
 /** The scan (any project) and whether it can still be canceled. */
 export async function readCancelableScan(db: Db, scanId: string) {

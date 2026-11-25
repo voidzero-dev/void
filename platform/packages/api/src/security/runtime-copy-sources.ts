@@ -1,16 +1,13 @@
 /**
- * Fixed code the runtime copy runs (design doc 0095, M30; spike S13). Plain JavaScript
- * text: the copy's guard and entry modules, and the copy sandbox Worker.
+ * Fixed code the runtime copy runs (M30; spike S13): its guard and entry modules and the
+ * sandbox Worker.
  *
- *   copy script = __void_copy_entry.mjs (main)
- *                   ├─ imports __void_copy_guard.mjs first: global fetch → sandbox, WebSocket throws
- *                   ├─ answers /__void_copy/* (ready check, test rows)
- *                   └─ everything else → the deployed app's own entry, unchanged
+ *   __void_copy_entry.mjs ─ imports the guard first (fetch → sandbox, WebSocket throws)
+ *                         ├ answers /__void_copy/* (ready check, test rows)
+ *                         └ everything else → the app's own entry
  *
- * The guard runs in the app's own isolate, so it stops the app's own calls; it is not a
- * wall against code written to escape it. The dispatch namespace's outbound Worker (the
- * sandbox) is the second layer for the Worker itself; a Durable Object's fetch does not
- * pass through an outbound Worker (S13), so the guard is what covers those.
+ * The guard is not a wall against code written to escape it; the outbound Worker is the
+ * second layer, but a Durable Object's fetch skips it (S13), so the guard covers those.
  */
 
 /** Every global `fetch()` goes to the sandbox through a service binding; `new WebSocket` throws. */
@@ -38,20 +35,16 @@ for (const [name, value] of Object.entries({ fetch: guardedFetch, WebSocket: Blo
 export const COPY_GUARD_MODULE_NAME = '__void_copy_guard.mjs';
 export const COPY_ENTRY_MODULE_NAME = '__void_copy_entry.mjs';
 
-/** Largest test-data request body and answer the entry handles. */
 const CONTROL_BODY_LIMIT = 64 * 1024;
 const CONTROL_ROWS_LIMIT = 100;
 
 /**
- * The copy's main module. It loads the guard, re-exports the app's named exports (its
- * Durable Object classes), and answers the copy control routes before the app:
+ * The copy's main module: loads the guard, re-exports the app's named exports, and answers
+ * the control routes before the app. Stores are the copy's own empty ones.
  *
  *   GET  /__void_copy/ready                      {"ready":true}
- *   POST /__void_copy/d1  {binding, sql, params}  runs one statement on an empty copy D1
- *   POST /__void_copy/kv  {binding, key, value}   writes one key into an empty copy KV
- *
- * Only the scan's own container reaches the copy, and the stores are the copy's own empty
- * ones (`__VOID_COPY_STORES` lists them), so the test data never touches the live app.
+ *   POST /__void_copy/d1  {binding, sql, params}  one statement on a copy D1
+ *   POST /__void_copy/kv  {binding, key, value}   one key into a copy KV
  */
 export function copyEntryModule(appMainModule: string): string {
   const app = `./${appMainModule}`;
@@ -131,11 +124,7 @@ export default Entry;
 `;
 }
 
-/**
- * The copy sandbox: an account Worker with no workers.dev route. It is the copies'
- * outbound Worker (every global fetch of a copy ends here: 403) and holds the stubs the
- * copies' platform and queue bindings point at. It keeps no data.
- */
+/** The copy sandbox: the copies' outbound Worker (403) and the stubs their bindings use. */
 export const COPY_SANDBOX_SOURCE = String.raw`
 import { WorkerEntrypoint } from 'cloudflare:workers';
 

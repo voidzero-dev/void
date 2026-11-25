@@ -49,7 +49,13 @@ function findingIds(args: OperatorArgs): Array<string> {
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
 }
 
-function validPreview(preview: Result): void {
+async function previewOf(
+  client: OperatorClient,
+  args: OperatorArgs,
+  path: string,
+  body: Result,
+): Promise<Result> {
+  const preview = await post(client, args, { ...body, dryRun: true }, path);
   if (
     preview.dryRun !== true ||
     typeof preview.action !== 'string' ||
@@ -60,27 +66,7 @@ function validPreview(preview: Result): void {
       'invalid_preview',
     );
   }
-}
-
-async function previewOf(
-  client: OperatorClient,
-  args: OperatorArgs,
-  path: string,
-  body: Result,
-): Promise<Result> {
-  const preview = await client.request(path, {
-    method: 'POST',
-    body: { ...body, dryRun: true },
-    timeoutMs: args.timeoutMs,
-  });
-  validPreview(preview);
   return preview;
-}
-
-/** The policy preview carries the whole policy; the change lines are what a person reads. */
-function shown(preview: Result): Result {
-  const { policy: _policy, ...rest } = preview;
-  return rest;
 }
 
 function money(value: unknown): string {
@@ -136,6 +122,28 @@ async function exportFindingsSarif(client: OperatorClient, args: OperatorArgs): 
   }
 }
 
+function post(
+  client: OperatorClient,
+  args: OperatorArgs,
+  body: Result,
+  path = args.path,
+): Promise<Result> {
+  return client.request(path, { method: 'POST', body, timeoutMs: args.timeoutMs });
+}
+
+/** Preview (unless given), confirm, then send the same body; `null` when not confirmed. */
+async function apply(
+  client: OperatorClient,
+  origin: string,
+  args: OperatorArgs,
+  io: SecurityIo,
+  body: Result,
+  preview?: Result,
+): Promise<Result | null> {
+  const shownPreview = preview ?? (await previewOf(client, args, args.path, body));
+  return (await io.confirm(origin, shownPreview, args)) ? post(client, args, body) : null;
+}
+
 /** One policy-shaped change: preview, confirm, then apply at the previewed revision. */
 async function changeWithRevision(
   client: OperatorClient,
@@ -145,7 +153,9 @@ async function changeWithRevision(
   body: Result,
 ): Promise<void> {
   const preview = await previewOf(client, args, args.path, body);
-  if (!(await io.confirm(origin, shown(preview), args))) {
+  // The policy preview carries the whole policy; the change lines are what a person reads.
+  const { policy: _policy, ...shown } = preview;
+  if (!(await io.confirm(origin, shown, args))) {
     return;
   }
   const revision = number(preview.expectedRevision);
@@ -155,16 +165,15 @@ async function changeWithRevision(
       'invalid_preview',
     );
   }
-  const result = await client.request(args.path, {
-    method: 'POST',
-    body: { ...body, expectedRevision: revision },
-    timeoutMs: args.timeoutMs,
-  });
-  io.outputMutation(result, args);
+  io.outputMutation(await post(client, args, { ...body, expectedRevision: revision }), args);
 }
 
-/** The notice version the platform currently asks operators to accept. */
-async function currentNoticeVersion(client: OperatorClient): Promise<number> {
+/** `--accept-provider-notice` becomes the notice version the platform asks for now. */
+async function withNoticeVersion(client: OperatorClient, args: OperatorArgs): Promise<Result> {
+  const { acceptProviderNotice, ...body } = args.body;
+  if (acceptProviderNotice !== true) {
+    return body;
+  }
   const policy = await client.request('/security/policy');
   const notice = policy.providerNotice as { version?: unknown } | undefined;
   const version = number(notice?.version);
@@ -174,7 +183,7 @@ async function currentNoticeVersion(client: OperatorClient): Promise<number> {
       'invalid_response',
     );
   }
-  return version;
+  return { ...body, acceptProviderNoticeVersion: version };
 }
 
 async function runFindings(
@@ -221,13 +230,7 @@ async function runFindings(
   let failed = 0;
   for (const item of items) {
     try {
-      results.push(
-        await client.request(item.path, {
-          method: 'POST',
-          body: item.body,
-          timeoutMs: args.timeoutMs,
-        }),
-      );
+      results.push(await post(client, args, item.body, item.path));
     } catch (error) {
       failed++;
       results.push({
@@ -262,15 +265,10 @@ async function runBudget(
   const body: Result = { ...args.body };
   if (args.path.startsWith('/projects/')) {
     // One project's limit: a plain write, no revision.
-    const preview = await previewOf(client, args, args.path, body);
-    if (!(await io.confirm(origin, preview, args))) {
+    const result = await apply(client, origin, args, io, body);
+    if (!result) {
       return;
     }
-    const result = await client.request(args.path, {
-      method: 'POST',
-      body,
-      timeoutMs: args.timeoutMs,
-    });
     io.outputMutation(result, args);
     const budget = result.budget as { capSource?: unknown; capUsd?: unknown } | undefined;
     const set = body.monthlyUsd;
@@ -319,8 +317,8 @@ async function runRescan(
   }
   if (!args.json && !args.plan) {
     // The server's preview is the cost check (edge #43): say what it would run and what it can cost.
-    const target = preview.target;
-    const id = typeof preview.deploymentId === 'string' ? preview.deploymentId : String(target);
+    const id =
+      typeof preview.deploymentId === 'string' ? preview.deploymentId : String(preview.target);
     const model = typeof preview.model === 'string' ? preview.model : 'the scan model';
     const whole =
       preview.clientAssets === true
@@ -334,14 +332,10 @@ async function runRescan(
       `${first}${typeof preview.worstCaseUsd === 'number' ? ` It can cost up to ${money(preview.worstCaseUsd)}.` : ''}\n${dim('Monthly caps apply; raise the cap first if a rescan is refused.')}\n`,
     );
   }
-  if (!(await io.confirm(origin, preview, args))) {
+  const result = await apply(client, origin, args, io, args.body, preview);
+  if (!result) {
     return;
   }
-  const result = await client.request(args.path, {
-    method: 'POST',
-    body: args.body,
-    timeoutMs: args.timeoutMs,
-  });
   io.output(result, args.json);
   if (args.json) {
     return;
@@ -363,7 +357,7 @@ async function runBackfill(
   origin: string,
   args: OperatorArgs,
   io: SecurityIo,
-): Promise<void> {
+): Promise<Result | null> {
   const preview = await previewOf(client, args, args.path, args.body);
   const count = number(preview.willQueue) ?? 0;
   if (!args.json && !args.plan) {
@@ -385,47 +379,16 @@ async function runBackfill(
   }
   if (count === 0 && !args.plan) {
     io.output(preview, args.json);
-    return;
+    return null;
   }
-  if (!(await io.confirm(origin, preview, args))) {
-    return;
-  }
-  const result = await client.request(args.path, {
-    method: 'POST',
-    body: args.body,
-    timeoutMs: args.timeoutMs,
-  });
-  io.outputMutation(result, args);
-}
-
-async function runWebhook(
-  client: OperatorClient,
-  origin: string,
-  args: OperatorArgs,
-  io: SecurityIo,
-): Promise<void> {
-  const preview = await previewOf(client, args, args.path, args.body);
-  if (!(await io.confirm(origin, preview, args))) {
-    return;
-  }
-  const result = await client.request(args.path, {
-    method: 'POST',
-    body: args.body,
-    timeoutMs: args.timeoutMs,
-  });
-  io.outputMutation(result, args);
-  if (!args.json && typeof result.secret === 'string') {
-    process.stderr.write(
-      `${dim('Save the signing secret above now; it is not shown again. Check each request: X-Void-Signature is t=<seconds>,v1=<HMAC-SHA256 hex of "<t>.<body>">.')}\n`,
-    );
-  }
+  return apply(client, origin, args, io, args.body, preview);
 }
 
 /** Longest provider key read from stdin; the server takes at most 1,024 characters. */
 const MAX_PROVIDER_KEY_INPUT = 8192;
 
 /** Reads one provider API key piped on stdin. The key is never printed. */
-export async function readProviderKeyStdin(
+async function readProviderKeyStdin(
   stdin: NodeJS.ReadableStream & { isTTY?: boolean } = process.stdin,
 ): Promise<string> {
   if (stdin.isTTY) {
@@ -451,54 +414,16 @@ export async function readProviderKeyStdin(
   return key;
 }
 
-/** `models --provider <host> --key-stdin | --remove-key`: preview, confirm, apply. */
-async function runProviderKey(
-  client: OperatorClient,
-  origin: string,
-  args: OperatorArgs,
-  io: SecurityIo,
-): Promise<void> {
+/** The body of a change with no revision. A piped provider key is read before any request. */
+async function plainBody(client: OperatorClient, args: OperatorArgs): Promise<Result> {
   const { keyStdin, ...fields } = args.body;
-  // Read before any request, once for the preview and the change.
-  const body: Result =
-    keyStdin === true ? { ...fields, key: await readProviderKeyStdin() } : fields;
-  const preview = await previewOf(client, args, args.path, body);
-  if (!(await io.confirm(origin, preview, args))) {
-    return;
-  }
-  const result = await client.request(args.path, {
-    method: 'POST',
-    body,
-    timeoutMs: args.timeoutMs,
-  });
-  io.outputMutation(result, args);
-  if (!args.json && typeof result.message === 'string') {
-    process.stderr.write(`${dim(result.message)}\n`);
-  }
+  return keyStdin === true
+    ? { ...fields, key: await readProviderKeyStdin() }
+    : withNoticeVersion(client, args);
 }
 
-async function runModel(
-  client: OperatorClient,
-  origin: string,
-  args: OperatorArgs,
-  io: SecurityIo,
-): Promise<void> {
-  const { acceptProviderNotice, ...fields } = args.body;
-  const body: Result = { ...fields };
-  if (acceptProviderNotice === true) {
-    body.acceptProviderNoticeVersion = await currentNoticeVersion(client);
-  }
-  const preview = await previewOf(client, args, args.path, body);
-  if (!(await io.confirm(origin, preview, args))) {
-    return;
-  }
-  const result = await client.request(args.path, {
-    method: 'POST',
-    body,
-    timeoutMs: args.timeoutMs,
-  });
-  io.outputMutation(result, args);
-}
+const WEBHOOK_SECRET_NOTE =
+  'Save the signing secret above now; it is not shown again. Check each request: X-Void-Signature is t=<seconds>,v1=<HMAC-SHA256 hex of "<t>.<body>">.';
 
 async function runMutation(
   client: OperatorClient,
@@ -507,14 +432,10 @@ async function runMutation(
   io: SecurityIo,
 ): Promise<void> {
   switch (args.action) {
-    case 'probe': {
+    case 'probe':
       // A check, not a change: it records the result and has no preview.
-      io.output(
-        await client.request(args.path, { method: 'POST', body: {}, timeoutMs: args.timeoutMs }),
-        args.json,
-      );
+      io.output(await post(client, args, {}), args.json);
       return;
-    }
     case 'policy':
     case 'limits':
     case 'public-gate':
@@ -522,42 +443,35 @@ async function runMutation(
     case 'fallback':
     case 'digest':
       return changeWithRevision(client, origin, args, io, { ...args.body });
-    case 'webhook':
-      return runWebhook(client, origin, args, io);
-    case 'provider-key':
-      return runProviderKey(client, origin, args, io);
-    case 'models': {
-      const { acceptProviderNotice, ...fields } = args.body;
-      const body: Result = { ...fields };
-      if (acceptProviderNotice === true) {
-        body.acceptProviderNoticeVersion = await currentNoticeVersion(client);
-      }
-      return changeWithRevision(client, origin, args, io, body);
-    }
+    case 'models':
+      return changeWithRevision(client, origin, args, io, await withNoticeVersion(client, args));
     case 'budget-set':
       return runBudget(client, origin, args, io);
     case 'resolve':
     case 'reopen':
     case 'comment':
       return runFindings(client, origin, args, io);
-    case 'model':
-      return runModel(client, origin, args, io);
     case 'rescan':
       return runRescan(client, origin, args, io);
-    case 'backfill':
-      return runBackfill(client, origin, args, io);
     default: {
-      // cancel, bypass: a preview, then the same body.
-      const preview = await previewOf(client, args, args.path, args.body);
-      if (!(await io.confirm(origin, preview, args))) {
+      // model, webhook, provider-key, backfill, cancel, bypass: a preview, then the same body.
+      const result =
+        args.action === 'backfill'
+          ? await runBackfill(client, origin, args, io)
+          : await apply(client, origin, args, io, await plainBody(client, args));
+      if (!result) {
         return;
       }
-      const result = await client.request(args.path, {
-        method: 'POST',
-        body: args.body,
-        timeoutMs: args.timeoutMs,
-      });
       io.outputMutation(result, args);
+      const note =
+        args.action === 'webhook' && typeof result.secret === 'string'
+          ? WEBHOOK_SECRET_NOTE
+          : args.action === 'provider-key' && typeof result.message === 'string'
+            ? result.message
+            : null;
+      if (!args.json && note) {
+        process.stderr.write(`${dim(note)}\n`);
+      }
     }
   }
 }

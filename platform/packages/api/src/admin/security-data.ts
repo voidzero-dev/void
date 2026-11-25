@@ -1,17 +1,12 @@
-/**
- * What the admin panel shows for security audits (spec §13.1, design doc 0095 M18).
- * Every function reads through the same operations the operator API and the CLI use, so
- * the panel never has its own rule. Writes live in `routes/security.ts`.
- */
+// What the admin panel shows for security audits (spec §13.1). Reads go through the
+// operations the operator API and the CLI use; writes live in `routes/security.ts`.
 import {
-  getSecurityModel,
   securityProviderNotice,
   securityModelThirdPartyHost,
-  SECURITY_PROVIDER_NOTICE_VERSION,
 } from '@void/platform/security-models';
 import { and, count, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
-import { getPlatformCapabilities } from '../capabilities.ts';
+import { securityAuditsEnabled } from '../capabilities.ts';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from '../operator/common.ts';
@@ -67,7 +62,6 @@ export const SECURITY_HOME = '/admin/security';
 interface SecuritySectionsByPath {
   readonly [path: string]: SecuritySection;
 }
-
 const SECTION_BY_PATH: SecuritySectionsByPath = {
   [SECURITY_HOME]: 'settings',
   [`${SECURITY_HOME}/findings`]: 'findings',
@@ -81,18 +75,6 @@ const PAGE_SIZE = 20;
 /** A request held this long is listed as stale (spec §11.4). */
 const STALE_REQUEST_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function capabilityOn(context: Pick<AdminContext, 'env'>): boolean {
-  try {
-    return getPlatformCapabilities(context.env).securityAudits;
-  } catch {
-    return false;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Unseen bypasses (per installation admin)
-// ---------------------------------------------------------------------------
 
 function seenKey(userId: string): string {
   return `security.bypasses-seen.${userId}`;
@@ -150,10 +132,6 @@ async function countUnseenBypasses(db: Db, seenAt: string | null): Promise<numbe
   return row?.total ?? 0;
 }
 
-// ---------------------------------------------------------------------------
-// Banners and the nav badge (every admin page)
-// ---------------------------------------------------------------------------
-
 export type SecurityBanner = Readonly<{ status: 'warning' | 'error'; text: string; href: string }>;
 export type SecurityChrome = Readonly<{
   banners: ReadonlyArray<SecurityBanner>;
@@ -163,7 +141,6 @@ export type SecurityChrome = Readonly<{
 interface ProbeFailureCopy {
   readonly [check: string]: string;
 }
-
 const PROBE_FAILURE_COPY: ProbeFailureCopy = {
   container:
     'Scans run in a Cloudflare Container. They need Workers Paid, and the runtime token needs Account → Containers → Edit and Account → Cloudchamber → Edit.',
@@ -190,7 +167,7 @@ function utcLabel(iso: string): string {
 export async function loadSecurityChrome(
   context: Pick<AdminContext, 'env' | 'get'>,
 ): Promise<SecurityChrome | null> {
-  if (!capabilityOn(context)) {
+  if (!securityAuditsEnabled(context.env)) {
     return null;
   }
   try {
@@ -250,10 +227,6 @@ export async function loadSecurityChrome(
     return null;
   }
 }
-
-// ---------------------------------------------------------------------------
-// The Security pages
-// ---------------------------------------------------------------------------
 
 function paging(url: URL) {
   const raw = url.searchParams.get('page');
@@ -344,7 +317,7 @@ export async function loadSecurityAdminPage(context: AdminContext, path: string)
   const { url, section } = securityLocation(path);
   const db = context.get('db');
   const user = context.get('user');
-  const capability = capabilityOn(context);
+  const capability = securityAuditsEnabled(context.env);
   const query = (name: string) => url.searchParams.get(name) ?? undefined;
   const now = Date.now();
   const seenAt = await readSeenAt(db, user.id);
@@ -426,16 +399,14 @@ async function loadSettings(
   now: number,
 ) {
   const db = context.get('db');
-  const capability = capabilityOn(context);
-  const [status, budget, zeroTrustFact, zeroTrust, lowConfirmation, highRefusal] =
-    await Promise.all([
-      securityStatus(db, capability, now),
-      securityBudgetStatus(db, now),
-      readSecurityZeroTrustFact(db),
-      readZeroTrustConfigurationStrict(db).catch(() => null),
-      fewFindingsConfirmed(db, now),
-      readSecurityHighRefusalModels(db, now),
-    ]);
+  const capability = securityAuditsEnabled(context.env);
+  const [budget, zeroTrustFact, zeroTrust, lowConfirmation, highRefusal] = await Promise.all([
+    securityBudgetStatus(db, now),
+    readSecurityZeroTrustFact(db),
+    readZeroTrustConfigurationStrict(db).catch(() => null),
+    fewFindingsConfirmed(db, now),
+    readSecurityHighRefusalModels(db, now),
+  ]);
   const view = securityPolicyView(stored, capability, now);
   return {
     unreadable: stored.unreadable,
@@ -449,7 +420,6 @@ async function loadSettings(
     budgets: stored.policy.budgets,
     entitlement: stored.policy.entitlement
       ? {
-          checkedAt: stored.policy.entitlement.checkedAt,
           ok: stored.policy.entitlement.ok,
           missing: [...stored.policy.entitlement.missing],
           fresh: view.entitlementFresh,
@@ -457,26 +427,17 @@ async function loadSettings(
       : null,
     models: view.models.map((model) => ({
       id: model.id,
-      host: model.host,
       badges: highRefusal.has(model.id)
         ? [...model.badges, SECURITY_HIGH_REFUSAL_BADGE]
         : [...model.badges],
       blocked: model.blocked,
       hostOk: model.hostOk,
       priced: model.priced,
-      pickable: model.pickable,
-      default: model.default,
     })),
-    providerNotice: {
-      version: SECURITY_PROVIDER_NOTICE_VERSION,
-      accepted: view.providerNotice.accepted,
-    },
+    providerNotice: { accepted: view.providerNotice.accepted },
     zeroTrustFact,
     newProjectsStartPublic: zeroTrust?.protectNewProjects === false,
-    spentUsd: status.month.spentUsd,
     platformSpent: budget.platform.spentUsd,
-    resetsAt: budget.resetsAt,
-    lastDayFailureRate: status.last24h.failureRate,
     lowConfirmation,
   };
 }
@@ -539,13 +500,9 @@ async function loadRequests(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Project detail
-// ---------------------------------------------------------------------------
-
 /** Whether "Scan before a project goes public" applies now (the Zero Trust page greys out on it). */
 export async function loadPublicGateOn(context: AdminContext): Promise<boolean> {
-  if (!capabilityOn(context)) {
+  if (!securityAuditsEnabled(context.env)) {
     return false;
   }
   const policy = await readSecurityPolicyLenient(context.get('db'));
@@ -567,7 +524,7 @@ export async function loadProjectGate(
     bypassable: false,
     urgentIds: [] as Array<string>,
   };
-  if (!capabilityOn(context)) {
+  if (!securityAuditsEnabled(context.env)) {
     return off;
   }
   const db = context.get('db');
@@ -603,7 +560,7 @@ export async function loadProjectSecurity(
   context: AdminContext,
   project: Readonly<{ id: string; slug: string }>,
 ) {
-  if (!capabilityOn(context)) {
+  if (!securityAuditsEnabled(context.env)) {
     return null;
   }
   const db = context.get('db');
@@ -629,9 +586,7 @@ export async function loadProjectSecurity(
       id: model.id,
       badges: securityPickerBadges(model.id, highRefusal),
       pickable: model.pickable,
-      thirdParty: host !== null,
       notice: host === null ? null : [...securityProviderNotice(host)],
-      label: getSecurityModel(model.id).id,
     };
   });
   return {
@@ -641,15 +596,9 @@ export async function loadProjectSecurity(
       oldestFirstSeenAt: status.urgent.oldestFirstSeenAt,
       ids: status.urgent.findings.map((finding) => finding.id),
     },
-    counts: {
-      urgent: status.counts.urgent,
-      leads: status.counts.leads,
-      resolved: status.counts.resolved,
-      open: status.counts.open,
-    },
+    counts: { leads: status.counts.leads, resolved: status.counts.resolved },
     model: status.model,
     models,
-    noticeVersion: SECURITY_PROVIDER_NOTICE_VERSION,
     budget: status.budget,
     backlogFiles: status.backlogFiles,
     scans: scans.scans.map((scan) => ({
@@ -668,7 +617,6 @@ export async function loadProjectSecurity(
       actorRole: bypass.actorRole,
       reason: bypass.reason,
       requestState: bypass.requestState,
-      blockers: bypass.blockers,
       deploymentId: bypass.deploymentId,
       createdAt: bypass.createdAt,
     })),

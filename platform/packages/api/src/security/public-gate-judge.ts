@@ -1,7 +1,6 @@
 /**
- * The pure part of the public gate (spec §5.5): given the facts of one open public
- * request, what is its state? No database, no clock. `public-gate.ts` reads the facts
- * and applies the verdict.
+ * The pure public gate judge (spec §5.5): the facts of one open request ─► its state.
+ * `public-gate.ts` reads the facts and applies the verdict.
  *
  *   nothing live, nothing moving (target '') ─► pass: a first deploy that never went live
  *   deployment moving ─────────────────────────► waiting_scan (re-check at cutover)
@@ -34,30 +33,20 @@ export type GateScanFacts = Readonly<{
   statusReason: string | null;
   failureCause: 'installation' | 'project' | null;
   backlogFiles: number;
-  /** The scan stopped storing findings at the cap: more may be hidden. */
   capped: boolean;
-  /** A project file was never read (bad path, over 16 MB, or not text). */
   unreadFiles: boolean;
 }>;
 
 export type GateJudgeInput = Readonly<{
-  /** The deployment the request judges (follows cutover and rollback). */
   targetDeploymentId: string;
   activeDeploymentId: string | null;
-  /** A deployment of the project is in `cutover` or `compensating`. */
   deploymentMoving: boolean;
-  /** Installation Zero Trust enabled, not public-only, no operation; the project row `ready`. */
   zeroTrustReady: boolean;
-  /**
-   * The newest scan of the target deployment that is not `superseded` and not a
-   * `skipped:protected` or `skipped:project_policy` row; `null` when there is none.
-   */
+  /** The newest target scan, not superseded nor skipped by protection or project policy. */
   scan: GateScanFacts | null;
-  /** The live deployment's input is kept, so a gate scan can be queued for it. */
   hasInput: boolean;
-  /** Open urgent findings, as `F-n`. */
   urgent: ReadonlyArray<string>;
-  /** `fixed` critical/high claims that no clean scan of the live code has checked, as `F-n`. */
+  /** `fixed` critical/high claims no clean scan of the live code has checked, as `F-n`. */
   unproven: ReadonlyArray<string>;
 }>;
 
@@ -67,19 +56,13 @@ export type GateVerdict =
   | Readonly<{
       kind: 'hold';
       state: GateHeldState;
-      /** A short code, stored in `held_reason`. */
       reason: string;
       blockers: ReadonlyArray<string>;
-      /** Queue a new gate scan of the target deployment now. */
       queue: boolean;
       scanId: string | null;
     }>;
 
-const WAITING_SCAN_STATUSES: ReadonlySet<SecurityScanStatus> = new Set<SecurityScanStatus>([
-  'pending_input',
-  'queued',
-  'running',
-]);
+const WAITING_SCAN_STATUSES = new Set<SecurityScanStatus>(['pending_input', 'queued', 'running']);
 
 /** `held_reason` of a scan that left project files unread: a rescan reads no more. */
 export const SECURITY_GATE_UNREAD_FILES = 'unread_files';
@@ -100,10 +83,6 @@ function hold(
   };
 }
 
-function unique(values: ReadonlyArray<string>): Array<string> {
-  return [...new Set(values)];
-}
-
 /** The reason code of a scan that ended with no usable result. */
 export function gateNoResultReason(scan: GateScanFacts): string {
   if (scan.status === 'skipped') {
@@ -122,8 +101,7 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
     input.targetDeploymentId === '' &&
     !input.deploymentMoving
   ) {
-    // Asked while a first deploy was on its way, and it never went live: nothing is
-    // exposed, as when nothing was live at the ask.
+    // A first deploy that never went live: nothing is exposed.
     return { kind: 'pass', scanId: null };
   }
   if (input.deploymentMoving || input.activeDeploymentId !== input.targetDeploymentId) {
@@ -134,7 +112,7 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
   }
   if (input.urgent.length > 0) {
     return hold('held_findings', 'urgent_findings', scan, {
-      blockers: unique([...input.urgent, ...input.unproven]),
+      blockers: [...new Set([...input.urgent, ...input.unproven])],
     });
   }
   if (scan !== null && WAITING_SCAN_STATUSES.has(scan.status)) {
@@ -163,29 +141,27 @@ export function judgeGate(input: GateJudgeInput): GateVerdict {
   if (input.unproven.length > 0) {
     return hold('needs_deploy', 'unproven_fix', scan, { blockers: input.unproven });
   }
-  if (scan.backlogFiles > 0) {
-    // With the input gone no next part can be scanned: only a deploy moves it on.
-    return input.hasInput
-      ? hold('waiting_scan', 'backlog', scan, { queue: true })
-      : hold('needs_deploy', 'no_input', scan);
+  const gap =
+    scan.backlogFiles > 0
+      ? 'backlog'
+      : scan.capped
+        ? 'findings_capped'
+        : scan.unreadFiles
+          ? SECURITY_GATE_UNREAD_FILES
+          : null;
+  if (gap === null) {
+    return { kind: 'pass', scanId: scan.id };
   }
-  if (scan.capped) {
-    return input.hasInput
-      ? hold('held_no_result', 'findings_capped', scan)
-      : hold('needs_deploy', 'no_input', scan);
+  // With the input gone nothing more can be scanned: only a deploy moves it on.
+  if (!input.hasInput) {
+    return hold('needs_deploy', 'no_input', scan);
   }
-  if (scan.unreadFiles) {
-    return input.hasInput
-      ? hold('held_no_result', SECURITY_GATE_UNREAD_FILES, scan)
-      : hold('needs_deploy', 'no_input', scan);
-  }
-  return { kind: 'pass', scanId: scan.id };
+  return gap === 'backlog'
+    ? hold('waiting_scan', gap, scan, { queue: true })
+    : hold('held_no_result', gap, scan);
 }
 
-/**
- * What a bypass skips, for the confirm text (spec §5.5). `null` when the state cannot
- * be bypassed.
- */
+/** What a bypass skips, for the confirm text (§5.5); `null` when it cannot be bypassed. */
 export function bypassSkips(
   state: SecurityPublicRequestState,
   reason: string | null,

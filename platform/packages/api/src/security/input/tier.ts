@@ -14,36 +14,22 @@
  */
 import type { SecurityScanTier, SecurityScanTrigger } from '../schema.ts';
 
-/**
- * Why a full scan: no base at all, a base that cannot be diffed against, an operator
- * rescan, or a gate scan with nothing changed and no file to re-check (edge #85).
- */
+/** Why a full scan; `gate_recheck`: a gate scan with nothing changed to re-check (edge #85). */
 export type SecurityFullReason =
   | 'first_scan'
   | 'no_usable_base'
   | 'rescan'
   | 'sweep'
   | 'gate_recheck'
-  /** M32: a local check of a working tree; it has no deployment, so no base. */
   | 'local';
 
-/** The full reasons a fallback scan carries over from the scan it re-runs. */
 export type SecurityFallbackFullReason = Extract<SecurityFullReason, 'rescan' | 'sweep'>;
 
-/**
- * The full reason a fallback carries, from the coverage notes set when it was queued
- * (`queueSecurityFallbackScans`); `null` for a fallback that follows the base rule.
- */
+/** The full reason a fallback carries over, from its coverage notes; `null`: the base rule. */
 export function securityFallbackFullReason(
   notes: ReadonlyArray<string>,
 ): SecurityFallbackFullReason | null {
-  if (notes.includes(SECURITY_FULL_REASON_NOTES.rescan)) {
-    return 'rescan';
-  }
-  if (notes.includes(SECURITY_FULL_REASON_NOTES.sweep)) {
-    return 'sweep';
-  }
-  return null;
+  return (['rescan', 'sweep'] as const).find((reason) => notes.includes(reason)) ?? null;
 }
 
 export type SecurityTierChoice = Readonly<{
@@ -54,27 +40,15 @@ export type SecurityTierChoice = Readonly<{
 export function chooseSecurityTier(
   input: Readonly<{
     trigger: SecurityScanTrigger;
-    /** The last succeeded scan's deployment, if any. */
     baseDeploymentId: string | null;
-    /** Its snapshot is still in R2. */
     baseSnapshot: boolean;
-    /** T1 checks passed (M11); always false on a self-hosted install. */
     sourceDiff?: boolean;
-    /**
-     * A fallback (M26) of a rescan or a sweep: the full scan the failed one was. Without
-     * it the base rule could diff the deployment against itself and scan nothing.
-     */
+    /** A fallback (M26) of a rescan or sweep is the full scan the failed one was. */
     fallbackOf?: SecurityFallbackFullReason | null;
   }>,
 ): SecurityTierChoice {
-  if (input.trigger === 'rescan') {
-    return { tier: 'full', fullReason: 'rescan' };
-  }
-  if (input.trigger === 'sweep') {
-    return { tier: 'full', fullReason: 'sweep' };
-  }
-  if (input.trigger === 'local') {
-    return { tier: 'full', fullReason: 'local' };
+  if (input.trigger === 'rescan' || input.trigger === 'sweep' || input.trigger === 'local') {
+    return { tier: 'full', fullReason: input.trigger };
   }
   if (input.trigger === 'fallback' && input.fallbackOf) {
     return { tier: 'full', fullReason: input.fallbackOf };
@@ -85,16 +59,13 @@ export function chooseSecurityTier(
   if (!input.baseSnapshot) {
     return { tier: 'full', fullReason: 'no_usable_base' };
   }
-  if (input.sourceDiff === true) {
-    return { tier: 'source_diff', fullReason: null };
-  }
-  return { tier: 'built_diff', fullReason: null };
+  return { tier: input.sourceDiff === true ? 'source_diff' : 'built_diff', fullReason: null };
 }
 
-/** Coverage notes that name why a full scan ran; `securityCoverageLabel` reads them. */
 /** Prefix of the coverage note for a wanted runtime copy that was not made. */
 export const SECURITY_RUNTIME_COPY_NOT_MADE_NOTE = 'runtime-copy-not-made';
 
+/** Coverage notes that name why a full scan ran; `securityCoverageLabel` reads them. */
 export const SECURITY_FULL_REASON_NOTES = {
   first_scan: 'first-scan',
   no_usable_base: 'no-usable-base',
@@ -112,33 +83,27 @@ export type SecurityCoverageRow = Readonly<{
   backlogFiles: number;
 }>;
 
+const FULL_REASON_LABELS = [
+  [SECURITY_FULL_REASON_NOTES.first_scan, 'first scan'],
+  [SECURITY_FULL_REASON_NOTES.rescan, 'rescan'],
+  [SECURITY_FULL_REASON_NOTES.sweep, 'sweep'],
+  [SECURITY_FULL_REASON_NOTES.gate_recheck, 're-check'],
+  [SECURITY_FULL_REASON_NOTES.local, 'local check'],
+] as const;
+
 function plural(count: number, word: string): string {
   return `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
 }
 
-/**
- * `built-output diff · 12 files`, `full scan (first scan)`, with
- * `· partial (backlog 4,600 files)` when files wait in the backlog.
- */
+/** `built-output diff · 12 files`, `full scan (first scan) · partial (backlog 4,600 files)`. */
 export function securityCoverageLabel(row: SecurityCoverageRow): string | null {
   if (row.tier === null) {
     return null;
   }
   let label: string;
   if (row.tier === 'full') {
-    const notes = row.coverageNotes;
-    const reason = notes.includes(SECURITY_FULL_REASON_NOTES.first_scan)
-      ? 'first scan'
-      : notes.includes(SECURITY_FULL_REASON_NOTES.rescan)
-        ? 'rescan'
-        : notes.includes(SECURITY_FULL_REASON_NOTES.sweep)
-          ? 'sweep'
-          : notes.includes(SECURITY_FULL_REASON_NOTES.gate_recheck)
-            ? 're-check'
-            : notes.includes(SECURITY_FULL_REASON_NOTES.local)
-              ? 'local check'
-              : 'no usable base';
-    label = `full scan (${reason})`;
+    const reason = FULL_REASON_LABELS.find(([note]) => row.coverageNotes.includes(note));
+    label = `full scan (${reason?.[1] ?? 'no usable base'})`;
   } else {
     const name = row.tier === 'source_diff' ? 'source diff' : 'built-output diff';
     label = `${name} · ${plural(row.filesScanned, 'file')}`;

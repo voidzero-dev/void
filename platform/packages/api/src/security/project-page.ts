@@ -1,15 +1,8 @@
 /**
- * The project security page (spec §13.2): what a signed-in project member sees at
- * `/security/projects/:slug`, and the landing page everyone else gets. Role decides the
- * detail and the forms (Phase 2, M29; `routes/security-page.ts` handles the posts):
- *
- *   settings (owner, admin)  everything; resolve, comment, model, budget and bypass forms
- *   deploy (collaborator)    everything; the comment form, no resolve
- *   read (reader)            counts, F-ids, titles of resolved findings, no budget or scans
- *
- * The CLI commands stay shown as text to copy. Every dynamic value goes through `esc`.
- * Model text is plain text: no Markdown, links or images. Only `loadSecurityPage`
- * touches the database, and only to read.
+ * The project security page (spec §13.2, M29) at `/security/projects/:slug`, and the
+ * landing page everyone else gets. Owners and admins get everything and every form,
+ * collaborators everything and the comment form, readers counts, F-ids and resolved
+ * titles. Every dynamic value goes through `esc`; model text is plain text.
  */
 import { escapeBrowserHtml } from '@void/platform/browser-page';
 import { securityPickProblemNote } from '@void/platform/security-models';
@@ -18,7 +11,11 @@ import { desc, eq } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import { hasProjectCapability } from '../project-access.ts';
 import type { ProjectRole } from '../types.ts';
-import { formatSecurityDay, formatSecurityStamp } from './notification-copy.ts';
+import {
+  formatSecurityDay,
+  formatSecurityStamp,
+  securityActorRoleLabel,
+} from './notification-copy.ts';
 import {
   listSecurityFindings,
   SECURITY_COMMENT_MAX_CHARS,
@@ -79,7 +76,14 @@ export async function loadSecurityPage(
   const { project, role } = input;
   const viewer = { role, credential: false };
   const level = securityDetailLevel(viewer);
-  const page = { limit: SECURITY_PAGE_FINDINGS_SHOWN, afterNumber: null };
+  const list = (state: 'open' | 'resolved', urgent: boolean) =>
+    listSecurityFindings(
+      db,
+      project.id,
+      level,
+      { state, urgent, severity: null },
+      { limit: SECURITY_PAGE_FINDINGS_SHOWN, afterNumber: null },
+    );
   const [status, urgentOpen, open, resolved, request, bypasses, modelChoices] = await Promise.all([
     projectSecurityStatus({
       db,
@@ -89,27 +93,9 @@ export async function loadSecurityPage(
       ...(input.now === undefined ? {} : { now: input.now }),
     }),
     // Urgent findings load on their own so none falls past the cap on the other open ones.
-    listSecurityFindings(
-      db,
-      project.id,
-      level,
-      { state: 'open', urgent: true, severity: null },
-      page,
-    ),
-    listSecurityFindings(
-      db,
-      project.id,
-      level,
-      { state: 'open', urgent: false, severity: null },
-      page,
-    ),
-    listSecurityFindings(
-      db,
-      project.id,
-      level,
-      { state: 'resolved', urgent: false, severity: null },
-      page,
-    ),
+    list('open', true),
+    list('open', false),
+    list('resolved', false),
     openPublicRequestView(db, project.id),
     db
       .select({
@@ -167,10 +153,6 @@ export async function loadSecurityPage(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Pieces
-// ---------------------------------------------------------------------------
-
 function usd(value: number): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -199,18 +181,7 @@ function plainText(value: unknown): string {
 }
 
 function roleLabel(role: string | null): string {
-  switch (role) {
-    case 'owner':
-      return 'the project owner';
-    case 'admin':
-      return 'a project admin';
-    case 'collaborator':
-      return 'a collaborator';
-    case 'installation_admin':
-      return 'a platform admin';
-    default:
-      return 'a project member';
-  }
+  return role === 'collaborator' ? 'a collaborator' : securityActorRoleLabel(role);
 }
 
 function code(text: string): string {
@@ -402,6 +373,16 @@ function findingList(
     .join('')}</div>${cutNote(findings.length, total)}</div>`;
 }
 
+type Budget = NonNullable<Status['budget']>;
+
+/** A scan with no budget cause (none is expected) reads as the cap its numbers point to. */
+function knownCause(cause: SecurityScanView['budgetCause'], budget: Budget) {
+  return (
+    cause ??
+    (budget.capUsd !== null && budget.spentUsd >= budget.capUsd ? 'project_cap' : 'platform_cap')
+  );
+}
+
 /**
  * `skipped:budget` copy (spec §11.4, §16.3), by the cap that skipped the scan. A cap raised
  * since then says the next deploy is scanned; readers get no amounts.
@@ -416,11 +397,7 @@ function budgetSkipCopy(
   }
   const resets = `Resets ${day(budget.resetsAt)}.`;
   const reserve = budget.scanReserveUsd;
-  // A row with no cause (none is expected) reads as the cap its numbers point to.
-  const known =
-    cause ??
-    (budget.capUsd !== null && budget.spentUsd >= budget.capUsd ? 'project_cap' : 'platform_cap');
-  switch (known) {
+  switch (knownCause(cause, budget)) {
     case 'platform_cap':
       return `Not scanned: the platform's monthly scan budget is used up. ${resets} Your platform admin can raise it.`;
     case 'platform_reserve':
@@ -548,9 +525,7 @@ function heldBudgetCopy(data: SecurityPageData): string | null {
     return null;
   }
   const gate = lastScan && lastScan.id === request.gateScanId ? lastScan : null;
-  const cause =
-    gate?.budgetCause ??
-    (budget.capUsd !== null && budget.spentUsd >= budget.capUsd ? 'project_cap' : 'platform_cap');
+  const cause = knownCause(gate?.budgetCause ?? null, budget);
   const left = budget.capUsd === null ? null : budget.capUsd - budget.spentUsd;
   const reserve = budget.scanReserveUsd;
   const raised =
@@ -724,10 +699,6 @@ function noticeBlock(notice: SecurityPageNotice | null): string {
   )}</p></div>`;
 }
 
-// ---------------------------------------------------------------------------
-// Pages
-// ---------------------------------------------------------------------------
-
 /** Plain links (email, GitHub) land here: no project data, only how to open the page. */
 export function renderSecurityLanding(slug: string): string {
   return (
@@ -779,52 +750,38 @@ export function renderSecurityPage(
     )}</p></div>`;
   }
 
-  const rows: Array<string> = [row('Last scan', lastScanRow(data, full))];
-  if (!off) {
-    rows.push(
-      row(
-        'Policy',
-        esc(
-          status.policy.applies
-            ? `applies: ${status.policy.reason}`
-            : `does not apply: ${status.policy.reason}`,
-        ),
-      ),
-    );
-  }
-  if (full && status.budget) {
-    const { budget } = status;
-    rows.push(
-      row(
-        'Budget',
-        esc(
-          `${usd(budget.spentUsd)}${budget.capUsd === null ? '' : ` of ${usd(budget.capUsd)}`} this month${
-            budget.capSource === 'own' ? ' (project cap)' : ''
-          } · resets ${day(budget.resetsAt)}`,
-        ),
-      ),
-    );
-  }
-  const request = requestBlock(data, settings);
-  if (request) {
-    rows.push(row('Public', request));
-  }
+  const { budget } = status;
   const bypass = bypassLine(data);
-  if (bypass) {
-    rows.push(row('Bypass', esc(bypass)));
-  }
   const model = modelLine(data);
-  if (model) {
-    rows.push(row('Model', esc(model)));
-  }
-  if (status.backlogFiles > 0) {
-    rows.push(
-      row(
-        'Backlog',
-        esc(`Unscanned backlog: ${status.backlogFiles} files (next scans cover more)`),
-      ),
-    );
-  }
+  // Label and HTML; a row without HTML is left out.
+  const rows: Array<[string, string | null]> = [
+    ['Last scan', lastScanRow(data, full)],
+    [
+      'Policy',
+      off
+        ? null
+        : esc(`${status.policy.applies ? 'applies' : 'does not apply'}: ${status.policy.reason}`),
+    ],
+    [
+      'Budget',
+      full && budget
+        ? esc(
+            `${usd(budget.spentUsd)}${budget.capUsd === null ? '' : ` of ${usd(budget.capUsd)}`} this month${
+              budget.capSource === 'own' ? ' (project cap)' : ''
+            } · resets ${day(budget.resetsAt)}`,
+          )
+        : null,
+    ],
+    ['Public', requestBlock(data, settings) || null],
+    ['Bypass', bypass && esc(bypass)],
+    ['Model', model && esc(model)],
+    [
+      'Backlog',
+      status.backlogFiles > 0
+        ? esc(`Unscanned backlog: ${status.backlogFiles} files (next scans cover more)`)
+        : null,
+    ],
+  ];
 
   const urgentRows = data.open.filter((finding) => finding.urgent === true);
   const otherRows = data.open.filter(
@@ -837,32 +794,16 @@ export function renderSecurityPage(
   const resolvedTotal = status.counts.resolved;
   let lists: string;
   if (full) {
+    const fullList = (
+      heading: string,
+      findings: ReadonlyArray<SecurityFindingView>,
+      total: number,
+    ) => findingList(heading, findings, true, total, forms, data.timelines);
     lists =
-      findingList(
-        'Urgent (confirmed critical or high)',
-        urgentRows,
-        true,
-        urgent.count,
-        forms,
-        data.timelines,
-      ) +
-      findingList(`Other open: ${otherTotal}`, otherRows, true, otherTotal, forms, data.timelines) +
-      findingList(
-        `Leads (need a human look): ${leadsTotal}`,
-        leads,
-        true,
-        leadsTotal,
-        forms,
-        data.timelines,
-      ) +
-      findingList(
-        `Resolved: ${resolvedTotal}`,
-        data.resolved,
-        true,
-        resolvedTotal,
-        forms,
-        data.timelines,
-      );
+      fullList('Urgent (confirmed critical or high)', urgentRows, urgent.count) +
+      fullList(`Other open: ${otherTotal}`, otherRows, otherTotal) +
+      fullList(`Leads (need a human look): ${leadsTotal}`, leads, leadsTotal) +
+      fullList(`Resolved: ${resolvedTotal}`, data.resolved, resolvedTotal);
   } else {
     const counts = status.counts.open;
     lists =
@@ -939,7 +880,9 @@ export function renderSecurityPage(
     head +
     (off ? `<p>${esc(status.policy.reason)}</p>` : '') +
     banner +
-    `<dl class="void-auth-identity">${rows.join('')}</dl>` +
+    `<dl class="void-auth-identity">${rows
+      .flatMap(([label, html]) => (html ? [row(label, html)] : []))
+      .join('')}</dl>` +
     lists +
     scans +
     settingsBlock +

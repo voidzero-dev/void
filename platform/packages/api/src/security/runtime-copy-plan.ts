@@ -1,6 +1,5 @@
 /**
- * What a scan's runtime copy holds (design doc 0095, M30; spec §8.6). Pure: from the
- * deployment's manifest and the project's secret names to the copy's bindings.
+ * What a scan's runtime copy holds (M30; spec §8.6). Pure: manifest + secret names → bindings.
  *
  *   manifest binding        copy
  *   d1 / kv / r2            a new EMPTY store per binding (D1 gets the live schema, no rows)
@@ -29,7 +28,6 @@ export const SECURITY_COPY_FAKE_PREFIX = 'void-copy-fake-';
 export type SecurityCopyStore = Readonly<{
   kind: 'd1' | 'kv' | 'r2';
   binding: string;
-  /** Cloudflare name of the copy's store (D1 name, KV title, R2 bucket). */
   name: string;
 }>;
 
@@ -42,14 +40,10 @@ export type SecurityCopyPlan = Readonly<{
   kind: 'copy';
   script: string;
   stores: ReadonlyArray<SecurityCopyStore>;
-  /** Binding → class; every class is new in the copy. */
   durableObjects: ReadonlyArray<Readonly<{ binding: string; className: string }>>;
   queues: ReadonlyArray<string>;
-  /** Text vars kept as they are. */
   vars: ReadonlyArray<Readonly<{ name: string; value: string }>>;
-  /** Names that get a fake value: project secrets and secret-looking vars. */
   fakes: ReadonlyArray<string>;
-  /** What the copy leaves out, for the logs and the tests. */
   dropped: ReadonlyArray<string>;
   mainModule: string;
   compatibilityDate: string;
@@ -104,11 +98,8 @@ export function planSecurityRuntimeCopy(
   const counts = { d: 0, k: 0, r: 0 };
   const store = (kind: SecurityCopyStore['kind'], binding: string) => {
     const letter = kind === 'd1' ? 'd' : kind === 'kv' ? 'k' : 'r';
-    stores.push({
-      kind,
-      binding,
-      name: runtimeCopyStoreName(options.script, letter, counts[letter]++),
-    });
+    const name = runtimeCopyStoreName(options.script, letter, counts[letter]++);
+    stores.push({ kind, binding, name });
   };
   // Older stored manifests may lack `bindings`.
   const intent = createDeployIntent({ ...manifest, bindings: manifest.bindings ?? {} });
@@ -153,16 +144,12 @@ export function planSecurityRuntimeCopy(
   if (manifest.queues?.length) {
     dropped.push('queue consumers');
   }
-  const secretNames = new Set(options.secretNames);
+  const fakes = new Set<string>(options.secretNames);
   const vars: Array<{ name: string; value: string }> = [];
-  const fakes = new Set<string>(secretNames);
   for (const [name, value] of Object.entries(manifest.vars ?? {})) {
-    if (secretNames.has(name)) {
-      continue;
-    }
     if (looksSecretName(name)) {
       fakes.add(name);
-    } else {
+    } else if (!fakes.has(name)) {
       vars.push({ name, value });
     }
   }
@@ -182,14 +169,12 @@ export function planSecurityRuntimeCopy(
 }
 
 export type SecurityCopyNames = Readonly<{
-  /** The copy sandbox Worker (outbound Worker and stubs). */
   sandbox: string;
 }>;
 
 export type SecurityCopyIds = Readonly<{
-  /** Store name → its Cloudflare id (D1 uuid, KV namespace id; R2 uses the name). */
+  /** Store name → its Cloudflare id (R2 uses the name). */
   ids: ReadonlyMap<string, string>;
-  /** Name → fake value. */
   fakes: ReadonlyMap<string, string>;
   projectId: string;
   projectSlug: string;
@@ -206,6 +191,8 @@ export function securityRuntimeCopyMetadata(
   ids: SecurityCopyIds,
 ): SecurityCopyScriptMetadata {
   const bindings: Array<Record<string, unknown>> = [];
+  const storesOf = (kind: SecurityCopyStore['kind']) =>
+    plan.stores.filter((store) => store.kind === kind).map((store) => store.binding);
   for (const store of plan.stores) {
     const id = ids.ids.get(store.name) ?? store.name;
     if (store.kind === 'd1') {
@@ -248,10 +235,7 @@ export function securityRuntimeCopyMetadata(
     {
       type: 'plain_text',
       name: '__VOID_COPY_STORES',
-      text: JSON.stringify({
-        d1: plan.stores.filter((store) => store.kind === 'd1').map((store) => store.binding),
-        kv: plan.stores.filter((store) => store.kind === 'kv').map((store) => store.binding),
-      }),
+      text: JSON.stringify({ d1: storesOf('d1'), kv: storesOf('kv') }),
     },
   );
   const classes = [...new Set(plan.durableObjects.map((entry) => entry.className))].sort();

@@ -3,6 +3,7 @@ import type { Entity, SourceDefinition, SourceRegistry } from '@nkzw/fate/server
 import type { Context } from 'hono';
 import type { ApiEnv } from '../../env.ts';
 import { OperatorError } from '../../operator/common.ts';
+import { loadSecurityAdminPage as loadSecurityPage } from '../security-data.ts';
 import {
   loadPlansPage,
   loadBuildDetailPage,
@@ -17,7 +18,6 @@ import {
   loadInvitationsPage,
   loadProjectDetailPage,
   loadProjectsPage,
-  loadSecurityPage,
   loadSignupPage,
   loadUserDetailPage,
   loadUsersPage,

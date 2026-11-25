@@ -1,12 +1,7 @@
 /**
- * Text aimed at AI reviewers (spec §10.3). Before the model starts, the server
- * runs a plain substring match (no regex) on the changed files against a fixed
- * phrase list. Each file with a hit becomes one server lead, whatever the model
- * outputs: `Text aimed at AI reviewers in <file>`.
- *
- * Matching is case-insensitive and needs a word edge on both sides, so `llm` in
- * `smallMap` is not a hit. `LLM` alone must be upper case: lower case `llm` is
- * too common inside identifiers.
+ * Text aimed at AI reviewers (spec §10.3): a plain substring match of the changed files
+ * against fixed phrases, case-insensitive with a word edge on both sides (`LLM` upper case
+ * only). Each file with a hit becomes one server lead, whatever the model outputs.
  */
 
 import type { SecuritySecretForm } from './redact.ts';
@@ -30,10 +25,8 @@ export const SECURITY_REVIEWER_PHRASES: ReadonlyArray<string> = [
   'you are an ai',
 ];
 
-/** Upper-case tokens matched as written. */
 const CASE_SENSITIVE_TOKENS: ReadonlyArray<string> = ['LLM'];
 
-/** At most this many hits are kept per file. */
 const MAX_HITS_PER_FILE = 20;
 
 export type SecurityPhraseHit = Readonly<{ phrase: string; line: number }>;
@@ -46,10 +39,8 @@ export type SecurityReviewerTextLead = Readonly<{
 }>;
 
 /**
- * M31: a stored project secret value found in the deployed output (the redactor's
- * hit, spec §7.3). Names the secret, never its value. One lead per secret and side:
- * `client` is a deployed static asset, otherwise Worker code. `file` and `line` are
- * the first place it was found; `alsoIn` lists a few more files, `files` counts them all.
+ * M31: a stored secret value found in the deployed output (§7.3), named, never its value.
+ * One per secret and side (`client`: a static asset); `file`/`line` is the first place.
  */
 export type SecuritySecretLead = Readonly<{
   kind: 'secret_in_output';
@@ -62,7 +53,6 @@ export type SecuritySecretLead = Readonly<{
   files?: number;
 }>;
 
-/** What the server finds itself, whatever the model outputs. */
 export type SecurityServerLead = SecurityReviewerTextLead | SecuritySecretLead;
 
 /** `charCodeAt` past either end is NaN, which is not a word character. */

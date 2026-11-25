@@ -1,21 +1,16 @@
 /**
  * The security webhook (design doc 0095 M26, spec §20): one installation-wide URL that
- * gets a signed JSON body for each security event the outbox sends.
- *
- *   operator ─ void platform security webhook <url|off> ─► setSecurityWebhook
- *                 new random secret, shown once, stored encrypted
- *   outbox row queued ─► `webhook` twin row (notifications.ts) ─► postSecurityWebhook
- *                 body: ids and counts only; X-Void-Signature: t=<s>,v1=<hmac>
- *
- * The body never holds a title, file path, code or model text: only ids and counts,
- * so a leaked endpoint learns nothing a project member could not see in `status`.
+ * gets a signed JSON body (ids and counts only, never titles, paths or code) for each
+ * event the outbox sends. Its secret is shown once and stored encrypted.
  */
+import { isRecord } from '@void/deploy-core';
 import { parseSecurityWebhookUrl } from '@void/platform/security-policy';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
 import { decryptPlatformCredential, encryptPlatformCredential } from '../project-secrets.ts';
 import type { EncryptedPlatformCredential } from '../project-secrets.ts';
+import { installation, readEncryptedCredential, text } from './provider-keys.ts';
 
 /** `platform_settings` key; kept apart from the policy so the secret never reaches a policy read. */
 export const SECURITY_WEBHOOK_SETTINGS_KEY = 'securityAudits.webhook';
@@ -38,32 +33,15 @@ type StoredWebhook = Readonly<{
 
 export type SecurityWebhookView = Readonly<{ url: string; setAt: string }>;
 
-function installation(env: Pick<ApiEnv['Bindings'], 'PLATFORM_INSTALLATION_ID'>): string {
-  return env.PLATFORM_INSTALLATION_ID ?? 'installation';
-}
-
-function text(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
 /** The stored webhook, or `null` (never set, turned off, or unreadable: then nothing is sent). */
 async function readStoredWebhook(db: DbOrTx): Promise<StoredWebhook | null> {
   const value = await getPlatformSetting(db, SECURITY_WEBHOOK_SETTINGS_KEY);
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return null;
   }
-  const row = value as Record<string, unknown>;
-  const secret = row.secret as Record<string, unknown> | null | undefined;
-  if (
-    !text(row.url) ||
-    !text(row.setAt) ||
-    !text(row.setByUserId) ||
-    typeof secret !== 'object' ||
-    secret === null ||
-    !text(secret.ciphertext) ||
-    !text(secret.iv) ||
-    !text(secret.keyVersion)
-  ) {
+  const row = value;
+  const secret = readEncryptedCredential(row.secret);
+  if (!text(row.url) || !text(row.setAt) || !text(row.setByUserId) || secret === null) {
     if (row.url !== null) {
       console.error(
         `[security-webhook] ${SECURITY_WEBHOOK_SETTINGS_KEY} is malformed; no webhook is sent`,
@@ -78,7 +56,7 @@ async function readStoredWebhook(db: DbOrTx): Promise<StoredWebhook | null> {
   }
   return {
     url: row.url,
-    secret: { ciphertext: secret.ciphertext, iv: secret.iv, keyVersion: secret.keyVersion },
+    secret,
     setAt: row.setAt,
     setByUserId: row.setByUserId,
   };
@@ -94,16 +72,9 @@ export async function securityWebhookOn(db: DbOrTx): Promise<boolean> {
   return (await readStoredWebhook(db)) !== null;
 }
 
-/** 32 random bytes as hex, with a prefix that says what it is. */
-function newSecret(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return `vwhsec_${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-}
-
 /**
- * Sets (or with `url: null` removes) the webhook. Setting it, even to the same URL,
- * makes a new secret: the old one stops working at once. The secret is returned here
- * once and never again.
+ * Sets (or with `url: null` removes) the webhook. Every set makes a new secret, returned
+ * here once; the old one stops working at once.
  */
 export async function setSecurityWebhook(
   env: SecurityWebhookEnv,
@@ -115,7 +86,7 @@ export async function setSecurityWebhook(
     return { webhook: null, secret: null };
   }
   const url = parseSecurityWebhookUrl(input.url);
-  const secret = newSecret();
+  const secret = `vwhsec_${hex(crypto.getRandomValues(new Uint8Array(32)))}`;
   const stored: StoredWebhook = {
     url,
     secret: await encryptPlatformCredential(env, installation(env), CREDENTIAL_ID, secret),
@@ -126,7 +97,7 @@ export async function setSecurityWebhook(
   return { webhook: { url, setAt: stored.setAt }, secret };
 }
 
-function hex(bytes: ArrayBuffer): string {
+function hex(bytes: ArrayBuffer | Uint8Array): string {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
@@ -161,10 +132,8 @@ export type SecurityWebhookEvent = Readonly<{
 export type SecurityWebhookResult = 'sent' | 'off';
 
 /**
- * Posts one event. `off` when no webhook is set any more. Throws on a network error,
- * a timeout or a non-2xx answer (redirects are not followed), so the outbox retries.
- * The signature time is the clock at send time, not the outbox run's start: a receiver
- * that checks it against a short window takes a late row of a batch, and a retry.
+ * Posts one event (`off`: no webhook any more). Throws on a network error, timeout or
+ * non-2xx answer so the outbox retries. Signed with the clock at send time.
  */
 export async function postSecurityWebhook(
   env: SecurityWebhookEnv,

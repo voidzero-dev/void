@@ -2,7 +2,7 @@ import { PLATFORM_LOGIN_KINDS, parsePlatformLoginConfiguration } from '@void/pla
 import type { PlatformLoginConfiguration } from '@void/platform';
 import { and, eq, gt, inArray, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
-import { getPlatformCapabilities } from '../../capabilities.ts';
+import { getPlatformCapabilities, securityAuditsEnabled } from '../../capabilities.ts';
 import { SITE_DOMAIN } from '../../constants.ts';
 import {
   countDeployments,
@@ -34,12 +34,7 @@ import { getPlatformApiUrl, platformConnectCommand } from '../../platform-identi
 import { projectUrl, projectWithUrl } from '../../project-url.ts';
 import { invitations, platformLoginTests } from '../../schema.ts';
 import type { DeployManifest } from '../../types.ts';
-import {
-  loadProjectGate,
-  loadProjectSecurity,
-  loadPublicGateOn,
-  loadSecurityAdminPage,
-} from '../security-data.ts';
+import { loadProjectGate, loadProjectSecurity, loadPublicGateOn } from '../security-data.ts';
 
 type AdminContext = Context<ApiEnv>;
 const PAGE_SIZE = 20;
@@ -507,10 +502,6 @@ export async function loadZeroTrustPage(context: AdminContext, path: string) {
   };
 }
 
-export async function loadSecurityPage(context: AdminContext, path: string) {
-  return loadSecurityAdminPage(context, path);
-}
-
 export async function loadPlansPage(context: AdminContext, path: string) {
   const url = new URL(path, 'https://admin.invalid');
   const home = '/admin/config/plans';
@@ -530,12 +521,7 @@ export async function loadPlansPage(context: AdminContext, path: string) {
     readSecurityPlanCaps(context.get('db')),
   ]);
   // The scan cap column and field show only while security audits are on (M27).
-  let securityAudits: boolean;
-  try {
-    securityAudits = getPlatformCapabilities(context.env).securityAudits;
-  } catch {
-    securityAudits = false;
-  }
+  const securityAudits = securityAuditsEnabled(context.env);
   const selectedPlanId = match?.[1] ?? null;
   if (selectedPlanId && !data.catalog.plans.some((plan) => plan.id === selectedPlanId)) {
     throw new OperatorError(404, 'Plan not found.');

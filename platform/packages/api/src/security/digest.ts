@@ -6,20 +6,14 @@
  */
 import { sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db.ts';
-import { listSecurityProjectStreaks } from './streaks.ts';
+import { listSecurityProjectStreaks, rows } from './streaks.ts';
 
 const DAY_MS = 24 * 60 * 60_000;
 
-export type SecurityDigestWeek = Readonly<{
-  /** Monday the covered week starts on, `2026-11-09`: the dedupe key. */
-  week: string;
-  fromMs: number;
-  /** Exclusive: the Monday after. */
-  toMs: number;
-}>;
+type SecurityDigestWeek = ReturnType<typeof securityDigestWeek>;
 
-/** The last full UTC week (Monday 00:00 to Monday 00:00) before `now`. */
-export function securityDigestWeek(now: number): SecurityDigestWeek {
+/** The last full UTC week before `now`; `week`, its Monday, is the dedupe key. */
+export function securityDigestWeek(now: number) {
   const day = new Date(now);
   const midnight = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
   // getUTCDay: Sunday 0 … Saturday 6; days since this week's Monday.
@@ -29,47 +23,12 @@ export function securityDigestWeek(now: number): SecurityDigestWeek {
   return { week: new Date(fromMs).toISOString().slice(0, 10), fromMs, toMs };
 }
 
-export type SecurityDigestCounts = Readonly<{
-  week: string;
-  scans: Readonly<{
-    ended: number;
-    succeeded: number;
-    /** Did not succeed for a project reason (refused, bad output, timed out, incomplete). */
-    projectFailures: number;
-    /** Did not run or failed for a platform reason (credits, infrastructure, backlog). */
-    installationFailures: number;
-    /** Skipped because a monthly cap was used up. */
-    budgetSkips: number;
-  }>;
-  newFindings: Readonly<{
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-    leads: number;
-  }>;
-  resolvedFindings: number;
-  /** Now, not in the week. */
-  openUrgentFindings: number;
-  projectsWithUrgentFindings: number;
-  projectsWithFailureStreaks: number;
-  openPublicRequests: number;
-  bypasses: number;
-}>;
-
-function rows<T>(result: { rows: ReadonlyArray<unknown> }): Array<T> {
-  return result.rows as Array<T>;
-}
-
 function int(value: unknown): number {
   return Number(value ?? 0);
 }
 
-export async function readSecurityDigestCounts(
-  db: DbOrTx,
-  week: SecurityDigestWeek,
-  now: number,
-): Promise<SecurityDigestCounts> {
+/** Counts of the week; the open urgent counts are of now. */
+export async function readSecurityDigestCounts(db: DbOrTx, week: SecurityDigestWeek, now: number) {
   const from = new Date(week.fromMs).toISOString();
   const to = new Date(week.toMs).toISOString();
   const [scans] = rows<Record<string, unknown>>(
@@ -138,7 +97,9 @@ export async function readSecurityDigestCounts(
 }
 
 /** Nothing ran, nothing new, nothing urgent: no digest. */
-export function securityDigestIsEmpty(counts: SecurityDigestCounts): boolean {
+export function securityDigestIsEmpty(
+  counts: Awaited<ReturnType<typeof readSecurityDigestCounts>>,
+): boolean {
   const found = counts.newFindings;
   return (
     counts.scans.ended === 0 &&

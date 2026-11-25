@@ -36,9 +36,8 @@ export type SessionStats = {
   inputTokens: number;
   outputTokens: number;
   /**
-   * Reads that returned code: a read_file (Engine A: Read) of a file under /scan/input
-   * with non-blank lines. A list, a search or a memory read does not count. A session
-   * with none saw no code, so its report cannot clear any (phases.ts `readNothing`).
+   * Reads that returned non-blank lines of a file under /scan/input. A session with none
+   * saw no code, so its report cannot clear any (phases.ts `readNothing`).
    */
   reads: number;
 };

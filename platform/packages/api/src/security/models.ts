@@ -1,17 +1,8 @@
 /**
- * Which model a scan runs on (spec §8.2, §8.3), worked out when the scan starts.
- *
- *   project model (or the installation default)
- *     ├─ unknown, blocked or unpriced ─► the installation default (edge #23)
- *     └─ third-party and any of: host failed probe check 5, no current installation
- *        notice, no current project notice ─► first non-blocked priced `@cf` model
- *        (edges #44, #84: code never leaves Cloudflare before the notice)
- *
- * A `trigger=fallback` scan (M26) always runs on the `@cf` default
- * (`securityCfDefaultModel`): the policy default when it is `@cf`, else the first
- * non-blocked priced `@cf` model. It never reaches a third-party model.
- *
- * The model proxy checks the same rules again on every call (`judgeSecurityModelCall`).
+ * Which model a scan runs on (spec §8.2, §8.3), worked out when it starts: the project's
+ * pick, else the default (edge #23); a third-party model without a passing host check and
+ * both notices falls to the first usable `@cf` model (edges #44, #84). A fallback scan
+ * (M26) always runs on `@cf`. The model proxy checks the same rules on every call.
  */
 import {
   getSecurityModel,
@@ -96,11 +87,8 @@ export function resolveSecurityScanModel(
 }
 
 /**
- * Why a scan does not run on the project's own pick (spec §8.2 page notice, edge #23):
- * `blocked` by the platform admin, `unknown` (not in the model list, for example retired),
- * `notice` (a third-party pick waits for this project to accept the current provider
- * notice) or `unavailable` (no price yet, its host is not ready, or no platform notice).
- * `null` when the project follows the default or its pick runs.
+ * Why a scan does not run on the project's own pick (spec §8.2, edge #23): `blocked`,
+ * `unknown` (retired), `notice` (waits for this project's notice) or `unavailable`.
  */
 export function securityPickProblem(
   policy: SecurityPolicy,

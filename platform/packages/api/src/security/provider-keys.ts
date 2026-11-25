@@ -1,21 +1,9 @@
 /**
- * Installation provider keys for third-party scan models (design doc 0095 M33, BYOK).
- *
- *   operator ─ void platform security models --provider anthropic --key-stdin ─► byok.ts
- *                 1-token test call with the key ─► stored encrypted here
- *   model proxy (anthropic/*, openai/*) ─► key saved? ─┬─ no:  REST /ai/v1/* (Unified Billing)
- *                                                       └─ yes: AI binding gateway.run, the
- *                                                               provider's own route + key
- *
- * The key never reaches the scanner container: the proxy adds it to the upstream call.
- * Calls on a saved key are metered and counted toward the caps like any other (R14).
- *
- * The REST `/ai/v1/*` routes only read keys stored in AI Gateway itself, so a key held
- * here goes to the provider-native route instead, through the AI binding: the binding
- * authenticates to the gateway, so the runtime token needs no new permission. The model
- * is named the provider's way there (`claude-opus-5-5`, not `claude-opus-5.5`).
- * `cf-aig-no-wholesale` makes the gateway refuse instead of billing Unified Billing
- * credits if it ever does not read the key.
+ * Installation provider keys for third-party scan models (design doc 0095 M33, BYOK),
+ * stored encrypted. With a saved key the model proxy calls the provider-native route
+ * through the AI binding (REST `/ai/v1/*` reads only keys stored in AI Gateway); the key
+ * never reaches the container, and `cf-aig-no-wholesale` refuses instead of billing
+ * Unified Billing credits. Calls are metered toward the caps like any other (R14).
  */
 import { isRecord } from '@void/deploy-core';
 import type { SecurityModelId, SecurityThirdPartyHost } from '@void/platform/security-models';
@@ -116,7 +104,8 @@ export function isSecurityProviderKeyHost(value: unknown): value is SecurityThir
   return value === 'openai' || value === 'anthropic';
 }
 
-function installation(env: Pick<ApiEnv['Bindings'], 'PLATFORM_INSTALLATION_ID'>): string {
+/** The installation an encrypted platform credential is bound to. */
+export function installation(env: Pick<ApiEnv['Bindings'], 'PLATFORM_INSTALLATION_ID'>): string {
   return env.PLATFORM_INSTALLATION_ID ?? 'installation';
 }
 
@@ -125,8 +114,15 @@ function credentialId(host: SecurityThirdPartyHost): string {
   return `security-provider-key:${host}`;
 }
 
-function text(value: unknown): value is string {
+export function text(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/** A stored encrypted credential, or `null` when its shape is wrong. */
+export function readEncryptedCredential(value: unknown): EncryptedPlatformCredential | null {
+  return isRecord(value) && text(value.ciphertext) && text(value.iv) && text(value.keyVersion)
+    ? { ciphertext: value.ciphertext, iv: value.iv, keyVersion: value.keyVersion }
+    : null;
 }
 
 function readStoredKey(
@@ -136,44 +132,26 @@ function readStoredKey(
   if (value === undefined || value === null) {
     return null;
   }
-  const row = (typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<
-    string,
-    unknown
-  >;
-  const key = row.key as Record<string, unknown> | null | undefined;
-  if (
-    !text(row.keyId) ||
-    !text(row.setAt) ||
-    !text(row.setByUserId) ||
-    typeof key !== 'object' ||
-    key === null ||
-    !text(key.ciphertext) ||
-    !text(key.iv) ||
-    !text(key.keyVersion)
-  ) {
+  const row = isRecord(value) ? value : {};
+  const key = readEncryptedCredential(row.key);
+  if (!text(row.keyId) || !text(row.setAt) || !text(row.setByUserId) || key === null) {
     console.error(
       `[security-provider-keys] ${SECURITY_PROVIDER_KEYS_SETTINGS_KEY}.${host} is malformed; save the key again`,
     );
     return MALFORMED;
   }
   return {
-    key: { ciphertext: key.ciphertext, iv: key.iv, keyVersion: key.keyVersion },
+    key,
     keyId: row.keyId,
     setAt: row.setAt,
     setByUserId: row.setByUserId,
   };
 }
 
-/**
- * The stored keys. A malformed entry stays marked: it is a saved key that cannot be used,
- * never "no key", so its scans do not quietly move to Unified Billing credits.
- */
+/** The stored keys; a malformed entry is never "no key" (no quiet move to credits). */
 async function readStoredKeys(db: DbOrTx): Promise<StoredKeys> {
   const value = await getPlatformSetting(db, SECURITY_PROVIDER_KEYS_SETTINGS_KEY);
-  const row = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<
-    string,
-    unknown
-  >;
+  const row = isRecord(value) ? value : {};
   const stored: StoredKeys = {};
   for (const host of SECURITY_PROVIDER_KEY_HOSTS) {
     const key = readStoredKey(host, row[host]);
@@ -208,11 +186,11 @@ export async function securityProviderKeyIds(db: DbOrTx): Promise<SecurityProvid
   return { openai: storedKeyId(stored.openai), anthropic: storedKeyId(stored.anthropic) };
 }
 
-/**
- * The saved key of one host, decrypted, or `null` when none is saved. Throws when a saved
- * key cannot be opened or its entry is malformed: a scan must not quietly move to Unified
- * Billing credits.
- */
+function openKey(env: SecurityProviderKeyEnv, host: SecurityThirdPartyHost, entry: StoredKey) {
+  return decryptPlatformCredential(env, installation(env), credentialId(host), entry.key);
+}
+
+/** One host's saved key, decrypted, or `null`. Throws when a saved key cannot be opened. */
 export async function loadSecurityProviderKey(
   env: SecurityProviderKeyEnv,
   db: DbOrTx,
@@ -225,13 +203,7 @@ export async function loadSecurityProviderKey(
   if (stored === MALFORMED) {
     throw new Error(`the saved ${host} key entry is malformed`);
   }
-  const key = await decryptPlatformCredential(
-    env,
-    installation(env),
-    credentialId(host),
-    stored.key,
-  );
-  return { host, key, keyId: stored.keyId };
+  return { host, key: await openKey(env, host, stored), keyId: stored.keyId };
 }
 
 /** Every host's key for the probe; a key that cannot be opened is reported, not thrown. */
@@ -249,13 +221,7 @@ export async function loadSecurityProviderKeySlots(
       return { host, keyId: SECURITY_PROVIDER_KEY_MALFORMED_ID, unreadable: true };
     }
     try {
-      const key = await decryptPlatformCredential(
-        env,
-        installation(env),
-        credentialId(host),
-        entry.key,
-      );
-      return { host, key, keyId: entry.keyId };
+      return { host, key: await openKey(env, host, entry), keyId: entry.keyId };
     } catch {
       return { host, keyId: entry.keyId, unreadable: true };
     }
@@ -271,14 +237,8 @@ export function securityProviderKeySlotIds(
 }
 
 /**
- * A probe result covers the keys it ran with. A host whose key was set, replaced or
- * removed while the probe ran keeps the stored value instead: the key write set it under
- * the same lock (a save that passed its test call keeps it, a removal clears it).
- *
- *   used == saved ─► the probe's result
- *   used != saved ─► stored[host] === true (no stored result: false)
- *
- * Call under the policy lock, with `stored` and `saved` read in that transaction.
+ * A probe result covers only the keys it ran with; a host whose key changed meanwhile
+ * keeps its stored value. Call under the policy lock, with `stored` and `saved` read there.
  */
 export function entitlementForSavedKeys(
   entitlement: SecurityEntitlement,
@@ -333,9 +293,7 @@ export async function writeSecurityProviderKey(
   }>,
 ): Promise<Readonly<{ setAt: string } | null>> {
   const value = await getPlatformSetting(tx, SECURITY_PROVIDER_KEYS_SETTINGS_KEY);
-  const row: StoredKeysSetting = {
-    ...(isRecord(value) ? value : {}),
-  };
+  const row: StoredKeysSetting = { ...(isRecord(value) ? value : {}) };
   if (input.key === null) {
     delete row[input.host];
     await setPlatformSetting(tx, SECURITY_PROVIDER_KEYS_SETTINGS_KEY, row);
@@ -356,10 +314,6 @@ export async function writeSecurityProviderKey(
   await setPlatformSetting(tx, SECURITY_PROVIDER_KEYS_SETTINGS_KEY, row);
   return { setAt: stored.setAt };
 }
-
-// ---------------------------------------------------------------------------
-// Upstream
-// ---------------------------------------------------------------------------
 
 /** The provider-native endpoint each engine's route maps to. */
 const ENDPOINTS: Readonly<Record<SecurityThirdPartyHost, string>> = {
@@ -382,10 +336,7 @@ export type SecurityProviderKeyCall = Readonly<{
   signal?: AbortSignal;
 }>;
 
-/**
- * One call on a saved key: the AI binding's gateway `run` on the provider-native route.
- * Throws when the binding is missing or the call does not reach the gateway.
- */
+/** One call on a saved key: the AI binding's gateway `run` on the provider-native route. */
 export async function callWithSecurityProviderKey(
   ai: Ai | undefined,
   gatewayId: string,
@@ -413,11 +364,7 @@ export async function callWithSecurityProviderKey(
   );
 }
 
-/**
- * The 1-token call the probe (check 5) and a key save make: the route and body its engine
- * uses, with the cyber access program for `openai/*` as the proxy always adds it.
- * Returns the HTTP status; throws when the gateway cannot be reached.
- */
+/** The 1-token test call of the probe (check 5) and a key save; returns the HTTP status. */
 export async function testSecurityProviderKey(
   ai: Ai | undefined,
   gatewayId: string,

@@ -1,16 +1,9 @@
 /**
- * Projects a batch scan may queue (design doc 0095, M25):
- *
- *   backfill  live deployment has no succeeded scan       (admin "scan active deployments now")
- *   sweep     no sweep and no succeeded full scan within everyDays   (hourly, policy `sweeps`)
- *
- * Both need a project in scope (active, not a preview, public under `public` mode or with
- * the project rule `always`, never with the rule `never` (M34)), a
- * live deployment whose code is stored, an owner who is not suspended, and nothing
- * waiting or running. A project whose code is gone is left out (counted apart with
- * `code: 'missing'`): it would be refused every time and keep the head of the list. The
- * per-project checks run again when each scan is queued (`queueSecurityRescan`), so this
- * list only narrows the work; it never decides alone.
+ * Projects a batch scan may queue (design doc 0095, M25): a backfill when the live
+ * deployment has no succeeded scan, a sweep when there was no sweep or full scan within
+ * `everyDays`. Both need a project in scope with stored live code, an unsuspended owner
+ * and nothing waiting; code that is gone is counted apart (`code: 'missing'`). Each scan is
+ * checked again by `queueSecurityRescan`, so this list only narrows the work.
  */
 import type { SecurityMode } from '@void/platform/security-policy';
 import { and, asc, count, eq, isNull, notLike, sql } from 'drizzle-orm';
@@ -45,14 +38,7 @@ export type SecurityCandidate = Readonly<{
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * The SQL side of `findLiveInput`: the stored Worker bundle, or a scan row of the
- * deployment that points at its snapshot. Every snapshot writer records its key on a
- * row (a copy no row claims is deleted), so only an R2 object lost under its row passes
- * here and is refused later, when `queueSecurityRescan` reads R2. The other way round,
- * a snapshot whose rows all aged out (retention: 200 rows or 180 days, never the newest
- * succeeded one) reads as missing until the project deploys again.
- */
+/** The SQL side of `findLiveInput`: the stored bundle, or a scan row with its snapshot key. */
 const storedCode = sql`(${deployments.bundle_stored} OR EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.deployment_id = ${deployments.id} AND s.input_r2_key IS NOT NULL))`;
 
 function conditions(
@@ -67,9 +53,7 @@ function conditions(
     due = sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.deployment_id = ${projects.active_deployment_id} AND s.status = 'succeeded')`;
   } else {
     const since = new Date(query.now - (query.everyDays ?? 30) * DAY_MS).toISOString();
-    // A sweep that started or was refused counts, whatever its end: a failed sweep waits
-    // for the next window instead of being retried every hour. One that never got to
-    // run does not: replaced by a deploy scan (`superseded`) or canceled by policy Off.
+    // A failed sweep waits for the next window; one that never ran (superseded, policy Off) does not count.
     const sweptRow = sql`s.trigger = 'sweep' AND s.created_at > ${since}::timestamptz AND s.status <> 'superseded' AND NOT (s.status = 'canceled' AND s.status_reason IS NOT DISTINCT FROM 'policy_off')`;
     // A local check (M32) is a full scan of a working tree, not of the live deployment.
     const fullRow = sql`s.tier = 'full' AND s.status = 'succeeded' AND s.trigger <> 'local' AND s.finished_at > ${since}::timestamptz`;
@@ -111,10 +95,7 @@ function from(db: DbOrTx) {
   };
 }
 
-/**
- * Up to `limit` candidates. Sweeps go to the project swept longest ago first (never
- * swept first); a backfill goes oldest project first.
- */
+/** Up to `limit` candidates: sweeps longest-unswept first, a backfill oldest project first. */
 export async function listSecurityScanCandidates(
   db: DbOrTx,
   query: SecurityCandidateQuery,

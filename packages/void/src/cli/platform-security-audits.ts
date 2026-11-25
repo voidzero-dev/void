@@ -70,24 +70,14 @@ function plainText(bindings: ReadonlyArray<Binding>): string | undefined {
     ?.text;
 }
 
-async function optional<T>(read: () => Promise<T>): Promise<T | undefined> {
-  try {
-    return await read();
-  } catch (error) {
-    if (error instanceof PlatformCloudflareApiError && error.status === 404) {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
-async function optionalOrForbidden<T>(read: () => Promise<T>): Promise<T | undefined> {
+/** `undefined` when Cloudflare answers 404, or 403 too when `forbiddenOk`. */
+async function optional<T>(read: () => Promise<T>, forbiddenOk = false): Promise<T | undefined> {
   try {
     return await read();
   } catch (error) {
     if (
       error instanceof PlatformCloudflareApiError &&
-      (error.status === 403 || error.status === 404)
+      (error.status === 404 || (forbiddenOk && error.status === 403))
     ) {
       return undefined;
     }
@@ -138,7 +128,7 @@ async function deleteScannerImages(
     );
   // With no controller the images are most likely not there either, so a token without
   // Containers rights is not a failure (as for the application list).
-  const credentials = controllerExists ? await read() : await optionalOrForbidden(read);
+  const credentials = controllerExists ? await read() : await optional(read, true);
   if (
     !credentials ||
     typeof credentials.username !== 'string' ||
@@ -209,12 +199,9 @@ async function deleteScannerImages(
 }
 
 /**
- * Uninstall: the gate first (nothing can call in), then the billable container
- * applications (Engine B and one per engine image), then the controller Worker, then the
- * engine images copied into the account registry. Each is found by its derived name and
- * proven ours by the ownership marker (an application also by its controller's Durable
- * Object namespace); one that is not ours is left alone and reported. With the
- * capability off this makes no Cloudflare call at all.
+ * Uninstall: the gate first (nothing can call in), then the container applications, the
+ * controller Worker and the engine images. Each must carry this installation's ownership
+ * marker; one that is not ours is left alone and reported.
  */
 export async function deletePlatformSecurityScanner(
   client: ScannerClient,
@@ -266,7 +253,7 @@ export async function deletePlatformSecurityScanner(
       >(`/accounts/${account}/containers/applications?name=${encodeURIComponent(target.name)}`);
     const applications = settings
       ? await listApplications()
-      : ((await optionalOrForbidden(listApplications)) ?? []);
+      : ((await optional(listApplications, true)) ?? []);
     const application = applications.find((entry) => entry.name === target.name);
     if (application) {
       found.push({

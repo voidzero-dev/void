@@ -1,33 +1,14 @@
 /**
- * The security scan model proxy (spec §15.1, §16): the only way a scanner container
- * reaches a model. `SecurityScanControl.model()` calls it with the scan id and attempt
- * from the controller's outbound handler props; nothing the container sends names
- * the scan.
+ * The model proxy (spec §15.1, §16): the only way a scanner container reaches a model.
+ * The scan id and attempt come from the controller's outbound props, never the container.
  *
- *   runner ─► model.void.internal ─► controller outbound ─► SecurityScanControl.model
- *     │ fence: current attempt, running, inside the lease, project not deleting
- *     │ model: body.model == scan.model_used, on the list, not blocked, priced,
- *     │        third party: host passed probe check 5 and the project accepted the notice
- *     │ caps:  calls per session (40, scheduler DO) · calls per scan · tokens per scan
- *     │ rate:  `@cf` token from the scheduler DO (waiting does not count as a call)
- *     │ money: worst case held on both spend rows in the statement that checks the cap
- *     ▼
- *   @cf/*        env.AI.run, gateway options set here
- *   anthropic/*  REST /ai/v1/messages  ┐ fixed cf-aig-* headers, the caller's dropped
- *   openai/*     REST /ai/v1/responses ┘ + access_programs {cyber: standard}
- *     │ saved provider key (M33): the provider-native route through the AI binding,
- *     │        the key added here (provider-keys.ts); metered and capped the same
- *     │ body:  only function / custom tools; no mcp_servers, container, background;
- *     │        anthropic-beta values on an allowlist (provider-run tools reach other
- *     │        hosts the container egress lock cannot see, spec T2)
- *     │
- *     ▼ usage read from the JSON answer or the SSE stream ─► settle (real cost)
+ *   fence ─► model allowlist (+ third-party credits check and notice) ─► body (only
+ *   function/custom tools) ─► caps (session, scan calls, tokens) ─► `@cf` rate token
+ *   ─► budget hold ─► @cf: env.AI.run │ anthropic / openai: /ai/v1 (or a saved key, M33)
+ *   ─► usage from the JSON or SSE answer ─► settle
  *
- * A refused call answers non-2xx. A stop the runner must act on carries
- * `x-void-scan-stop: session_calls|scan_calls|tokens|budget|credits` (402 for credits);
- * anything else is retried once by the runner, then `failed (infrastructure)`.
- * `GET /v1/void/last-failure` returns the last refused or failed call, for engines
- * that see a stop only as a failed call (Engine C).
+ * A stop the runner must act on carries `x-void-scan-stop` (402 for credits); other
+ * refusals are retried once. `GET /v1/void/last-failure` returns the last refused call.
  */
 import {
   getSecurityModel,
@@ -50,6 +31,7 @@ import type { ApiEnv } from '../env.ts';
 import { CF_API_BASE } from '../provisioning/cloudflare-api.ts';
 import { deriveSecurityScanTag } from '../proxy-token.ts';
 import { projects } from '../schema.ts';
+import { errorMessage } from '../zero-trust/errors.ts';
 import {
   holdSecurityModelCall,
   securitySpendCaps,
@@ -70,7 +52,7 @@ import type {
   ModelCallFailureReason,
 } from './call-ledger.ts';
 import { judgeScanFence } from './control.ts';
-import { pokeSecurityScanScheduler } from './enqueue.ts';
+import { pokeSecurityScanScheduler, securityScheduler } from './enqueue.ts';
 import { enqueueSecurityCapNotifications, enqueueSecurityCapRefused } from './notifications.ts';
 import { readSecurityPlanCapCell, securityPlanCapSql } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
@@ -83,16 +65,16 @@ import type { SecurityProviderKey } from './provider-keys.ts';
 import { projectSecuritySettings, securityScans } from './schema.ts';
 
 export const SECURITY_STOP_HEADER = 'x-void-scan-stop';
-export const SECURITY_SESSION_HEADER = 'x-void-scan-session';
-export const SECURITY_MODEL_FAILURE_PATH = '/v1/void/last-failure';
+const SECURITY_SESSION_HEADER = 'x-void-scan-session';
+const SECURITY_MODEL_FAILURE_PATH = '/v1/void/last-failure';
 
 /** Proxy stops the runner maps to a scan status (`status.ts` in the runner). */
-export type SecurityProxyStop = 'session_calls' | 'scan_calls' | 'tokens' | 'budget' | 'credits';
+type SecurityProxyStop = 'session_calls' | 'scan_calls' | 'tokens' | 'budget' | 'credits';
 
 type ModelApi = 'chat' | 'messages' | 'responses';
 
 interface ModelRoutes {
-  readonly [path: string]: ModelApi;
+  readonly [path: string]: ModelApi | undefined;
 }
 
 /** One route per engine; each only reaches models of its host. */
@@ -109,18 +91,16 @@ const ROUTE_HOST: Readonly<Record<ModelApi, SecurityModelHost>> = {
 };
 
 /** A request body above this is refused; 2M input tokens fit with room to spare. */
-export const SECURITY_MODEL_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
+const SECURITY_MODEL_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 /** Output limit of one call when the caller sets none (Engine B sends none). */
 export const SECURITY_DEFAULT_CALL_OUTPUT_TOKENS = 16_384;
 /** Longest wait for a `@cf` rate token before the call fails as infrastructure. */
 export const SECURITY_RATE_WAIT_LIMIT_MS = 120_000;
 /**
- * `anthropic-beta` values kept on a Messages call; any other value is dropped. Each one
- * changes only how the model answers: none adds a tool the provider runs (web, code,
- * MCP, files, compaction) or a price the meter does not know (`context-1m-*`). Spike
- * S2 recorded header names only, so M13 checks the Agent SDK sends nothing else it needs.
+ * `anthropic-beta` values kept on a Messages call. None adds a provider-run tool or a
+ * price the meter does not know (`context-1m-*`); any other value is dropped.
  */
-export const SECURITY_ALLOWED_ANTHROPIC_BETAS: ReadonlySet<string> = new Set([
+const SECURITY_ALLOWED_ANTHROPIC_BETAS: ReadonlySet<string> = new Set([
   'claude-code-20250219',
   'interleaved-thinking-2025-05-14',
   'fine-grained-tool-streaming-2025-05-14',
@@ -183,18 +163,12 @@ export type SecurityModelProxyDeps = Readonly<{
       settlement: SecurityCallSettlement;
     }>,
   ): Promise<void>;
-  /**
-   * A used-up cap stopped a running scan (e.g. it was lowered below the spend): queue
-   * that cap's 100% email (best effort; absent in some tests).
-   */
+  /** A used-up cap stopped a running scan: queue its 100% email (best effort). */
   notifyCapRefused?(
     input: Readonly<{ projectId: string; month: string; cap: 'project' | 'platform' }>,
   ): Promise<void>;
   scanTag(scanId: string): Promise<string>;
-  /**
-   * The saved provider key of a third-party host (M33), or `null` for Unified Billing.
-   * Throws when a saved key cannot be read. Absent: no host has a key.
-   */
+  /** A host's saved provider key (M33), `null` for Unified Billing; throws when unreadable. */
   providerKey?(host: SecurityThirdPartyHost): Promise<SecurityProviderKey | null>;
   gatewayId: string;
   accountId: string;
@@ -205,8 +179,7 @@ export type SecurityModelProxyDeps = Readonly<{
 
 export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelProxyDeps {
   const db = createDb(env.HYPERDRIVE.connectionString);
-  const scheduler = () =>
-    env.SECURITY_SCAN_SCHEDULER.get(env.SECURITY_SCAN_SCHEDULER.idFromName('global'));
+  const scheduler = () => securityScheduler(env);
   return {
     now: () => Date.now(),
     sleep: (ms) =>
@@ -224,15 +197,11 @@ export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelPr
     },
     hold: (input) => holdSecurityModelCall(db, input),
     settle: (input) => settleSecurityModelCall(db, input),
-    notifyCaps: async ({ projectId, month, caps, settlement }) => {
-      const queued = await enqueueSecurityCapNotifications(db, {
-        projectId,
-        month,
-        caps,
-        projectSpentNano: settlement.projectSpentNano,
-        platformSpentNano: settlement.platformSpentNano,
-      });
-      if (queued) {
+    notifyCaps: async ({ settlement, ...input }) => {
+      const { projectSpentNano, platformSpentNano } = settlement;
+      if (
+        await enqueueSecurityCapNotifications(db, { ...input, projectSpentNano, platformSpentNano })
+      ) {
         await pokeSecurityScanScheduler(env);
       }
     },
@@ -283,17 +252,15 @@ export async function loadSecurityModelScan(
   return row ? { ...row, planCap: readSecurityPlanCapCell(row.planCap) } : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Answers
-// ---------------------------------------------------------------------------
+// --- Answers ---
 
 function refuse(status: number, error: string, message: string): Response {
   return Response.json({ error, message }, { status });
 }
 
-function stop(reason: SecurityProxyStop, message: string): Response {
+function stop(reason: SecurityProxyStop): Response {
   return Response.json(
-    { error: 'scan stopped', reason, message },
+    { error: 'scan stopped', reason, message: STOP_MESSAGES[reason] },
     { status: reason === 'credits' ? 402 : 429, headers: { [SECURITY_STOP_HEADER]: reason } },
   );
 }
@@ -306,11 +273,9 @@ const STOP_MESSAGES: Readonly<Record<SecurityProxyStop, string>> = {
   credits: 'AI credits are used up.',
 };
 
-// ---------------------------------------------------------------------------
-// Rules
-// ---------------------------------------------------------------------------
+// --- Rules ---
 
-export type SecurityModelVerdict =
+type SecurityModelVerdict =
   | Readonly<{ ok: true; model: SecurityModelId }>
   | Readonly<{ ok: false; status: number; error: string; message: string }>;
 
@@ -359,13 +324,9 @@ export function judgeSecurityModelCall(
       return notAllowed(`${host}/* models did not pass the platform's credits check.`);
     }
     if (scan.projectNoticeVersion !== SECURITY_PROVIDER_NOTICE_VERSION) {
-      const { status, code } = SECURITY_ERRORS.providerNoticeNotAccepted;
-      return {
-        ok: false,
-        status,
-        error: code,
-        message: `This project has not accepted the provider notice for ${model}.`,
-      };
+      const { status, code: error } = SECURITY_ERRORS.providerNoticeNotAccepted;
+      const message = `This project has not accepted the provider notice for ${model}.`;
+      return { ok: false, status, error, message };
     }
   }
   return { ok: true, model };
@@ -388,15 +349,13 @@ function toolRefusal(route: ModelApi, tool: unknown, nested: boolean): string | 
   }
   // Codex groups MCP tools in a namespace; each tool in it is checked.
   if (type === 'namespace' && !nested && Array.isArray(value.tools)) {
-    for (const inner of value.tools) {
-      const refusal = toolRefusal(route, inner, true);
-      if (refusal) {
-        return refusal;
-      }
-    }
-    return null;
+    return firstRefusal(value.tools.map((inner) => toolRefusal(route, inner, true)));
   }
   return `Tool type "${String(type)}" is not allowed.`;
+}
+
+function firstRefusal(refusals: ReadonlyArray<string | null>): string | null {
+  return refusals.find((refusal) => refusal !== null) ?? null;
 }
 
 function toolsRefusal(route: ModelApi, tools: unknown): string | null {
@@ -406,23 +365,14 @@ function toolsRefusal(route: ModelApi, tools: unknown): string | null {
   if (!Array.isArray(tools)) {
     return '`tools` must be a list.';
   }
-  for (const tool of tools) {
-    const refusal = toolRefusal(route, tool, false);
-    if (refusal) {
-      return refusal;
-    }
-  }
-  return null;
+  return firstRefusal(tools.map((tool) => toolRefusal(route, tool, false)));
 }
 
 /**
- * Why a Messages or Responses body asks for something the provider runs itself, or
- * `null`. Only function and custom tools pass: web search, web fetch, code execution,
- * MCP, file search and the rest run on the provider's side, out of reach of the
- * container egress lock (spec T2). The tool lockdown is set inside the container, so
- * this is the trusted check.
+ * Why a Messages or Responses body asks for something the provider runs itself (out of
+ * reach of the container egress lock, spec T2), or `null`. Only function and custom tools pass.
  */
-export function judgeModelRequestBody(
+function judgeModelRequestBody(
   route: ModelApi,
   body: Readonly<Record<string, unknown>>,
 ): string | null {
@@ -439,20 +389,16 @@ export function judgeModelRequestBody(
     return refusal;
   }
   // Codex "responses lite" can send tools in an `additional_tools` input item.
-  for (const item of body.input) {
-    const value = asObject(item);
-    if (value?.type === 'additional_tools') {
-      const inner = toolsRefusal(route, value.tools ?? []);
-      if (inner) {
-        return inner;
-      }
-    }
-  }
-  return null;
+  return firstRefusal(
+    body.input.map((item: unknown) => {
+      const value = asObject(item);
+      return value?.type === 'additional_tools' ? toolsRefusal(route, value.tools ?? []) : null;
+    }),
+  );
 }
 
 /** The caller's `anthropic-beta` values that are on the allowlist, or `null`. */
-export function allowedAnthropicBetas(value: string | null): string | null {
+function allowedAnthropicBetas(value: string | null): string | null {
   if (value === null) {
     return null;
   }
@@ -463,30 +409,19 @@ export function allowedAnthropicBetas(value: string | null): string | null {
   return kept.length > 0 ? [...new Set(kept)].join(',') : null;
 }
 
-/**
- * The name the gateway routes by on its Messages and Responses endpoints (spikes S2/S3):
- * `claude-sonnet-5.5` for `anthropic/claude-sonnet-5.5`. Engines A and C send it; the
- * proxy takes it as the scan's model and sends this form on. `@cf/*` ids stay whole.
- */
-export function gatewayModelName(model: string): string {
+/** The gateway's name for a model: `claude-sonnet-5.5` for `anthropic/claude-sonnet-5.5`. */
+function gatewayModelName(model: string): string {
   return model.startsWith('@cf/') ? model : model.slice(model.indexOf('/') + 1);
 }
 
 /** `x-void-scan-session`: a small decimal index, or absent. */
-export function parseSecuritySession(value: string | null): number | null | 'invalid' {
+function parseSecuritySession(value: string | null): number | null | 'invalid' {
   if (value === null) {
     return null;
   }
-  if (value.length === 0 || value.length > 2) {
-    return 'invalid';
-  }
-  for (const char of value) {
-    if (char < '0' || char > '9') {
-      return 'invalid';
-    }
-  }
-  const session = Number(value);
-  return session <= SECURITY_MAX_SESSION_INDEX ? session : 'invalid';
+  const digits =
+    value.length > 0 && value.length <= 2 && Array.from(value).every((c) => c >= '0' && c <= '9');
+  return digits && Number(value) <= SECURITY_MAX_SESSION_INDEX ? Number(value) : 'invalid';
 }
 
 function positiveInteger(value: unknown): number | null {
@@ -494,13 +429,10 @@ function positiveInteger(value: unknown): number | null {
 }
 
 /**
- * Sets the call's output limit to at most what the scan has left and returns it. The
- * limit is the call's worst-case output for the budget hold. `null` when what is left
- * is below the smallest limit the provider accepts: the scan is out of tokens, since
- * the call would only fail upstream. An Anthropic thinking budget is lowered with the
- * limit, which must stay above it.
+ * Caps the call's output at what the scan has left and returns it (the hold's worst case);
+ * `null` when that is below what the provider accepts. A thinking budget is lowered too.
  */
-export function clampCallOutput(
+function clampCallOutput(
   route: ModelApi,
   body: Record<string, unknown>,
   remaining: number,
@@ -532,19 +464,13 @@ export function clampCallOutput(
   return limit;
 }
 
-// ---------------------------------------------------------------------------
-// Usage
-// ---------------------------------------------------------------------------
+// --- Usage ---
 
 /**
- * `input` is every input token (the token caps count it). `cacheWrite5m` and
- * `cacheWrite1h` are the part of it written to the Anthropic prompt cache, which is
- * priced at 1.25× and 2× input. `cachedInput` is the part of it read from the prompt
- * cache in the chat completions / Responses shape (`cached_tokens`), priced at the
- * model's cached-input price. Anthropic cache reads stay at 1× input, above their real
- * price.
+ * `input` is every input token. Of it, Anthropic cache writes cost 1.25× (5 m) and 2× (1 h)
+ * input; `cachedInput` (chat / Responses `cached_tokens`) costs the cached-input price.
  */
-export type ModelUsage = {
+type ModelUsage = {
   input: number;
   output: number;
   cacheWrite5m: number;
@@ -553,7 +479,7 @@ export type ModelUsage = {
 };
 
 /** Input tokens at the plain input price that cost what `usage` input costs. */
-export function billedInputTokens(usage: ModelUsage): number {
+function billedInputTokens(usage: ModelUsage): number {
   return usage.input + Math.ceil(usage.cacheWrite5m / 4) + usage.cacheWrite1h;
 }
 
@@ -569,14 +495,8 @@ function asObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/**
- * Usage in one answer or SSE event, in any of the three shapes: chat completions and
- * Workers AI (`prompt_tokens`/`completion_tokens`), Anthropic Messages
- * (`input_tokens` + cache tokens, also under `message`), OpenAI Responses
- * (`input_tokens`/`output_tokens` under `response`). Anthropic cache tokens are added
- * to input, and cache writes are also kept apart for their price.
- */
-export function readModelUsage(value: unknown): ModelUsage | null {
+/** Usage in one answer or SSE event: chat / Workers AI, Anthropic Messages or Responses shape. */
+function readModelUsage(value: unknown): ModelUsage | null {
   const event = asObject(value);
   if (!event) {
     return null;
@@ -599,8 +519,7 @@ export function readModelUsage(value: unknown): ModelUsage | null {
       (count(usage.cache_creation_input_tokens) ?? 0) - cacheWrite1h,
     );
     const cacheRead = count(usage.cache_read_input_tokens) ?? 0;
-    // Chat completions and Workers AI: `prompt_tokens_details`; Responses:
-    // `input_tokens_details`. Both count cached tokens inside the input total.
+    // Cached tokens are inside the input total in both shapes.
     const details = asObject(usage.prompt_tokens_details) ?? asObject(usage.input_tokens_details);
     const total = (input ?? 0) + cacheWrite5m + cacheWrite1h + cacheRead;
     found = mergeUsage(found, {
@@ -629,7 +548,7 @@ function mergeUsage(a: ModelUsage | null, b: ModelUsage | null): ModelUsage | nu
 }
 
 /** Reads `data:` lines of an SSE stream as they pass, keeping the highest usage seen. */
-export class SseUsageReader {
+class SseUsageReader {
   private buffer = '';
   private skipping = false;
   // Anthropic only: `message_start` seen, final usage seen, an in-band error seen.
@@ -638,10 +557,7 @@ export class SseUsageReader {
   private failed = false;
   usage: ModelUsage | null = null;
 
-  /**
-   * The usage to bill, or `null` when the stream did not finish: an Anthropic stream
-   * cut before `message_delta` only carries the input and one output token.
-   */
+  /** The usage to bill; `null` for an Anthropic stream cut before its final usage. */
   get final(): ModelUsage | null {
     return this.started && (this.failed || !this.finished) ? null : this.usage;
   }
@@ -699,12 +615,8 @@ export class SseUsageReader {
   }
 }
 
-/**
- * Passes `source` through and calls `done` once: with the usage when the stream ends,
- * or with `null` when it fails, ends unfinished or the reader cancels (the hold then
- * stays charged).
- */
-export function meteredStream(
+/** Passes `source` through and calls `done` once, with `null` when it fails or is canceled. */
+function meteredStream(
   source: ReadableStream<Uint8Array>,
   done: (usage: ModelUsage | null) => Promise<void>,
 ): ReadableStream<Uint8Array> {
@@ -746,9 +658,7 @@ export function meteredStream(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Upstream
-// ---------------------------------------------------------------------------
+// --- Upstream ---
 
 type CallPlan = Readonly<{
   scanId: string;
@@ -765,8 +675,7 @@ type CallPlan = Readonly<{
 type Upstream =
   | Readonly<{ kind: 'json'; value: unknown }>
   | Readonly<{ kind: 'stream'; body: ReadableStream<Uint8Array> }>
-  // A 2xx the proxy cannot read, or a call lost with no status: billing is unknown, so
-  // the worst case stays charged.
+  // Billing unknown (unreadable 2xx, or lost with no status): the worst case stays charged.
   | Readonly<{ kind: 'paid_unreadable'; detail: string }>
   | Readonly<{ kind: 'failed'; status: number; credits: boolean; detail: string }>;
 
@@ -774,13 +683,10 @@ type Upstream =
 const PROVIDER_POLICY_CODES = ['cyber_policy', 'trusted_access_for_cyber'] as const;
 
 /**
- * The policy code in a provider error body, or `null`. The live gateway shape is not
- * recorded yet (no refusal has been seen through `/ai/v1`), so any `code` or `type`
- * field at any depth counts: `{"error":{"code":…}}`, a list of those, a Cloudflare
- * `{"errors":[{"code":…}]}` envelope, or a provider body held as JSON text inside a
- * message. A body cut short is searched for the code as a whole JSON string.
+ * The policy code in a provider error body, or `null`: any `code` or `type` field at any
+ * depth, also in JSON held as text. A cut body is searched for the quoted code.
  */
-export function providerPolicyCode(detail: string): string | null {
+function providerPolicyCode(detail: string): string | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(detail);
@@ -839,26 +745,11 @@ function statusOf(error: unknown): number | null {
   return null;
 }
 
-interface WorkersAiCodeStatus {
-  readonly [code: string]: number;
-}
-
 /**
- * Workers AI internal codes the binding throws with no HTTP status, only as the
- * message prefix (`3040: Capacity temporarily exceeded, please try again.`), mapped to
- * the status the REST API gives them. Both 429s are the account-wide limit.
+ * The leading `<code>:` of a Workers AI binding error, also after a class name
+ * (`AiError: 3040: …`). A code means Workers AI refused, so nothing was billed.
  */
-const WORKERS_AI_CODE_STATUS: WorkersAiCodeStatus = {
-  '3036': 429, // Account limited (daily free allocation)
-  '3040': 429, // Out of capacity
-};
-
-/**
- * Reads the leading `<code>:` of a Workers AI binding error, also after a class name
- * (`InferenceUpstreamError: 3040: …`, `AiError: 3040: …`). A code means Workers AI
- * answered with a refusal, so nothing was billed.
- */
-export function workersAiErrorCode(error: unknown): string | null {
+function workersAiErrorCode(error: unknown): string | null {
   const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   let rest = message.trimStart();
   for (let part = 0; part < 2; part++) {
@@ -876,14 +767,8 @@ export function workersAiErrorCode(error: unknown): string | null {
   return null;
 }
 
-/** The HTTP status of a mapped Workers AI code (see {@link workersAiErrorCode}). */
-export function workersAiErrorStatus(error: unknown): number | null {
-  const code = workersAiErrorCode(error);
-  return code === null ? null : (WORKERS_AI_CODE_STATUS[code] ?? null);
-}
-
 /** The binding answer in chat-completions shape, which Engine B reads. */
-export function asChatCompletion<T>(model: string, value: T) {
+function asChatCompletion<T>(model: string, value: T) {
   const result = asObject(value);
   if (!result || Array.isArray(result.choices)) {
     return value;
@@ -961,9 +846,11 @@ async function callWorkersAi(
     return { kind: 'json', value: asChatCompletion(plan.model, result) };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    let status = statusOf(error) ?? workersAiErrorStatus(error);
+    const code = workersAiErrorCode(error);
+    // 3036 (daily free allocation) and 3040 (out of capacity): the account-wide 429.
+    let status = statusOf(error) ?? (code === '3036' || code === '3040' ? 429 : null);
     if (status === null) {
-      if (workersAiErrorCode(error) === null) {
+      if (code === null) {
         // No status and no Workers AI code: the model may have answered and billed it.
         return { kind: 'paid_unreadable', detail };
       }
@@ -1026,10 +913,7 @@ async function callGateway(
     }
   } catch (error) {
     // Lost on the way: the provider may have answered and billed it.
-    return {
-      kind: 'paid_unreadable',
-      detail: error instanceof Error ? error.message : String(error),
-    };
+    return { kind: 'paid_unreadable', detail: errorMessage(error) };
   }
   if (!response.ok) {
     const detail = (await response.text().catch(() => '')).slice(0, 8000);
@@ -1045,16 +929,16 @@ async function callGateway(
   }
 }
 
-// ---------------------------------------------------------------------------
-// The call
-// ---------------------------------------------------------------------------
+// --- The call ---
 
-async function readLimited(request: Request, limit: number): Promise<Uint8Array | null> {
+/** The body as text, or `null` past `limit` bytes. */
+async function readLimited(request: Request, limit: number): Promise<string | null> {
   if (!request.body) {
-    return new Uint8Array();
+    return '';
   }
   const reader = (request.body as ReadableStream<Uint8Array>).getReader();
-  const chunks: Array<Uint8Array> = [];
+  const decoder = new TextDecoder();
+  let text = '';
   let total = 0;
   for (;;) {
     const { done, value } = await reader.read();
@@ -1066,23 +950,21 @@ async function readLimited(request: Request, limit: number): Promise<Uint8Array 
       await reader.cancel().catch(() => undefined);
       return null;
     }
-    chunks.push(value);
+    text += decoder.decode(value, { stream: true });
   }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
+  return text + decoder.decode();
 }
 
-function parseObject(bytes: Uint8Array): Record<string, unknown> | null {
+function parseObject(text: string): Record<string, unknown> | null {
   try {
-    return asObject(JSON.parse(new TextDecoder().decode(bytes)));
+    return asObject(JSON.parse(text));
   } catch {
     return null;
   }
+}
+
+function notRunning(): Response {
+  return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
 }
 
 /** Handles one container request for scan `scanId`, attempt `attempt`. */
@@ -1104,11 +986,11 @@ export async function handleSecurityModelRequest(
   if (session === 'invalid') {
     return refuse(400, 'invalid_request', `${SECURITY_SESSION_HEADER} must be 0–63.`);
   }
-  const bytes = await readLimited(request, SECURITY_MODEL_MAX_REQUEST_BYTES);
-  if (bytes === null) {
+  const text = await readLimited(request, SECURITY_MODEL_MAX_REQUEST_BYTES);
+  if (text === null) {
     return refuse(413, 'request_too_large', 'The model request is too large.');
   }
-  const body = parseObject(bytes);
+  const body = parseObject(text);
   if (!body) {
     return refuse(400, 'invalid_request', 'The model request must be a JSON object.');
   }
@@ -1119,16 +1001,17 @@ export async function handleSecurityModelRequest(
       .catch((error: unknown) => console.error('[security-model-proxy] record failure', error));
     return response;
   };
+  const stopped = (reason: SecurityProxyStop) => failed(reason, stop(reason));
+  const capAlertFailed = (error: unknown) =>
+    console.error('[security-model-proxy] cap alert failed', { scanId, attempt, error });
 
   const scan = await deps.loadScan(scanId);
   const fence = judgeScanFence(scan, attempt, deps.now());
   if (!scan || !fence.ok) {
-    return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
+    return notRunning();
   }
-  // The key before the policy: a removal clears the host's probe result in the same
-  // transaction, so a key read before it is still saved, and a policy read after it sees
-  // the cleared result. Read the other way round, a call could pass the check and then
-  // find no key, and run on Unified Billing credits the probe never checked.
+  // The key before the policy: a key removal clears the probe result in one transaction,
+  // so the other order could run on Unified Billing credits the probe never checked.
   let ownKey: SecurityProviderKey | null = null;
   if (route !== 'chat' && deps.providerKey) {
     try {
@@ -1138,7 +1021,7 @@ export async function handleSecurityModelRequest(
       console.error('[security-model-proxy] saved provider key unreadable', {
         scanId,
         attempt,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
       return failed(
         'upstream',
@@ -1158,10 +1041,10 @@ export async function handleSecurityModelRequest(
   }
   const limits = policy.limits;
   if (scan.modelCalls >= limits.modelCallsPerScan) {
-    return failed('scan_calls', stop('scan_calls', STOP_MESSAGES.scan_calls));
+    return stopped('scan_calls');
   }
   if (scan.tokensIn >= limits.maxInputTokens || scan.tokensOut >= limits.maxOutputTokens) {
-    return failed('tokens', stop('tokens', STOP_MESSAGES.tokens));
+    return stopped('tokens');
   }
 
   if (route === 'responses') {
@@ -1173,7 +1056,7 @@ export async function handleSecurityModelRequest(
   }
   const callOutput = clampCallOutput(route, body, limits.maxOutputTokens - scan.tokensOut);
   if (callOutput === null) {
-    return failed('tokens', stop('tokens', STOP_MESSAGES.tokens));
+    return stopped('tokens');
   }
   const stream = body.stream === true;
   const forwarded = route === 'chat' ? { ...body, model: undefined } : body;
@@ -1198,7 +1081,7 @@ export async function handleSecurityModelRequest(
       break;
     }
     if (admitted.reason === 'session_calls') {
-      return failed('session_calls', stop('session_calls', STOP_MESSAGES.session_calls));
+      return stopped('session_calls');
     }
     const left = waitUntil - deps.now();
     if (left <= 0) {
@@ -1211,17 +1094,9 @@ export async function handleSecurityModelRequest(
   // A cap lowered during the wait applies to this call (spec §16.1, edge #50).
   const capScan = waited ? await deps.loadScan(scanId) : scan;
   if (!capScan || !judgeScanFence(capScan, attempt, deps.now()).ok) {
-    return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
+    return notRunning();
   }
-  const capPolicy = waited ? await deps.readPolicy() : policy;
-  const caps = securitySpendCaps(
-    {
-      monthlyCapCents: capScan.monthlyCapCents,
-      capCeilingCents: capScan.capCeilingCents,
-      planCap: capScan.planCap,
-    },
-    capPolicy.budgets,
-  );
+  const caps = securitySpendCaps(capScan, (waited ? await deps.readPolicy() : policy).budgets);
   const hold = await deps.hold({
     scanId,
     attempt,
@@ -1235,7 +1110,7 @@ export async function handleSecurityModelRequest(
   });
   if (!hold.ok) {
     if (hold.reason === 'fence') {
-      return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
+      return notRunning();
     }
     // Only a cap whose spend reached it is used up; a call too big for what is left is not.
     if (hold.reason === 'budget' && hold.spentNano >= hold.capNano) {
@@ -1245,11 +1120,9 @@ export async function handleSecurityModelRequest(
           month: securitySpendMonth(deps.now()),
           cap: hold.cap,
         })
-        .catch((error: unknown) =>
-          console.error('[security-model-proxy] cap alert failed', { scanId, attempt, error }),
-        );
+        .catch(capAlertFailed);
     }
-    return failed(hold.reason, stop(hold.reason, STOP_MESSAGES[hold.reason]));
+    return stopped(hold.reason);
   }
 
   // `paid`: the model answered. Without usage in that answer the worst case stays
@@ -1279,9 +1152,7 @@ export async function handleSecurityModelRequest(
       });
       await deps
         .notifyCaps?.({ projectId: scan.projectId, month: hold.month, caps, settlement })
-        .catch((error: unknown) =>
-          console.error('[security-model-proxy] cap alert failed', { scanId, attempt, error }),
-        );
+        .catch(capAlertFailed);
     } catch (error) {
       // The hold stays charged: the meter errs high, never low.
       console.error('[security-model-proxy] settle failed', { scanId, attempt, error });
@@ -1289,15 +1160,7 @@ export async function handleSecurityModelRequest(
   };
 
   const tag = await deps.scanTag(scanId);
-  const plan: CallPlan = {
-    scanId,
-    model,
-    route,
-    body,
-    stream,
-    headers: request.headers,
-    ownKey,
-  };
+  const plan: CallPlan = { scanId, model, route, body, stream, headers: request.headers, ownKey };
   const upstream =
     route === 'chat' ? await callWorkersAi(deps, plan, tag) : await callGateway(deps, plan, tag);
 
@@ -1310,7 +1173,7 @@ export async function handleSecurityModelRequest(
         .catch((error: unknown) => console.error('[security-model-proxy] rate back-off', error));
     }
     if (upstream.credits) {
-      return failed('credits', stop('credits', STOP_MESSAGES.credits));
+      return stopped('credits');
     }
     console.error('[security-model-proxy] upstream failed', {
       scanId,
@@ -1322,9 +1185,7 @@ export async function handleSecurityModelRequest(
     const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
     const policyCode = providerPolicyCode(upstream.detail);
     if (policyCode) {
-      // A refusal, not an outage: the code goes on so Engine C reads it in the error text
-      // and the scan ends `refused` instead of being retried (spike S9). A 402 never gets
-      // here: the credits stop above wins over a policy code in its body.
+      // A refusal, not an outage: the code goes on so the scan ends `refused` (spike S9).
       return failed(
         'refused',
         refuse(
@@ -1334,8 +1195,7 @@ export async function handleSecurityModelRequest(
         ),
       );
     }
-    // A 402 the runner would read as credits is not passed through without the header, and
-    // a 401 never reaches an engine: Claude Code retries it for minutes (spike S2).
+    // No bare 402 (the runner reads credits) or 401 (Claude Code retries it for minutes).
     return failed(
       'upstream',
       refuse(

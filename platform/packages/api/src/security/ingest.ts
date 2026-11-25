@@ -1,24 +1,9 @@
 /**
- * Result ingest (design doc 0095, M12; spec §8.4, §9, §11.4). The controller hands
- * `status.json` and `findings.json` to `SecurityScanControl.result()`; both are
- * written by the container and are untrusted.
- *
- *   status.json ─► parse ─► failed (infrastructure), first attempt ─► requeue (one retry)
- *        │
- *   findings.json ─► the runner's own validator again (shape, limits, paths)
- *        │
- *   one transaction, project row locked, scan row fenced (attempt, running, lease):
- *     succeeded  ─► all records + server leads, 50 + 50 cap on new keys, rejected kept
- *                   apart, not_seen hint, fix_checked_scan_id (not when capped), ledger
- *                   summary (base moves; a diff scan merges the base's ledger)
- *     incomplete ─► validated confirmed records only
- *     other      ─► no finding
- *     scan row ends, reserve back
- *   after commit: promote the backlog (succeeded), raw output to R2, forget the call
- *   ledger, poke the scheduler.
- *
- * The findings email row (M15) is written in the same transaction when `news` is not empty.
- * The public gate re-check (M16) takes `news` / `reopened` from the result.
+ * Result ingest (spec §8.4, §9, §11.4). `status.json` and `findings.json` come from the
+ * container and are untrusted. One transaction, project row locked, scan row fenced:
+ * succeeded stores all records and server leads (50 + 50 cap on new keys), incomplete
+ * only validated confirmed ones, others none. After commit: promote the backlog, raw
+ * output to R2, forget the call ledger, poke the scheduler.
  */
 import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import {
@@ -36,7 +21,12 @@ import { generateId } from '../id.ts';
 import { deployments, projects } from '../schema.ts';
 import type { ScanResultReport } from '../security-scanner-controller-runtime.ts';
 import { releaseSecurityScanReserveIn } from './budget.ts';
-import { pokeSecurityScanScheduler, securityScanProjectPrefix } from './enqueue.ts';
+import {
+  pokeSecurityScanScheduler,
+  securityBestEffort as bestEffort,
+  securityScanProjectPrefix,
+  securityScheduler,
+} from './enqueue.ts';
 import { queueSecurityFallbackScans } from './fallback.ts';
 import { checkScanFence, judgeScanFence } from './fence.ts';
 import {
@@ -52,6 +42,7 @@ import {
   SECURITY_REJECTED_REASON_MAX_BYTES,
   securityFingerprintKey,
   selectStoredRecords,
+  severityRank,
   uniqueStoredRecords,
 } from './findings.ts';
 import type {
@@ -65,6 +56,7 @@ import { parseSecurityBacklog } from './input/backlog.ts';
 import type { SecurityServerLead } from './input/phrase-check.ts';
 import { SECURITY_SECRET_FORMS } from './input/redact.ts';
 import type { SecuritySecretForm } from './input/redact.ts';
+import { compareText } from './input/t2.ts';
 import {
   deleteSecurityLocalTree,
   SECURITY_LOCAL_RESULT_MAX_FINDINGS,
@@ -84,9 +76,7 @@ import {
 } from './schema.ts';
 import type { SecurityFindingEventAction } from './schema.ts';
 
-// ---------------------------------------------------------------------------
-// status.json
-// ---------------------------------------------------------------------------
+// --- status.json ---
 
 export type SecurityRunnerStatus = 'succeeded' | 'incomplete' | 'failed' | 'refused' | 'timed_out';
 
@@ -115,29 +105,23 @@ const BAD_STATUS = (errorClass: string): SecurityParsedStatus => ({
   engineVersion: null,
 });
 
-/** A short printable label (`[A-Za-z0-9._:/ @-]`, ≤ 80), else `null`. */
-export function securityLabel(value: unknown, max = 80): string | null {
-  if (typeof value !== 'string' || value.length === 0 || value.length > max) {
-    return null;
-  }
-  for (const char of value) {
-    const ok =
-      (char >= 'a' && char <= 'z') ||
-      (char >= 'A' && char <= 'Z') ||
-      (char >= '0' && char <= '9') ||
-      '._:/ @-+'.includes(char);
-    if (!ok) {
-      return null;
-    }
-  }
-  return value;
+const ALNUM = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+/** A non-empty string of at most `max` letters, digits and `extra` characters. */
+function inCharset(value: unknown, max: number, extra: string): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= max &&
+    Array.from(value).every((char) => ALNUM.includes(char) || extra.includes(char))
+  );
 }
 
-/**
- * Reads `status.json` (runner) or a status the controller set. A status that names
- * another scan or attempt, an unknown status or a reason that does not go with it is
- * `failed (bad_output)`.
- */
+function securityLabel(value: unknown, max = 80): string | null {
+  return inCharset(value, max, '._:/ @-+') ? value : null;
+}
+
+/** Reads `status.json`; another scan or attempt, or a wrong status/reason pair, is bad output. */
 export function parseRunnerStatus(
   value: unknown,
   scanId: string,
@@ -160,34 +144,26 @@ export function parseRunnerStatus(
   }
   const typed = status as SecurityRunnerStatus;
   const reason = object.reason === undefined ? null : object.reason;
-  if (reason !== null && typeof reason !== 'string') {
+  if (!STATUS_REASONS[typed].includes(reason as string | null)) {
     return BAD_STATUS('status_unreadable');
   }
-  if (!STATUS_REASONS[typed].includes(reason)) {
-    return BAD_STATUS('status_unreadable');
-  }
+  const label = reason as string | null;
   return {
     status: typed,
-    reason,
+    reason: label,
     errorClass: securityLabel(object.error_class),
     refusalCategory: typed === 'refused' ? securityLabel(object.refusal_category) : null,
     engineVersion: securityLabel(object.engine_version, 120),
   };
 }
 
-// ---------------------------------------------------------------------------
-// findings.json
-// ---------------------------------------------------------------------------
+// --- findings.json ---
 
 export type SecurityParsedFindings =
   | Readonly<{ ok: true; report: ScanReport }>
   | Readonly<{ ok: false; kind: string }>;
 
-/**
- * The same check the runner gave the model's report (`validate-findings.ts`): shape,
- * field limits, verdict rules and paths under `/scan/input`. One copy of the rules on
- * both sides, no schema library in the Worker.
- */
+/** The runner's own check of the model's report (`validate-findings.ts`), run again. */
 export function parseFindingsReport(text: string | null): SecurityParsedFindings {
   if (text === null) {
     return { ok: false, kind: 'findings_missing' };
@@ -212,9 +188,7 @@ export function parseFindingsReport(text: string | null): SecurityParsedFindings
   return result.ok ? { ok: true, report: result.report } : { ok: false, kind: result.kind };
 }
 
-// ---------------------------------------------------------------------------
-// Outcome (spec §8.4, §11.4)
-// ---------------------------------------------------------------------------
+// --- Outcome (spec §8.4, §11.4) ---
 
 export type SecurityScanOutcome = Readonly<{
   status: SecurityRunnerStatus;
@@ -236,73 +210,32 @@ export function securityScanOutcome(
     reason: status.reason,
     errorClass: status.errorClass,
     refusalCategory: status.refusalCategory,
+    failureCause: 'project' as const,
+    store: 'none' as const,
     report: null,
   };
+  const report = findings.ok ? findings.report : null;
   switch (status.status) {
     case 'succeeded':
       if (!findings.ok) {
-        return {
-          ...base,
-          status: 'failed',
-          reason: 'bad_output',
-          errorClass: findings.kind,
-          failureCause: 'project',
-          store: 'none',
-        };
+        return { ...base, status: 'failed', reason: 'bad_output', errorClass: findings.kind };
       }
-      if (findings.report.run_status === 'incomplete') {
-        return {
-          ...base,
-          status: 'incomplete',
-          reason: 'run_incomplete',
-          failureCause: 'project',
-          store: 'confirmed',
-          report: findings.report,
-        };
-      }
-      return {
-        ...base,
-        status: 'succeeded',
-        failureCause: null,
-        store: 'all',
-        report: findings.report,
-      };
+      return findings.report.run_status === 'incomplete'
+        ? { ...base, status: 'incomplete', reason: 'run_incomplete', store: 'confirmed', report }
+        : { ...base, status: 'succeeded', failureCause: null, store: 'all', report };
     case 'incomplete':
-      return {
-        ...base,
-        status: 'incomplete',
-        failureCause: 'project',
-        store: findings.ok ? 'confirmed' : 'none',
-        report: findings.ok ? findings.report : null,
-      };
-    case 'failed':
-      return {
-        ...base,
-        status: 'failed',
-        failureCause:
-          status.reason === 'infrastructure' || status.reason === 'credits'
-            ? 'installation'
-            : 'project',
-        store: 'none',
-      };
+      return { ...base, status: 'incomplete', store: report ? 'confirmed' : 'none', report };
+    case 'failed': {
+      const installation = status.reason === 'infrastructure' || status.reason === 'credits';
+      return { ...base, status: 'failed', failureCause: installation ? 'installation' : 'project' };
+    }
     case 'refused':
     case 'timed_out':
-      return { ...base, status: status.status, failureCause: 'project', store: 'none' };
+      return { ...base, status: status.status };
   }
 }
 
-/** A container or controller failure gets one more attempt (spec §6.2). */
-export function shouldRetrySecurityScan(status: SecurityParsedStatus, attempt: number): boolean {
-  return (
-    status.status === 'failed' &&
-    status.reason === 'infrastructure' &&
-    attempt < SECURITY_SCAN_MAX_ATTEMPTS
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Per-scan files written at input time (`input/prepare.ts`)
-// ---------------------------------------------------------------------------
+// --- Per-scan files written at input time (`input/prepare.ts`) ---
 
 export type SecurityScanScopeFile = SecurityScanScope &
   Readonly<{
@@ -317,67 +250,51 @@ export function serializeSecurityScanScope(
     hashes: ReadonlyMap<string, string>;
   }>,
 ): string {
-  return JSON.stringify({
-    version: 1,
-    full: input.full,
-    paths: input.paths,
-    hashes: Object.fromEntries(input.hashes),
-  });
+  const { full, paths, hashes } = input;
+  return JSON.stringify({ version: 1, full, paths, hashes: Object.fromEntries(hashes) });
 }
 
-function stringList(value: unknown): Array<string> {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : [];
+/** A `{ version: 1, ... }` object, else `null`. */
+function versionOne(value: unknown): Record<string, unknown> | null {
+  const object =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+  return object?.version === 1 ? object : null;
 }
 
-export function parseSecurityScanScope(
-  text: string | null,
-  backlog: ReadonlyArray<string>,
-): SecurityScanScopeFile | null {
-  if (text === null) {
-    return null;
-  }
+export function parseVersionOne(text: string | null): Record<string, unknown> | null {
   try {
-    const value = JSON.parse(text) as Record<string, unknown>;
-    if (value.version !== 1 || typeof value.full !== 'boolean') {
-      return null;
-    }
-    const hashes = new Map<string, string>();
-    if (typeof value.hashes === 'object' && value.hashes !== null) {
-      for (const [path, hash] of Object.entries(value.hashes as Record<string, unknown>)) {
-        if (typeof hash === 'string') {
-          hashes.set(path, hash);
-        }
-      }
-    }
-    return {
-      full: value.full,
-      paths: new Set(stringList(value.paths)),
-      unread: new Set(backlog),
-      hashes,
-    };
+    return text === null ? null : versionOne(JSON.parse(text));
   } catch {
     return null;
   }
 }
 
-/** A secret name as the secrets API stores it (upper case letters, digits, `_`), checked loosely. */
-function isSecretName(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 256) {
-    return false;
+function positive(value: unknown): number {
+  return Number.isSafeInteger(value) && (value as number) > 0 ? (value as number) : 0;
+}
+
+function parseSecurityScanScope(
+  text: string | null,
+  backlog: ReadonlyArray<string>,
+): SecurityScanScopeFile | null {
+  const value = parseVersionOne(text);
+  if (value === null || typeof value.full !== 'boolean') {
+    return null;
   }
-  for (const char of value) {
-    const ok =
-      (char >= 'a' && char <= 'z') ||
-      (char >= 'A' && char <= 'Z') ||
-      (char >= '0' && char <= '9') ||
-      char === '_';
-    if (!ok) {
-      return false;
+  const hashes = new Map<string, string>();
+  const stored = typeof value.hashes === 'object' && value.hashes !== null ? value.hashes : {};
+  for (const [path, hash] of Object.entries(stored)) {
+    if (typeof hash === 'string') {
+      hashes.set(path, hash);
     }
   }
-  return true;
+  const paths = Array.isArray(value.paths) ? value.paths : [];
+  return {
+    full: value.full,
+    paths: new Set(paths.filter((item): item is string => typeof item === 'string')),
+    unread: new Set(backlog),
+    hashes,
+  };
 }
 
 function parseServerLead(value: unknown): SecurityServerLead | null {
@@ -391,7 +308,7 @@ function parseServerLead(value: unknown): SecurityServerLead | null {
   if (lead.kind === 'reviewer_text' && Array.isArray(lead.hits)) {
     return lead as SecurityServerLead;
   }
-  if (lead.kind === 'secret_in_output' && isSecretName(lead.secret)) {
+  if (lead.kind === 'secret_in_output' && inCharset(lead.secret, 256, '_')) {
     const forms = Array.isArray(lead.forms)
       ? SECURITY_SECRET_FORMS.filter((form) => (lead.forms as Array<unknown>).includes(form))
       : [];
@@ -403,15 +320,13 @@ function parseServerLead(value: unknown): SecurityServerLead | null {
           )
           .slice(0, 10)
       : [];
-    const files =
-      Number.isSafeInteger(lead.files) && (lead.files as number) > 1 ? (lead.files as number) : 1;
+    const files = Math.max(1, positive(lead.files));
     return {
       kind: 'secret_in_output',
       file: lead.file,
       secret: lead.secret,
       forms,
-      line:
-        Number.isSafeInteger(lead.line) && (lead.line as number) > 0 ? (lead.line as number) : 0,
+      line: positive(lead.line),
       client: lead.client === true,
       ...(files > 1 ? { alsoIn, files: Math.max(files, 1 + alsoIn.length) } : {}),
     };
@@ -420,31 +335,14 @@ function parseServerLead(value: unknown): SecurityServerLead | null {
 }
 
 function parseServerLeads(text: string | null): Array<SecurityServerLead> {
-  if (text === null) {
-    return [];
-  }
-  try {
-    const value = JSON.parse(text) as { version?: unknown; leads?: unknown };
-    if (value.version !== 1 || !Array.isArray(value.leads)) {
-      return [];
-    }
-    return value.leads.flatMap((lead: unknown) => {
-      const parsed = parseServerLead(lead);
-      return parsed ? [parsed] : [];
-    });
-  } catch {
-    return [];
-  }
+  const leads = parseVersionOne(text)?.leads;
+  return Array.isArray(leads) ? leads.flatMap((lead: unknown) => parseServerLead(lead) ?? []) : [];
 }
 
 /**
- * A server lead as a stored record: text aimed at AI reviewers (spec §10.3) is a lead;
- * a stored secret value in the deployed output (M31) is a confirmed finding, `high` in
- * a static asset and `medium` in Worker code. Its key is the secret's name and the side
- * (client / Worker), not the file: client bundles have hashed names, so a new bundle is
- * the same finding (an accepted risk stays accepted). The source `server` keeps a model
- * record from taking it over, and no value is ever stored. `isPublic`: the project was
- * public when the scan was queued (the wording only).
+ * A server lead as a stored record: reviewer-aimed text (§10.3) is a lead; a stored secret
+ * value in the output (M31) is a confirmed finding keyed by the secret and the side, not
+ * the hashed file name. No value is ever stored. `isPublic` only changes the wording.
  */
 export function recordFromServerLead(
   projectId: string,
@@ -521,14 +419,9 @@ function recordFromSecretLead(
   const fix = lead.client
     ? `${isPublic === true ? 'Anyone can download this file' : 'Static assets are public once the project is public'}, so treat ${lead.secret} as leaked: rotate it, and keep it on the server (read it from env in a server route). Stop the build from writing it into client code.`
     : `Read ${lead.secret} from env at run time instead of writing its value into the code or the build. If the code was shared, rotate it.`;
+  const side = lead.client ? 'client' : 'worker';
   return {
-    // The side, not the file: a hashed bundle name changes with every client change.
-    key: securityFingerprintKey(
-      projectId,
-      fingerprint,
-      lead.client ? 'client' : 'worker',
-      'server',
-    ),
+    key: securityFingerprintKey(projectId, fingerprint, side, 'server'),
     fingerprint,
     verdict: 'confirmed',
     severity: lead.client ? 'high' : 'medium',
@@ -540,8 +433,7 @@ function recordFromSecretLead(
     lineStart: line,
     lineEnd: line,
     sinkPath: lead.file,
-    // The file's hash would change with every bundle, so a resolve as accepted risk
-    // would not hold; the finding is about the value, which an exact match proves.
+    // A bundle's hash changes every build; the finding is about the value.
     sinkHash: null,
     outsideDiff: false,
     detail: {
@@ -557,28 +449,11 @@ function recordFromSecretLead(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Local check result (M32)
-// ---------------------------------------------------------------------------
-
-const SEVERITY_ORDER: ReadonlyArray<string> = [
-  'critical',
-  'high',
-  'medium',
-  'low',
-  'informational',
-];
-
-function severityRank(severity: string | null): number {
-  const rank = severity === null ? -1 : SEVERITY_ORDER.indexOf(severity);
-  return rank === -1 ? SEVERITY_ORDER.length : rank;
-}
+// --- Local check result (M32) ---
 
 /**
- * What a local check found, for the CLI (`local-result.{attempt}.json`): the records a scan of a
- * deployment would store (all of them when it succeeded, validated confirmed ones when
- * it was incomplete, none otherwise), with the server's own leads, confirmed first and
- * by severity. Never written to the project's findings.
+ * What a local check found, for the CLI (`local-result.{attempt}.json`): the records a
+ * deployment scan would store, confirmed first, by severity. Never a project finding.
  */
 export function securityLocalCheckResult(
   projectId: string,
@@ -589,21 +464,18 @@ export function securityLocalCheckResult(
     return { version: 1, findings: [], total: 0, capped: false };
   }
   const hashes = new Map<string, string>();
-  const records: Array<SecurityIngestRecord> = leads.map((lead) =>
-    recordFromServerLead(projectId, lead, hashes, { local: true }),
-  );
-  for (const record of outcome.report.findings) {
-    const stored = recordFromReport(projectId, record, hashes);
-    if (stored) {
-      records.push(stored);
-    }
-  }
+  const records = [
+    ...leads.map((lead) => recordFromServerLead(projectId, lead, hashes, { local: true })),
+    ...outcome.report.findings.flatMap(
+      (record) => recordFromReport(projectId, record, hashes) ?? [],
+    ),
+  ];
   const unique = uniqueStoredRecords(records, { confirmedOnly: outcome.store === 'confirmed' });
   unique.sort(
     (a, b) =>
       Number(b.verdict === 'confirmed') - Number(a.verdict === 'confirmed') ||
-      severityRank(a.severity) - severityRank(b.severity) ||
-      (a.file < b.file ? -1 : a.file > b.file ? 1 : 0) ||
+      severityRank(b.severity) - severityRank(a.severity) ||
+      compareText(a.file, b.file) ||
       (a.lineStart ?? 0) - (b.lineStart ?? 0),
   );
   const findings = unique
@@ -622,12 +494,7 @@ export function securityLocalCheckResult(
       verdictSource: record.verdictSource ?? 'static',
       detail: record.detail,
     }));
-  return {
-    version: 1,
-    findings,
-    total: unique.length,
-    capped: unique.length > findings.length,
-  };
+  return { version: 1, findings, total: unique.length, capped: unique.length > findings.length };
 }
 
 /** The server-built coverage ledger summary (spec §10.1 item 6): paths + status only. */
@@ -640,32 +507,18 @@ const LEDGER_STATUSES: ReadonlyArray<LedgerStatus> = ['finding', 'scanned', 'bac
 type LedgerFiles = Readonly<{ files: Array<LedgerFile>; omitted: number }>;
 
 /** The files of a stored ledger summary; empty when it is missing or not ours. */
-export function parseSecurityLedgerSummary(value: unknown): LedgerFiles {
-  const empty = { files: [], omitted: 0 };
-  if (typeof value !== 'object' || value === null) {
-    return empty;
+function parseSecurityLedgerSummary(value: unknown): LedgerFiles {
+  const ledger = versionOne(value);
+  if (!ledger || !Array.isArray(ledger.files)) {
+    return { files: [], omitted: 0 };
   }
-  const ledger = value as { version?: unknown; files?: unknown; omitted?: unknown };
-  if (ledger.version !== 1 || !Array.isArray(ledger.files)) {
-    return empty;
-  }
-  const files: Array<LedgerFile> = [];
-  for (const item of ledger.files as Array<unknown>) {
+  const files = ledger.files.flatMap((item: unknown) => {
     const file = item as Partial<LedgerFile> | null;
-    if (
-      typeof file === 'object' &&
-      file !== null &&
-      typeof file.path === 'string' &&
-      LEDGER_STATUSES.includes(file.status as LedgerStatus)
-    ) {
-      files.push({ path: file.path, status: file.status as LedgerStatus });
-    }
-  }
-  const omitted =
-    typeof ledger.omitted === 'number' && Number.isSafeInteger(ledger.omitted) && ledger.omitted > 0
-      ? ledger.omitted
-      : 0;
-  return { files, omitted };
+    return typeof file?.path === 'string' && LEDGER_STATUSES.includes(file.status as LedgerStatus)
+      ? [{ path: file.path, status: file.status as LedgerStatus }]
+      : [];
+  });
+  return { files, omitted: positive(ledger.omitted) };
 }
 
 /** The stored `coverage_ledger` JSON. */
@@ -677,11 +530,9 @@ type SecurityLedgerSummary = {
 };
 
 /**
- * This scan's ledger. A diff scan looked at part of the code, so the base scan's
- * ledger (`base`) carries over for the files it did not touch: this scan's status wins
- * for a path, and a base `backlog` entry is dropped (this scan's backlog is the whole
- * backlog). A full scan passes no base. Findings first, then scanned, then backlog;
- * this scan before the base; whatever does not fit 6 KB is counted in `omitted`.
+ * This scan's ledger. A diff scan carries the base ledger over for files it did not touch
+ * (base `backlog` entries dropped). Findings, scanned, backlog; what does not fit 6 KB is
+ * counted in `omitted`.
  */
 export function buildSecurityLedgerSummary(
   input: Readonly<{
@@ -733,9 +584,7 @@ export function buildSecurityLedgerSummary(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Ingest
-// ---------------------------------------------------------------------------
+// --- Ingest ---
 
 export type SecurityIngestEnv = Pick<
   ApiEnv['Bindings'],
@@ -759,12 +608,7 @@ export type SecurityIngestResult =
 
 export type SecurityIngestOptions = Readonly<{
   now?: number;
-  /**
-   * Server-side path with no model call: the input builder had no file to send (an
-   * empty focus). The scan succeeds with no finding and the base moves. `noChanges`:
-   * the diff was empty (edge #14, `status_reason` `no_changes`); otherwise the changed
-   * files were all cut to the backlog, which this scan keeps waiting (partial).
-   */
+  /** No model call (an empty focus): succeeds with no finding. `noChanges`: empty diff (edge #14). */
   noModelRun?: Readonly<{ noChanges: boolean }>;
 }>;
 
@@ -773,20 +617,7 @@ async function readR2Text(r2: R2Bucket, key: string): Promise<string | null> {
   return object ? object.text() : null;
 }
 
-type ScanRow = Readonly<{
-  projectId: string;
-  deploymentId: string | null;
-  trigger: (typeof securityScans.$inferSelect)['trigger'];
-  status: string;
-  attempt: number;
-  leaseUntil: string | null;
-  startedAt: string | null;
-  modelCalls: number;
-  backlogFiles: number;
-  coverageNotes: ReadonlyArray<string>;
-  baseScanId: string | null;
-  publicAtEnqueue: boolean | null;
-}>;
+type ScanRow = typeof securityScans.$inferSelect;
 
 /**
  * Takes one attempt's result. `ok: false` only when the attempt is fenced off; a bad
@@ -812,11 +643,16 @@ export async function ingestSecurityScanResult(
       }
     : parseRunnerStatus(report.status, scanId, attempt);
 
-  if (shouldRetrySecurityScan(status, attempt)) {
-    if (!(await fenceOk(db, scanId, attempt, now))) {
-      return { ok: false };
-    }
-    if (!(await requeueSecurityScan(db, scanId, attempt))) {
+  // A container or controller failure gets one more attempt (spec §6.2).
+  if (
+    status.status === 'failed' &&
+    status.reason === 'infrastructure' &&
+    attempt < SECURITY_SCAN_MAX_ATTEMPTS
+  ) {
+    if (
+      !(await checkScanFence(db, scanId, attempt, now)).ok ||
+      !(await requeueSecurityScan(db, scanId, attempt))
+    ) {
       return { ok: false };
     }
     console.warn('[security-scan] scan attempt failed; retrying once', {
@@ -855,14 +691,10 @@ export async function ingestSecurityScanResult(
       await readR2Text(r2, `${scanPrefix}scope.json`),
       parseSecurityBacklog(backlogText),
     );
-    // An `incomplete` scan keeps confirmed records only: the server's secret findings
-    // (M31) are confirmed, its reviewer-text leads are dropped with the model's leads.
     leads = parseServerLeads(await readR2Text(r2, `${scanPrefix}server-leads.json`));
   }
   if (head.trigger === 'local') {
-    // M32: the result the CLI polls for is written before the row ends, so an ended
-    // check always has one. Not best effort: a failed write fails this ingest, which
-    // the controller retries. Per attempt, so a fenced-off attempt replaces nothing.
+    // Written before the row ends, so an ended check has one; not best effort (retried).
     await r2.put(
       securityLocalResultKey(head.projectId, scanId, attempt),
       JSON.stringify(securityLocalCheckResult(head.projectId, outcome, leads)),
@@ -872,20 +704,7 @@ export async function ingestSecurityScanResult(
   const stored = await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM projects WHERE id = ${head.projectId} FOR UPDATE`);
     const [row] = await tx
-      .select({
-        projectId: securityScans.project_id,
-        deploymentId: securityScans.deployment_id,
-        trigger: securityScans.trigger,
-        status: securityScans.status,
-        attempt: securityScans.attempt,
-        leaseUntil: securityScans.lease_until,
-        startedAt: securityScans.started_at,
-        modelCalls: securityScans.model_calls,
-        backlogFiles: securityScans.backlog_files,
-        coverageNotes: securityScans.coverage_notes,
-        baseScanId: securityScans.base_scan_id,
-        publicAtEnqueue: securityScans.public_at_enqueue,
-      })
+      .select()
       .from(securityScans)
       .where(eq(securityScans.id, scanId))
       .for('update')
@@ -896,7 +715,9 @@ export async function ingestSecurityScanResult(
       .where(eq(projects.id, head.projectId))
       .limit(1);
     const fence = judgeScanFence(
-      row && project ? { ...row, projectStatus: project.status } : undefined,
+      row && project
+        ? { ...row, leaseUntil: row.lease_until, projectStatus: project.status }
+        : undefined,
       attempt,
       now,
     );
@@ -904,8 +725,7 @@ export async function ingestSecurityScanResult(
       return null;
     }
     if (row.trigger === 'local') {
-      // M32: a local check stores its own result, never project findings (R13).
-      return storeLocalOutcome(tx, scanId, outcome, status, noModelRun);
+      return storeLocalOutcome(tx, scanId, outcome, status);
     }
     return storeOutcome(tx, scanId, row, outcome, status, scope, leads, noModelRun);
   });
@@ -920,9 +740,7 @@ export async function ingestSecurityScanResult(
     );
   }
   if (!stored.local && outcome.status === 'succeeded' && backlogText !== null) {
-    // The project's backlog becomes what this scan left (spec §7.4). Only now: a
-    // failed scan must lose no file. A lost write (or a scan file that is gone) leaves
-    // the older, longer backlog.
+    // Only a succeeded scan moves the backlog (spec §7.4); a lost write keeps the longer one.
     const text = backlogText;
     await bestEffort('backlog promote', scanId, async () => {
       await r2.put(`${securityScanProjectPrefix(head.projectId)}backlog.json`, text);
@@ -942,8 +760,7 @@ export async function ingestSecurityScanResult(
       outcome.status === 'timed_out' ||
       (outcome.status === 'failed' && outcome.reason === 'bad_output'))
   ) {
-    // Opt-in (M26): one more scan on the `@cf` default, queued before the poke below
-    // and before the public gate judges this result, so a held request waits for it.
+    // Opt-in (M26): queued before the poke and the public gate re-check, so a held request waits.
     await bestEffort('fallback', scanId, async () => {
       const policy = await readSecurityPolicyLenient(db);
       await queueSecurityFallbackScans(env, db, policy, {
@@ -967,29 +784,11 @@ export async function ingestSecurityScanResult(
   };
 }
 
-async function fenceOk(db: DbOrTx, scanId: string, attempt: number, now: number) {
-  return (await checkScanFence(db, scanId, attempt, now)).ok;
-}
-
-async function bestEffort<Result>(what: string, scanId: string, run: () => Promise<Result>) {
-  try {
-    await run();
-  } catch (error) {
-    console.warn(`[security-scan] ${what} failed`, {
-      scanId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 /** The attempt ended: the call ledger forgets it and the next scan may start. */
 async function afterAttempt(env: SecurityIngestEnv, scanId: string, attempt: number) {
-  await bestEffort('ledger forget', scanId, async () => {
-    const scheduler = env.SECURITY_SCAN_SCHEDULER.get(
-      env.SECURITY_SCAN_SCHEDULER.idFromName('global'),
-    );
-    await scheduler.forgetModelCalls(scanId, attempt);
-  });
+  await bestEffort('ledger forget', scanId, () =>
+    securityScheduler(env).forgetModelCalls(scanId, attempt),
+  );
   await pokeSecurityScanScheduler(env);
 }
 
@@ -1001,28 +800,28 @@ type StoreResult = Readonly<{
   local?: true;
 }>;
 
-/**
- * A local check's row ends like any scan (status, reason, reserve back), but nothing
- * else moves: no finding, no event, no ledger, no email, no base (R13).
- */
+function endColumns(outcome: SecurityScanOutcome, status: SecurityParsedStatus) {
+  return {
+    status: outcome.status,
+    status_reason: outcome.reason,
+    error_class: outcome.errorClass,
+    failure_cause: outcome.failureCause,
+    refusal_category: outcome.refusalCategory,
+    engine_version: status.engineVersion ?? sql`${securityScans.engine_version}`,
+    finished_at: sql`now()`,
+  };
+}
+
+/** A local check (I12, R13): the row ends, but no finding, event, ledger, email or base moves. */
 async function storeLocalOutcome(
   tx: DbOrTx,
   scanId: string,
   outcome: SecurityScanOutcome,
   status: SecurityParsedStatus,
-  noModelRun: Readonly<{ noChanges: boolean }> | null,
 ): Promise<StoreResult> {
   await tx
     .update(securityScans)
-    .set({
-      status: outcome.status,
-      status_reason: noModelRun ? null : outcome.reason,
-      error_class: outcome.errorClass,
-      failure_cause: outcome.failureCause,
-      refusal_category: outcome.refusalCategory,
-      engine_version: status.engineVersion ?? sql`${securityScans.engine_version}`,
-      finished_at: sql`now()`,
-    })
+    .set(endColumns(outcome, status))
     .where(eq(securityScans.id, scanId));
   await releaseSecurityScanReserveIn(tx, scanId);
   return { news: [], reopened: [], capped: false, local: true };
@@ -1038,7 +837,7 @@ async function storeOutcome(
   leads: ReadonlyArray<SecurityServerLead>,
   noModelRun: Readonly<{ noChanges: boolean }> | null,
 ): Promise<StoreResult> {
-  const projectId = row.projectId;
+  const projectId = row.project_id;
   const result: StoreResult = { news: [], reopened: [], capped: false };
   const hashes = scope?.hashes ?? new Map<string, string>();
   let capped = false;
@@ -1047,12 +846,9 @@ async function storeOutcome(
   const succeeded = outcome.status === 'succeeded';
 
   if (outcome.store !== 'none' && outcome.report !== null) {
-    const records: Array<SecurityIngestRecord> = [];
-    for (const lead of leads) {
-      records.push(
-        recordFromServerLead(projectId, lead, hashes, { isPublic: row.publicAtEnqueue }),
-      );
-    }
+    const records = leads.map((lead) =>
+      recordFromServerLead(projectId, lead, hashes, { isPublic: row.public_at_enqueue }),
+    );
     const rejected: Array<FindingRecord> = [];
     for (const record of outcome.report.findings) {
       const stored = recordFromReport(projectId, record, hashes);
@@ -1063,8 +859,7 @@ async function storeOutcome(
       }
     }
     const confirmedOnly = outcome.store === 'confirmed';
-    // Lock every reported key's row first: the cap limits new rows only, so a capped
-    // scan still re-sees (and reopens) every finding it reported.
+    // Lock every reported key first: the cap limits new rows only.
     const existing = await lockFindings(
       tx,
       projectId,
@@ -1075,17 +870,16 @@ async function storeOutcome(
       existingKeys: new Set(existing.map((finding) => finding.fingerprint_key)),
     });
     capped = selected.capped;
-    const admittedAt = await deploymentAdmittedAt(tx, row.deploymentId);
     const scan: SecurityIngestScan = {
       id: scanId,
       trigger: row.trigger,
-      deploymentAdmittedAt: admittedAt,
-      startedAt: row.startedAt,
+      deploymentAdmittedAt: await deploymentAdmittedAt(tx, row.deployment_id),
+      startedAt: row.started_at,
     };
     const written = await upsertFindings(
       tx,
       projectId,
-      row.deploymentId,
+      row.deployment_id,
       scan,
       selected.records,
       existing,
@@ -1103,22 +897,28 @@ async function storeOutcome(
   if (succeeded && noModelRun === null && scope !== null) {
     await markNotSeen(tx, projectId, scanId, scope, reportedIds);
   }
-  if (succeeded && noModelRun === null && !capped && row.backlogFiles === 0 && row.modelCalls > 0) {
+  if (
+    succeeded &&
+    noModelRun === null &&
+    !capped &&
+    row.backlog_files === 0 &&
+    row.model_calls > 0
+  ) {
     // A capped scan reported more than it stored: it proves no fix.
-    await markFixesChecked(tx, projectId, scanId, row.deploymentId, reportedIds);
+    await markFixesChecked(tx, projectId, scanId, row.deployment_id, reportedIds);
   }
   // A diff scan (or one with no model run) carries the base's ledger over.
   const [baseRow] =
-    succeeded && scope?.full !== true && row.baseScanId !== null
+    succeeded && scope?.full !== true && row.base_scan_id !== null
       ? await tx
           .select({ ledger: securityScans.ledger_summary })
           .from(securityScans)
-          .where(eq(securityScans.id, row.baseScanId))
+          .where(eq(securityScans.id, row.base_scan_id))
           .limit(1)
       : [];
   const baseLedger = baseRow?.ledger ?? null;
 
-  const notes = [...row.coverageNotes];
+  const notes = [...row.coverage_notes];
   if (capped && !notes.includes(SECURITY_FINDINGS_CAPPED_NOTE)) {
     notes.push(SECURITY_FINDINGS_CAPPED_NOTE);
   }
@@ -1126,12 +926,8 @@ async function storeOutcome(
   await tx
     .update(securityScans)
     .set({
-      status: outcome.status,
+      ...endColumns(outcome, status),
       status_reason: noModelRun?.noChanges ? 'no_changes' : outcome.reason,
-      error_class: outcome.errorClass,
-      failure_cause: outcome.failureCause,
-      refusal_category: outcome.refusalCategory,
-      engine_version: status.engineVersion ?? sql`${securityScans.engine_version}`,
       coverage_notes: notes,
       ledger_summary: succeeded
         ? buildSecurityLedgerSummary({
@@ -1142,12 +938,10 @@ async function storeOutcome(
             base: baseLedger,
           })
         : sql`${securityScans.ledger_summary}`,
-      finished_at: sql`now()`,
     })
     .where(eq(securityScans.id, scanId));
   await releaseSecurityScanReserveIn(tx, scanId);
-  // One findings email per scan; the outbox row commits with the findings (M15). A scan
-  // that finishes after the policy went Off is stored with no email (spec §5.4).
+  // One findings email per scan, committed with the findings; none once the policy is Off.
   if (result.news.length > 0 && (await readSecurityPolicyLenient(tx)).mode !== 'disabled') {
     await enqueueSecurityNotification(tx, { kind: 'findings', projectId, scanId });
   }
@@ -1280,11 +1074,7 @@ async function upsertFindings(
   return written;
 }
 
-/**
- * Locks the project's findings with these keys. In id order: every transaction that
- * locks several finding rows (bulk resolve too) takes them in the same order, so two
- * of them never deadlock.
- */
+/** Locks the project's findings with these keys, in id order (as bulk resolve does) so none deadlock. */
 async function lockFindings(
   tx: DbOrTx,
   projectId: string,
@@ -1306,16 +1096,11 @@ async function lockFindings(
     .for('update');
 }
 
-/**
- * The finding's `revision` (the resolve / reopen check, spec §9.2) moves when its state,
- * verdict or severity does; a re-see or the not-seen hint never makes a resolve in flight
- * answer 409.
- */
+/** `revision` (spec §9.2) moves with state, verdict or severity, never with a re-see. */
 function changesRevision(action: SecurityFindingEventAction): boolean {
   return action === 'reopened' || action === 'promoted' || action === 'severity_changed';
 }
 
-/** Column updates for one finding; values may be SQL expressions. */
 interface SecurityFindingColumns {
   [column: string]: unknown;
 }
@@ -1323,7 +1108,7 @@ interface SecurityFindingColumns {
 function patchColumns(
   patch: SecurityFindingPatch,
   changed: boolean,
-): Partial<typeof securityFindings.$inferInsert> & Record<string, unknown> {
+): Partial<typeof securityFindings.$inferInsert> & SecurityFindingColumns {
   const set: SecurityFindingColumns = {
     last_seen_scan_id: patch.lastSeenScanId,
     sink_content_hash: patch.sinkContentHash,
@@ -1344,15 +1129,15 @@ function patchColumns(
     const merged = sql`jsonb_set(${securityFindings.detail}, '{runtime_proof}', ${JSON.stringify(patch.runtimeProof)}::jsonb, true)`;
     set.detail = sql`CASE WHEN octet_length((${merged})::text) <= ${SECURITY_DETAIL_MAX_BYTES} THEN ${merged} ELSE ${securityFindings.detail} END`;
   }
-  if (patch.location !== undefined) {
-    const record = patch.location;
+  const place = patch.details ?? patch.location;
+  if (place !== undefined) {
     Object.assign(set, {
-      title: record.title,
-      file: record.file,
-      line_start: record.lineStart,
-      line_end: record.lineEnd,
-      detail: record.detail,
-      sink_path: record.sinkPath,
+      title: place.title,
+      file: place.file,
+      line_start: place.lineStart,
+      line_end: place.lineEnd,
+      detail: place.detail,
+      sink_path: place.sinkPath,
     });
   }
   if (patch.details !== undefined) {
@@ -1360,14 +1145,8 @@ function patchColumns(
     Object.assign(set, {
       severity: patch.severity ?? record.severity,
       confidence: record.confidence,
-      title: record.title,
       category: record.category,
       cwe: record.cwe,
-      file: record.file,
-      line_start: record.lineStart,
-      line_end: record.lineEnd,
-      detail: record.detail,
-      sink_path: record.sinkPath,
       outside_diff: record.outsideDiff,
     });
   }
@@ -1554,10 +1333,8 @@ async function markNotSeen(
 }
 
 /**
- * `fix_checked_scan_id` (spec §14): the first succeeded, uncapped scan with no backlog
- * and with model calls, of a deployment admitted after the latest `fixed` resolve, that
- * does not report the finding again. A reported one was reopened above; `reported`
- * keeps it out all the same.
+ * `fix_checked_scan_id` (spec §14): the first full-coverage scan of a deployment admitted
+ * after the `fixed` resolve that does not report the finding again.
  */
 async function markFixesChecked(
   tx: DbOrTx,

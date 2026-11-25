@@ -1,16 +1,8 @@
 /**
- * `SecurityScanControl`: the API side of the scanner controller (design doc 0095).
- * RPC only, no HTTP route. Only the installation's scanner controller receives this
- * service binding; its immutable `props` name the installation. Per-scan identity
- * (scan id + attempt) comes from the controller's outbound handler props, never from
- * the container.
- *
- * Every call is fenced by `attempt`: a write or a call from an older attempt, or after
- * the lease ran out, is refused (spec §6.2, T10). `heartbeat` is the fence check the
- * controller makes before it starts a container and on every poll. `model` is the
- * model proxy (`model-proxy.ts`), `input` builds the scan input (`input/prepare.ts`),
- * `copy` makes the scan's runtime copy (`runtime-copy.ts`, M30), `result` stores the
- * outcome and findings (`ingest.ts`) and deletes the copy.
+ * `SecurityScanControl`: the scanner controller's RPC into the API (design doc 0095).
+ * Only the installation's controller holds this binding; its `props` name the
+ * installation, and scan id + attempt come from the controller, never the container.
+ * Every call is fenced by `attempt` (spec §6.2, T10).
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { getPlatformCapabilities } from '../capabilities.ts';
@@ -39,12 +31,12 @@ export { checkScanFence, judgeScanFence } from './fence.ts';
 
 const UNAVAILABLE: ScanFence = { ok: false, reason: 'unavailable' };
 
-function isScanId(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= 64;
-}
-
-function isAttempt(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+function logFailure(what: string, scanId: string, attempt: number, error: unknown): void {
+  console.error(`[security-scan] ${what}`, {
+    scanId,
+    attempt,
+    error: error instanceof Error ? error.message : String(error),
+  });
 }
 
 export class SecurityScanControl extends WorkerEntrypoint<
@@ -71,8 +63,12 @@ export class SecurityScanControl extends WorkerEntrypoint<
     return (
       props?.protocol === expected.protocol &&
       props.installation === expected.installation &&
-      isScanId(scanId) &&
-      isAttempt(attempt)
+      typeof scanId === 'string' &&
+      scanId.length > 0 &&
+      scanId.length <= 64 &&
+      typeof attempt === 'number' &&
+      Number.isSafeInteger(attempt) &&
+      attempt > 0
     );
   }
 
@@ -83,11 +79,7 @@ export class SecurityScanControl extends WorkerEntrypoint<
     return checkScanFence(createDb(this.env.HYPERDRIVE.connectionString), scanId, attempt);
   }
 
-  /**
-   * The scan input tar (`input/prepare.ts`): `task.json`, `input/…` and `memory/…`.
-   * `null` when the attempt is fenced off or its input is missing; the controller then
-   * reports `input_unavailable` and stops.
-   */
+  /** The scan input tar, or `null` (fenced off or missing: `input_unavailable`). */
   async input(scanId: string, attempt: number): Promise<ReadableStream<Uint8Array> | null> {
     if (!this.trusted(scanId, attempt)) {
       return null;
@@ -105,21 +97,12 @@ export class SecurityScanControl extends WorkerEntrypoint<
       }
       return input;
     } catch (error) {
-      console.error('[security-scan] scan input could not be built', {
-        scanId,
-        attempt,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logFailure('scan input could not be built', scanId, attempt, error);
       return null;
     }
   }
 
-  /**
-   * The runtime copy of this attempt (M30, spec §8.6): the deployed bundle with empty
-   * stores, fake secrets and stubs, reachable only from this scan's container. The
-   * controller asks once the runner is running; a copy that is not made leaves the scan
-   * static-only.
-   */
+  /** The attempt's runtime copy (M30, spec §8.6); without one the scan is static-only. */
   async copy(scanId: string, attempt: number): Promise<SecurityCopyOutcome> {
     if (!this.trusted(scanId, attempt)) {
       return { ok: false, reason: 'fence' };
@@ -129,22 +112,14 @@ export class SecurityScanControl extends WorkerEntrypoint<
     try {
       outcome = await prepareSecurityRuntimeCopy(this.env, db, scanId, attempt);
     } catch (error) {
-      console.error('[security-scan] runtime copy could not be made', {
-        scanId,
-        attempt,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logFailure('runtime copy could not be made', scanId, attempt, error);
       outcome = { ok: false, reason: 'create_failed' };
     }
     try {
       // A copy that was wanted and not made shows as a coverage note, not only in a log.
       await noteSecurityRuntimeCopyOutcome(db, scanId, attempt, outcome);
     } catch (error) {
-      console.error('[security-scan] runtime copy note could not be stored', {
-        scanId,
-        attempt,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logFailure('runtime copy note could not be stored', scanId, attempt, error);
     }
     return outcome;
   }
@@ -157,12 +132,7 @@ export class SecurityScanControl extends WorkerEntrypoint<
     return handleSecurityModelRequest(securityModelProxyDeps(this.env), scanId, attempt, request);
   }
 
-  /**
-   * Result ingest (`ingest.ts`). `ok: true` once the result is taken (stored, or the
-   * attempt requeued for its retry), so the controller destroys the container; `false`
-   * for a fenced-off attempt or a store that failed (the controller keeps polling until
-   * the hard cap, and the reaper ends a scan nobody stored).
-   */
+  /** Result ingest: `ok: true` once stored or requeued, so the container can go. */
   async result(
     scanId: string,
     attempt: number,
@@ -183,11 +153,7 @@ export class SecurityScanControl extends WorkerEntrypoint<
           Promise.resolve()
             .then(() => deleteSecurityRuntimeCopyForScan(this.env, scanId, attempt))
             .catch((error: unknown) => {
-              console.error('[security-scan] runtime copy delete failed', {
-                scanId,
-                attempt,
-                error: error instanceof Error ? error.message : String(error),
-              });
+              logFailure('runtime copy delete failed', scanId, attempt, error);
             }),
         );
       }
@@ -199,11 +165,7 @@ export class SecurityScanControl extends WorkerEntrypoint<
       }
       return { ok: ingested.ok };
     } catch (error) {
-      console.error('[security-scan] scan result could not be stored', {
-        scanId,
-        attempt,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logFailure('scan result could not be stored', scanId, attempt, error);
       return { ok: false };
     }
   }

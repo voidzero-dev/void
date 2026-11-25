@@ -1,14 +1,13 @@
 // One scan inside the container: read /scan/task.json, run the phases with the
 // task's engine, write /scan/out/findings.json and then /scan/out/status.json.
-// The controller (M6) polls for status.json, so it is written last and renamed
-// into place whole.
+// The controller polls for status.json, so it is written last and renamed into place whole.
 
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, rename } from 'node:fs/promises';
+import { lstat, mkdir, open } from 'node:fs/promises';
 import { join } from 'node:path/posix';
 import { createClaudeEngine } from './engines/claude.ts';
 import { createCodexEngine } from './engines/codex.ts';
-import type { Engine, EngineId } from './engines/types.ts';
+import type { Engine } from './engines/types.ts';
 import { createVoidLoopEngine, MODEL_BASE_URL } from './engines/void-loop.ts';
 import { runPhases } from './phases.ts';
 import type { PhasesResult } from './phases.ts';
@@ -17,97 +16,69 @@ import type { FindingsFile } from './report.ts';
 import { CopyClient } from './runtime/copy.ts';
 import { outcomeStatus } from './status.ts';
 import type { StatusFields, StatusFile } from './status.ts';
-import { parseTaskText, TaskError } from './task.ts';
+import { parseTaskText, TASK_LIMITS, TaskError } from './task.ts';
 import type { ScanTask } from './task.ts';
 import { createFsTools } from './tools/fs.ts';
-import type { FsTools } from './tools/fs.ts';
+import { writeWhole } from './util.ts';
 import { validateFindingsValue } from './validate-findings.ts';
 
 export const RUNNER_VERSION = 'runner/1';
 
-export type EngineFactory = (
-  task: ScanTask,
-  context: {
-    tools: FsTools;
-    /** The real directory that stands for `/scan`. */
-    root: string;
-    baseUrl: string;
-    fetch?: typeof fetch;
-    retryDelayMs?: number;
-  },
-) => Engine | null;
-
 export type RunScanOptions = {
   /** The real directory that stands for `/scan`. */
   root: string;
-  displayRoot?: string;
   baseUrl?: string;
   fetch?: typeof fetch;
-  /** Tests replace the engines. Default: B everywhere; A and C where their SDK is installed. */
-  engineFactory?: EngineFactory;
   signal?: AbortSignal;
   now?: () => Date;
   retryDelayMs?: number;
   /** A failure before the scan started (for example a bad input tar). A stop on `signal` wins. */
   startError?: { errorClass: string; message: string };
-  /** M30: the runtime copy route (default `http://copy.void.internal`) and, for tests, its wait. */
-  copyBaseUrl?: string;
-  copyReadyWaitMs?: number;
 };
 
-export const defaultEngineFactory: EngineFactory = (task, context) => {
+/** B everywhere; A and C where their SDK is installed (else `failed (engine_unavailable)`). */
+function createEngine(task: ScanTask, options: RunScanOptions, baseUrl: string): Engine {
+  const shared = { model: task.model, root: options.root, fetch: options.fetch };
   switch (task.engine) {
     case 'void_loop':
       return createVoidLoopEngine({
-        model: task.model,
-        tools: context.tools,
-        baseUrl: context.baseUrl,
-        fetch: context.fetch,
-        retryDelayMs: context.retryDelayMs,
+        ...shared,
+        tools: createFsTools({ root: options.root }),
+        baseUrl,
+        retryDelayMs: options.retryDelayMs,
       });
     case 'agent_sdk':
-      // A scanner image without the SDK ends the scan `failed (engine_unavailable)`.
-      return createClaudeEngine({
-        model: task.model,
-        root: context.root,
-        baseUrl: context.baseUrl,
-        fetch: context.fetch,
-      });
+      return createClaudeEngine({ ...shared, baseUrl });
     case 'codex_sdk':
-      return createCodexEngine({
-        model: task.model,
-        root: context.root,
-        baseUrl: `${context.baseUrl}/v1`,
-        fetch: context.fetch,
-      });
-    default:
-      return null;
+      return createCodexEngine({ ...shared, baseUrl: `${baseUrl}/v1` });
   }
-};
+}
 
-type Identity = {
-  scanId: string | null;
-  attempt: number | null;
-  engine: EngineId | null;
-  engineVersion: string;
-  model: string | null;
-};
+type Failure = StatusFields & { message: string | null };
+
+function infrastructure(errorClass: string, message: string): Failure {
+  return {
+    status: 'failed',
+    reason: 'infrastructure',
+    errorClass,
+    refusalCategory: null,
+    message: message.slice(0, 500),
+  };
+}
 
 export async function runScan(options: RunScanOptions): Promise<StatusFile> {
   const now = options.now ?? (() => new Date());
   const startedAt = now().toISOString();
   const outDir = join(options.root, 'out');
-  await prepareOutDir(outDir);
+  await mkdir(outDir, { recursive: true });
+  if (!(await lstat(outDir)).isDirectory()) {
+    throw new Error('the output folder is not a directory');
+  }
 
-  const identity: Identity = {
-    scanId: null,
-    attempt: null,
-    engine: null,
-    engineVersion: RUNNER_VERSION,
-    model: null,
-  };
+  let task: ScanTask | null = null;
+  let engineVersion = RUNNER_VERSION;
   let phases: PhasesResult | null = null;
-  let failure: (StatusFields & { message: string | null }) | null = null;
+  let failure: Failure | null = null;
 
   try {
     if (options.signal?.aborted) {
@@ -116,45 +87,25 @@ export async function runScan(options: RunScanOptions): Promise<StatusFile> {
     } else if (options.startError) {
       failure = infrastructure(options.startError.errorClass, options.startError.message);
     } else {
-      const task = await readTask(options.root);
-      identity.scanId = task.scanId;
-      identity.attempt = task.attempt;
-      identity.engine = task.engine;
-      identity.model = task.model;
-      const tools = createFsTools({ root: options.root, displayRoot: options.displayRoot });
-      const engine = (options.engineFactory ?? defaultEngineFactory)(task, {
-        tools,
-        root: options.root,
-        baseUrl: options.baseUrl ?? MODEL_BASE_URL,
-        fetch: options.fetch,
-        retryDelayMs: options.retryDelayMs,
+      task = await readTask(options.root);
+      const engine = createEngine(task, options, options.baseUrl ?? MODEL_BASE_URL);
+      engineVersion = `${RUNNER_VERSION} ${engine.version}`;
+      phases = await runPhases({
+        engine,
+        task,
+        hasMemory: await isRegularFile(join(options.root, 'memory', 'index.json')),
+        copy: new CopyClient({ fetch: options.fetch, signal: options.signal }),
+        signal: options.signal,
       });
-      if (engine === null) {
-        failure = infrastructure(
-          'engine_unavailable',
-          `engine ${task.engine} is not in this scanner image`,
-        );
-      } else {
-        identity.engineVersion = `${RUNNER_VERSION} ${engine.version}`;
-        phases = await runPhases({
-          engine,
-          task,
-          hasMemory: await isRegularFile(join(options.root, 'memory', 'index.json')),
-          copy: new CopyClient({
-            baseUrl: options.copyBaseUrl,
-            fetch: options.fetch,
-            signal: options.signal,
-            readyWaitMs: options.copyReadyWaitMs,
-          }),
-          signal: options.signal,
-        });
-      }
     }
   } catch (error) {
     failure =
       error instanceof TaskError
         ? infrastructure('task_invalid', error.message)
-        : infrastructure('runner_crash', `runner stopped: ${errorName(error)}`);
+        : infrastructure(
+            'runner_crash',
+            `runner stopped: ${error instanceof Error ? error.name : 'error'}`,
+          );
   }
 
   let findings: FindingsFile = {
@@ -184,13 +135,17 @@ export async function runScan(options: RunScanOptions): Promise<StatusFile> {
     }
   }
 
+  const counts = { confirmed: 0, needs_validation: 0, rejected: 0 };
+  for (const finding of findings.findings) {
+    counts[finding.verdict]++;
+  }
   const status: StatusFile = {
     schema_version: 1,
-    scan_id: identity.scanId,
-    attempt: identity.attempt,
-    engine: identity.engine,
-    engine_version: identity.engineVersion,
-    model: identity.model,
+    scan_id: task?.scanId ?? null,
+    attempt: task?.attempt ?? null,
+    engine: task?.engine ?? null,
+    engine_version: engineVersion,
+    model: task?.model ?? null,
     status: fields.status,
     reason: fields.reason,
     error_class: fields.errorClass,
@@ -200,7 +155,7 @@ export async function runScan(options: RunScanOptions): Promise<StatusFile> {
     model_calls: phases?.modelCalls ?? 0,
     tokens_in: phases?.tokensIn ?? 0,
     tokens_out: phases?.tokensOut ?? 0,
-    findings: countVerdicts(findings),
+    findings: counts,
     started_at: startedAt,
     finished_at: now().toISOString(),
   };
@@ -209,21 +164,10 @@ export async function runScan(options: RunScanOptions): Promise<StatusFile> {
   return status;
 }
 
-function infrastructure(errorClass: string, message: string): StatusFields & { message: string } {
-  return {
-    status: 'failed',
-    reason: 'infrastructure',
-    errorClass,
-    refusalCategory: null,
-    message: message.slice(0, 500),
-  };
-}
-
 async function readTask(root: string): Promise<ScanTask> {
-  const path = join(root, 'task.json');
   let handle;
   try {
-    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    handle = await open(join(root, 'task.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
   } catch {
     throw new TaskError('task.json is missing or not a regular file');
   }
@@ -232,20 +176,12 @@ async function readTask(root: string): Promise<ScanTask> {
     if (!stat.isFile()) {
       throw new TaskError('task.json is not a regular file');
     }
-    if (stat.size > 1024 * 1024) {
+    if (stat.size > TASK_LIMITS.maxTaskBytes) {
       throw new TaskError('task.json is too large');
     }
     return parseTaskText(await handle.readFile('utf8'));
   } finally {
     await handle.close();
-  }
-}
-
-async function prepareOutDir(outDir: string): Promise<void> {
-  await mkdir(outDir, { recursive: true });
-  const stat = await lstat(outDir);
-  if (!stat.isDirectory()) {
-    throw new Error('the output folder is not a directory');
   }
 }
 
@@ -255,33 +191,4 @@ async function isRegularFile(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** Writes to a temp name, then renames, so a reader never sees half a file. */
-async function writeWhole(path: string, text: string): Promise<void> {
-  const temp = `${path}.tmp`;
-  const handle = await open(
-    temp,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-    0o644,
-  );
-  try {
-    await handle.writeFile(text);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(temp, path);
-}
-
-function countVerdicts(file: FindingsFile): StatusFile['findings'] {
-  const counts = { confirmed: 0, needs_validation: 0, rejected: 0 };
-  for (const finding of file.findings) {
-    counts[finding.verdict]++;
-  }
-  return counts;
-}
-
-function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : 'error';
 }

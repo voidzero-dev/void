@@ -22,19 +22,11 @@ async function main(argv: Array<string>): Promise<number> {
       'stdin-tar': { type: 'boolean', default: false },
       'model-base-url': { type: 'string', default: MODEL_BASE_URL },
       'self-test': { type: 'boolean', default: false },
-      // Tests only: replace the self-test egress targets.
-      'egress-target': { type: 'string', multiple: true },
     },
     strict: true,
   });
   if (values['self-test']) {
-    const targets = values['egress-target'];
-    const report = await runSelfTest({
-      baseUrl: values['model-base-url'],
-      targets: targets
-        ? Object.fromEntries(targets.map((url, index) => [`target${index}`, url]))
-        : undefined,
-    });
+    const report = await runSelfTest(values['model-base-url']);
     process.stdout.write(`${JSON.stringify(report)}\n`);
     return 0;
   }

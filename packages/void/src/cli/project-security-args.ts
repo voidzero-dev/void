@@ -1,22 +1,8 @@
 /** Arguments of `void project security …` (spec §13.3). */
+import { parseSecurityDigits } from '@void/platform/security-policy';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 
 export const SECURITY_COMMENT_MAX_CHARS = 4000;
-const SECURITY_ACTIONS = [
-  'status',
-  'list',
-  'show',
-  'comment',
-  'resolve',
-  'reopen',
-  'severity',
-  'scans',
-  'scan',
-  'check',
-  'model',
-  'budget',
-  'open',
-] as const;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational'];
 const STATES = new Set(['open', 'resolved', 'all']);
 const REASONS = {
@@ -63,31 +49,17 @@ export type ProjectSecurityArgs = {
   | { action: 'budget'; change: 'show' | 'set' | 'off'; usd: number }
 );
 
-const VALUE_FLAGS = new Set([
-  '--project',
-  '--reason',
-  '--comment',
-  '--state',
-  '--severity',
-  '--limit',
-  '--usd',
-  '--format',
-]);
-const BOOLEAN_FLAGS = new Set([
-  '--json',
-  '--urgent',
-  '--leads',
-  '--default',
-  '--accept-provider-notice',
-  '--off',
-  '--yes',
-  '--client-assets',
-  '--no-wait',
-]);
-// Flags each action accepts besides `--project` and `--json`.
+const VALUE_FLAGS = new Set(
+  '--project --reason --comment --state --severity --limit --usd --format'.split(' '),
+);
+const BOOLEAN_FLAGS = new Set(
+  '--json --urgent --leads --default --accept-provider-notice --off --yes --client-assets --no-wait'.split(
+    ' ',
+  ),
+);
+// Each action and the flags it accepts besides `--project` and `--json`, in usage order.
 const ACTION_FLAGS = {
   status: [],
-  open: [],
   list: ['--urgent', '--state', '--severity', '--leads', '--format'],
   show: [],
   comment: [],
@@ -99,6 +71,7 @@ const ACTION_FLAGS = {
   check: ['--yes', '--no-wait'],
   model: ['--default', '--accept-provider-notice'],
   budget: ['--usd', '--off'],
+  open: [],
 };
 
 /** `F-12`, `f-12` or `12` → `F-12`; anything else is `null`. */
@@ -111,15 +84,7 @@ export function normalizeFindingId(value: string): string | null {
       digits = digits.slice(1);
     }
   }
-  if (digits.length === 0 || digits.length > 9 || digits.startsWith('0')) {
-    return null;
-  }
-  for (const char of digits) {
-    if (char < '0' || char > '9') {
-      return null;
-    }
-  }
-  return `F-${digits}`;
+  return parseSecurityDigits(digits, 9) === null || digits.startsWith('0') ? null : `F-${digits}`;
 }
 
 function parseFindingIds(values: Array<string>): Array<string> {
@@ -141,19 +106,27 @@ function parseFindingIds(values: Array<string>): Array<string> {
   return ids;
 }
 
-const digits = (text: string) => Array.from(text).every((char) => char >= '0' && char <= '9');
+/** The first finding id in one positional. */
+function firstFindingId(value: string): string {
+  const id = parseFindingIds([value])[0];
+  if (!id) {
+    throw new Error(`project: '${value}' is not a finding id. Use a form like F-12.`);
+  }
+  return id;
+}
 
-/** A dollar amount with at most two decimals, as whole cents of precision. */
+/** `40` or `12.50`: digits, then at most two decimals. */
+export function isDollarAmount(value: string): boolean {
+  const [whole = '', cents, ...extra] = value.split('.');
+  return (
+    extra.length === 0 &&
+    parseSecurityDigits(whole, value.length) !== null &&
+    (cents === undefined || parseSecurityDigits(cents, 2) !== null)
+  );
+}
+
 function parseUsd(value: string): number {
-  const [whole = '', fraction = '', ...extra] = value.split('.');
-  if (
-    extra.length > 0 ||
-    whole === '' ||
-    !digits(whole) ||
-    !digits(fraction) ||
-    fraction.length > 2 ||
-    value.includes('.') === (fraction === '')
-  ) {
+  if (!isDollarAmount(value)) {
     throw new Error('project: --usd must be a dollar amount such as 40 or 12.50.');
   }
   const usd = Number(value);
@@ -178,18 +151,18 @@ function requireComment(value: string | undefined): string {
 
 export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
   const [action = '', ...args] = rest;
-  if (action !== '' && !(SECURITY_ACTIONS as ReadonlyArray<string>).includes(action)) {
+  if (action !== '' && !hasOwnKey(ACTION_FLAGS, action)) {
     throw new Error(
-      `project: Usage: void project security <${SECURITY_ACTIONS.join('|')}> [--project <slug>] [--json].`,
+      `project: Usage: void project security <${Object.keys(ACTION_FLAGS).join('|')}> [--project <slug>] [--json].`,
     );
   }
   const values = new Map<string, string>();
   const flags = new Set<string>();
   const positionals: Array<string> = [];
-  const allowed = new Set([
+  const allowed = new Set<string>([
     '--project',
     '--json',
-    ...(hasOwnKey(ACTION_FLAGS, action) ? ACTION_FLAGS[action] : []),
+    ...(action === '' ? [] : ACTION_FLAGS[action]),
   ]);
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -225,11 +198,7 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
     }
   };
 
-  if (action === '') {
-    noPositionals();
-    return { ...base, json, action };
-  }
-  if (action === 'status' || action === 'open') {
+  if (action === '' || action === 'status' || action === 'open') {
     noPositionals();
     return { ...base, json, action };
   }
@@ -269,10 +238,7 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
         `project: Usage: void project security ${action} <F-id>${action === 'reopen' ? ' --comment "<text>"' : ''}.`,
       );
     }
-    const id = parseFindingIds(positionals)[0];
-    if (!id) {
-      throw new Error(`project: '${positionals[0]}' is not a finding id. Use a form like F-12.`);
-    }
+    const id = firstFindingId(positionals[0]);
     if (action === 'show') {
       return { ...base, json, action, id };
     }
@@ -282,10 +248,7 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
     if (positionals.length !== 2) {
       throw new Error('project: Usage: void project security comment <F-id> "<text>".');
     }
-    const id = parseFindingIds([positionals[0]])[0];
-    if (!id) {
-      throw new Error(`project: '${positionals[0]}' is not a finding id. Use a form like F-12.`);
-    }
+    const id = firstFindingId(positionals[0]);
     return { ...base, json, action, id, text: requireComment(positionals[1]) };
   }
   if (action === 'resolve') {
@@ -308,10 +271,7 @@ export function parseSecurityArgs(rest: Array<string>): ProjectSecurityArgs {
     if (positionals.length !== 2) {
       throw new Error(usage);
     }
-    const id = parseFindingIds([positionals[0]])[0];
-    if (!id) {
-      throw new Error(`project: '${positionals[0]}' is not a finding id. Use a form like F-12.`);
-    }
+    const id = firstFindingId(positionals[0]);
     const level = positionals[1];
     if (level !== 'scan' && !SEVERITIES.includes(level)) {
       throw new Error(

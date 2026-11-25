@@ -752,52 +752,54 @@ const HELP_TREE = {
       'zero-trust': {
         summary: 'Inspect and manage Zero Trust protection for a Void platform project.',
         usage: ['void project zero-trust <status|protect|public|bypass|reconcile> [options]'],
-        commands: [
-          { command: 'status', description: 'Show desired and effective protection state' },
-          { command: 'protect', description: 'Protect the project' },
-          {
-            command: 'public',
-            description: 'Make the project public (may wait for a security scan)',
-          },
-          {
-            command: 'bypass --reason "<text>"',
-            description: 'Skip the security scan for a waiting request (admin or owner)',
-          },
-          { command: 'reconcile', description: 'Repair Cloudflare Access configuration drift' },
-        ],
-        options: [
-          { command: '--project <name>', description: 'Project name override' },
-          { command: '--json', description: 'Print machine-readable output' },
-          { command: '--reason <text>', description: 'bypass: why the scan is skipped (required)' },
-          { command: '--yes', description: 'bypass: skip the confirmation prompt' },
-        ],
+        commands: helpRows([
+          ['status', 'Show desired and effective protection state'],
+          ['protect', 'Protect the project'],
+          ['public', 'Make the project public (may wait for a security scan)'],
+          [
+            'bypass --reason "<text>"',
+            'Skip the security scan for a waiting request (admin or owner)',
+          ],
+          ['reconcile', 'Repair Cloudflare Access configuration drift'],
+        ]),
+        options: helpRows([
+          ['--project <name>', 'Project name override'],
+          ['--json', 'Print machine-readable output'],
+          ['--reason <text>', 'bypass: why the scan is skipped (required)'],
+          ['--yes', 'bypass: skip the confirmation prompt'],
+        ]),
         children: {
-          status: zeroTrustHelp(
-            'Show desired and effective Zero Trust protection and any open public request.',
-            'void project zero-trust status [options]',
-          ),
-          protect: zeroTrustHelp(
-            'Protect the project with the platform Access policy.',
-            'void project zero-trust protect [options]',
-          ),
-          public: zeroTrustHelp(
-            'Make the project public with a managed Access bypass. When the platform scans projects before they go public, the project stays protected until the scan passes.',
-            'void project zero-trust public [options]',
+          ...Object.fromEntries(
+            [
+              [
+                'status',
+                'Show desired and effective Zero Trust protection and any open public request.',
+              ],
+              ['protect', 'Protect the project with the platform Access policy.'],
+              [
+                'public',
+                'Make the project public with a managed Access bypass. When the platform scans projects before they go public, the project stays protected until the scan passes.',
+              ],
+            ].map(([action, summary]) => [
+              action,
+              withProjectOption(summary, `void project zero-trust ${action} [options]`, true),
+            ]),
           ),
           bypass: {
             summary:
               'Skip the security scan for the open public request and make the project public. Not allowed while urgent findings are open. Platform admins are emailed with your reason, and the bypass is recorded.',
             usage: ['void project zero-trust bypass --reason "<text>" [--yes] [options]'],
-            options: [
-              { command: '--reason <text>', description: 'Why the scan is skipped (required)' },
-              { command: '--yes', description: 'Skip the confirmation prompt (needed in CI)' },
-              { command: '--project <name>', description: 'Project name override' },
-              { command: '--json', description: 'Print machine-readable output' },
-            ],
+            options: helpRows([
+              ['--reason <text>', 'Why the scan is skipped (required)'],
+              ['--yes', 'Skip the confirmation prompt (needed in CI)'],
+              ['--project <name>', 'Project name override'],
+              ['--json', 'Print machine-readable output'],
+            ]),
           },
-          reconcile: zeroTrustHelp(
+          reconcile: withProjectOption(
             'Repair Cloudflare Access configuration drift for the project.',
             'void project zero-trust reconcile [options]',
+            true,
           ),
         },
       },
@@ -805,106 +807,57 @@ const HELP_TREE = {
         summary:
           'Review security audit findings, scans, model and budget for a Void platform project.',
         usage: ['void project security <command> [options]'],
-        commands: [
-          {
-            command: 'status',
-            description: 'Urgent findings, policy, model, budget and last scan',
-          },
-          {
-            command: 'list',
-            description: 'List findings (--urgent, --state, --severity, --leads, --format sarif)',
-          },
-          { command: 'show <F-id>', description: 'Show one finding with its history' },
-          {
-            command: 'comment <F-id> "<text>"',
-            description: 'Add a comment (collaborator or higher)',
-          },
-          {
-            command: 'resolve <F-id>...',
-            description: 'Resolve findings with --reason and --comment',
-          },
-          { command: 'reopen <F-id>', description: 'Reopen a resolved finding with --comment' },
-          {
-            command: 'severity <F-id> <level|scan>',
-            description:
-              'Set the severity of an open finding with --comment (scan: use the scan value)',
-          },
-          { command: 'scans', description: 'Show scan history (--limit, up to 100)' },
-          {
-            command: 'scan',
-            description:
-              'Run a full scan of the live deployment (asks first; it costs money; --client-assets)',
-          },
-          {
-            command: 'check [<check-id>]',
-            description:
-              'Scan the git-tracked code in this folder before you deploy (asks first; uploads it), or show an earlier check',
-          },
-          { command: 'model [<id> | --default]', description: 'Show or set the scan model' },
-          {
-            command: 'budget [--usd N | --off]',
-            description: 'Show or set this project monthly scan budget',
-          },
-          {
-            command: 'open',
-            description: 'Open the read-only security page (link works for 15 minutes)',
-          },
-        ],
-        options: [
-          { command: '--project <name>', description: 'Project name override' },
-          { command: '--json', description: 'Print machine-readable output' },
-          { command: '--urgent', description: 'list: only urgent findings' },
-          {
-            command: '--state <state>',
-            description: 'list: open, resolved or all (default: open)',
-          },
-          {
-            command: '--severity <level>',
-            description: 'list: critical, high, medium, low or informational',
-          },
-          { command: '--leads', description: 'list: include leads that need a human look' },
-          {
-            command: '--format sarif',
-            description: 'list: print a SARIF 2.1.0 file for code scanning tools',
-          },
-          {
-            command: '--reason <reason>',
-            description: 'resolve: fixed, false-positive or accepted-risk',
-          },
-          {
-            command: '--comment <text>',
-            description: 'resolve, reopen, severity: why (up to 4,000 characters)',
-          },
-          { command: '--limit <n>', description: 'scans: how many scans, 1 to 100' },
-          { command: '--default', description: 'model: use the platform default model' },
-          {
-            command: '--accept-provider-notice',
-            description: 'model: accept the third-party provider notice',
-          },
-          { command: '--usd <amount>', description: 'budget: monthly cap in dollars' },
-          { command: '--off', description: 'budget: clear this project own cap' },
-          { command: '--yes', description: 'scan, check: start without the prompt' },
-          { command: '--no-wait', description: 'check: queue it and return without waiting' },
-          {
-            command: '--client-assets',
-            description: 'scan: also review client bundle sources from their source maps',
-          },
-        ],
-        examples: [
-          {
-            command: 'void project security list --urgent',
-            description: 'Show findings to fix first',
-          },
-          {
-            command:
-              'void project security resolve F-12 --reason fixed --comment "Bound params in 4e1b9a3"',
-            description: 'Resolve a finding',
-          },
-          {
-            command: 'void project security check',
-            description: 'Check the code in this folder before you deploy it',
-          },
-        ],
+        commands: helpRows([
+          ['status', 'Urgent findings, policy, model, budget and last scan'],
+          ['list', 'List findings (--urgent, --state, --severity, --leads, --format sarif)'],
+          ['show <F-id>', 'Show one finding with its history'],
+          ['comment <F-id> "<text>"', 'Add a comment (collaborator or higher)'],
+          ['resolve <F-id>...', 'Resolve findings with --reason and --comment'],
+          ['reopen <F-id>', 'Reopen a resolved finding with --comment'],
+          [
+            'severity <F-id> <level|scan>',
+            'Set the severity of an open finding with --comment (scan: use the scan value)',
+          ],
+          ['scans', 'Show scan history (--limit, up to 100)'],
+          [
+            'scan',
+            'Run a full scan of the live deployment (asks first; it costs money; --client-assets)',
+          ],
+          [
+            'check [<check-id>]',
+            'Scan the git-tracked code in this folder before you deploy (asks first; uploads it), or show an earlier check',
+          ],
+          ['model [<id> | --default]', 'Show or set the scan model'],
+          ['budget [--usd N | --off]', 'Show or set this project monthly scan budget'],
+          ['open', 'Open the read-only security page (link works for 15 minutes)'],
+        ]),
+        options: helpRows([
+          ['--project <name>', 'Project name override'],
+          ['--json', 'Print machine-readable output'],
+          ['--urgent', 'list: only urgent findings'],
+          ['--state <state>', 'list: open, resolved or all (default: open)'],
+          ['--severity <level>', 'list: critical, high, medium, low or informational'],
+          ['--leads', 'list: include leads that need a human look'],
+          ['--format sarif', 'list: print a SARIF 2.1.0 file for code scanning tools'],
+          ['--reason <reason>', 'resolve: fixed, false-positive or accepted-risk'],
+          ['--comment <text>', 'resolve, reopen, severity: why (up to 4,000 characters)'],
+          ['--limit <n>', 'scans: how many scans, 1 to 100'],
+          ['--default', 'model: use the platform default model'],
+          ['--accept-provider-notice', 'model: accept the third-party provider notice'],
+          ['--usd <amount>', 'budget: monthly cap in dollars'],
+          ['--off', 'budget: clear this project own cap'],
+          ['--yes', 'scan, check: start without the prompt'],
+          ['--no-wait', 'check: queue it and return without waiting'],
+          ['--client-assets', 'scan: also review client bundle sources from their source maps'],
+        ]),
+        examples: helpRows([
+          ['void project security list --urgent', 'Show findings to fix first'],
+          [
+            'void project security resolve F-12 --reason fixed --comment "Bound params in 4e1b9a3"',
+            'Resolve a finding',
+          ],
+          ['void project security check', 'Check the code in this folder before you deploy it'],
+        ]),
       },
       logs: {
         summary: 'Show runtime logs from the deployed project.',
@@ -1637,22 +1590,18 @@ function basicSubcommand(summary: string, usage: string, example?: string): Help
   };
 }
 
-function zeroTrustHelp(summary: string, usage: string): HelpPage {
+function helpRows(rows: Array<[command: string, description: string]>): Array<HelpCommand> {
+  return rows.map(([command, description]) => ({ command, description }));
+}
+
+function withProjectOption(summary: string, usage: string, json = false): HelpPage {
   return {
     summary,
     usage: [usage],
     options: [
       { command: '--project <name>', description: 'Project name override' },
-      { command: '--json', description: 'Print machine-readable output' },
+      ...(json ? [{ command: '--json', description: 'Print machine-readable output' }] : []),
     ],
-  };
-}
-
-function withProjectOption(summary: string, usage: string): HelpPage {
-  return {
-    summary,
-    usage: [usage],
-    options: [{ command: '--project <name>', description: 'Project name override' }],
   };
 }
 

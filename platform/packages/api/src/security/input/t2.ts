@@ -1,16 +1,7 @@
 /**
- * T2 built-output diff (spec §7.1, §7.4). Pure functions over the deployed Worker
- * modules; no I/O.
- *
- * - A module changed when its sha256 differs from the base snapshot's.
- * - Changed modules are mapped back to source through their source map's
- *   `sourcesContent`. A source counts as changed when its content hash differs
- *   from the base's source index (or, with no base index, when it sits in a
- *   changed module).
- * - A module with no usable source map is scanned as built code
- *   (`no-source-maps`).
- * - Priority follows the bundle's import graph from the main module, not folder
- *   names. Text assets come after server code.
+ * T2 built-output diff (spec §7.1, §7.4), pure functions. Changed modules (by sha256) are
+ * mapped back to source through `sourcesContent`; a module with no usable map is scanned
+ * as built code (`no-source-maps`). Priority follows the import graph from main.
  */
 import { createHash } from 'node:crypto';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
@@ -20,18 +11,11 @@ export type SecurityModuleFile = Readonly<{
   sha256: string;
   /** The module's text; empty for a `.map` read ahead into `sources`. */
   text: string;
-  /**
-   * A `.map` module already read (`securityModuleFile`), so its JSON text is not
-   * kept: `null` when it is no usable map.
-   */
+  /** A `.map` module already read; `null` when it is no usable map. */
   sources?: ReadonlyArray<SecurityMapSource> | null;
 }>;
 
-/**
- * One deployed module as the input builder holds it. A source map is read here,
- * one module at a time, and only its `sourcesContent` is kept: the map's JSON
- * (mappings and all) is never held next to the rest of the bundle.
- */
+/** One deployed module as the builder holds it: of a source map only `sourcesContent` is kept. */
 export function securityModuleFile(name: string, sha256: string, text: string): SecurityModuleFile {
   if (name.endsWith('.map')) {
     return { name, sha256, text: '', sources: readSourceMap(name, text) };
@@ -55,41 +39,34 @@ export type SecuritySourceFile = Readonly<{
 /** Where built modules without a source map go under `/scan/input`. */
 export const SECURITY_BUILT_PREFIX = '_worker/';
 /** Where changed text assets go under `/scan/input`. */
-export const SECURITY_ASSET_PREFIX = '_assets/';
+const SECURITY_ASSET_PREFIX = '_assets/';
 /** Where the client asset pass (M31) puts the sources of client bundles. */
 export const SECURITY_CLIENT_PREFIX = '_client/';
 
 /** Text assets T2 reads: these types, at most 256 KB each. */
-export const SECURITY_TEXT_ASSET_EXTENSIONS: ReadonlyArray<string> = [
-  '.js',
-  '.mjs',
-  '.html',
-  '.json',
-  '.css',
-  '.txt',
-];
-export const SECURITY_TEXT_ASSET_MAX_BYTES = 256 * 1024;
+const TEXT_ASSET_EXTENSIONS = ['.js', '.mjs', '.html', '.json', '.css', '.txt'];
+const TEXT_ASSET_MAX_BYTES = 256 * 1024;
 
 export function sha256Hex(text: string | Uint8Array): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
+/** Code-unit order, as `<` compares strings. */
+export function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 const MAX_SEGMENT_CHARS = 200;
-/**
- * A normalized path stays this short, so `_assets/`, a `~n` suffix and `input/`
- * still fit the runner's `changed_files` limit (1024 characters).
- */
+/** Room for `_assets/`, a `~n` suffix and `input/` within the runner's path limit. */
 const MAX_PATH_CHARS = SCAN_INPUT_LIMITS.maxTaskPathChars - 64;
 /** Where a path too long to send goes: `_long/<hash>/<file name>`. */
 const LONG_PATH_PREFIX = '_long/';
 
 /**
- * A source map entry as a safe relative path, or `null`. Schemes (`webpack://`)
- * and query strings are cut; the path resolves against the map's folder and its
- * `sourceRoot`; a `..` above the root is dropped. A path still too long for the
- * runner becomes `_long/<sha256 prefix>/<file name>`.
+ * A source map entry as a safe relative path, or `null`: scheme and query cut, resolved
+ * against the map's folder and `sourceRoot`; a path too long becomes `_long/<hash>/<name>`.
  */
-export function normalizeSourcePath(
+function normalizeSourcePath(
   mapName: string,
   sourceRoot: string | undefined,
   source: string,
@@ -114,10 +91,8 @@ export function normalizeSourcePath(
   if (absolute) {
     joined = path;
   } else {
-    const slash = mapName.lastIndexOf('/');
-    const folder = slash === -1 ? '' : mapName.slice(0, slash + 1);
     const root = sourceRoot ? `${sourceRoot.split('\\').join('/')}/` : '';
-    joined = `${folder}${root}${path}`;
+    joined = `${folderOf(mapName)}${root}${path}`;
   }
   const out: Array<string> = [];
   for (const segment of joined.split('/')) {
@@ -156,11 +131,7 @@ type RawMap = {
 
 export type SecurityMapSource = Readonly<{ path: string; text: string }>;
 
-/**
- * The sources a map carries text for, in map order. Entries with no
- * `sourcesContent` are left out (they cannot be read). Index maps (`sections`)
- * are read one level deep.
- */
+/** The sources a map carries text for, in map order; index maps are read one level deep. */
 export function readSourceMap(mapName: string, text: string): Array<SecurityMapSource> | null {
   let value: unknown;
   try {
@@ -226,7 +197,7 @@ function resolveRelative(from: string, specifier: string): string | null {
 }
 
 /** Where a module's source map is: a `.map` module by name, or inline JSON text. */
-export type SecurityMapRef = Readonly<{ name: string; inline: string | null }>;
+type SecurityMapRef = Readonly<{ name: string; inline: string | null }>;
 
 /**
  * The module's source map: the last `sourceMappingURL` comment (a file name, or an
@@ -337,25 +308,13 @@ function skipBlank(text: string, from: number): number {
 }
 
 function isBindingChar(char: string): boolean {
-  return (
-    (char >= 'a' && char <= 'z') ||
-    (char >= 'A' && char <= 'Z') ||
-    (char >= '0' && char <= '9') ||
-    char === '_' ||
-    char === '$' ||
-    char === '{' ||
-    char === '}' ||
-    char === ',' ||
-    char === '*'
-  );
+  const alnum =
+    (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9');
+  return alnum || '_${},*'.includes(char);
 }
 
-/**
- * A facade chunk: only `import "./x.js"`, `import { a } from "./x.js"`,
- * `export … from "./x.js"` and `export { a }` statements, with comments. It holds no
- * code of its own, so a missing source map loses nothing. Plain text scan, no regex.
- */
-export function onlyImportsAndExports(text: string): boolean {
+/** A facade chunk: only import / re-export statements, so a missing source map loses nothing. */
+function onlyImportsAndExports(text: string): boolean {
   let index = skipBlank(text, 0);
   while (index < text.length) {
     const keyword = text.startsWith('import', index)
@@ -405,7 +364,7 @@ export function onlyImportsAndExports(text: string): boolean {
  * Module names in import-graph order: breadth-first from `main` along relative
  * imports, then the modules nothing reached, by name.
  */
-export function importGraphOrder(
+function importGraphOrder(
   modules: ReadonlyArray<Readonly<{ name: string; text: string }>>,
   main: string | null,
 ): Array<string> {
@@ -436,24 +395,31 @@ export type SecurityBundleSources = Readonly<{
   files: ReadonlyArray<SecuritySourceFile>;
   /** Modules (not maps) scanned as built code. */
   noSourceMaps: number;
-  /**
-   * Each code module's mapped sources as `files` holds them, also the ones `files`
-   * keeps under an earlier module (same path and text).
-   */
+  /** Each code module's mapped sources as `files` holds them (also under an earlier module). */
   moduleSources: ReadonlyMap<string, ReadonlyArray<SecurityModuleSource>>;
 }>;
 
-export type SecurityModuleSource = Readonly<{ path: string; sha256: string }>;
+type SecurityModuleSource = Readonly<{ path: string; sha256: string }>;
 
 function isCodeModule(name: string): boolean {
   return name.endsWith('.js') || name.endsWith('.mjs') || name.endsWith('.cjs');
 }
 
-/**
- * The Worker bundle as source files. `.map` modules are read only as maps;
- * `.txt`/`.json` modules are kept as they are. Two sources with the same path
- * and different text: the later gets a `~2` (… `~n`) suffix.
- */
+function builtFile(
+  module: Readonly<{ name: string; text: string; sha256: string }>,
+): SecuritySourceFile {
+  const { name, text, sha256 } = module;
+  return {
+    path: `${SECURITY_BUILT_PREFIX}${name}`,
+    text,
+    sha256,
+    module: name,
+    map: null,
+    built: true,
+  };
+}
+
+/** The Worker bundle as source files; a second text at one path gets a `~2` (… `~n`) suffix. */
 export function bundleSources(
   modules: ReadonlyArray<SecurityModuleFile>,
   main: string | null,
@@ -530,24 +496,14 @@ export function bundleSources(
     if (isCodeModule(name) && !onlyImportsAndExports(module.text)) {
       noSourceMaps++;
     }
-    add({
-      path: `${SECURITY_BUILT_PREFIX}${name}`,
-      text: module.text,
-      sha256: module.sha256,
-      module: name,
-      map: null,
-      built: true,
-    });
+    add(builtFile(module));
   }
   return { files, noSourceMaps, moduleSources };
 }
 
 /**
- * Changed files in priority order. A module changed when its hash, or its source
- * map's, differs from the base's (or it is new). With a base source index, a source
- * changed when its text hash differs (or it is new) and its module changed; without
- * one, every source of a changed module counts. The module maps hold every module,
- * `.map` files too.
+ * Changed files in priority order: sources of a module (or map) whose hash differs from
+ * the base's, and with a base source index only those whose own hash differs too.
  */
 export function changedSources(
   files: ReadonlyArray<SecuritySourceFile>,
@@ -570,10 +526,8 @@ export function changedSources(
 }
 
 /**
- * Changed code modules a source diff cannot see: each source their map lists is
- * unchanged, so the change is only in the built code (a `define` value, a build
- * plugin, or an edited bundle). Returned as built files to read. A facade, or bytes
- * some base module already had (a renamed chunk), is not one. Needs a base source index.
+ * Changed code modules whose mapped sources are all unchanged (a `define` value, a build
+ * plugin), as built files. Not a facade or a renamed chunk. Needs a base source index.
  */
 export function builtOnlyChanges(
   modules: ReadonlyArray<SecurityModuleFile>,
@@ -597,58 +551,31 @@ export function builtOnlyChanges(
     ) {
       continue;
     }
-    result.push({
-      path: `${SECURITY_BUILT_PREFIX}${module.name}`,
-      text: module.text,
-      sha256: module.sha256,
-      module: module.name,
-      map: null,
-      built: true,
-    });
+    result.push(builtFile(module));
   }
   return result;
 }
 
 export type SecurityAssetEntry = Readonly<{ path: string; hash: string; size: number }>;
 
-function isTextAsset(path: string): boolean {
-  const lower = path.toLowerCase();
-  return SECURITY_TEXT_ASSET_EXTENSIONS.some((extension) => lower.endsWith(extension));
-}
-
-/** Text assets (by type and size) whose hash differs from the base's, or every one with no base. */
+/**
+ * Text assets whose hash differs from the base's (every one with no base): up to 256 KB,
+ * or with `oversized` the bigger ones (M31), which are only searched for secret values.
+ */
 export function changedTextAssets(
   head: ReadonlyArray<SecurityAssetEntry>,
   base: ReadonlyMap<string, string> | null,
+  oversized = false,
 ): Array<SecurityAssetEntry> {
   return head
     .filter(
       (asset) =>
-        isTextAsset(asset.path) &&
-        asset.size <= SECURITY_TEXT_ASSET_MAX_BYTES &&
+        TEXT_ASSET_EXTENSIONS.some((extension) => asset.path.toLowerCase().endsWith(extension)) &&
+        asset.size > TEXT_ASSET_MAX_BYTES === oversized &&
         !asset.path.startsWith('/.void-deploy/') &&
         (base === null || base.get(asset.path) !== asset.hash),
     )
-    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-}
-
-/**
- * M31: text assets over the read limit whose hash differs from the base's (every one
- * with no base). Too big to send, they are only searched for stored secret values.
- */
-export function oversizedTextAssets(
-  head: ReadonlyArray<SecurityAssetEntry>,
-  base: ReadonlyMap<string, string> | null,
-): Array<SecurityAssetEntry> {
-  return head
-    .filter(
-      (asset) =>
-        isTextAsset(asset.path) &&
-        asset.size > SECURITY_TEXT_ASSET_MAX_BYTES &&
-        !asset.path.startsWith('/.void-deploy/') &&
-        (base === null || base.get(asset.path) !== asset.hash),
-    )
-    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    .sort((left, right) => compareText(left.path, right.path));
 }
 
 /** An asset's path under `/scan/input`, or `null` when it has none. */

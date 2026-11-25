@@ -3,36 +3,24 @@
 // lockdown flags the SDK cannot pass. Codex gets no shell and no built-in tool: only the
 // `void-scan` MCP server (read_file, list_files, grep, submit_findings). It runs in an
 // empty folder with its own CODEX_HOME, reaches the model only through the proxy, and has
-// no key. The SDK sits in the Engine C image, so it is loaded when the first session starts.
+// no key. The SDK sits in the Engine C image, not in the runner bundle.
 
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path/posix';
 import { validateFindingsLenient } from '../coerce.ts';
 import { classifyCodexRun, safeLabel } from '../status.ts';
-import type { CodexRunSignal, OutcomeBody } from '../status.ts';
+import type { CodexRunSignal } from '../status.ts';
+import { count } from '../util.ts';
 import { describeValidationError } from '../validate-findings.ts';
-import { readLastFailure, stopSince } from './proxy-failure.ts';
-import { emptyStats } from './types.ts';
-import type { Engine, SessionOutcome, SessionSpec } from './types.ts';
+import { CONTAINER_CA_FILE, runSdkSession } from './proxy-failure.ts';
+import type { Engine } from './types.ts';
 
 export const CODEX_ENGINE_VERSION = 'codex-sdk/1';
-export const CODEX_BASE_URL = 'http://model.void.internal/v1';
-export const CODEX_CA_FILE = '/etc/cloudflare/certs/cloudflare-containers-ca.crt';
 const SDK_PACKAGE = '@openai/codex-sdk';
 
 /** Where the Engine C image keeps its files (`image/Dockerfile.codex`). */
-export type CodexImagePaths = {
-  wrapper: string;
-  catalog: string;
-  mcp: string;
-  node: string;
-  work: string;
-  homeBase: string;
-};
-
-export const CODEX_IMAGE: CodexImagePaths = {
+const CODEX_IMAGE = {
   wrapper: '/opt/void-scanner/codex-wrapper.sh',
   catalog: '/opt/void-scanner/codex-models.json',
   mcp: '/opt/void-scanner/void-scan-mcp.mjs',
@@ -40,6 +28,7 @@ export const CODEX_IMAGE: CodexImagePaths = {
   work: '/work',
   homeBase: '/home/scanner',
 };
+type CodexImagePaths = typeof CODEX_IMAGE;
 
 /** Codex features turned off, one by one (spec §15.4; S3 checked each name). */
 export const CODEX_FEATURES_OFF = [
@@ -76,7 +65,7 @@ export const CODEX_FEATURES_OFF = [
 ] as const;
 
 /** The final message is held to this status; the report itself goes through `submit_findings`. */
-export const CODEX_FINAL_SCHEMA = {
+const CODEX_FINAL_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['run_status', 'finding_count'],
@@ -86,20 +75,20 @@ export const CODEX_FINAL_SCHEMA = {
   },
 } as const;
 
-export type CodexEvent = { type: string } & Record<string, unknown>;
-export type CodexThread = {
-  runStreamed(
-    prompt: string,
-    options: { outputSchema: unknown; signal: AbortSignal },
-  ): Promise<{ events: AsyncIterable<CodexEvent> }>;
-};
+type Json = Record<string, unknown>;
+export type CodexEvent = { type: string } & Json;
 export type CodexSdk = {
   Codex: new (options: {
     codexPathOverride: string;
     env: Record<string, string>;
-    config: Record<string, unknown>;
+    config: Json;
   }) => {
-    startThread(options: Record<string, unknown>): CodexThread;
+    startThread(options: Json): {
+      runStreamed(
+        prompt: string,
+        options: { outputSchema: unknown; signal: AbortSignal },
+      ): Promise<{ events: AsyncIterable<CodexEvent> }>;
+    };
   };
 };
 
@@ -108,21 +97,13 @@ export type CodexEngineOptions = {
   model: string;
   /** The real directory that stands for `/scan`. */
   root: string;
-  baseUrl?: string;
+  /** The proxy's Responses route, `http://model.void.internal/v1`. */
+  baseUrl: string;
   fetch?: typeof fetch;
   loadSdk?: () => Promise<CodexSdk>;
   image?: Partial<CodexImagePaths>;
   caFile?: string;
 };
-
-async function defaultLoadSdk(): Promise<CodexSdk> {
-  return (await import(SDK_PACKAGE)) as CodexSdk;
-}
-
-/** Codex `--config` values; Codex checks them. */
-export interface CodexConfig {
-  [key: string]: unknown;
-}
 
 /** The `--config` values for one session. Pure, so a test can pin every setting. */
 export function codexConfig(input: {
@@ -134,7 +115,7 @@ export function codexConfig(input: {
   root: string;
   maxRecords?: number;
   image?: Partial<CodexImagePaths>;
-}): CodexConfig {
+}) {
   const image = { ...CODEX_IMAGE, ...input.image };
   return {
     model_provider: 'void-proxy',
@@ -188,169 +169,136 @@ export function codexConfig(input: {
   };
 }
 
-function count(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
-}
-
-// oxlint-disable-next-line quality/no-unknown-returns -- Callers check the parsed file before use.
-async function readJson(path: string): Promise<unknown> {
-  if (!existsSync(path)) {
-    return undefined;
-  }
+/** A JSON file the MCP server wrote, or undefined when it is missing or unreadable. */
+async function readJson(path: string): Promise<Json | undefined> {
   try {
-    return JSON.parse(await readFile(path, 'utf8'));
+    return JSON.parse(await readFile(path, 'utf8')) as Json | undefined;
   } catch {
     return undefined;
   }
 }
 
+const safeText = (value: unknown): string => (typeof value === 'string' ? value.slice(0, 500) : '');
+
 export function createCodexEngine(options: CodexEngineOptions): Engine {
-  const baseUrl = options.baseUrl ?? CODEX_BASE_URL;
-  const doFetch = options.fetch ?? fetch;
-  const loadSdk = options.loadSdk ?? defaultLoadSdk;
   const image = { ...CODEX_IMAGE, ...options.image };
   const model = options.model.slice(options.model.indexOf('/') + 1);
+  const session = {
+    loadSdk: options.loadSdk ?? (async () => (await import(SDK_PACKAGE)) as CodexSdk),
+    sdkName: 'Codex SDK',
+    baseUrl: options.baseUrl,
+    fetch: options.fetch ?? fetch,
+  };
 
   return {
     id: 'codex_sdk',
     version: CODEX_ENGINE_VERSION,
-    async runSession(spec: SessionSpec): Promise<SessionOutcome> {
-      const stats = emptyStats();
-      const done = (outcome: OutcomeBody): SessionOutcome => ({ ...outcome, stats });
-      if (spec.signal?.aborted) {
-        return done({ kind: 'aborted' });
-      }
-      let sdk: CodexSdk;
-      try {
-        sdk = await loadSdk();
-      } catch {
-        return done({
-          kind: 'infrastructure',
-          errorClass: 'engine_unavailable',
-          detail: 'the Codex SDK is not in this scanner image',
-        });
-      }
-      // Not under /tmp: Codex refuses to make its helper links under a temp folder.
-      const codexHome = join(image.homeBase, `codex-${randomUUID()}`);
-      const reportPath = join(codexHome, 'findings.json');
-      await mkdir(join(codexHome, 'log'), { recursive: true });
-      await mkdir(join(codexHome, 'sqlite'), { recursive: true });
-      const instructionsFile = join(codexHome, 'instructions.md');
-      await writeFile(instructionsFile, spec.system);
-      const signal = new AbortController();
-      const stop = () => signal.abort();
-      spec.signal?.addEventListener('abort', stop, { once: true });
-      const before = await readLastFailure(baseUrl, doFetch, spec.signal);
+    runSession: (spec) =>
+      runSdkSession(spec, session, async ({ sdk, stats, abort, proxyStop }) => {
+        // Not under /tmp: Codex refuses to make its helper links under a temp folder.
+        const codexHome = join(image.homeBase, `codex-${randomUUID()}`);
+        const reportPath = join(codexHome, 'findings.json');
+        await mkdir(join(codexHome, 'log'), { recursive: true });
+        await mkdir(join(codexHome, 'sqlite'), { recursive: true });
+        const instructionsFile = join(codexHome, 'instructions.md');
+        await writeFile(instructionsFile, spec.system);
+        const run: CodexRunSignal = {
+          submitted: null,
+          rejected: null,
+          failure: null,
+          finalMessage: null,
+          exitCode: null,
+          proxyStop: null,
+        };
+        try {
+          const codex = new sdk.Codex({
+            codexPathOverride: image.wrapper,
+            // Explicit env: no process.env and no CODEX_API_KEY.
+            env: {
+              PATH: '/usr/local/bin:/usr/bin:/bin',
+              HOME: codexHome,
+              CODEX_HOME: codexHome,
+              SSL_CERT_FILE: options.caFile ?? CONTAINER_CA_FILE,
+            },
+            config: codexConfig({
+              baseUrl: options.baseUrl,
+              session: spec.index,
+              codexHome,
+              instructionsFile,
+              reportPath,
+              root: options.root,
+              maxRecords: spec.phase === 'verify' ? 1 : undefined,
+              image,
+            }),
+          });
+          const thread = codex.startThread({
+            model,
+            workingDirectory: image.work,
+            sandboxMode: 'read-only',
+            approvalPolicy: 'never',
+            webSearchMode: 'disabled',
+          });
+          const { events } = await thread.runStreamed(spec.prompt, {
+            outputSchema: CODEX_FINAL_SCHEMA,
+            signal: abort.signal,
+          });
+          for await (const event of events) {
+            if (event.type === 'item.completed') {
+              const item = (event.item ?? {}) as Json;
+              if (item.type === 'agent_message' && typeof item.text === 'string') {
+                run.finalMessage = item.text;
+              }
+              if (item.type === 'mcp_tool_call' || item.type === 'agent_message') {
+                stats.modelCalls++;
+              }
+            } else if (event.type === 'turn.completed') {
+              const usage = (event.usage ?? {}) as Json;
+              stats.inputTokens += count(usage.input_tokens);
+              stats.outputTokens += count(usage.output_tokens);
+              stats.turns++;
+            } else if (event.type === 'turn.failed') {
+              run.failure = { message: safeText((event.error as Json | undefined)?.message) };
+            } else if (event.type === 'error') {
+              run.failure = { message: safeText(event.message) };
+            }
+          }
+        } catch (error) {
+          // The SDK throws when `codex` exits non-zero or the abort fired.
+          run.failure ??= {
+            message: safeText(error instanceof Error ? error.message : String(error)),
+          };
+        }
 
-      const run: CodexRunSignal = {
-        submitted: null,
-        rejected: null,
-        failure: null,
-        finalMessage: null,
-        exitCode: null,
-        proxyStop: null,
-      };
-      try {
-        const codex = new sdk.Codex({
-          codexPathOverride: image.wrapper,
-          // Explicit env: no process.env and no CODEX_API_KEY.
-          env: {
-            PATH: '/usr/local/bin:/usr/bin:/bin',
-            HOME: codexHome,
-            CODEX_HOME: codexHome,
-            SSL_CERT_FILE: options.caFile ?? CODEX_CA_FILE,
-          },
-          config: codexConfig({
-            baseUrl,
-            session: spec.index,
-            codexHome,
-            instructionsFile,
-            reportPath,
-            root: options.root,
-            maxRecords: spec.phase === 'verify' ? 1 : undefined,
-            image: options.image,
-          }),
-        });
-        const thread = codex.startThread({
-          model,
-          workingDirectory: image.work,
-          sandboxMode: 'read-only',
-          approvalPolicy: 'never',
-          webSearchMode: 'disabled',
-        });
-        const { events } = await thread.runStreamed(spec.prompt, {
-          outputSchema: CODEX_FINAL_SCHEMA,
-          signal: signal.signal,
-        });
-        for await (const event of events) {
-          if (event.type === 'item.completed') {
-            const item = (event.item ?? {}) as Record<string, unknown>;
-            if (item.type === 'agent_message' && typeof item.text === 'string') {
-              run.finalMessage = item.text;
-            }
-            if (item.type === 'mcp_tool_call' || item.type === 'agent_message') {
-              stats.modelCalls++;
-            }
-          } else if (event.type === 'turn.completed') {
-            const usage = (event.usage ?? {}) as Record<string, unknown>;
-            stats.inputTokens += count(usage.input_tokens);
-            stats.outputTokens += count(usage.output_tokens);
-            stats.turns++;
-          } else if (event.type === 'turn.failed') {
-            const error = (event.error ?? {}) as Record<string, unknown>;
-            run.failure = { code: null, message: safeText(error.message) };
-          } else if (event.type === 'error') {
-            run.failure = { code: null, message: safeText(event.message) };
+        // The void-scan server counts the read_file calls that returned code.
+        stats.reads = count((await readJson(`${reportPath}.reads`))?.count);
+        const report = await readJson(reportPath);
+        const rejected = await readJson(`${reportPath}.rejected`);
+        await rm(codexHome, { recursive: true, force: true }).catch(() => undefined);
+        if (spec.signal?.aborted) {
+          return { kind: 'aborted' };
+        }
+        if (report !== undefined) {
+          const checked = validateFindingsLenient(report);
+          if (checked.ok) {
+            run.submitted = checked.report;
+          } else {
+            run.rejected = { kind: checked.kind, message: describeValidationError(checked) };
+          }
+        } else if (rejected !== undefined) {
+          run.rejected = {
+            kind: typeof rejected.kind === 'string' ? safeLabel(rejected.kind) : 'shape',
+            message: typeof rejected.message === 'string' ? rejected.message : 'report refused',
+          };
+        }
+        if (run.submitted === null) {
+          run.proxyStop = await proxyStop();
+        } else {
+          const problem = spec.check?.(run.submitted) ?? null;
+          if (problem !== null) {
+            return { kind: 'bad_output', errorKind: 'shape', message: problem };
           }
         }
-      } catch (error) {
-        // The SDK throws when `codex` exits non-zero or the abort fired.
-        run.failure ??= {
-          code: null,
-          message: safeText(error instanceof Error ? error.message : String(error)),
-        };
-      } finally {
-        spec.signal?.removeEventListener('abort', stop);
-      }
-
-      // The void-scan server counts the read_file calls that returned code; a list, a
-      // search or a memory read does not count.
-      const reads = (await readJson(`${reportPath}.reads`)) as { count?: unknown } | undefined;
-      stats.reads = count(reads?.count);
-      const report = await readJson(reportPath);
-      const rejected = (await readJson(`${reportPath}.rejected`)) as
-        | { kind?: unknown; message?: unknown }
-        | undefined;
-      await rm(codexHome, { recursive: true, force: true }).catch(() => undefined);
-      if (spec.signal?.aborted) {
-        return done({ kind: 'aborted' });
-      }
-      if (report !== undefined) {
-        const checked = validateFindingsLenient(report);
-        if (checked.ok) {
-          run.submitted = checked.report;
-        } else {
-          run.rejected = { kind: checked.kind, message: describeValidationError(checked) };
-        }
-      } else if (rejected !== undefined) {
-        run.rejected = {
-          kind: typeof rejected.kind === 'string' ? safeLabel(rejected.kind) : 'shape',
-          message: typeof rejected.message === 'string' ? rejected.message : 'report refused',
-        };
-      }
-      if (run.submitted === null) {
-        run.proxyStop = stopSince(before, await readLastFailure(baseUrl, doFetch, spec.signal));
-      } else {
-        const problem = spec.check?.(run.submitted) ?? null;
-        if (problem !== null) {
-          return done({ kind: 'bad_output', errorKind: 'shape', message: problem });
-        }
-      }
-      return done(classifyCodexRun(run));
-    },
+        return classifyCodexRun(run);
+      }),
   };
-}
-
-function safeText(value: unknown): string {
-  return typeof value === 'string' ? value.slice(0, 500) : '';
 }

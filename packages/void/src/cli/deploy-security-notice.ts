@@ -1,8 +1,10 @@
+import { SECURITY_PROVIDER_NAMES } from '@void/platform/security-models';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 import { PlatformApiError } from './client.ts';
 import type { PlatformClient } from './client.ts';
 import type { CliLogger } from './log-file.ts';
-import { budgetAhead, budgetCause, budgetSkipCopy, cleanLine } from './project-security.ts';
+import { cleanLine } from './output.ts';
+import { budgetAhead, budgetCause, budgetSkipCopy, urgentCounts } from './project-security.ts';
 import type {
   ProjectSecurityStatus,
   SecurityBudgetCause,
@@ -14,14 +16,6 @@ import type {
 const NOTICE_TIMEOUT_MS = 5000;
 const MAX_ROWS = 5;
 const MAX_TITLE = 120;
-const PROVIDERS = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  google: 'Google',
-  deepseek: 'DeepSeek',
-  meta: 'Meta',
-  mistral: 'Mistral',
-};
 
 export type DeploySecurityNoticeInput = {
   client: PlatformClient;
@@ -48,8 +42,8 @@ function inCi(env: NodeJS.ProcessEnv): boolean {
 
 function providerName(model: string): string {
   const prefix = model.startsWith('@') ? '' : model.split('/')[0];
-  if (hasOwnKey(PROVIDERS, prefix)) {
-    return PROVIDERS[prefix];
+  if (hasOwnKey(SECURITY_PROVIDER_NAMES, prefix)) {
+    return SECURITY_PROVIDER_NAMES[prefix];
   }
   return prefix ? cleanLine(prefix) : 'a third-party provider';
 }
@@ -214,12 +208,7 @@ function urgentLines(slug: string, status: ProjectSecurityStatus, counts: boolea
     .map(({ finding }) => finding);
   const shown = sorted.slice(0, MAX_ROWS);
   const more = Math.max(0, urgent.count - shown.length);
-  const parts = [
-    urgent.counts.critical ? `${urgent.counts.critical} critical` : '',
-    urgent.counts.high ? `${urgent.counts.high} high` : '',
-  ]
-    .filter(Boolean)
-    .join(', ');
+  const parts = urgentCounts(urgent);
   const plural = urgent.count === 1 ? 'finding is' : 'findings are';
   const ids = shown.map((finding) => cleanLine(finding.id));
   if (counts) {
@@ -359,15 +348,7 @@ export async function printDeploySecurityNotice(input: DeploySecurityNoticeInput
     if (!status) {
       return;
     }
-    const lines = formatDeploySecurityNotice(
-      {
-        slug: input.slug,
-        deploymentId: input.deploymentId,
-        projectId: input.projectId,
-        env: input.env,
-      },
-      status,
-    );
+    const lines = formatDeploySecurityNotice(input, status);
     input.cliLog?.info('security_notice', {
       printed: lines.length > 0,
       urgent: status.urgent.count,

@@ -1,6 +1,6 @@
 import { readPlatformCapability } from '@void/platform';
 import type { PlatformCapabilities } from '@void/platform';
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import type { ApiEnv } from './env.ts';
 
 const HOSTED_CAPABILITIES: PlatformCapabilities = {
@@ -46,19 +46,36 @@ export function getPlatformCapabilities(
   return capabilities as PlatformCapabilities;
 }
 
+/** The `securityAudits` capability; unreadable capabilities count as off. */
+export function securityAuditsEnabled(env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>) {
+  try {
+    return getPlatformCapabilities(env).securityAudits;
+  } catch {
+    return false;
+  }
+}
+
+/** The standard 501 body of a route whose capability is off. */
+export function capabilityUnavailable(
+  context: Context<ApiEnv>,
+  capability: keyof PlatformCapabilities,
+) {
+  return context.json(
+    {
+      error: 'platform capability unavailable',
+      capability,
+      message: `This Void platform does not enable ${capability}.`,
+    },
+    501,
+  );
+}
+
 export function capabilityMiddleware(
   capability: keyof PlatformCapabilities,
 ): MiddlewareHandler<ApiEnv> {
   return async (context, next) => {
     if (!getPlatformCapabilities(context.env)[capability]) {
-      return context.json(
-        {
-          error: 'platform capability unavailable',
-          capability,
-          message: `This Void platform does not enable ${capability}.`,
-        },
-        501,
-      );
+      return capabilityUnavailable(context, capability);
     }
     await next();
   };

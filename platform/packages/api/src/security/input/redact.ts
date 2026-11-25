@@ -1,16 +1,8 @@
 /**
- * Secret redaction (spec §7.3). Before any input is written for the container,
- * the project's stored secret values are replaced with `[REDACTED:NAME]`.
- *
- * - Only values of 8+ characters with at least two of: lower case, upper case,
- *   digits, symbols. `true`, `admin`, `production` stay (edge #30).
- * - Each value is matched in four forms: raw, JSON-escaped (as inside
- *   `sourcesContent`), base64 and URL-encoded.
- * - Plain substring replacement, no regex. Longer values go first, so a value that
- *   contains another is replaced whole.
- * - M31: a file with a hit also says where (`hitsIn`): each secret once, with the forms
- *   seen and the first line. Ingest turns these into server findings
- *   (`secret-in-output`); the value itself is never kept.
+ * Secret redaction (spec §7.3): stored secret values become `[REDACTED:NAME]` before any
+ * input is written. Only values of 8+ characters with two character classes (edge #30),
+ * in four forms (raw, JSON-escaped, base64, URL-encoded), longest first, no regex.
+ * M31: `hitsIn` says where each secret was, for ingest's `secret-in-output` findings.
  */
 
 export type SecuritySecret = Readonly<{ name: string; value: string }>;
@@ -21,31 +13,25 @@ export function isRedactableSecret(value: string): boolean {
   if (value.length < SECURITY_REDACT_MIN_LENGTH) {
     return false;
   }
-  let lower = false;
-  let upper = false;
-  let digit = false;
-  let symbol = false;
+  const kinds = new Set<string>();
   for (const char of value) {
-    if (char >= 'a' && char <= 'z') {
-      lower = true;
-    } else if (char >= 'A' && char <= 'Z') {
-      upper = true;
-    } else if (char >= '0' && char <= '9') {
-      digit = true;
-    } else {
-      symbol = true;
-    }
+    kinds.add(
+      char >= 'a' && char <= 'z'
+        ? 'a'
+        : char >= 'A' && char <= 'Z'
+          ? 'A'
+          : char >= '0' && char <= '9'
+            ? '0'
+            : '.',
+    );
   }
-  return Number(lower) + Number(upper) + Number(digit) + Number(symbol) >= 2;
+  return kinds.size >= 2;
 }
 
 function base64(value: string): string {
-  const bytes = new TextEncoder().encode(value);
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
+  return btoa(
+    Array.from(new TextEncoder().encode(value), (byte) => String.fromCharCode(byte)).join(''),
+  );
 }
 
 /** How a value was written: as is, JSON-escaped, base64 or URL-encoded. */
@@ -94,13 +80,8 @@ export type SecuritySecretHit = Readonly<{
 
 export type SecurityRedactor = Readonly<{
   redact(text: string): string;
-  /** Distinct secrets replaced at least once so far. */
   hits(): number;
-  /**
-   * Where the secrets are in a text (before redaction), each secret once, in line
-   * order. A form inside a longer match (a longer secret, or another form) is not
-   * counted again. Reads only; `hits()` does not change.
-   */
+  /** Where the secrets are in a text, each once, in line order; reads only. */
   hitsIn(text: string): Array<SecuritySecretHit>;
 }>;
 
@@ -139,9 +120,8 @@ export function createSecurityRedactor(secrets: ReadonlyArray<SecuritySecret>): 
     },
     hits: () => hit.size,
     hitsIn(text) {
-      // Longest first, as `redact`: a range already taken is not matched again. Taken
-      // ranges never overlap, so they are kept sorted (two flat lists) and each needle
-      // walks them once with its matches: linear in the matches, however many there are.
+      // Longest first, as `redact`: a taken range is not matched again. Taken ranges are
+      // kept sorted, so each needle walks them once with its matches.
       let starts: Array<number> = [];
       let stops: Array<number> = [];
       const found = new Map<string, { offset: number; forms: Set<SecuritySecretForm> }>();

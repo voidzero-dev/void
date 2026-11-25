@@ -2,112 +2,49 @@
 // runs `node runner.mjs --self-test` as the `scanner` user and judges the JSON line it
 // prints: the container started as non-root, the model route answers with the probe id
 // the container never saw, the internet does not answer, and no credential is in env.
-//
 // Nothing here walks the file system: /run/cloudchamber holds procfs/sysfs views that
 // block readers (spike S1).
 
-import { MODEL_BASE_URL } from './engines/void-loop.ts';
-
-/** Egress check name → the URL it fetches. */
-export interface SelfTestEgressTargets {
-  readonly [name: string]: string;
-}
-
 /** Hosts the container must not reach. Each one fails, or ends in the controller's deny handler. */
-export const SELF_TEST_EGRESS_TARGETS: SelfTestEgressTargets = {
+const EGRESS_TARGETS = {
   httpExample: 'http://example.com/',
   httpsExample: 'https://example.com/',
   httpsBareIp: 'https://1.1.1.1/',
   httpUnknownHost: 'http://nx-void-scanner.invalid/',
 };
-
-/** The deny handler answers 403 with a body that starts with this. */
-export const EGRESS_DENIED_PREFIX = 'egress denied';
-
 const CREDENTIAL_WORDS = ['TOKEN', 'SECRET', 'KEY', 'PASSWORD', 'AUTH', 'CREDENTIAL'];
-
-export type EgressResult = Readonly<{
-  blocked: boolean;
-  ms: number;
-  /** HTTP status when something answered. */
-  status?: number;
-  /** Error name or code when the request failed. */
-  error?: string;
-}>;
-
-export type SelfTestReport = Readonly<{
-  selfTest: 1;
-  uid: number | null;
-  node: string;
-  model: Readonly<{ ok: boolean; status?: number; probe?: string; error?: string; ms: number }>;
-  egress: Readonly<Record<string, EgressResult>>;
-  /** Names only, never values. */
-  envSuspicious: ReadonlyArray<string>;
-}>;
-
-export type SelfTestOptions = Readonly<{
-  baseUrl?: string;
-  targets?: SelfTestEgressTargets;
-  timeoutMs?: number;
-  env?: Readonly<Record<string, string | undefined>>;
-  uid?: number | null;
-  fetch?: typeof fetch;
-}>;
+const TIMEOUT_MS = 8000;
 
 function errorName(error: unknown): string {
-  if (error && typeof error === 'object') {
-    const cause = (error as { cause?: { code?: unknown } }).cause;
-    if (cause && typeof cause.code === 'string') {
-      return cause.code;
-    }
-    const name = (error as { name?: unknown }).name;
-    if (typeof name === 'string') {
-      return name;
-    }
+  const { cause, name } = (error ?? {}) as { cause?: { code?: unknown }; name?: unknown };
+  if (typeof cause?.code === 'string') {
+    return cause.code;
   }
-  return 'error';
+  return typeof name === 'string' ? name : 'error';
 }
 
-export function suspiciousEnvNames(
-  env: Readonly<Record<string, string | undefined>>,
-): Array<string> {
-  return Object.keys(env)
-    .filter((name) => {
-      const upper = name.toUpperCase();
-      return CREDENTIAL_WORDS.some((word) => upper.includes(word));
-    })
-    .sort();
-}
-
-async function probeEgress(
-  url: string,
-  timeoutMs: number,
-  fetchImpl: typeof fetch,
-): Promise<EgressResult> {
+async function probeEgress(url: string) {
   const started = Date.now();
   try {
-    const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
     const body = (await response.text()).slice(0, 200);
-    const denied = response.status === 403 && body.startsWith(EGRESS_DENIED_PREFIX);
-    return { blocked: denied, ms: Date.now() - started, status: response.status };
+    // The controller's deny handler answers 403 `egress denied: <host>`.
+    const blocked = response.status === 403 && body.startsWith('egress denied');
+    return { blocked, ms: Date.now() - started, status: response.status };
   } catch (error) {
     // No answer (refused, reset, TLS failure or timeout): nothing reached the host.
     return { blocked: true, ms: Date.now() - started, error: errorName(error) };
   }
 }
 
-async function probeModel(
-  baseUrl: string,
-  timeoutMs: number,
-  fetchImpl: typeof fetch,
-): Promise<SelfTestReport['model']> {
+async function probeModel(baseUrl: string) {
   const started = Date.now();
   try {
-    const response = await fetchImpl(`${baseUrl}/v1/self-test`, {
+    const response = await fetch(`${baseUrl}/v1/self-test`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const text = await response.text();
     let probe: string | undefined;
@@ -128,26 +65,21 @@ async function probeModel(
   }
 }
 
-export async function runSelfTest(options: SelfTestOptions = {}): Promise<SelfTestReport> {
-  const fetchImpl = options.fetch ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 8000;
-  const targets = options.targets ?? SELF_TEST_EGRESS_TARGETS;
+export async function runSelfTest(baseUrl: string) {
+  const names = Object.keys(EGRESS_TARGETS);
   const [model, ...egress] = await Promise.all([
-    probeModel(options.baseUrl ?? MODEL_BASE_URL, timeoutMs, fetchImpl),
-    ...Object.values(targets).map((url) => probeEgress(url, timeoutMs, fetchImpl)),
+    probeModel(baseUrl),
+    ...Object.values(EGRESS_TARGETS).map(probeEgress),
   ]);
-  const uid =
-    options.uid !== undefined
-      ? options.uid
-      : typeof process.getuid === 'function'
-        ? process.getuid()
-        : null;
   return {
     selfTest: 1,
-    uid,
+    uid: typeof process.getuid === 'function' ? process.getuid() : null,
     node: process.version,
     model,
-    egress: Object.fromEntries(Object.keys(targets).map((name, index) => [name, egress[index]])),
-    envSuspicious: suspiciousEnvNames(options.env ?? process.env),
+    egress: Object.fromEntries(names.map((name, index) => [name, egress[index]])),
+    // Names only, never values.
+    envSuspicious: Object.keys(process.env)
+      .filter((name) => CREDENTIAL_WORDS.some((word) => name.toUpperCase().includes(word)))
+      .sort(),
   };
 }

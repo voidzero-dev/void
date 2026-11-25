@@ -5,32 +5,19 @@
 // decides, and the API ingest uses the strict one only.
 
 import { CONFIDENCES, RUN_STATUSES, SEVERITIES, VERDICTS } from './report.ts';
-import { validateFindingsText, validateFindingsValue } from './validate-findings.ts';
+import {
+  FINDING_KEYS,
+  TRACE_KEYS,
+  validateFindingsText,
+  validateFindingsValue,
+} from './validate-findings.ts';
 import type { ValidationResult } from './validate-findings.ts';
 
 const REPORT_KEYS = ['run_status', 'findings', 'notes'];
-const FINDING_KEYS = [
-  'fingerprint',
-  'verdict',
-  'severity',
-  'confidence',
-  'title',
-  'category',
-  'cwe',
-  'file',
-  'line_start',
-  'line_end',
-  'sink_path',
-  'outside_diff',
-  'trace',
-  'evidence',
-  'conditions',
-  'fix',
-  'reason',
-  // M30: the model names its proof; verdict_source and runtime_proof are the runner's.
-  'proof_request',
-];
-const TRACE_KEYS = ['file', 'line', 'note'];
+// M30: the model names its proof; verdict_source and runtime_proof are the runner's.
+const MODEL_FINDING_KEYS = FINDING_KEYS.filter(
+  (key) => key !== 'verdict_source' && key !== 'runtime_proof',
+);
 
 /** A JSON object, its fields not checked yet. */
 interface Plain {
@@ -88,7 +75,7 @@ function coerceFinding(value: unknown): unknown {
   if (!isPlain(value)) {
     return value;
   }
-  const finding = pick(value, FINDING_KEYS);
+  const finding = pick(value, MODEL_FINDING_KEYS);
   finding.verdict = enumValue(finding.verdict, VERDICTS);
   finding.severity = enumValue(finding.severity, SEVERITIES);
   finding.confidence = enumValue(finding.confidence, CONFIDENCES);

@@ -1,14 +1,6 @@
 /**
- * `void project security check` (design doc 0095 M32): a security scan of this
- * folder's code before it is deployed.
- *
- *   git ls-files ─► filter (same rules as the platform) ─► secret-like: never sent
- *                                                      └► lockfiles, binaries: never sent
- *   the rest, as it is on disk ─► tar + gzip ─► preview (model, notice, cost) ─► confirm
- *   ─► create (one presigned upload) ─► PUT to storage ─► start ─► poll ─► print
- *
- * Only git-tracked files leave the machine. The result is not saved as project
- * findings; the platform keeps it 30 days.
+ * `void project security check` (design doc 0095 M32): only git-tracked files that pass
+ * the platform's input filter leave the machine (tar + gzip, one presigned upload).
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -25,7 +17,8 @@ import { join } from 'pathslash';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 import type { PlatformClient } from './client.ts';
 import { DirectR2PutError, uploadAssetsToR2 } from './direct-r2-upload.ts';
-import type { SecurityCheckFinding, SecurityCheckView } from './security-api-types.ts';
+import { cleanLine } from './output.ts';
+import type { SecurityCheckView } from './security-api-types.ts';
 
 /** Secret-like file names listed before the upload, at most. */
 const LISTED_SECRET_FILES = 5;
@@ -195,16 +188,12 @@ function plural(count: number, word: string): string {
 }
 
 /** What is sent and what is not, before the question. */
-export function checkSummaryLines(
-  slug: string,
-  tree: SecurityLocalTree,
-  clean: (value: unknown) => string,
-): Array<string> {
+export function checkSummaryLines(slug: string, tree: SecurityLocalTree): Array<string> {
   const lines = [
     `Security check of ${slug}: ${plural(tree.files.length, 'git-tracked file')} (${size(tree.bytes)}) from this folder.`,
   ];
   if (tree.secret.length > 0) {
-    const shown = tree.secret.slice(0, LISTED_SECRET_FILES).map(clean).join(', ');
+    const shown = tree.secret.slice(0, LISTED_SECRET_FILES).map(cleanLine).join(', ');
     const more =
       tree.secret.length > LISTED_SECRET_FILES
         ? `, and ${tree.secret.length - LISTED_SECRET_FILES} more`
@@ -228,10 +217,6 @@ const SEVERITY_LABEL = {
   informational: 'INFO',
 };
 
-function where(finding: SecurityCheckFinding, clean: (value: unknown) => string): string {
-  return `${clean(finding.file)}${finding.lineStart === null ? '' : `:${finding.lineStart}`}`;
-}
-
 /**
  * The ended check: one line per finding, confirmed first, then leads. `fresh`: the
  * check just ran, so a missing result is a fault, not the 30-day limit.
@@ -239,13 +224,12 @@ function where(finding: SecurityCheckFinding, clean: (value: unknown) => string)
 export function checkResultLines(
   slug: string,
   view: SecurityCheckView,
-  clean: (value: unknown) => string,
   options: { fresh?: boolean } = {},
 ): Array<string> {
   const { check, result } = view;
   const head = [
-    `${slug} · local check ${clean(check.id)}`,
-    `  ${clean(check.status)}${check.statusReason ? ` (${clean(check.statusReason)})` : ''}${check.coverageLabel ? ` · ${clean(check.coverageLabel)}` : ''} · ${plural(check.filesScanned, 'file')}${check.model ? ` · ${clean(check.model)}` : ''}`,
+    `${slug} · local check ${cleanLine(check.id)}`,
+    `  ${cleanLine(check.status)}${check.statusReason ? ` (${cleanLine(check.statusReason)})` : ''}${check.coverageLabel ? ` · ${cleanLine(check.coverageLabel)}` : ''} · ${plural(check.filesScanned, 'file')}${check.model ? ` · ${cleanLine(check.model)}` : ''}`,
   ];
   if (!ENDED_WITH_RESULT.has(check.status)) {
     return head;
@@ -275,22 +259,16 @@ export function checkResultLines(
     lines.push(
       `  ${plural(confirmed.length, 'finding')}${counts ? ` (${counts})` : ''} · ${plural(leads.length, 'lead')}`,
     );
-    for (const finding of confirmed) {
+    for (const finding of [...confirmed, ...leads]) {
       const severity = finding.severity;
       const label =
-        severity !== null && hasOwnKey(SEVERITY_LABEL, severity)
-          ? SEVERITY_LABEL[severity]
-          : 'INFO';
-      lines.push(
-        `  ${label.padEnd(9)} ${clean(finding.title)}`,
-        `  ${' '.repeat(9)} ${where(finding, clean)}`,
-      );
-    }
-    for (const finding of leads) {
-      lines.push(
-        `  ${'LEAD'.padEnd(9)} ${clean(finding.title)}`,
-        `  ${' '.repeat(9)} ${where(finding, clean)}`,
-      );
+        finding.verdict !== 'confirmed'
+          ? 'LEAD'
+          : severity !== null && hasOwnKey(SEVERITY_LABEL, severity)
+            ? SEVERITY_LABEL[severity]
+            : 'INFO';
+      const place = `${cleanLine(finding.file)}${finding.lineStart === null ? '' : `:${finding.lineStart}`}`;
+      lines.push(`  ${label.padEnd(9)} ${cleanLine(finding.title)}`, `  ${' '.repeat(9)} ${place}`);
     }
     if (result.capped) {
       lines.push(`  Showing ${result.findings.length} of ${result.total}.`);
@@ -308,11 +286,10 @@ export function checkResultLines(
 /** Why an ended check has no result, and what to do. */
 export function checkFailureMessage(
   view: SecurityCheckView,
-  clean: (value: unknown) => string,
   options: { fresh?: boolean } = {},
 ): string {
   const { check } = view;
-  const reason = clean(check.statusReason ?? 'unknown');
+  const reason = cleanLine(check.statusReason ?? 'unknown');
   switch (check.status) {
     case 'succeeded':
     case 'incomplete':
@@ -320,7 +297,7 @@ export function checkFailureMessage(
         ? 'project: The check ended, but its result could not be read. Run it again.'
         : 'project: The result of this check is no longer stored (results are kept for 30 days). Run a new check.';
     case 'refused':
-      return `project: The check was refused by ${clean(check.model ?? 'the scan model')} (category: ${clean(check.refusalCategory ?? 'unknown')}). Pick another model with void project security model <id>, then run the check again.`;
+      return `project: The check was refused by ${cleanLine(check.model ?? 'the scan model')} (category: ${cleanLine(check.refusalCategory ?? 'unknown')}). Pick another model with void project security model <id>, then run the check again.`;
     case 'timed_out':
       return 'project: The check timed out. Run it again, or from a smaller folder.';
     case 'skipped':

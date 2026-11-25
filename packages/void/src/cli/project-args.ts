@@ -79,10 +79,12 @@ function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
   }
   let projectSlug = '';
   let reason: string | undefined;
-  let yes = false;
-  let json = false;
+  const flags = new Set<string>();
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
+    if ((arg === '--reason' || arg === '--yes') && action !== 'bypass') {
+      throw new Error(`project: ${arg} is not used with zero-trust ${action || '<command>'}.`);
+    }
     if (arg === '--project') {
       const value = args[++index];
       if (!value || value.startsWith('-')) {
@@ -92,35 +94,25 @@ function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
         throw new Error("project: Duplicate flag '--project'.");
       }
       projectSlug = value;
-    } else if (arg === '--json') {
-      if (json) {
-        throw new Error("project: Duplicate flag '--json'.");
-      }
-      json = true;
-    } else if (arg === '--reason' || arg === '--yes') {
-      if (action !== 'bypass') {
-        throw new Error(`project: ${arg} is not used with zero-trust ${action || '<command>'}.`);
-      }
-      if (arg === '--yes') {
-        if (yes) {
-          throw new Error("project: Duplicate flag '--yes'.");
-        }
-        yes = true;
-        continue;
-      }
+    } else if (arg === '--reason') {
       if (reason !== undefined) {
         throw new Error("project: Duplicate flag '--reason'.");
       }
       // A reason is free text and may start with a dash.
-      const value = args[++index];
-      if (value === undefined) {
+      reason = args[++index];
+      if (reason === undefined) {
         throw new Error('project: --reason requires a value.');
       }
-      reason = value;
+    } else if (arg === '--json' || arg === '--yes') {
+      if (flags.has(arg)) {
+        throw new Error(`project: Duplicate flag '${arg}'.`);
+      }
+      flags.add(arg);
     } else {
       throw new Error(`project: Unexpected argument '${arg}'.`);
     }
   }
+  const json = flags.has('--json');
   if (action === 'bypass') {
     const text = reason?.trim() ?? '';
     if (text === '') {
@@ -131,7 +123,14 @@ function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
     if (Array.from(text).length > BYPASS_REASON_MAX_CHARS) {
       throw new Error(`project: A reason can be at most ${BYPASS_REASON_MAX_CHARS} characters.`);
     }
-    return { subcommand: 'zero-trust', projectSlug, json, action, reason: text, yes };
+    return {
+      subcommand: 'zero-trust',
+      projectSlug,
+      json,
+      action,
+      reason: text,
+      yes: flags.has('--yes'),
+    };
   }
   return {
     subcommand: 'zero-trust',

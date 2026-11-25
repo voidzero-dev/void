@@ -54,29 +54,21 @@ function header(name: string, size: number, type: '0' | 'x'): Uint8Array<ArrayBu
   const block = new Uint8Array(BLOCK);
   writeString(block, 0, 100, name);
   writeOctal(block, 100, 8, 0o444);
-  writeOctal(block, 108, 8, 0);
-  writeOctal(block, 116, 8, 0);
+  writeOctal(block, 108, 8, 0); // uid
+  writeOctal(block, 116, 8, 0); // gid
   writeOctal(block, 124, 12, size);
-  writeOctal(block, 136, 12, 0);
+  writeOctal(block, 136, 12, 0); // mtime
   block.fill(0x20, 148, 156);
   block[156] = type.charCodeAt(0);
   writeString(block, 257, 6, 'ustar\0');
   writeString(block, 263, 2, '00');
-  let sum = 0;
-  for (const byte of block) {
-    sum += byte;
-  }
+  const sum = block.reduce((total, byte) => total + byte, 0);
   writeString(block, 148, 8, `${sum.toString(8).padStart(6, '0')}\0 `);
   return block;
 }
 
 function isPlainAscii(text: string): boolean {
-  for (let index = 0; index < text.length; index++) {
-    if (text.charCodeAt(index) > 0x7e) {
-      return false;
-    }
-  }
-  return true;
+  return Array.from(text).every((char) => char.charCodeAt(0) <= 0x7e);
 }
 
 /** `<length> path=<value>\n`, where length counts the whole record. */
@@ -92,8 +84,7 @@ function paxPathRecord(path: string): Uint8Array<ArrayBuffer> {
 }
 
 function padding(size: number): Uint8Array<ArrayBuffer> {
-  const rest = size % BLOCK;
-  return new Uint8Array(rest === 0 ? 0 : BLOCK - rest);
+  return new Uint8Array((BLOCK - (size % BLOCK)) % BLOCK);
 }
 
 /** Throws unless every path is one the runner accepts, and none appears twice. */
@@ -108,10 +99,7 @@ export function assertTarEntries(entries: ReadonlyArray<TarEntry>): void {
   }
 }
 
-/**
- * One entry's blocks: pax record (when needed), header, data, padding. Bytes are
- * copied, so a byte stream can take them over without touching the caller's.
- */
+/** One entry's blocks (pax record when needed, header, data, padding), bytes copied. */
 function entryChunks(entry: TarEntry): Array<Uint8Array<ArrayBuffer>> {
   const data =
     typeof entry.data === 'string'
@@ -141,12 +129,7 @@ export function tarByteLength(chunks: ReadonlyArray<Uint8Array>): number {
   return chunks.reduce((sum, chunk) => sum + chunk.length, 0);
 }
 
-/**
- * The tar as a byte stream (the shape an RPC return value can carry). Paths are
- * checked first, so a bad one throws here, never halfway through the stream. Each
- * entry is encoded only when the reader asks for it: the whole tar is never held
- * at once.
- */
+/** The tar as a byte stream, paths checked first; each entry is encoded when pulled. */
 export function tarStream(entries: ReadonlyArray<TarEntry>): ReadableStream<Uint8Array> {
   assertTarEntries(entries);
   let next = 0;

@@ -1,12 +1,8 @@
 /**
- * Copy of the security emails (spec §12). Pure: data in, `{subject, ...}` out, so the
- * wording is tested without a mail binding. `email.ts` sends it.
- *
- * Content rules: titles, severity and file path only. No code, trace, line or exploit
- * detail (email leaves the platform and can be forwarded). Model text is cut to 120
- * characters, human text (a reason or comment) to 300, and neither is ever a link.
+ * Copy of the security emails (spec §12), pure so it is tested without a mail binding.
+ * Titles, severity and file path only: no code, trace, line or exploit detail, since email
+ * can be forwarded. Model text is cut to 120 characters, human text to 300, never a link.
  */
-
 import type { SecuritySeverity } from './schema.ts';
 
 const NANO_USD_PER_CENT = 10_000_000;
@@ -82,20 +78,7 @@ export function cutSecurityEmailText(text: string, max: number): string {
   return chars.length <= max ? chars.join('') : `${chars.slice(0, max - 1).join('')}…`;
 }
 
-const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-] as const;
+const MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
 
 /** `Nov 10, 14:02 UTC`. */
 export function formatSecurityStamp(ms: number): string {
@@ -163,9 +146,27 @@ function bracket(platform: string): string {
   return `[${platform}]`;
 }
 
-// ---------------------------------------------------------------------------
-// Findings, reopen
-// ---------------------------------------------------------------------------
+/** Fills the footer, and the page link of `slug` unless `pageSlug` is given. */
+function email(
+  reason: SecurityEmailReason,
+  data: Readonly<{ platform: string; slug?: string }>,
+  parts: Pick<SecurityEmailContent, 'subject' | 'intro' | 'actions'> &
+    Partial<Pick<SecurityEmailContent, 'details' | 'notes' | 'pageSlug'>>,
+): SecurityEmailContent {
+  const slug = data.slug ?? null;
+  return {
+    details: [],
+    notes: [],
+    pageSlug: slug,
+    ...parts,
+    footer: securityEmailFooter(reason, slug, data.platform),
+  };
+}
+
+const reviewActions = (slug: string) => [
+  `Review:  void project security open --project ${slug}`,
+  `Or run:  void project security list --project ${slug}`,
+];
 
 export type SecurityFindingsEmailData = Readonly<{
   platform: string;
@@ -185,7 +186,7 @@ export type SecurityFindingsEmailData = Readonly<{
   leads: number;
 }>;
 
-const TIER_LABELS = {
+export const SECURITY_SCAN_TIER_LABELS = {
   source_diff: 'source diff',
   built_diff: 'built diff',
   full: 'full scan',
@@ -224,7 +225,7 @@ export function composeSecurityFindingsEmail(
       data.baseDeploymentId && data.tier !== 'full'
         ? `changes since ${data.baseDeploymentId}`
         : 'whole project',
-      TIER_LABELS[data.tier],
+      SECURITY_SCAN_TIER_LABELS[data.tier],
     );
   }
   if (data.filesScanned !== null) {
@@ -264,7 +265,7 @@ export function composeSecurityFindingsEmail(
     );
   }
   notes.push('AI review can be wrong. Check each finding before you act on it.');
-  return {
+  return email(reason, data, {
     subject,
     intro:
       data.scanCount > 1
@@ -272,13 +273,8 @@ export function composeSecurityFindingsEmail(
         : `A security scan of ${data.slug} found new issues.`,
     details,
     notes,
-    actions: [
-      `Review:  void project security open --project ${data.slug}`,
-      `Or run:  void project security list --project ${data.slug}`,
-    ],
-    footer: securityEmailFooter(reason, data.slug, data.platform),
-    pageSlug: data.slug,
-  };
+    actions: reviewActions(data.slug),
+  });
 }
 
 export type SecurityReopenEmailData = Readonly<{
@@ -308,32 +304,22 @@ export function composeSecurityReopenEmail(
   data: SecurityReopenEmailData,
   reason: SecurityEmailReason,
 ): SecurityEmailContent {
-  const notes = [
-    `Reopened by ${securityActorRoleLabel(data.actorRole)}${
-      data.comment
-        ? `: "${cutSecurityEmailText(data.comment, SECURITY_EMAIL_HUMAN_TEXT_MAX)}"`
-        : '.'
-    }`,
-    `${data.finding.label} is urgent: confirmed critical or high. Please fix it, then a project admin or owner resolves it.`,
-    'AI review can be wrong. Check the finding before you act on it.',
-  ];
-  return {
+  return email(reason, data, {
     subject: `${bracket(data.platform)} ${data.slug}: ${data.finding.label} reopened (${data.finding.severity})`,
     intro: `A security finding in ${data.slug} was reopened.`,
     details: findingLines([{ ...data.finding, urgent: true, duplicateNote: null }]),
-    notes,
-    actions: [
-      `Review:  void project security open --project ${data.slug}`,
-      `Or run:  void project security list --project ${data.slug}`,
+    notes: [
+      `Reopened by ${securityActorRoleLabel(data.actorRole)}${
+        data.comment
+          ? `: "${cutSecurityEmailText(data.comment, SECURITY_EMAIL_HUMAN_TEXT_MAX)}"`
+          : '.'
+      }`,
+      `${data.finding.label} is urgent: confirmed critical or high. Please fix it, then a project admin or owner resolves it.`,
+      'AI review can be wrong. Check the finding before you act on it.',
     ],
-    footer: securityEmailFooter(reason, data.slug, data.platform),
-    pageSlug: data.slug,
-  };
+    actions: reviewActions(data.slug),
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Caps
-// ---------------------------------------------------------------------------
 
 export type SecurityCapRaise =
   | Readonly<{ kind: 'project_admin'; usdArgument: string; limitUsd: string | null }>
@@ -364,7 +350,7 @@ export function composeSecurityProjectCapEmail(
             : '            (project admin)'
         }`
       : `Raise it:  void platform security budget --project ${data.raise.projectId} --usd ${data.raise.usdArgument}   (platform admin, any amount)`;
-  return {
+  return email(reason, data, {
     subject:
       data.percent === 80
         ? `${bracket(data.platform)} ${data.slug}: 80% of the monthly security scan budget used (${used})`
@@ -373,12 +359,8 @@ export function composeSecurityProjectCapEmail(
       data.percent === 80
         ? `${data.slug} has used 80% of its monthly security scan budget (${used}).`
         : `Budget used up: deploys still go out; they are not scanned until ${data.resetLabel} or until the cap is raised.`,
-    details: [],
-    notes: [],
     actions: [raise],
-    footer: securityEmailFooter(reason, data.slug, data.platform),
-    pageSlug: data.slug,
-  };
+  });
 }
 
 export type SecurityPlatformCapEmailData = Readonly<{
@@ -395,7 +377,7 @@ export function composeSecurityPlatformCapEmail(
   reason: SecurityEmailReason,
 ): SecurityEmailContent {
   const used = `${formatSecurityUsd(data.spentNano)} of ${formatSecurityUsd(data.capNano)}`;
-  return {
+  return email(reason, data, {
     subject:
       data.percent === 80
         ? `${bracket(data.platform)} Platform: 80% of the monthly security scan budget used (${used})`
@@ -404,17 +386,9 @@ export function composeSecurityPlatformCapEmail(
       data.percent === 80
         ? `The platform has used 80% of its monthly security scan budget (${used}).`
         : `Budget used up: deploys still go out; they are not scanned until ${data.resetLabel} or until the cap is raised.`,
-    details: [],
-    notes: [],
     actions: [`Raise it:  void platform security budget --platform-usd ${data.raiseUsdArgument}`],
-    footer: securityEmailFooter(reason, null, data.platform),
-    pageSlug: null,
-  };
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Public requests (spec §5.5) and bypasses
-// ---------------------------------------------------------------------------
 
 export type SecurityPublicHeldState = 'held_findings' | 'held_no_result' | 'needs_deploy';
 
@@ -461,89 +435,69 @@ export function composeSecurityPublicHeldEmail(
       details.push(`  ${pad('', 12)}and ${data.blockerCount - data.blockers.length} more`);
     }
   }
+  const review = `Review:  void project zero-trust status --project ${data.slug}`;
+  const bypassActions = [review, `Bypass:  ${BYPASS_LINE}`];
   let subject: string;
   let notes: Array<string>;
-  let actions: Array<string>;
+  let actions = bypassActions;
   if (data.state === 'held_findings') {
     subject = `${bracket(data.platform)} ${data.slug} stays protected: ${data.blockerCount} urgent security ${plural(data.blockerCount, 'finding', 'findings')} must be resolved first`;
     // Never a bypass: it is refused while an urgent finding is open.
     notes = [
       `Resolve ${plural(data.blockerCount, 'it', 'them')}, then ${data.slug} goes public. A fix needs a new deploy that scans clean.`,
     ];
-    actions = [`Review:  void project zero-trust status --project ${data.slug}`];
+    actions = [review];
   } else if (data.state === 'held_no_result' && data.unreadFiles === true) {
     subject = `${bracket(data.platform)} ${data.slug} stays protected: the security scan could not read some project files`;
     notes = [
       `${data.slug} stays protected by Zero Trust. Some project files are too large, not text, or have a path the scanner cannot send. Fix them and deploy again, or bypass the scan.`,
-    ];
-    actions = [
-      `Review:  void project zero-trust status --project ${data.slug}`,
-      `Bypass:  ${BYPASS_LINE}`,
     ];
   } else if (data.state === 'held_no_result') {
     subject = `${bracket(data.platform)} ${data.slug} stays protected: the security scan did not finish${data.noResultReason ? ` (${data.noResultReason})` : ''}`;
     notes = [
       `${data.slug} stays protected by Zero Trust. Ask again, deploy again, or bypass the scan.`,
     ];
-    actions = [
-      `Review:  void project zero-trust status --project ${data.slug}`,
-      `Bypass:  ${BYPASS_LINE}`,
-    ];
   } else {
     subject = `${bracket(data.platform)} ${data.slug} stays protected: deploy again so the live code can be scanned`;
     notes = [
       `${data.slug} goes public when the scan of the next deploy is clean. An unchanged static redeploy does not count: change something, or bypass the scan.`,
     ];
-    actions = [
-      `Review:  void project zero-trust status --project ${data.slug}`,
-      `Bypass:  ${BYPASS_LINE}`,
-    ];
   }
-  return {
+  return email(reason, data, {
     subject,
     intro: `The request to make ${data.slug} public is on hold.`,
     details,
     notes,
     actions,
-    footer: securityEmailFooter(reason, data.slug, data.platform),
-    pageSlug: data.slug,
-  };
+  });
 }
 
 export function composeSecurityNowPublicEmail(
   data: Readonly<{ platform: string; slug: string; how: 'passed' | 'bypassed' }>,
   reason: SecurityEmailReason,
 ): SecurityEmailContent {
-  return {
+  return email(reason, data, {
     subject: `${bracket(data.platform)} ${data.slug} is now public (security scan ${data.how})`,
     intro:
       data.how === 'passed'
         ? `${data.slug} is public: the security scan passed (nothing urgent found).`
         : `${data.slug} is public: a project admin bypassed the security scan. Your platform admins were told.`,
-    details: [],
-    notes: [],
     actions: [`Review:  void project security status --project ${data.slug}`],
-    footer: securityEmailFooter(reason, data.slug, data.platform),
-    pageSlug: data.slug,
-  };
+  });
 }
 
 export function composeSecurityPublicCanceledEmail(
   data: Readonly<{ platform: string; slug: string; cause: 'gate_off' | 'policy_off' }>,
   reason: SecurityEmailReason,
 ): SecurityEmailContent {
-  return {
+  return email(reason, data, {
     subject: `${bracket(data.platform)} ${data.slug} public request canceled: it stays protected`,
     intro:
       data.cause === 'gate_off'
         ? `Public request canceled: your platform admin turned off "Scan before a project goes public". ${data.slug} stays protected.`
         : `Public request canceled: your platform admin turned off security audits. ${data.slug} stays protected.`,
-    details: [],
-    notes: [],
     actions: ['To make it public now:  void project zero-trust public'],
-    footer: securityEmailFooter(reason, data.slug, data.platform),
-    pageSlug: data.slug,
-  };
+  });
 }
 
 export type SecurityBypassEmailData = Readonly<{
@@ -570,7 +524,7 @@ export function composeSecurityBypassEmail(
     data.actorRole === 'owner'
       ? 'the owner'
       : `${data.actorRole === 'installation admin' ? 'an' : 'a'} ${data.actorRole}`;
-  return {
+  return email(reason, data, {
     subject: `${bracket(data.platform)} ${data.slug}: security scan bypassed by ${roleWord}`,
     intro: `The security scan of ${data.slug} was bypassed.`,
     details: [
@@ -585,14 +539,9 @@ export function composeSecurityBypassEmail(
     ],
     notes: [`${data.slug} is going public now. The bypass is recorded:`],
     actions: [`void platform security bypasses --project ${data.slug}`],
-    footer: securityEmailFooter(reason, data.slug, data.platform),
     pageSlug: null,
-  };
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Failure streaks and the weekly digest (Phase 2, M26)
-// ---------------------------------------------------------------------------
 
 export type SecurityStreakScanLine = Readonly<{
   id: string;
@@ -645,7 +594,7 @@ export function composeSecurityProjectStreakEmail(
     }
   }
   notes.push('Deploys are not blocked. The next scan covers every change since the last good one.');
-  return {
+  return email(reason, data, {
     subject: `${bracket(data.platform)} ${data.slug}: ${data.failures} security scans in a row did not finish`,
     intro: `The last ${data.failures} security scans of ${data.slug} did not succeed, so its newest code has no security result yet.`,
     details,
@@ -654,9 +603,7 @@ export function composeSecurityProjectStreakEmail(
       `See them:   void project security scans --project ${data.slug}`,
       `Scan again: void project security scan --project ${data.slug}`,
     ],
-    footer: securityEmailFooter(reason, data.slug, data.platform),
-    pageSlug: data.slug,
-  };
+  });
 }
 
 interface InstallationReasonLabels {
@@ -685,7 +632,7 @@ export function composeSecurityInstallationStreakEmail(
   const reasons = Object.entries(data.byReason).sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
   );
-  return {
+  return email(reason, data, {
     subject: `${bracket(data.platform)} Platform: ${data.failed} of ${data.ended} security scans failed in the last 24 hours`,
     intro: `Security scans are failing for a platform reason, not because of the projects' code. Deploys still go out, without a security result.`,
     details: reasons.map(
@@ -701,9 +648,7 @@ export function composeSecurityInstallationStreakEmail(
       'Status:  void platform security status',
       'Scans:   void platform security scans --status failed',
     ],
-    footer: securityEmailFooter(reason, null, data.platform),
-    pageSlug: null,
-  };
+  });
 }
 
 export type SecurityDigestEmailData = Readonly<{
@@ -761,16 +706,13 @@ export function composeSecurityDigestEmail(
     row('Open public requests', String(data.openPublicRequests)),
     row('Scan bypasses', String(data.bypasses)),
   ];
-  return {
+  return email(reason, data, {
     subject: `${bracket(data.platform)} Platform: weekly security summary (${data.weekLabel})`,
     intro: `Security audits on ${data.platform} in the week ${data.weekLabel} (UTC).`,
     details,
-    notes: [],
     actions: [
       'Urgent:  void platform security findings --urgent',
       'Scans:   void platform security scans',
     ],
-    footer: securityEmailFooter(reason, null, data.platform),
-    pageSlug: null,
-  };
+  });
 }

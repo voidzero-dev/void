@@ -1,12 +1,8 @@
 /**
- * The scan outbox (spec §6.1, §7.2). A deploy that reaches `live` writes its scan
- * row in the same transaction (`enqueueSecurityScanInTx`). After the commit,
- * `finishSecurityScanEnqueue` copies inputs nothing else keeps, moves the row to
- * `queued` with a compare-and-set and pokes the scheduler.
- *
- * Scans never block, slow or fail a deploy (D45): the in-transaction part runs in a
- * savepoint and a failure there is logged and leaves no row; the after-commit part
- * never throws.
+ * The scan outbox (spec §6.1, §7.2): the go-live transaction writes the scan row, and
+ * `finishSecurityScanEnqueue` copies inputs and queues it after the commit. Never blocks,
+ * slows or fails a deploy (D45): the in-transaction part runs in a savepoint, the
+ * after-commit part never throws.
  */
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
@@ -18,6 +14,7 @@ import { generateId } from '../id.ts';
 import { deploymentOperations, deployments, projects, projectZeroTrust, users } from '../schema.ts';
 import { withKnownLength } from '../worker-upload.ts';
 import type { WorkerModule } from '../worker-upload.ts';
+import { errorMessage } from '../zero-trust/errors.ts';
 import { installationZeroTrustProtects, readSecurityPolicyLenient } from './policy.ts';
 import {
   readSecurityProjectPolicyOverride,
@@ -30,45 +27,33 @@ import {
 } from './schema.ts';
 import type { SecurityScanTrigger } from './schema.ts';
 
-/** A scan waiting to start; a newer live deploy supersedes it (coalescing, spec §6.2). */
-export const SECURITY_SCAN_WAITING_STATUSES = ['pending_input', 'queued'] as const;
-
 /**
- * A scan in these states holds the staged deploy input its `input_prefix` names. A
- * running scan holds it until its input is copied to `security-scans/…` at start
- * (`input/prepare.ts` clears `input_prefix`), so a cleanup pass between the claim
- * and the copy cannot delete it.
+ * Scans in these states hold the staged deploy input `input_prefix` names; a running one
+ * until `input/prepare.ts` copies it at start.
  */
-export const SECURITY_SCAN_INPUT_HOLD_STATUSES = ['pending_input', 'queued', 'running'] as const;
+const INPUT_HOLD_STATUSES = ['pending_input', 'queued', 'running'] as const;
 
 /**
- * The `security_scans` row still holds the staged deploy input its `input_prefix`
- * names: it waits or runs (above), or it is a scan of an open public request's live
- * deployment that ended before it copied the input (`skipped:budget`, `canceled`, …).
- * That scan is the request's own gate scan, or a deploy scan the request took over
- * while it waited (then only `gate_scan_id` links them).
- * While the gate is on, the live code of a protected project is kept, so asking again
- * can scan it (spec §7.2); the hold ends when the request closes or moves on.
+ * The row still holds its staged deploy input: it waits or runs, or it is the scan of an
+ * open public request's live deployment (its own gate scan, or a deploy scan the request
+ * took over), so asking again can scan it (spec §7.2).
  */
 export function securityScanHoldsInputSql(): SQL {
   const open = sql.join(
     SECURITY_PUBLIC_REQUEST_OPEN_STATES.map((state) => sql`${state}`),
     sql`, `,
   );
-  return sql`(${inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES])} OR EXISTS (SELECT 1 FROM security_public_requests r WHERE (r.id = ${securityScans.public_request_id} OR r.gate_scan_id = ${securityScans.id}) AND r.target_deployment_id = ${securityScans.deployment_id} AND r.state IN (${open})))`;
+  return sql`(${inArray(securityScans.status, [...INPUT_HOLD_STATUSES])} OR EXISTS (SELECT 1 FROM security_public_requests r WHERE (r.id = ${securityScans.public_request_id} OR r.gate_scan_id = ${securityScans.id}) AND r.target_deployment_id = ${securityScans.deployment_id} AND r.state IN (${open})))`;
 }
 
-/** Inline modules copied after the commit: at most this many bytes … */
+/** Inline modules copied after the commit: at most this many bytes, in 30 s. */
 export const SECURITY_SCAN_COPY_MAX_BYTES = 50 * 1024 * 1024;
-/** … in at most this long. */
-export const SECURITY_SCAN_COPY_TIMEOUT_MS = 30_000;
+const COPY_TIMEOUT_MS = 30_000;
 
-/** R2 prefix of a deployment's scan input snapshot. */
 export function securityScanInputPrefix(projectId: string, deploymentId: string): string {
   return `security-scans/${projectId}/${deploymentId}/`;
 }
 
-/** R2 prefix of everything security audits keep for a project. */
 export function securityScanProjectPrefix(projectId: string): string {
   return `security-scans/${projectId}/`;
 }
@@ -81,13 +66,13 @@ export type SecurityScanEnqueued = Readonly<{
   /** `skipped` = `skipped:protected`, or `skipped:project_policy` (M34 `never`). */
   status: 'pending_input' | 'skipped';
   trigger: SecurityScanTrigger;
-  /** The staged deploy input the row holds, if any. */
   inputPrefix: string | null;
 }>;
 
 type EnqueueEnv = Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>;
 
-function securityAuditsOn(env: EnqueueEnv): boolean {
+/** The `securityAudits` capability; unreadable capabilities count as off. */
+export function securityAuditsOn(env: EnqueueEnv): boolean {
   try {
     return getPlatformCapabilities(env).securityAudits;
   } catch {
@@ -95,12 +80,27 @@ function securityAuditsOn(env: EnqueueEnv): boolean {
   }
 }
 
+/** The singleton `SecurityScanScheduler` stub. */
+export function securityScheduler(env: Pick<ApiEnv['Bindings'], 'SECURITY_SCAN_SCHEDULER'>) {
+  return env.SECURITY_SCAN_SCHEDULER.get(env.SECURITY_SCAN_SCHEDULER.idFromName('global'));
+}
+
+/** Runs `run`, logging instead of throwing. */
+export async function securityBestEffort<T>(
+  what: string,
+  scanId: string,
+  run: () => Promise<T>,
+): Promise<void> {
+  try {
+    await run();
+  } catch (error) {
+    console.warn(`[security-scan] ${what} failed`, { scanId, error: errorMessage(error) });
+  }
+}
+
 /**
- * Writes the scan row for a deployment that just went live. Call it in the
- * transaction that sets the project's active deployment, under the project row lock.
- * Returns `null` when no row is written: capability or policy off, a `preview-*`
- * project, a suspended owner, a project being deleted, or a row for this deployment
- * already exists.
+ * Writes the scan row for a deployment that just went live, in the transaction that sets
+ * the active deployment, under the project row lock. `null` when no row is written.
  */
 export async function enqueueSecurityScanInTx(
   tx: DbOrTx,
@@ -121,7 +121,7 @@ export async function enqueueSecurityScanInTx(
     console.error('[security-scan] enqueue failed; the deploy goes on without a scan row', {
       projectId: input.projectId,
       deploymentId: input.deploymentId,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     return null;
   }
@@ -129,8 +129,8 @@ export async function enqueueSecurityScanInTx(
 
 /**
  * For a go-live path that writes `live` outside a transaction (compensation's
- * `post_routing_recovery`): one short transaction under the project lock, only
- * while the deployment is still the project's live one. Best effort (risk R8).
+ * `post_routing_recovery`): one short transaction under the project lock, only while the
+ * deployment is still live. Best effort (risk R8).
  */
 export async function enqueueSecurityScanForLiveDeployment(
   db: Db,
@@ -153,10 +153,7 @@ export async function enqueueSecurityScanForLiveDeployment(
           eq(deployments.status, 'live'),
         ),
       );
-    if (!live) {
-      return null;
-    }
-    return enqueueSecurityScanInTx(tx, env, { ...input, trigger: 'deploy' });
+    return live ? enqueueSecurityScanInTx(tx, env, { ...input, trigger: 'deploy' }) : null;
   });
 }
 
@@ -165,9 +162,8 @@ async function enqueueInSavepoint(
   input: Readonly<{ projectId: string; deploymentId: string; trigger: SecurityScanTrigger }>,
 ): Promise<SecurityScanEnqueued | null> {
   const { projectId, deploymentId } = input;
-  // Shared with every other deploy; a policy writer (exclusive) waits for this
-  // commit, so turning the policy Off cancels this row instead of missing it.
-  // Lock order: project row (caller), then the policy lock.
+  // Shared: a policy writer (exclusive) waits for this commit, so Off cancels this row
+  // instead of missing it. Lock order: project row (caller), then the policy lock.
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock_shared(hashtextextended('void:platform:security-policy', 0))`,
   );
@@ -212,9 +208,8 @@ async function enqueueInSavepoint(
     .orderBy(sql`${securityScans.created_at} DESC`)
     .limit(1);
   if (existing) {
-    // One row per live deployment. A second call (compensation after a committed
-    // cutover) gets the row back while its after-commit step is still owed: a
-    // waiting row, or a `skipped:protected` row with no module copy yet.
+    // One row per live deployment. A second call gets the row back while its
+    // after-commit step is still owed: a waiting row, or a skipped row with no copy yet.
     const owed =
       existing.status === 'pending_input' ||
       (existing.status === 'skipped' &&
@@ -248,11 +243,8 @@ async function enqueueInSavepoint(
       ),
     )
     .limit(1);
-  // An open public request makes every live deploy its gate scan (§5.5), also under
-  // `public` and under the project rule `never` (M34, D46); otherwise a protected
-  // project under `public` is out of scope for now, unless its rule is `always`.
-  // The request follows the new live deployment; its re-check after the commit
-  // (`public-gate-flow.ts`) sets the state.
+  // An open public request makes every live deploy its gate scan (§5.5, D46), whatever
+  // the mode or project rule, and follows the new live deployment.
   if (openRequest) {
     await tx
       .update(securityPublicRequests)
@@ -286,18 +278,15 @@ async function enqueueInSavepoint(
     .limit(1);
   const inputPrefix = operation?.prefix ?? null;
   const scanId = generateId('scan');
-  // Coalesce (§6.2): a newer live deploy replaces the waiting scan and keeps its
-  // place in the queue. A running scan is never replaced. A `skipped:protected` row
-  // replaces it too: the old deployment is no longer live and the project is now
-  // out of scope, so the old scan must not run or keep holding its input. A local
-  // check (M32) is not a scan of a deployment: it keeps waiting.
+  // Coalesce (§6.2): the new row replaces a waiting scan and keeps its place in the
+  // queue. A running scan and a local check (M32) are never replaced.
   const replaced = await tx
     .update(securityScans)
     .set({ status: 'superseded', superseded_by_scan_id: scanId, finished_at: sql`now()` })
     .where(
       and(
         eq(securityScans.project_id, projectId),
-        inArray(securityScans.status, [...SECURITY_SCAN_WAITING_STATUSES]),
+        inArray(securityScans.status, ['pending_input', 'queued']),
         ne(securityScans.trigger, 'local'),
       ),
     )
@@ -311,11 +300,12 @@ async function enqueueInSavepoint(
       firstQueuedAt = row.firstQueuedAt;
     }
   }
+  const status = skipped ? 'skipped' : 'pending_input';
   await tx.insert(securityScans).values({
     id: scanId,
     project_id: projectId,
     deployment_id: deploymentId,
-    status: skipped ? 'skipped' : 'pending_input',
+    status,
     status_reason: skipReason,
     trigger,
     public_request_id: openRequest?.id ?? null,
@@ -325,25 +315,13 @@ async function enqueueInSavepoint(
     first_queued_at: skipped ? null : (firstQueuedAt ?? sql`now()`),
     finished_at: skipped ? sql`now()` : null,
   });
-  return {
-    scanId,
-    projectId,
-    deploymentId,
-    status: skipped ? 'skipped' : 'pending_input',
-    trigger,
-    inputPrefix,
-  };
+  return { scanId, projectId, deploymentId, status, trigger, inputPrefix };
 }
 
 /**
- * After the commit: copy Worker modules nothing else keeps, then move the row from
- * `pending_input` to `queued` and poke the scheduler. A row canceled meanwhile
- * (policy Off) stays canceled and is not poked. A failed copy marks the row
- * `failed (input_missing)`; the deploy is not affected. Never throws.
- *
- * `modules` are the deployment's Worker modules. They are copied when the row holds
- * no staged input (inline `workerFiles`), and for a `skipped:protected` row, which
- * holds nothing, so an exposure catch-up scan can still read them.
+ * After the commit: copy Worker modules nothing else keeps (inline `workerFiles`, and a
+ * skipped row so an exposure catch-up scan can read them), then move the row to `queued`
+ * and poke. A failed copy ends the row `failed (input_missing)`. Never throws.
  */
 export async function finishSecurityScanEnqueue(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2' | 'SECURITY_SCAN_SCHEDULER'>,
@@ -354,6 +332,7 @@ export async function finishSecurityScanEnqueue(
   if (!scan) {
     return;
   }
+  const waiting = and(eq(securityScans.id, scan.scanId), eq(securityScans.status, 'pending_input'));
   try {
     const copy =
       modules.length > 0 && (scan.status === 'skipped' || scan.inputPrefix === null)
@@ -382,7 +361,7 @@ export async function finishSecurityScanEnqueue(
           failure_cause: 'project',
           finished_at: sql`now()`,
         })
-        .where(and(eq(securityScans.id, scan.scanId), eq(securityScans.status, 'pending_input')));
+        .where(waiting);
       return;
     }
     const moved = await db
@@ -392,12 +371,12 @@ export async function finishSecurityScanEnqueue(
         queued_at: sql`now()`,
         ...(copy?.ok ? { input_r2_key: copy.key } : {}),
       })
-      .where(and(eq(securityScans.id, scan.scanId), eq(securityScans.status, 'pending_input')))
+      .where(waiting)
       .returning({ id: securityScans.id });
     if (moved.length > 0) {
       await pokeSecurityScanScheduler(env);
     } else if (copy?.ok) {
-      // Canceled (policy Off) or superseded meanwhile: no row reads this copy.
+      // Canceled or superseded meanwhile: no row reads this copy.
       await dropUnclaimedCopy(env.STATIC_ASSETS_R2, db, copy.key);
     }
   } catch (error) {
@@ -405,15 +384,12 @@ export async function finishSecurityScanEnqueue(
     console.error('[security-scan] after-commit step failed', {
       scanId: scan.scanId,
       deploymentId: scan.deploymentId,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
   }
 }
 
-/**
- * Deletes a module copy no scan row points at. A row that does (another call for
- * the same deployment won its compare-and-set) keeps it.
- */
+/** Deletes a module copy no scan row points at (another call may have won the CAS). */
 async function dropUnclaimedCopy(r2: R2Bucket, db: DbOrTx, key: string): Promise<void> {
   const [claimed] = await db
     .select({ id: securityScans.id })
@@ -430,25 +406,18 @@ export async function pokeSecurityScanScheduler(
   env: Pick<ApiEnv['Bindings'], 'SECURITY_SCAN_SCHEDULER'>,
 ): Promise<void> {
   try {
-    const scheduler = env.SECURITY_SCAN_SCHEDULER.get(
-      env.SECURITY_SCAN_SCHEDULER.idFromName('global'),
-    );
-    const response = await scheduler.fetch('https://scheduler/poke', { method: 'POST' });
+    const response = await securityScheduler(env).fetch('https://scheduler/poke', {
+      method: 'POST',
+    });
     await response.body?.cancel();
   } catch (error) {
-    console.warn('[security-scan] scheduler poke failed', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    console.warn('[security-scan] scheduler poke failed', { error: errorMessage(error) });
   }
 }
 
 type CopyResult = Readonly<{ ok: true; key: string }> | Readonly<{ ok: false; reason: string }>;
 
-/**
- * Copies modules to `security-scans/{project}/{deployment}/`: `modules/{i}` for the
- * bytes, then `modules.json` last, so a copy with no `modules.json` is incomplete.
- * Over 50 MB, or not done in 30 s, it is refused.
- */
+/** `modules/{i}`, then `modules.json` last (a copy without it is incomplete); 50 MB, 30 s. */
 async function copySecurityScanModules(
   r2: R2Bucket,
   scan: SecurityScanEnqueued,
@@ -465,10 +434,7 @@ async function copySecurityScanModules(
   }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<CopyResult>((resolve) => {
-    timer = setTimeout(
-      () => resolve({ ok: false, reason: 'timeout' }),
-      SECURITY_SCAN_COPY_TIMEOUT_MS,
-    );
+    timer = setTimeout(() => resolve({ ok: false, reason: 'timeout' }), COPY_TIMEOUT_MS);
   });
   let stopped = false;
   const copy = (async (): Promise<CopyResult> => {
@@ -486,10 +452,7 @@ async function copySecurityScanModules(
     }
     await r2.put(`${prefix}modules.json`, JSON.stringify({ version: 1, modules: entries }));
     return { ok: true, key: prefix };
-  })().catch((error: unknown): CopyResult => ({
-    ok: false,
-    reason: error instanceof Error ? error.message : String(error),
-  }));
+  })().catch((error: unknown): CopyResult => ({ ok: false, reason: errorMessage(error) }));
   const result = await Promise.race([copy, timeout]);
   stopped = true;
   clearTimeout(timer);
@@ -499,14 +462,13 @@ async function copySecurityScanModules(
       reason: result.reason,
     });
     await paginatedR2Delete(r2, prefix).catch(() => {});
-    // On a timeout a `put` can still be in flight and land after that delete:
-    // delete again once the copy has stopped.
+    // A `put` still in flight after a timeout can land after that delete: delete again.
     void copy.then(() => paginatedR2Delete(r2, prefix)).catch(() => {});
   }
   return result;
 }
 
-/** Whether a scan still holds the staged deploy input under `prefix` (see above). */
+/** Whether a scan still holds the staged deploy input under `prefix`. */
 export async function securityScanHoldsInput(db: DbOrTx, prefix: string): Promise<boolean> {
   const [held] = await db
     .select({ id: securityScans.id })

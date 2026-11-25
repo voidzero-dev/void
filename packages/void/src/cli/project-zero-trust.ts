@@ -1,14 +1,22 @@
-import { confirm, isCancel, log, outro } from '@voidzero-dev/vite-plus-prompts';
-import { isCI } from 'ci-info';
-import { getToken } from './auth.ts';
-import { PlatformApiError, PlatformClient } from './client.ts';
-import type { ProjectZeroTrustResponse, ProjectZeroTrustUpdateResponse } from './client.ts';
-import { printSuccess, note, sanitizeTerminalText } from './output.ts';
+import { log, outro } from '@voidzero-dev/vite-plus-prompts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
+import { PlatformApiError } from './client.ts';
+import type {
+  PlatformClient,
+  ProjectZeroTrustResponse,
+  ProjectZeroTrustUpdateResponse,
+} from './client.ts';
+import { cleanLine, printSuccess, note, sanitizeTerminalText } from './output.ts';
 import type { ProjectZeroTrustArgs } from './project-args.ts';
-import { cleanLine, day, publicRequestLines } from './project-security.ts';
+import {
+  askYesNo,
+  day,
+  isInteractive,
+  publicRequestLines,
+  resolveTarget,
+} from './project-security.ts';
 import type { RequestSecurity } from './project-security.ts';
-import { readProjectConfig } from './project.ts';
-import { getRequestedProjectSlug, requireProjectBySlug } from './resolve-project.ts';
+import { OPEN_PUBLIC_REQUEST_STATES } from './security-api-types.ts';
 import type { SecurityPublicRequest } from './security-api-types.ts';
 
 type ZeroTrustArgs = Exclude<ProjectZeroTrustArgs, { action: '' }>;
@@ -18,35 +26,10 @@ export type ProjectZeroTrustDeps = {
   confirm?: (message: string) => Promise<boolean>;
 };
 
-const OPEN_REQUEST_STATES = new Set([
-  'waiting_scan',
-  'held_findings',
-  'held_no_result',
-  'needs_deploy',
-]);
-
 function isOpenRequest(
   request: SecurityPublicRequest | null | undefined,
 ): request is SecurityPublicRequest {
-  return Boolean(request && OPEN_REQUEST_STATES.has(request.state));
-}
-
-async function resolveTarget(root: string, args: ZeroTrustArgs) {
-  const token = getToken(root);
-  if (!token) {
-    throw new Error('project: Not logged in. Run `void account login` first.');
-  }
-  const client = new PlatformClient(token, { root });
-  const requestedSlug = getRequestedProjectSlug({ projectSlug: args.projectSlug });
-  if (requestedSlug) {
-    const project = await requireProjectBySlug(client, requestedSlug);
-    return { client, projectId: project.projectId, slug: project.slug };
-  }
-  const linked = readProjectConfig(root);
-  if (!linked) {
-    throw new Error('project: No linked project. Pass --project <name> or set VOID_PROJECT.');
-  }
-  return { client, projectId: linked.projectId, slug: linked.slug };
+  return Boolean(request && OPEN_PUBLIC_REQUEST_STATES.has(request.state));
 }
 
 /**
@@ -80,22 +63,17 @@ function noRequestRefusal(slug: string, status?: number): ZeroTrustRefusal {
   );
 }
 
-function roleLabel(role: string | null): string {
-  switch (role) {
-    case 'owner':
-      return 'the project owner';
-    case 'admin':
-      return 'a project admin';
-    case 'installation_admin':
-      return 'a platform admin';
-    default:
-      return 'a project member';
-  }
-}
+const ROLE_LABELS = {
+  owner: 'the project owner',
+  admin: 'a project admin',
+  installation_admin: 'a platform admin',
+};
 
 function lastBypassLine(bypass: NonNullable<ProjectZeroTrustResponse['lastBypass']>): string {
   const reason = bypass.reason === undefined ? '' : ` ("${cleanLine(bypass.reason)}")`;
-  return `Last bypass: ${day(bypass.at)}, by ${roleLabel(bypass.byRole)}${reason}`;
+  const role = bypass.byRole;
+  const by = role !== null && hasOwnKey(ROLE_LABELS, role) ? ROLE_LABELS[role] : 'a project member';
+  return `Last bypass: ${day(bypass.at)}, by ${by}${reason}`;
 }
 
 function requestBlock(
@@ -265,23 +243,16 @@ async function runBypass(
   }
   const request = state.publicRequest;
   if (request && !args.yes && request.state !== 'held_findings') {
-    const interactive = deps.interactive ?? (Boolean(process.stdout.isTTY) && !isCI);
-    if (args.json || !interactive) {
+    if (args.json || !isInteractive(deps)) {
       throw new Error('project: Add --yes to bypass the scan without a prompt.');
     }
-    const ask =
-      deps.confirm ??
-      (async (message: string) => {
-        const answer = await confirm({ message, initialValue: false });
-        return !isCancel(answer) && answer;
-      });
     log.info(
       [
         'This skips the security scan. ' + skipLine(request),
         'Your platform admins get an email with your reason, and the bypass is recorded.',
       ].join('\n'),
     );
-    if (!(await ask(`Bypass the scan and make ${slug} public?`))) {
+    if (!(await askYesNo(deps, `Bypass the scan and make ${slug} public?`))) {
       outro('Nothing was changed.');
       return;
     }

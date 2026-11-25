@@ -182,7 +182,7 @@ async function throwPlatformApiError(
  * is the router of a platform that has no security routes; a 404 with JSON is a real miss (unknown
  * project or finding). The platform's own message is the copy for the other refusals.
  */
-export function securityApiError(error: PlatformApiError): Error {
+function securityApiError(error: PlatformApiError): Error {
   const parsed = parsePlatformErrorBody(error.body);
   if (error.status === 404 && parsed === null) {
     return new Error(
@@ -628,6 +628,8 @@ export type GithubConnection = {
   updated_at: string;
 };
 
+type SecurityCheckTree = { files: number; bytes: number; size: number; md5: string };
+
 /**
  * `securityPackages`: what the project lockfile says about the packages the Worker
  * bundle names, for security scans (`deploy-security-packages.ts`). Older platforms
@@ -1022,6 +1024,7 @@ export class PlatformClient {
     );
   }
 
+  /** `tooOld`: what a platform without this route cannot do, for a 404 with no JSON body. */
   private async security<T>(
     path: string,
     action: string,
@@ -1030,15 +1033,23 @@ export class PlatformClient {
       body?: unknown;
       permission: ProjectPermission;
       signal?: AbortSignal;
+      tooOld?: string;
     },
   ): Promise<T> {
+    const { tooOld, ...request } = options;
     try {
-      return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, options);
+      return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, request);
     } catch (error) {
-      if (error instanceof PlatformApiError) {
-        throw securityApiError(error);
+      if (!(error instanceof PlatformApiError)) {
+        throw error;
       }
-      throw error;
+      if (tooOld && error.status === 404 && parsePlatformErrorBody(error.body) === null) {
+        throw new Error(
+          `project: This Void platform ${tooOld} yet. Ask its administrator to upgrade with \`void platform upgrade\`.`,
+          { cause: error },
+        );
+      }
+      throw securityApiError(error);
     }
   }
 
@@ -1056,16 +1067,13 @@ export class PlatformClient {
     projectId: string,
     query: SecurityFindingQuery,
   ): Promise<SecurityFindingList> {
-    const params = new URLSearchParams({ state: query.state, limit: String(query.limit) });
-    if (query.urgent) {
-      params.set('urgent', '1');
-    }
-    if (query.severity) {
-      params.set('severity', query.severity);
-    }
-    if (query.cursor) {
-      params.set('cursor', query.cursor);
-    }
+    const params = new URLSearchParams({
+      state: query.state,
+      limit: String(query.limit),
+      ...(query.urgent ? { urgent: '1' } : {}),
+      ...(query.severity ? { severity: query.severity } : {}),
+      ...(query.cursor ? { cursor: query.cursor } : {}),
+    });
     return this.security(
       `${projectId}/security/findings?${params}`,
       'Failed to list security findings',
@@ -1126,29 +1134,12 @@ export class PlatformClient {
     findingId: string,
     body: { severity: string | null; comment: string; expectedRevision: number },
   ): Promise<SecuritySeverityChange> {
-    try {
-      return await this.json<SecuritySeverityChange>(
-        `${this.baseUrl}/projects/${projectId}/security/findings/${encodeURIComponent(findingId)}/severity`,
-        'Failed to change the severity of the security finding',
-        { method: 'POST', body, permission: 'settings' },
-      );
-    } catch (error) {
-      // The finding was read just before, so a 404 with no JSON body is a platform without this route.
-      if (
-        error instanceof PlatformApiError &&
-        error.status === 404 &&
-        parsePlatformErrorBody(error.body) === null
-      ) {
-        throw new Error(
-          'project: This Void platform cannot change finding severity yet. Ask its administrator to upgrade with `void platform upgrade`.',
-          { cause: error },
-        );
-      }
-      if (error instanceof PlatformApiError) {
-        throw securityApiError(error);
-      }
-      throw error;
-    }
+    // The finding was read just before, so a plain 404 is a platform without this route.
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/severity`,
+      'Failed to change the severity of the security finding',
+      { method: 'POST', body, permission: 'settings', tooOld: 'cannot change finding severity' },
+    );
   }
 
   async listProjectSecurityScans(projectId: string, limit: number): Promise<SecurityScanList> {
@@ -1182,65 +1173,41 @@ export class PlatformClient {
     });
   }
 
-  /**
-   * M32 local check. A platform without the check routes answers a plain 404: it is
-   * named as too old, not as one without security audits.
-   */
+  /** M32 local check: a platform without the check routes is named as too old. */
   private async securityCheck<T>(
     path: string,
     action: string,
     options: { method?: string; body?: unknown },
   ): Promise<T> {
-    try {
-      return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, {
-        ...options,
-        permission: 'deploy',
-      });
-    } catch (error) {
-      if (
-        error instanceof PlatformApiError &&
-        error.status === 404 &&
-        parsePlatformErrorBody(error.body) === null
-      ) {
-        throw new Error(
-          'project: This Void platform cannot run local security checks yet. Ask its administrator to upgrade with `void platform upgrade`.',
-          { cause: error },
-        );
-      }
-      if (error instanceof PlatformApiError) {
-        throw securityApiError(error);
-      }
-      throw error;
-    }
+    return this.security(path, action, {
+      ...options,
+      permission: 'deploy',
+      tooOld: 'cannot run local security checks',
+    });
   }
 
   /** What a local check would run (model, provider notice, most it can cost). Sends no code. */
   async previewProjectSecurityCheck(
     projectId: string,
-    tree: { files: number; bytes: number; size: number; md5: string },
+    tree: SecurityCheckTree,
   ): Promise<SecurityCheckPreview> {
+    const body = { dryRun: true, ...tree };
     return this.securityCheck(
       `${projectId}/security/checks`,
       'Failed to prepare the security check',
-      {
-        method: 'POST',
-        body: { dryRun: true, ...tree },
-      },
+      { method: 'POST', body },
     );
   }
 
   /** Stores the check and returns the one presigned upload for its archive. */
   async createProjectSecurityCheck(
     projectId: string,
-    tree: { files: number; bytes: number; size: number; md5: string },
+    tree: SecurityCheckTree,
   ): Promise<SecurityCheckCreated> {
     return this.securityCheck(
       `${projectId}/security/checks`,
       'Failed to start the security check',
-      {
-        method: 'POST',
-        body: tree,
-      },
+      { method: 'POST', body: tree },
     );
   }
 

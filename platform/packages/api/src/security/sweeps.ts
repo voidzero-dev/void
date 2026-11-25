@@ -1,14 +1,7 @@
 /**
- * Batch scans of live deployments (design doc 0095, M25):
- *
- *   operator backfill ──► previewSecurityBackfill (cost)  ──► queueSecurityBackfill
- *                         live deployments never scanned        trigger=backfill, base rule
- *   hourly job ─────────► queueSecuritySweeps (policy.sweeps.on)
- *                         no full scan in everyDays             trigger=sweep, full, `standard`
- *
- * Every scan is queued through `queueSecurityRescan`, so it passes the same checks as
- * a rescan (scope, owner, live deployment, nothing waiting, stored code) under the
- * project lock. Monthly caps apply when each scan starts, as for any scan.
+ * Batch scans of live deployments (design doc 0095, M25): the operator backfill of
+ * never-scanned live deployments, and hourly sweeps of those with no full scan in
+ * `everyDays`. Each goes through `queueSecurityRescan`, so a rescan's checks apply.
  */
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { inArray, sql } from 'drizzle-orm';
@@ -30,10 +23,7 @@ export const SECURITY_BACKFILL_MAX = 50;
 export const SECURITY_SWEEP_BATCH_MAX = 10;
 /** Project slugs a backfill preview names. */
 const PREVIEW_SLUGS = 20;
-/**
- * Extra candidates read past the batch size, so a project refused at queue time (its
- * R2 snapshot is gone, it changed meanwhile) does not take a slot from the next one.
- */
+/** Extra candidates read, so a project refused at queue time does not take a slot. */
 const REFUSAL_SLACK = 10;
 
 type Env = Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>;
@@ -71,11 +61,7 @@ async function backfillQuery(db: Db, policy: SecurityPolicy, now: number) {
   } satisfies SecurityCandidateQuery;
 }
 
-/**
- * What a backfill would queue: one scan of each in-scope project whose live deployment
- * has no succeeded scan and whose code is stored, at most `SECURITY_BACKFILL_MAX` per
- * call. Reads only.
- */
+/** What a backfill would queue (at most `SECURITY_BACKFILL_MAX`). Reads only. */
 export async function previewSecurityBackfill(db: Db, now = Date.now()) {
   const policy = await readSecurityPolicyLenient(db);
   const query = await backfillQuery(db, policy, now);
@@ -96,20 +82,14 @@ export async function previewSecurityBackfill(db: Db, now = Date.now()) {
   };
 }
 
-export type SecurityBatchResult = Readonly<{
-  queued: Array<Readonly<{ project: string; scanId: string }>>;
-  /** Candidates a per-project check refused, by error code. */
-  skipped: Record<string, number>;
-}>;
-
-/** Queues candidates in order until `want` are queued; a refusal does not use a slot. */
+/** Queues candidates until `want` are queued; refusals are counted by error code. */
 async function queueEach(
   env: Env,
   db: Db,
   candidates: ReadonlyArray<SecurityCandidate>,
   trigger: SecurityManualTrigger,
   want: number,
-): Promise<SecurityBatchResult> {
+) {
   const queued: Array<{ project: string; scanId: string }> = [];
   const skipped: Record<string, number> = {};
   for (const candidate of candidates) {
@@ -147,9 +127,8 @@ export async function queueSecurityBackfill(env: Env, db: Db, now = Date.now()) 
 }
 
 /**
- * Hourly: queue sweeps that are due, a few at a time so deploy scans keep moving. The
- * batch is what the queue can start soon (two per concurrent slot) minus what already
- * waits, at most `SECURITY_SWEEP_BATCH_MAX`. Returns how many it queued.
+ * Hourly: queues due sweeps, at most two per concurrent slot minus what already waits
+ * (and `SECURITY_SWEEP_BATCH_MAX`). Returns how many it queued.
  */
 export async function queueSecuritySweeps(
   env: Env,

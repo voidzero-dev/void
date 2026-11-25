@@ -1,21 +1,9 @@
 /**
- * Failure streaks (design doc 0095 M26, spec §11.4, §12): the reads behind the streak
- * emails `alerts.ts` queues each hour. Split by cause, like the panel flags:
- *
- *   project cause: 3+ ended scans in a row did not succeed     ─► streak_project
- *     (refused, bad output, timed out, incomplete, input missing; failure_cause = project)
- *     owner + project admins + installation admins, once per streak
- *   installation cause: > 20% of the last 24 h's scans failed  ─► streak_installation
- *     for a platform reason (credits, infrastructure, backlog)   installation admins,
- *     at least 3 of them                                         at most once per UTC day
- *
- * A streak is keyed by the newest scan before it that was not a project-cause failure,
- * so it is one email however long it grows; a success starts a new one. A skipped scan
- * (a backlog skip too) neither counts nor breaks a streak, as in the panel flag. The key
- * can still move (a streak longer than the window, a deleted scan), so a project with a
- * `streak_project` row newer than its last good scan gets no second one. Only a streak
- * whose newest failure ended in the last 48 hours is emailed, so turning this on does
- * not mail old news.
+ * Failure streaks (design doc 0095 M26, spec §11.4, §12), read by the hourly alerts:
+ * `streak_project` when 3+ ended scans in a row failed for a project cause (once per
+ * streak, keyed by the newest good scan before it), `streak_installation` when platform
+ * failures pass 20% of the last 24 h (at least 3; once per UTC day). Skips neither count
+ * nor break a streak; only a streak with a failure in the last 48 hours is emailed.
  */
 import { sql } from 'drizzle-orm';
 import type { DbOrTx } from '../db.ts';
@@ -30,10 +18,7 @@ export const SECURITY_STREAK_FRESH_MS = 48 * 60 * 60_000;
 export const SECURITY_INSTALLATION_FAILURE_MIN = 3;
 export const SECURITY_INSTALLATION_FAILURE_RATE = 0.2;
 
-/**
- * Statuses that end a scan with a result: the project streak reads only these. A local
- * check (M32) is not a scan of what the project serves, so it neither counts nor breaks one.
- */
+/** Scans with a result; a local check (M32) neither counts nor breaks a streak. */
 const PROJECT_ENDED_SQL = sql.raw(
   `(status IN ('succeeded', 'incomplete', 'failed', 'refused', 'timed_out') AND trigger <> 'local')`,
 );
@@ -48,27 +33,18 @@ const INSTALLATION_FAILURE_SQL = sql.raw(
   `(failure_cause = 'installation' OR (status = 'skipped' AND status_reason = 'backlog'))`,
 );
 
-export type SecurityProjectStreak = Readonly<{
-  projectId: string;
-  failures: number;
-  /** The newest scan before the streak that was not a project-cause failure, or `null`. */
-  sinceScanId: string | null;
-  /** Newest first. */
-  scanIds: ReadonlyArray<string>;
-}>;
-
-function rows<T>(result: { rows: ReadonlyArray<unknown> }): Array<T> {
+export function rows<T>(result: { rows: ReadonlyArray<unknown> }): Array<T> {
   return result.rows as Array<T>;
 }
 
 /**
- * Project streaks now: projects whose newest ended scans are 3+ project-cause failures.
- * With `projectId`, only that project (the delivery re-reads its streak).
+ * Projects whose newest ended scans are 3+ project-cause failures (`scanIds` newest
+ * first; `sinceScanId` the newest good scan before them).
  */
 export async function listSecurityProjectStreaks(
   db: DbOrTx,
   options: Readonly<{ now: number; projectId?: string; freshOnly?: boolean }>,
-): Promise<Array<SecurityProjectStreak>> {
+) {
   const project =
     options.projectId === undefined ? sql`` : sql`AND project_id = ${options.projectId}`;
   const freshSince = new Date(options.now - SECURITY_STREAK_FRESH_MS).toISOString();
@@ -111,12 +87,7 @@ export async function listSecurityProjectStreaks(
   }));
 }
 
-/**
- * Whether this project already has a streak email for the streak going on now: a
- * `streak_project` row created after its last ended scan that was not a project-cause
- * failure finished. Read before queueing, so a key that moved does not send a second
- * email: a streak past the window loses its `since` scan, and retention can delete it.
- */
+/** A `streak_project` row newer than the last good scan: a moved key sends no second email. */
 export async function securityProjectStreakAlreadyQueued(
   db: DbOrTx,
   projectId: string,
@@ -132,19 +103,10 @@ export async function securityProjectStreakAlreadyQueued(
   return result.rows.length > 0;
 }
 
-export type SecurityInstallationFailures = Readonly<{
-  /** Scans that ended in the last 24 h. */
-  ended: number;
-  /** Of those, failures with an installation cause. */
-  failed: number;
-  byReason: Readonly<Record<string, number>>;
-}>;
+type SecurityInstallationFailures = Awaited<ReturnType<typeof readSecurityInstallationFailures>>;
 
 /** Installation-cause failures among the scans that ended in the 24 h before `now`. */
-export async function readSecurityInstallationFailures(
-  db: DbOrTx,
-  now: number,
-): Promise<SecurityInstallationFailures> {
+export async function readSecurityInstallationFailures(db: DbOrTx, now: number) {
   const since = new Date(now - 24 * 60 * 60_000).toISOString();
   const until = new Date(now).toISOString();
   const result = await db.execute(sql`

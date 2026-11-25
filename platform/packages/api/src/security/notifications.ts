@@ -1,19 +1,10 @@
 /**
- * Security notifications (design doc 0095 M15, spec §12). The `security_notifications`
- * table is the outbox; the `SecurityScanScheduler` alarm drains it.
- *
- *   write side                           read side (alarm)
- *   ingest (new finding)  ─ findings ─┐  due rows ─► group findings by project
- *   human reopen          ─ reopen ───┤    │          30-min cooldown, merge scans
- *   spend crosses 80/100% ─ cap_* ────┼──► │  recipients worked out now
- *   public gate (M16)     ─ public_* ─┤    │  one email per person
- *   bypass (M16)          ─ bypass ───┤    └► sent | skipped | retry ×3 (1 min, 5 min)
- *   hourly (M26)          ─ streak_*, digest
- *   any of the above, webhook set ─ webhook twin row ─► signed POST (ids and counts)
- *
- * A row stores no recipient and no text: both are worked out at send time, so an owner
- * transfer, a role change or a finding resolved in between is respected (edge #25, #47,
- * #69, #70). `EMAIL` unbound skips the emails quietly (edge #27); webhook rows still go.
+ * Security notifications (design doc 0095 M15, M26; spec §12). `security_notifications` is
+ * the outbox the `SecurityScanScheduler` alarm drains. A row stores no recipient and no
+ * text: both are worked out at send time, so an owner transfer, a role change or a finding
+ * resolved in between is respected (edge #25, #47, #69, #70). `EMAIL` unbound skips the
+ * emails quietly (edge #27); webhook rows still go. With a webhook set, every event gets a
+ * `webhook` twin row that posts ids and counts.
  */
 import { and, asc, desc, eq, inArray, lte, max, min, ne, sql } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
@@ -46,21 +37,21 @@ import {
 } from './budget.ts';
 import type { SecuritySpendCaps } from './budget.ts';
 import { readSecurityDigestCounts, securityDigestIsEmpty } from './digest.ts';
-import type { SecurityDigestCounts } from './digest.ts';
 import { isUrgentSeverity, severityRank } from './findings.ts';
 import { securityCfDefaultModel } from './models.ts';
 import {
   SECURITY_EMAIL_MAX_FINDINGS,
+  SECURITY_SCAN_TIER_LABELS,
   formatSecurityDay,
   securityActorRoleLabel,
 } from './notification-copy.ts';
 import type {
   SecurityEmailFinding,
+  SecurityEmailReason,
   SecurityPublicHeldState,
-  SecurityStreakScanLine,
 } from './notification-copy.ts';
-import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
+import { readSecurityProjectSettings, securityDuplicateHints } from './project-view.ts';
 import { SECURITY_GATE_UNREAD_FILES } from './public-gate-judge.ts';
 import {
   resolveInstallationAdminRecipients,
@@ -71,7 +62,6 @@ import {
 } from './recipients.ts';
 import type { SecurityRecipient } from './recipients.ts';
 import {
-  projectSecuritySettings,
   securityFindingEvents,
   securityFindings,
   securityNotifications,
@@ -82,13 +72,12 @@ import {
   securityScans,
   SECURITY_PLATFORM_NOTIFICATION_KINDS,
 } from './schema.ts';
-import type { SecurityNotificationKind, SecurityPublicRequestState } from './schema.ts';
+import type { SecurityNotificationKind } from './schema.ts';
 import {
   listSecurityProjectStreaks,
   readSecurityInstallationFailures,
   securityInstallationFailing,
 } from './streaks.ts';
-import type { SecurityProjectStreak } from './streaks.ts';
 import { postSecurityWebhook, securityWebhookOn } from './webhook.ts';
 import type { SecurityWebhookEnv, SecurityWebhookEvent } from './webhook.ts';
 
@@ -102,21 +91,15 @@ export const SECURITY_NOTIFICATION_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 /** The "now public" email waits this long for Zero Trust to finish going public. */
 export const SECURITY_NOW_PUBLIC_WAIT_MS = 60_000;
 const BATCH = 50;
-
-// ---------------------------------------------------------------------------
-// Write side
-// ---------------------------------------------------------------------------
+const DAY_MS = 24 * 60 * 60_000;
+/** Scans listed in one streak email. */
+const STREAK_SCANS_SHOWN = 5;
 
 export type SecurityNotificationInput =
   | Readonly<{ kind: 'findings'; projectId: string; scanId: string }>
   | Readonly<{ kind: 'reopen'; projectId: string; findingId: string; reopenCount: number }>
-  | Readonly<{
-      kind: 'cap_project';
-      projectId: string;
-      /** The spend month as stored, `2026-11-01`. */
-      month: string;
-      percent: 80 | 100;
-    }>
+  /** `month` is the spend month as stored, `2026-11-01`. */
+  | Readonly<{ kind: 'cap_project'; projectId: string; month: string; percent: 80 | 100 }>
   | Readonly<{ kind: 'cap_platform'; month: string; percent: 80 | 100 }>
   | Readonly<{
       kind: 'public_held';
@@ -145,10 +128,6 @@ function eventKeyOf(row: Pick<Row, 'dedupe_key'>): string {
     : row.dedupe_key;
 }
 
-function isPlatformKind(kind: SecurityNotificationKind): boolean {
-  return (SECURITY_PLATFORM_NOTIFICATION_KINDS as ReadonlyArray<string>).includes(kind);
-}
-
 /** The unique key of a notification; the same event queued twice is one email. */
 export function securityNotificationDedupeKey(input: SecurityNotificationInput): string {
   switch (input.kind) {
@@ -163,9 +142,8 @@ export function securityNotificationDedupeKey(input: SecurityNotificationInput):
     case 'public_held':
       return `public_held:${input.requestId}:${input.state}:${input.gateScanId ?? '-'}`;
     case 'public_now_public':
-      return `public_now_public:${input.requestId}`;
     case 'public_canceled':
-      return `public_canceled:${input.requestId}`;
+      return `${input.kind}:${input.requestId}`;
     case 'scan_bypass':
       return `scan_bypass:${input.bypassId}`;
     case 'streak_project':
@@ -178,51 +156,46 @@ export function securityNotificationDedupeKey(input: SecurityNotificationInput):
 }
 
 /**
- * Queues one notification. Returns `false` when the same event is already queued (or
- * sent). Pass the transaction of the change that caused it, so the row and the change
- * commit together; poke the scheduler after the commit. With a webhook set, a `webhook`
- * row for the same event commits with it.
+ * Queues one notification; `false` when the same event is already queued (or sent). Pass
+ * the transaction of the change that caused it and poke the scheduler after the commit.
  */
 export async function enqueueSecurityNotification(
   db: DbOrTx,
   input: SecurityNotificationInput,
 ): Promise<boolean> {
   const key = securityNotificationDedupeKey(input);
+  const platformKind = (SECURITY_PLATFORM_NOTIFICATION_KINDS as ReadonlyArray<string>).includes(
+    input.kind,
+  );
   const values = {
-    project_id: isPlatformKind(input.kind) || !('projectId' in input) ? null : input.projectId,
+    kind: input.kind,
+    project_id: platformKind || !('projectId' in input) ? null : input.projectId,
     scan_ids: input.kind === 'findings' ? [input.scanId] : [],
     request_id: 'requestId' in input ? input.requestId : null,
     scan_bypass_id: input.kind === 'scan_bypass' ? input.bypassId : null,
   };
   const rows = await db
     .insert(securityNotifications)
-    .values({ id: generateId('sn'), kind: input.kind, dedupe_key: key, ...values })
+    .values({ id: generateId('sn'), dedupe_key: key, ...values })
     .onConflictDoNothing({ target: securityNotifications.dedupe_key })
     .returning({ id: securityNotifications.id });
   if (rows.length > 0 && (await securityWebhookOn(db))) {
     await db
       .insert(securityNotifications)
       .values({
+        ...values,
         id: generateId('sn'),
         kind: 'webhook',
         dedupe_key: WEBHOOK_PREFIX + key,
-        ...values,
       })
       .onConflictDoNothing({ target: securityNotifications.dedupe_key });
   }
   return rows.length > 0;
 }
 
-/** The highest threshold a total has reached on a cap, or `null`. */
-function highestThreshold(spentNano: number, capNano: number | null): 80 | 100 | null {
-  const reached = securityBudgetThresholds(spentNano, capNano);
-  return reached.at(-1) ?? null;
-}
-
 /**
  * After a model call settles: queue the 80% / 100% email of each cap the month's metered
- * spend has reached. Once per threshold per cap per month (the dedupe key), so calling it
- * after every call is cheap and safe. Returns whether any row was queued.
+ * spend has reached. The dedupe key makes it once per threshold, cap and month.
  */
 export async function enqueueSecurityCapNotifications(
   db: DbOrTx,
@@ -234,19 +207,20 @@ export async function enqueueSecurityCapNotifications(
     platformSpentNano: number;
   }>,
 ): Promise<boolean> {
+  const project = securityBudgetThresholds(input.projectSpentNano, input.caps.projectNano).at(-1);
+  const platform = securityBudgetThresholds(input.platformSpentNano, input.caps.platformNano).at(
+    -1,
+  );
   let queued = false;
-  const project = highestThreshold(input.projectSpentNano, input.caps.projectNano);
-  if (project !== null) {
-    queued =
-      (await enqueueSecurityNotification(db, {
-        kind: 'cap_project',
-        projectId: input.projectId,
-        month: input.month,
-        percent: project,
-      })) || queued;
+  if (project !== undefined) {
+    queued = await enqueueSecurityNotification(db, {
+      kind: 'cap_project',
+      projectId: input.projectId,
+      month: input.month,
+      percent: project,
+    });
   }
-  const platform = highestThreshold(input.platformSpentNano, input.caps.platformNano);
-  if (platform !== null) {
+  if (platform !== undefined) {
     queued =
       (await enqueueSecurityNotification(db, {
         kind: 'cap_platform',
@@ -270,19 +244,10 @@ export async function enqueueSecurityCapRefused(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Read side: the outbox
-// ---------------------------------------------------------------------------
-
 type Row = typeof securityNotifications.$inferSelect;
 
-type Delivery =
-  /** At least one email went out. */
-  | Readonly<{ kind: 'sent' }>
-  /** Nobody to tell, or the news went stale. */
-  | Readonly<{ kind: 'skip' }>
-  /** Not yet: look again at this time (no attempt is counted). */
-  | Readonly<{ kind: 'wait'; at: number }>;
+/** `sent`: at least one email went out; `skip`: nobody to tell, or stale; `wait`: not yet. */
+type Delivery = Readonly<{ kind: 'sent' } | { kind: 'skip' } | { kind: 'wait'; at: number }>;
 
 const SENT: Delivery = { kind: 'sent' };
 const SKIP: Delivery = { kind: 'skip' };
@@ -303,13 +268,12 @@ function stampMs(value: string): number {
   return Date.parse(value.endsWith('Z') || value.includes('+') ? value : `${value}Z`);
 }
 
-async function nextPendingAt(db: Db): Promise<number | null> {
-  const [row] = await db
-    .select({ at: min(securityNotifications.next_attempt_at) })
-    .from(securityNotifications)
-    .where(eq(securityNotifications.status, 'pending'));
-  return row?.at ? stampMs(row.at) : null;
+function words(text: string): string {
+  return text.split('_').join(' ');
 }
+
+const pendingIn = (ids: ReadonlyArray<string>) =>
+  and(inArray(securityNotifications.id, [...ids]), eq(securityNotifications.status, 'pending'));
 
 async function finishRows(
   db: Db,
@@ -327,59 +291,43 @@ async function finishRows(
       attempts: sql`${securityNotifications.attempts} + ${status === 'skipped' ? 0 : 1}`,
       sent_at: status === 'sent' ? iso(now) : null,
     })
-    .where(
-      and(inArray(securityNotifications.id, [...ids]), eq(securityNotifications.status, 'pending')),
-    );
+    .where(pendingIn(ids));
 }
 
 async function delayRows(db: Db, ids: ReadonlyArray<string>, at: number): Promise<void> {
   await db
     .update(securityNotifications)
     .set({ next_attempt_at: iso(at) })
-    .where(
-      and(inArray(securityNotifications.id, [...ids]), eq(securityNotifications.status, 'pending')),
-    );
+    .where(pendingIn(ids));
 }
 
 /** An attempt threw: back off, or give up after the third. */
-async function failRows(
-  db: Db,
-  rows: ReadonlyArray<Row>,
-  now: number,
-): Promise<'failed' | 'retry'> {
-  let outcome: 'failed' | 'retry' = 'retry';
+async function failRows(db: Db, rows: ReadonlyArray<Row>, now: number): Promise<boolean> {
+  let failed = false;
   for (const row of rows) {
     const attempts = row.attempts + 1;
     if (attempts >= SECURITY_NOTIFICATION_MAX_ATTEMPTS) {
       await finishRows(db, [row.id], 'failed', now);
-      outcome = 'failed';
+      failed = true;
       continue;
     }
     await db
       .update(securityNotifications)
-      .set({
-        attempts,
-        next_attempt_at: iso(now + SECURITY_NOTIFICATION_BACKOFF_MS[attempts - 1]),
-      })
-      .where(
-        and(eq(securityNotifications.id, row.id), eq(securityNotifications.status, 'pending')),
-      );
+      .set({ attempts, next_attempt_at: iso(now + SECURITY_NOTIFICATION_BACKOFF_MS[attempts - 1]) })
+      .where(pendingIn([row.id]));
   }
-  return outcome;
+  return failed;
 }
 
 /** What the outbox needs: the mail binding, and the keyring that holds the webhook secret. */
 export type SecurityNotifyEnv = PlatformEmailEnv & Partial<SecurityWebhookEnv>;
 
-export type SecurityNotifyOptions = Readonly<{
-  /** The webhook POST; tests replace it. */
-  fetch?: typeof fetch;
-}>;
+/** `fetch`: the webhook POST; tests replace it. */
+export type SecurityNotifyOptions = Readonly<{ fetch?: typeof fetch }>;
 
 /**
- * One alarm pass over the outbox. Due rows are delivered; a findings row waits out the
- * project's 30-minute cooldown and then goes out with every other due findings row of the
- * project as one email.
+ * One alarm pass over the outbox. A findings row waits out the project's 30-minute
+ * cooldown, then goes out with every other due findings row of the project as one email.
  */
 export async function runSecurityNotifications(
   db: Db,
@@ -390,8 +338,7 @@ export async function runSecurityNotifications(
   const totals = { sent: 0, skipped: 0, failed: 0 };
   const emailOn = Boolean(env.EMAIL);
   if (!emailOn) {
-    // Email is off: nothing to send now, and a later "on" does not replay old news.
-    // Webhook rows do not need the mail binding.
+    // Email is off: a later "on" does not replay old news. Webhook rows need no mail binding.
     await db
       .update(securityNotifications)
       .set({ status: 'skipped' })
@@ -412,31 +359,31 @@ export async function runSecurityNotifications(
     .orderBy(asc(securityNotifications.created_at), asc(securityNotifications.id))
     .limit(BATCH);
 
-  const live: Array<Row> = [];
-  const stale: Array<string> = [];
-  for (const row of due) {
-    if (now - stampMs(row.created_at) > SECURITY_NOTIFICATION_MAX_AGE_MS) {
-      stale.push(row.id);
-    } else {
-      live.push(row);
-    }
-  }
-  await finishRows(db, stale, 'skipped', now);
+  const stale = due.filter(
+    (row) => now - stampMs(row.created_at) > SECURITY_NOTIFICATION_MAX_AGE_MS,
+  );
+  await finishRows(
+    db,
+    stale.map((row) => row.id),
+    'skipped',
+    now,
+  );
   totals.skipped += stale.length;
 
   // A findings group is delivered as one; every other row on its own.
-  const groups: Array<ReadonlyArray<Row>> = [];
+  const groups: Array<Array<Row>> = [];
   const byProject = new Map<string, Array<Row>>();
-  for (const row of live) {
-    if (row.kind === 'findings' && row.project_id !== null) {
-      const group = byProject.get(row.project_id) ?? [];
+  for (const row of due.filter((entry) => !stale.includes(entry))) {
+    const projectId = row.kind === 'findings' ? row.project_id : null;
+    const group = projectId === null ? undefined : byProject.get(projectId);
+    if (group) {
       group.push(row);
-      byProject.set(row.project_id, group);
-      if (group.length === 1) {
-        groups.push(group);
-      }
-    } else {
-      groups.push([row]);
+      continue;
+    }
+    const fresh = [row];
+    groups.push(fresh);
+    if (projectId !== null) {
+      byProject.set(projectId, fresh);
     }
   }
 
@@ -444,96 +391,77 @@ export async function runSecurityNotifications(
   // endpoint costs one timeout per pass, not one per row, and the emails keep going.
   let webhookDownUntil: number | null = null;
   for (const group of groups) {
-    if (group[0].kind === 'webhook' && webhookDownUntil !== null) {
-      await delayRows(
-        db,
-        group.map((row) => row.id),
-        webhookDownUntil,
-      );
+    const ids = group.map((row) => row.id);
+    const row = group[0];
+    if (row.kind === 'webhook' && webhookDownUntil !== null) {
+      await delayRows(db, ids, webhookDownUntil);
       continue;
     }
     try {
-      const delivery = await deliver(db, env, group, now, options);
+      const delivery = await DELIVER[row.kind]({ db, env, row, group, now, options });
       if (delivery.kind === 'wait') {
-        await delayRows(
-          db,
-          group.map((row) => row.id),
-          delivery.at,
-        );
+        await delayRows(db, ids, delivery.at);
         continue;
       }
       const status = delivery.kind === 'sent' ? 'sent' : 'skipped';
-      await finishRows(
-        db,
-        group.map((row) => row.id),
-        status,
-        now,
-      );
+      await finishRows(db, ids, status, now);
       totals[status] += group.length;
     } catch (error) {
       console.error('[security-notify] delivery failed', {
-        kind: group[0].kind,
-        projectId: group[0].project_id,
+        kind: row.kind,
+        projectId: row.project_id,
         error: error instanceof Error ? error.message : String(error),
       });
-      if ((await failRows(db, group, now)) === 'failed') {
+      if (await failRows(db, group, now)) {
         totals.failed += group.length;
       }
-      if (group[0].kind === 'webhook') {
+      if (row.kind === 'webhook') {
         webhookDownUntil = now + SECURITY_NOTIFICATION_BACKOFF_MS[0];
       }
     }
   }
-  return { ...totals, nextAt: await nextPendingAt(db) };
+  const [next] = await db
+    .select({ at: min(securityNotifications.next_attempt_at) })
+    .from(securityNotifications)
+    .where(eq(securityNotifications.status, 'pending'));
+  return { ...totals, nextAt: next?.at ? stampMs(next.at) : null };
 }
 
-async function deliver(
-  db: Db,
-  env: SecurityNotifyEnv,
-  group: ReadonlyArray<Row>,
-  now: number,
-  options: SecurityNotifyOptions,
-): Promise<Delivery> {
-  const row = group[0];
-  switch (row.kind) {
-    case 'findings': {
-      if (row.project_id === null) {
-        throw new Error('A findings notification has no project.');
-      }
-      return deliverFindings(db, env, row.project_id, group, now);
-    }
-    case 'reopen':
-      return deliverReopen(db, env, row);
-    case 'cap_project':
-      return deliverProjectCap(db, env, row);
-    case 'cap_platform':
-      return deliverPlatformCap(db, env, row);
-    case 'public_held':
-      return deliverPublicHeld(db, env, row);
-    case 'public_now_public':
-      return deliverNowPublic(db, env, row, now);
-    case 'public_canceled':
-      return deliverPublicCanceled(db, env, row);
-    case 'scan_bypass':
-      return deliverBypass(db, env, row, now);
-    case 'streak_project':
-      return deliverProjectStreak(db, env, row, now);
-    case 'streak_installation':
-      return deliverInstallationStreak(db, env, row);
-    case 'digest':
-      return deliverDigest(db, env, row, now);
-    case 'webhook':
-      return deliverWebhook(db, env, row, now, options);
-  }
-}
+type DeliveryInput = Readonly<{
+  db: Db;
+  env: SecurityNotifyEnv;
+  row: Row;
+  group: ReadonlyArray<Row>;
+  now: number;
+  options: SecurityNotifyOptions;
+}>;
+
+const DELIVER: Readonly<
+  Record<SecurityNotificationKind, (input: DeliveryInput) => Promise<Delivery>>
+> = {
+  findings: deliverFindings,
+  reopen: deliverReopen,
+  cap_project: deliverProjectCap,
+  cap_platform: deliverPlatformCap,
+  public_held: deliverPublicHeld,
+  public_now_public: deliverNowPublic,
+  public_canceled: deliverPublicCanceled,
+  scan_bypass: deliverBypass,
+  streak_project: deliverProjectStreak,
+  streak_installation: deliverInstallationStreak,
+  digest: deliverDigest,
+  webhook: deliverWebhook,
+};
 
 /**
  * Sends to everyone. One failed address does not repeat the email to the others: a retry
  * happens only when nobody got it.
  */
-async function sendToAll(
+async function mailAll<T>(
+  env: PlatformEmailEnv,
   recipients: ReadonlyArray<SecurityRecipient>,
-  send: (recipient: SecurityRecipient) => Promise<void>,
+  send: (env: PlatformEmailEnv, to: string, data: T, reason: SecurityEmailReason) => Promise<void>,
+  data: NoInfer<T>,
 ): Promise<Delivery> {
   if (recipients.length === 0) {
     return SKIP;
@@ -542,7 +470,7 @@ async function sendToAll(
   let firstError: unknown;
   for (const recipient of recipients) {
     try {
-      await send(recipient);
+      await send(env, recipient.email, data, recipient.reason);
       delivered++;
     } catch (error) {
       firstError ??= error;
@@ -567,37 +495,21 @@ async function projectSlug(db: Db, projectId: string): Promise<string | null> {
   return row?.slug ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Findings
-// ---------------------------------------------------------------------------
-
-const RESOLUTION_WORDS = {
-  fixed: 'fixed',
-  false_positive: 'false positive',
-  accepted_risk: 'accepted risk',
-} as const;
-
+/** `Anthropic` for a third-party model, else `null`. */
 function provider(model: string | null): string | null {
   if (model === null || model.startsWith('@cf/')) {
     return null;
   }
   const host = model.split('/')[0];
-  if (host === 'anthropic') {
-    return 'Anthropic';
-  }
-  if (host === 'openai') {
-    return 'OpenAI';
-  }
-  return host ?? null;
+  return host === 'anthropic' ? 'Anthropic' : host === 'openai' ? 'OpenAI' : (host ?? null);
 }
 
 type NewFinding = SecurityEmailFinding & Readonly<{ number: number }>;
 
 /**
- * The findings that count as new for these scans (spec §9.4), read now: first seen as
- * confirmed, promoted from a lead, or reopened or raised into high or critical. A finding
- * resolved since is not new any more. The scan's own `news` list is not stored; this is
- * its stored trace (`created` / `promoted` / `reopened` / `severity_changed` events).
+ * The findings that count as new for these scans (spec §9.4), read now from the scans'
+ * stored trace: first seen as confirmed, promoted from a lead, or reopened or raised into
+ * high or critical. A finding resolved since is not new any more.
  */
 async function newFindingsOfScans(
   db: Db,
@@ -621,9 +533,10 @@ async function newFindingsOfScans(
     );
   const actions = new Map<string, Set<string>>();
   for (const event of events) {
-    const set = actions.get(event.findingId) ?? new Set<string>();
-    set.add(event.action);
-    actions.set(event.findingId, set);
+    actions.set(
+      event.findingId,
+      (actions.get(event.findingId) ?? new Set<string>()).add(event.action),
+    );
   }
   if (actions.size === 0) {
     return { findings: [], leads: 0 };
@@ -647,19 +560,17 @@ async function newFindingsOfScans(
         eq(securityFindings.state, 'open'),
       ),
     );
-  const duplicates = await duplicateNotes(
+  const duplicates = await securityDuplicateHints(
     db,
     projectId,
-    rows.map((row) => row.duplicateOf).filter((id): id is string => id !== null),
+    rows.flatMap((row) => (row.duplicateOf ? [row.duplicateOf] : [])),
   );
   const findings: Array<NewFinding> = [];
   let leads = 0;
   for (const row of rows) {
     const seen = actions.get(row.id) ?? new Set<string>();
     if (row.verdict === 'needs_validation') {
-      if (seen.has('created')) {
-        leads++;
-      }
+      leads += seen.has('created') ? 1 : 0;
       continue;
     }
     const severity = row.override ?? row.severity;
@@ -674,6 +585,7 @@ async function newFindingsOfScans(
     if (!isNew) {
       continue;
     }
+    const duplicate = row.duplicateOf ? duplicates.get(row.duplicateOf) : undefined;
     findings.push({
       number: row.number,
       label: `F-${row.number}`,
@@ -681,7 +593,13 @@ async function newFindingsOfScans(
       title: row.title,
       file: row.file,
       urgent,
-      duplicateNote: row.duplicateOf ? (duplicates.get(row.duplicateOf) ?? null) : null,
+      duplicateNote: duplicate
+        ? `possible duplicate of ${duplicate.id}${
+            duplicate.resolution && duplicate.resolvedAt
+              ? `, resolved ${words(duplicate.resolution)} on ${formatSecurityDay(stampMs(duplicate.resolvedAt))}`
+              : ''
+          }`
+        : null,
     });
   }
   findings.sort(
@@ -690,45 +608,11 @@ async function newFindingsOfScans(
   return { findings, leads };
 }
 
-async function duplicateNotes(
-  db: Db,
-  projectId: string,
-  ids: ReadonlyArray<string>,
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  if (ids.length === 0) {
-    return out;
+async function deliverFindings({ db, env, row, group, now }: DeliveryInput): Promise<Delivery> {
+  const projectId = row.project_id;
+  if (projectId === null) {
+    throw new Error('A findings notification has no project.');
   }
-  const rows = await db
-    .select({
-      id: securityFindings.id,
-      number: securityFindings.number,
-      resolution: securityFindings.resolution,
-      resolvedAt: securityFindings.resolved_at,
-    })
-    .from(securityFindings)
-    .where(and(eq(securityFindings.project_id, projectId), inArray(securityFindings.id, [...ids])));
-  for (const row of rows) {
-    const how = row.resolution ? RESOLUTION_WORDS[row.resolution] : null;
-    out.set(
-      row.id,
-      `possible duplicate of F-${row.number}${
-        how && row.resolvedAt
-          ? `, resolved ${how} on ${formatSecurityDay(stampMs(row.resolvedAt))}`
-          : ''
-      }`,
-    );
-  }
-  return out;
-}
-
-async function deliverFindings(
-  db: Db,
-  env: PlatformEmailEnv,
-  projectId: string,
-  group: ReadonlyArray<Row>,
-  now: number,
-): Promise<Delivery> {
   const [last] = await db
     .select({ at: max(securityNotifications.sent_at) })
     .from(securityNotifications)
@@ -739,14 +623,12 @@ async function deliverFindings(
         eq(securityNotifications.status, 'sent'),
       ),
     );
-  if (last?.at) {
-    const next = stampMs(last.at) + SECURITY_FINDINGS_COOLDOWN_MS;
-    if (next > now) {
-      return { kind: 'wait', at: next };
-    }
+  const next = last?.at ? stampMs(last.at) + SECURITY_FINDINGS_COOLDOWN_MS : 0;
+  if (next > now) {
+    return { kind: 'wait', at: next };
   }
   const slug = await projectSlug(db, projectId);
-  const scanIds = [...new Set(group.flatMap((row) => row.scan_ids))];
+  const scanIds = [...new Set(group.flatMap((entry) => entry.scan_ids))];
   if (slug === null || scanIds.length === 0) {
     return SKIP;
   }
@@ -756,7 +638,6 @@ async function deliverFindings(
   }
   const [headline] = await db
     .select({
-      id: securityScans.id,
       deploymentId: securityScans.deployment_id,
       baseDeploymentId: securityScans.base_deployment_id,
       tier: securityScans.tier,
@@ -770,39 +651,40 @@ async function deliverFindings(
     .limit(1);
   let deployment: { id: string; commit: string | null; at: number | null } | null = null;
   if (headline?.deploymentId) {
-    const [row] = await db
+    const [built] = await db
       .select({ commit: deployments.commit, createdAt: deployments.created_at })
       .from(deployments)
       .where(eq(deployments.id, headline.deploymentId))
       .limit(1);
     deployment = {
       id: headline.deploymentId,
-      commit: row?.commit ?? null,
-      at: row ? stampMs(row.createdAt) : null,
+      commit: built?.commit ?? null,
+      at: built ? stampMs(built.createdAt) : null,
     };
   }
   const shown = findings.slice(0, SECURITY_EMAIL_MAX_FINDINGS);
-  const data = {
-    slug,
-    scanCount: scanIds.length,
-    deployment,
-    tier: headline?.tier ?? null,
-    baseDeploymentId: headline?.baseDeploymentId ?? null,
-    filesScanned: headline?.filesScanned ?? null,
-    coverage: headline?.coverage ?? null,
-    model: headline?.model ?? null,
-    provider: provider(headline?.model ?? null),
-    findings: shown,
-    moreFindings: findings.length - shown.length,
-    leads,
-  };
-  const recipients = await resolveProjectSecurityRecipients(db, projectId, { scanIds });
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityFindingsEmail(env, recipient.email, data, recipient.reason),
+  return mailAll(
+    env,
+    await resolveProjectSecurityRecipients(db, projectId, { scanIds }),
+    sendSecurityFindingsEmail,
+    {
+      slug,
+      scanCount: scanIds.length,
+      deployment,
+      tier: headline?.tier ?? null,
+      baseDeploymentId: headline?.baseDeploymentId ?? null,
+      filesScanned: headline?.filesScanned ?? null,
+      coverage: headline?.coverage ?? null,
+      model: headline?.model ?? null,
+      provider: provider(headline?.model ?? null),
+      findings: shown,
+      moreFindings: findings.length - shown.length,
+      leads,
+    },
   );
 }
 
-async function deliverReopen(db: Db, env: PlatformEmailEnv, row: Row): Promise<Delivery> {
+async function deliverReopen({ db, env, row }: DeliveryInput): Promise<Delivery> {
   const findingId = row.dedupe_key.split(':')[1];
   if (!findingId || row.project_id === null) {
     return SKIP;
@@ -811,7 +693,6 @@ async function deliverReopen(db: Db, env: PlatformEmailEnv, row: Row): Promise<D
   const [finding] = await db
     .select({
       number: securityFindings.number,
-      verdict: securityFindings.verdict,
       severity: securityFindings.severity,
       override: securityFindings.severity_override,
       title: securityFindings.title,
@@ -836,21 +717,18 @@ async function deliverReopen(db: Db, env: PlatformEmailEnv, row: Row): Promise<D
     )
     .orderBy(desc(securityFindingEvents.created_at), desc(securityFindingEvents.id))
     .limit(1);
-  const data = {
-    slug,
-    finding: { label: `F-${finding.number}`, severity, title: finding.title, file: finding.file },
-    actorRole: event?.role ?? null,
-    comment: event?.comment ?? null,
-  };
-  const recipients = await resolveProjectAdminRecipients(db, row.project_id);
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityReopenEmail(env, recipient.email, data, recipient.reason),
+  return mailAll(
+    env,
+    await resolveProjectAdminRecipients(db, row.project_id),
+    sendSecurityReopenEmail,
+    {
+      slug,
+      finding: { label: `F-${finding.number}`, severity, title: finding.title, file: finding.file },
+      actorRole: event?.role ?? null,
+      comment: event?.comment ?? null,
+    },
   );
 }
-
-// ---------------------------------------------------------------------------
-// Caps
-// ---------------------------------------------------------------------------
 
 /** `cap_*:<…>:<month>:<percent>` → the month and percent the key was queued for. */
 function capKeyParts(key: string): { month: string; percent: 80 | 100 } | null {
@@ -860,27 +738,15 @@ function capKeyParts(key: string): { month: string; percent: 80 | 100 } | null {
   return month && (percent === 80 || percent === 100) ? { month, percent } : null;
 }
 
-async function deliverProjectCap(db: Db, env: PlatformEmailEnv, row: Row): Promise<Delivery> {
+async function deliverProjectCap({ db, env, row }: DeliveryInput): Promise<Delivery> {
   const key = capKeyParts(row.dedupe_key);
   if (!key || row.project_id === null) {
     return SKIP;
   }
   const slug = await projectSlug(db, row.project_id);
   const policy = await readSecurityPolicyLenient(db);
-  const [settings] = await db
-    .select({
-      own: projectSecuritySettings.monthly_cap_cents,
-      ceiling: projectSecuritySettings.cap_ceiling_cents,
-    })
-    .from(projectSecuritySettings)
-    .where(eq(projectSecuritySettings.project_id, row.project_id))
-    .limit(1);
-  const capSettings = {
-    monthlyCapCents: settings?.own ?? null,
-    capCeilingCents: settings?.ceiling ?? null,
-    planCap: await readSecurityPlanCap(db, row.project_id),
-  };
-  const capNano = securitySpendCaps(capSettings, policy.budgets).projectNano;
+  const { caps } = await readSecurityProjectSettings(db, row.project_id);
+  const capNano = securitySpendCaps(caps, policy.budgets).projectNano;
   const [spend] = await db
     .select({ spent: securityProjectSpend.spent_nano_usd })
     .from(securityProjectSpend)
@@ -899,38 +765,39 @@ async function deliverProjectCap(db: Db, env: PlatformEmailEnv, row: Row): Promi
     // The cap was raised before this went out.
     return SKIP;
   }
-  const ceiling = securityProjectCeilingCents(capSettings, policy.budgets);
-  const own = capSettings.monthlyCapCents;
+  const ceiling = securityProjectCeilingCents(caps, policy.budgets);
+  const own = caps.monthlyCapCents;
   const capCents = Math.round(capNano / securityCentsToNano(1));
   // The raise line that works now (spec §16.3): the project admin's while their own cap
   // is below the platform limit (or there is none), else the platform admin's.
-  const projectAdminCanRaise = ceiling === null || (own !== null && own < ceiling);
-  const raise = projectAdminCanRaise
-    ? ({
-        kind: 'project_admin',
-        usdArgument: securityUsdArgument(ceiling ?? capCents * 2),
-        limitUsd: ceiling === null ? null : formatSecurityUsd(securityCentsToNano(ceiling)),
-      } as const)
-    : ({
-        kind: 'platform_admin',
-        usdArgument: securityUsdArgument(Math.ceil(capCents * 1.5)),
-        projectId: row.project_id,
-      } as const);
-  const data = {
-    slug,
-    percent: key.percent,
-    spentNano,
-    capNano,
-    resetLabel: securityBudgetResetLabel(Date.parse(key.month)),
-    raise,
-  };
-  const recipients = await resolveProjectAdminRecipients(db, row.project_id);
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityProjectCapEmail(env, recipient.email, data, recipient.reason),
+  const raise =
+    ceiling === null || (own !== null && own < ceiling)
+      ? ({
+          kind: 'project_admin',
+          usdArgument: securityUsdArgument(ceiling ?? capCents * 2),
+          limitUsd: ceiling === null ? null : formatSecurityUsd(securityCentsToNano(ceiling)),
+        } as const)
+      : ({
+          kind: 'platform_admin',
+          usdArgument: securityUsdArgument(Math.ceil(capCents * 1.5)),
+          projectId: row.project_id,
+        } as const);
+  return mailAll(
+    env,
+    await resolveProjectAdminRecipients(db, row.project_id),
+    sendSecurityProjectCapEmail,
+    {
+      slug,
+      percent: key.percent,
+      spentNano,
+      capNano,
+      resetLabel: securityBudgetResetLabel(Date.parse(key.month)),
+      raise,
+    },
   );
 }
 
-async function deliverPlatformCap(db: Db, env: PlatformEmailEnv, row: Row): Promise<Delivery> {
+async function deliverPlatformCap({ db, env, row }: DeliveryInput): Promise<Delivery> {
   const key = capKeyParts(row.dedupe_key);
   if (!key) {
     return SKIP;
@@ -950,23 +817,16 @@ async function deliverPlatformCap(db: Db, env: PlatformEmailEnv, row: Row): Prom
   if (key.percent === 80 && !securityBudgetThresholds(spentNano, capNano).includes(80)) {
     return SKIP;
   }
-  const data = {
+  return mailAll(env, await resolveInstallationAdminRecipients(db), sendSecurityPlatformCapEmail, {
     percent: key.percent,
     spentNano,
     capNano,
     resetLabel: securityBudgetResetLabel(Date.parse(key.month)),
     raiseUsdArgument: securityUsdArgument(Math.ceil(capCents * 1.5)),
-  };
-  const recipients = await resolveInstallationAdminRecipients(db);
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityPlatformCapEmail(env, recipient.email, data, recipient.reason),
-  );
+  });
 }
 
-// ---------------------------------------------------------------------------
-// Public requests and bypasses (rows are queued by the gate, M16)
-// ---------------------------------------------------------------------------
-
+/** The request a row is about, with its project's slug; `null` when either is gone. */
 async function loadRequest(db: Db, row: Row) {
   if (row.request_id === null || row.project_id === null) {
     return null;
@@ -981,31 +841,21 @@ async function loadRequest(db: Db, row: Row) {
       ),
     )
     .limit(1);
-  return request ?? null;
+  const slug = await projectSlug(db, row.project_id);
+  return request && slug !== null ? { request, slug } : null;
 }
 
-const SCAN_TIER_WORDS = {
-  source_diff: 'source diff',
-  built_diff: 'built diff',
-  full: 'full scan',
-} as const;
+type PublicRequest = typeof securityPublicRequests.$inferSelect;
 
-type ScanBrief = Readonly<{
-  deploymentId: string | null;
-  tier: keyof typeof SCAN_TIER_WORDS | null;
-  coverage: string | null;
-  status: string;
-  statusReason: string | null;
-  failureCause: string | null;
-  model: string | null;
-  refusalCategory: string | null;
-}>;
+function requestRecipients(db: Db, request: PublicRequest) {
+  return resolvePublicRequestRecipients(db, request.project_id, request.requested_by_user_id);
+}
 
 async function loadScanBrief(db: Db, projectId: string, scanId: string | null) {
   if (scanId === null) {
     return null;
   }
-  const [scan]: Array<ScanBrief> = await db
+  const [scan] = await db
     .select({
       deploymentId: securityScans.deployment_id,
       tier: securityScans.tier,
@@ -1014,7 +864,6 @@ async function loadScanBrief(db: Db, projectId: string, scanId: string | null) {
       statusReason: securityScans.status_reason,
       failureCause: securityScans.failure_cause,
       model: securityScans.model_used,
-      refusalCategory: securityScans.refusal_category,
     })
     .from(securityScans)
     .where(and(eq(securityScans.id, scanId), eq(securityScans.project_id, projectId)))
@@ -1022,8 +871,10 @@ async function loadScanBrief(db: Db, projectId: string, scanId: string | null) {
   return scan ?? null;
 }
 
+type ScanBrief = Awaited<ReturnType<typeof loadScanBrief>>;
+
 /** `refused by <model>`, `timed out`, …: why a gate scan gave no result. */
-function noResultReason(scan: ScanBrief | null): string | null {
+function noResultReason(scan: ScanBrief): string | null {
   if (scan === null) {
     return null;
   }
@@ -1039,26 +890,23 @@ function noResultReason(scan: ScanBrief | null): string | null {
   if (scan.status === 'skipped' && scan.statusReason === 'budget') {
     return 'the monthly scan budget is used up';
   }
-  return scan.status.split('_').join(' ');
+  return words(scan.status);
 }
 
-function scanDescription(scan: ScanBrief | null): string | null {
+function scanDescription(scan: ScanBrief): string | null {
   if (scan === null || scan.deploymentId === null) {
     return null;
   }
   return [
     scan.deploymentId,
-    scan.tier ? SCAN_TIER_WORDS[scan.tier] : null,
-    scan.status === 'succeeded' ? (scan.coverage ?? 'complete') : scan.status.split('_').join(' '),
+    scan.tier ? SECURITY_SCAN_TIER_LABELS[scan.tier] : null,
+    scan.status === 'succeeded' ? (scan.coverage ?? 'complete') : words(scan.status),
   ]
     .filter(Boolean)
     .join(' · ');
 }
 
-async function requesterLabel(
-  db: Db,
-  request: typeof securityPublicRequests.$inferSelect,
-): Promise<string> {
+async function requesterLabel(db: Db, request: PublicRequest): Promise<string> {
   if (request.requested_via !== 'project') {
     return 'a platform admin';
   }
@@ -1118,16 +966,17 @@ const HELD_STATES: ReadonlySet<string> = new Set([
   'needs_deploy',
 ]);
 
-async function deliverPublicHeld(db: Db, env: PlatformEmailEnv, row: Row): Promise<Delivery> {
+async function deliverPublicHeld({ db, env, row }: DeliveryInput): Promise<Delivery> {
   const keyState = row.dedupe_key.split(':')[2] ?? '';
-  const request = await loadRequest(db, row);
-  const slug = row.project_id ? await projectSlug(db, row.project_id) : null;
-  if (!request || slug === null || !HELD_STATES.has(keyState) || request.state !== keyState) {
+  const loaded = await loadRequest(db, row);
+  if (!loaded || !HELD_STATES.has(keyState) || loaded.request.state !== keyState) {
     // The request moved on since this was queued: the news is stale.
     return SKIP;
   }
+  const { request, slug } = loaded;
   const scan = await loadScanBrief(db, request.project_id, request.gate_scan_id);
-  const data = {
+  const noResult = keyState === 'held_no_result';
+  return mailAll(env, await requestRecipients(db, request), sendSecurityPublicHeldEmail, {
     slug,
     state: keyState as SecurityPublicHeldState,
     requestedBy: await requesterLabel(db, request),
@@ -1138,31 +987,18 @@ async function deliverPublicHeld(db: Db, env: PlatformEmailEnv, row: Row): Promi
         ? await blockerFindings(db, request.project_id, request.blocker_ids)
         : [],
     blockerCount: request.blockers,
-    noResultReason: keyState === 'held_no_result' ? noResultReason(scan) : null,
-    unreadFiles:
-      keyState === 'held_no_result' && request.held_reason === SECURITY_GATE_UNREAD_FILES,
-  };
-  const recipients = await resolvePublicRequestRecipients(
-    db,
-    request.project_id,
-    request.requested_by_user_id,
-  );
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityPublicHeldEmail(env, recipient.email, data, recipient.reason),
-  );
+    noResultReason: noResult ? noResultReason(scan) : null,
+    unreadFiles: noResult && request.held_reason === SECURITY_GATE_UNREAD_FILES,
+  });
 }
 
-async function deliverNowPublic(
-  db: Db,
-  env: PlatformEmailEnv,
-  row: Row,
-  now: number,
-): Promise<Delivery> {
-  const request = await loadRequest(db, row);
-  const slug = row.project_id ? await projectSlug(db, row.project_id) : null;
-  if (!request || slug === null || (request.state !== 'passed' && request.state !== 'bypassed')) {
+async function deliverNowPublic({ db, env, row, now }: DeliveryInput): Promise<Delivery> {
+  const loaded = await loadRequest(db, row);
+  const how = loaded?.request.state;
+  if (!loaded || (how !== 'passed' && how !== 'bypassed')) {
     return SKIP;
   }
+  const { request, slug } = loaded;
   const [zeroTrust] = await db
     .select({
       status: projectZeroTrust.status,
@@ -1176,51 +1012,39 @@ async function deliverNowPublic(
     !zeroTrust || (zeroTrust.status === 'ready' && !zeroTrust.desired && !zeroTrust.effective);
   if (!isPublic) {
     // Sent once Zero Trust really is off, not when the request closes (spec §12).
-    return now - stampMs(row.created_at) > 24 * 60 * 60_000
+    return now - stampMs(row.created_at) > DAY_MS
       ? SKIP
       : { kind: 'wait', at: now + SECURITY_NOW_PUBLIC_WAIT_MS };
   }
-  const data = { slug, how: request.state } as const;
-  const recipients = await resolvePublicRequestRecipients(
-    db,
-    request.project_id,
-    request.requested_by_user_id,
-  );
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityNowPublicEmail(env, recipient.email, data, recipient.reason),
-  );
+  return mailAll(env, await requestRecipients(db, request), sendSecurityNowPublicEmail, {
+    slug,
+    how,
+  });
 }
 
-async function deliverPublicCanceled(db: Db, env: PlatformEmailEnv, row: Row): Promise<Delivery> {
-  const request = await loadRequest(db, row);
-  const slug = row.project_id ? await projectSlug(db, row.project_id) : null;
-  const state: SecurityPublicRequestState | undefined = request?.state;
+async function deliverPublicCanceled({ db, env, row }: DeliveryInput): Promise<Delivery> {
+  const loaded = await loadRequest(db, row);
+  const cause = loaded?.request.cancel_cause;
   // `protect` cancels quietly (edge #80): only a gate or policy turn-off is announced.
   if (
-    !request ||
-    slug === null ||
-    state !== 'canceled' ||
-    (request.cancel_cause !== 'gate_off' && request.cancel_cause !== 'policy_off')
+    !loaded ||
+    loaded.request.state !== 'canceled' ||
+    (cause !== 'gate_off' && cause !== 'policy_off')
   ) {
     return SKIP;
   }
-  const data = { slug, cause: request.cancel_cause } as const;
-  const recipients = await resolvePublicRequestRecipients(
-    db,
-    request.project_id,
-    request.requested_by_user_id,
-  );
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityPublicCanceledEmail(env, recipient.email, data, recipient.reason),
+  return mailAll(
+    env,
+    await requestRecipients(db, loaded.request),
+    sendSecurityPublicCanceledEmail,
+    {
+      slug: loaded.slug,
+      cause,
+    },
   );
 }
 
-async function deliverBypass(
-  db: Db,
-  env: PlatformEmailEnv,
-  row: Row,
-  now: number,
-): Promise<Delivery> {
+async function deliverBypass({ db, env, row, now }: DeliveryInput): Promise<Delivery> {
   if (row.scan_bypass_id === null || row.project_id === null) {
     return SKIP;
   }
@@ -1260,24 +1084,25 @@ async function deliverBypass(
         : bypass.request_state === 'needs_deploy'
           ? 'the live deployment had no scan to judge'
           : 'the scan had not finished';
-  const data = {
-    slug,
-    actor: actor?.email?.trim() || actor?.login || bypass.actor_user_id,
-    actorRole:
-      bypass.actor_kind === 'installation_admin'
-        ? 'installation admin'
-        : bypass.actor_role === 'owner'
-          ? 'owner'
-          : 'project admin',
-    at: stampMs(bypass.created_at),
-    reason: bypass.reason,
-    skipped,
-    deploymentId: bypass.deployment_id,
-    uncheckedFixes: unchecked.map((finding) => `F-${finding.number}`),
-  };
-  const recipients = await resolveInstallationAdminRecipients(db);
-  const delivery = await sendToAll(recipients, (recipient) =>
-    sendSecurityBypassEmail(env, recipient.email, data, recipient.reason),
+  const delivery = await mailAll(
+    env,
+    await resolveInstallationAdminRecipients(db),
+    sendSecurityBypassEmail,
+    {
+      slug,
+      actor: actor?.email?.trim() || actor?.login || bypass.actor_user_id,
+      actorRole:
+        bypass.actor_kind === 'installation_admin'
+          ? 'installation admin'
+          : bypass.actor_role === 'owner'
+            ? 'owner'
+            : 'project admin',
+      at: stampMs(bypass.created_at),
+      reason: bypass.reason,
+      skipped,
+      deploymentId: bypass.deployment_id,
+      uncheckedFixes: unchecked.map((finding) => `F-${finding.number}`),
+    },
   );
   if (delivery.kind === 'sent') {
     await db
@@ -1288,53 +1113,38 @@ async function deliverBypass(
   return delivery;
 }
 
-// ---------------------------------------------------------------------------
-// Failure streaks and the weekly digest (M26; rows are queued by `alerts.ts`)
-// ---------------------------------------------------------------------------
-
-/** Scans listed in one streak email. */
-const STREAK_SCANS_SHOWN = 5;
-const DAY_MS = 24 * 60 * 60_000;
-
-type StreakScanRow = Readonly<{
-  id: string;
-  deploymentId: string | null;
-  status: string;
-  statusReason: string | null;
-  errorClass: string | null;
-  model: string | null;
-  finishedAt: string | null;
-}>;
-
 /** `refused by anthropic/…`, `timed out`, `bad output (not_json)`: why a scan gave no result. */
 export function securityStreakOutcome(
-  scan: Omit<StreakScanRow, 'id' | 'deploymentId' | 'finishedAt'>,
+  scan: Readonly<{
+    status: string;
+    statusReason: string | null;
+    errorClass: string | null;
+    model: string | null;
+  }>,
 ): string {
+  const reason = scan.statusReason;
   switch (scan.status) {
     case 'refused':
       return scan.model ? `refused by ${scan.model}` : 'refused';
     case 'timed_out':
       return 'timed out';
     case 'incomplete':
-      return scan.statusReason
-        ? `incomplete (${scan.statusReason.split('_').join(' ')})`
-        : 'incomplete';
+      return reason ? `incomplete (${words(reason)})` : 'incomplete';
     case 'failed':
-      if (scan.statusReason === 'bad_output') {
+      if (reason === 'bad_output') {
         return scan.errorClass ? `bad output (${scan.errorClass})` : 'bad output';
       }
-      if (scan.statusReason === 'input_missing') {
+      if (reason === 'input_missing') {
         return 'code not stored';
       }
-      return scan.statusReason ? `failed (${scan.statusReason.split('_').join(' ')})` : 'failed';
+      return reason ? `failed (${words(reason)})` : 'failed';
     default:
-      return scan.status.split('_').join(' ');
+      return words(scan.status);
   }
 }
 
-/** The streak a `streak_project` row was queued for, if it is still going. */
-async function streakOfRow(db: Db, row: Row, now: number): Promise<SecurityProjectStreak | null> {
-  // `streak_project:<projectId>:<since>`, also on a webhook row.
+/** The streak a `streak_project` row (or its webhook twin) was queued for, if still going. */
+async function streakOfRow(db: Db, row: Row, now: number) {
   const since = eventKeyOf(row).split(':')[2];
   if (row.project_id === null || !since) {
     return null;
@@ -1348,80 +1158,63 @@ async function streakOfRow(db: Db, row: Row, now: number): Promise<SecurityProje
   return streaks.find((streak) => streak.sinceScanId === sinceScanId) ?? null;
 }
 
-async function streakScans(
-  db: Db,
-  projectId: string,
-  ids: ReadonlyArray<string>,
-): Promise<Array<StreakScanRow>> {
-  if (ids.length === 0) {
-    return [];
-  }
-  return db
-    .select({
-      id: securityScans.id,
-      deploymentId: securityScans.deployment_id,
-      status: securityScans.status,
-      statusReason: securityScans.status_reason,
-      errorClass: securityScans.error_class,
-      model: securityScans.model_used,
-      finishedAt: securityScans.finished_at,
-    })
-    .from(securityScans)
-    .where(and(eq(securityScans.project_id, projectId), inArray(securityScans.id, [...ids])))
-    .orderBy(desc(securityScans.created_at), desc(securityScans.id));
-}
-
-async function deliverProjectStreak(
-  db: Db,
-  env: PlatformEmailEnv,
-  row: Row,
-  now: number,
-): Promise<Delivery> {
+async function deliverProjectStreak({ db, env, row, now }: DeliveryInput): Promise<Delivery> {
   const streak = await streakOfRow(db, row, now);
   const slug = row.project_id ? await projectSlug(db, row.project_id) : null;
   if (!streak || slug === null) {
     // A scan succeeded meanwhile, or the project is gone: the streak is over.
     return SKIP;
   }
-  const scans = await streakScans(
-    db,
-    streak.projectId,
-    streak.scanIds.slice(0, STREAK_SCANS_SHOWN),
-  );
-  const lines: Array<SecurityStreakScanLine> = scans.map((scan) => ({
-    id: scan.id,
-    deploymentId: scan.deploymentId,
-    outcome: securityStreakOutcome(scan),
-    at: scan.finishedAt ? stampMs(scan.finishedAt) : null,
-  }));
+  const shownIds = streak.scanIds.slice(0, STREAK_SCANS_SHOWN);
+  const scans =
+    shownIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: securityScans.id,
+            deploymentId: securityScans.deployment_id,
+            status: securityScans.status,
+            statusReason: securityScans.status_reason,
+            errorClass: securityScans.error_class,
+            model: securityScans.model_used,
+            finishedAt: securityScans.finished_at,
+          })
+          .from(securityScans)
+          .where(
+            and(
+              eq(securityScans.project_id, streak.projectId),
+              inArray(securityScans.id, shownIds),
+            ),
+          )
+          .orderBy(desc(securityScans.created_at), desc(securityScans.id));
   const newest = scans[0];
   const policy = await readSecurityPolicyLenient(db);
-  const refusedModel =
-    newest?.status === 'refused' && newest.model !== null && !newest.model.startsWith('@cf/')
-      ? newest.model
-      : null;
-  const data = {
-    slug,
-    failures: streak.failures,
-    scans: lines,
-    refusedModel,
-    cfModel: securityCfDefaultModel(policy),
-    fallbackOn: policy.fallbackToCf,
-  };
-  const recipients = await resolveProjectStreakRecipients(db, streak.projectId);
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityProjectStreakEmail(env, recipient.email, data, recipient.reason),
+  return mailAll(
+    env,
+    await resolveProjectStreakRecipients(db, streak.projectId),
+    sendSecurityProjectStreakEmail,
+    {
+      slug,
+      failures: streak.failures,
+      scans: scans.map((scan) => ({
+        id: scan.id,
+        deploymentId: scan.deploymentId,
+        outcome: securityStreakOutcome(scan),
+        at: scan.finishedAt ? stampMs(scan.finishedAt) : null,
+      })),
+      refusedModel:
+        newest?.status === 'refused' && newest.model !== null && !newest.model.startsWith('@cf/')
+          ? newest.model
+          : null,
+      cfModel: securityCfDefaultModel(policy),
+      fallbackOn: policy.fallbackToCf,
+    },
   );
 }
 
-async function deliverInstallationStreak(
-  db: Db,
-  env: PlatformEmailEnv,
-  row: Row,
-): Promise<Delivery> {
+async function deliverInstallationStreak({ db, env, row }: DeliveryInput): Promise<Delivery> {
   const day = eventKeyOf(row).split(':')[1];
-  const at = day ? Date.parse(`${day}T00:00:00Z`) : Number.NaN;
-  if (!Number.isFinite(at)) {
+  if (!day || !Number.isFinite(Date.parse(`${day}T00:00:00Z`))) {
     return SKIP;
   }
   // The 24 hours up to when the row was queued: a retry tells the same numbers.
@@ -1429,66 +1222,40 @@ async function deliverInstallationStreak(
   if (!securityInstallationFailing(failures)) {
     return SKIP;
   }
-  const recipients = await resolveInstallationAdminRecipients(db);
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityInstallationStreakEmail(
-      env,
-      recipient.email,
-      { ended: failures.ended, failed: failures.failed, byReason: failures.byReason },
-      recipient.reason,
-    ),
+  return mailAll(
+    env,
+    await resolveInstallationAdminRecipients(db),
+    sendSecurityInstallationStreakEmail,
+    { ended: failures.ended, failed: failures.failed, byReason: failures.byReason },
   );
 }
 
-/** The week a `digest` row covers, from its key. */
-function digestWeekOfRow(row: Row) {
-  // `digest:<monday>`, also on a webhook row.
+/** The counts of the week a `digest` row (or its twin) covers; `null` with nothing to tell. */
+async function digestOfRow(db: Db, row: Row, now: number) {
   const week = eventKeyOf(row).split(':')[1];
   const fromMs = week ? Date.parse(`${week}T00:00:00Z`) : Number.NaN;
   if (!week || !Number.isFinite(fromMs)) {
     return null;
   }
-  return { week, fromMs, toMs: fromMs + 7 * DAY_MS };
+  const counts = await readSecurityDigestCounts(
+    db,
+    { week, fromMs, toMs: fromMs + 7 * DAY_MS },
+    now,
+  );
+  return securityDigestIsEmpty(counts) ? null : { fromMs, counts };
 }
 
-async function digestCountsOfRow(
-  db: Db,
-  row: Row,
-  now: number,
-): Promise<SecurityDigestCounts | null> {
-  const week = digestWeekOfRow(row);
-  if (week === null) {
-    return null;
-  }
-  const counts = await readSecurityDigestCounts(db, week, now);
-  return securityDigestIsEmpty(counts) ? null : counts;
-}
-
-async function deliverDigest(
-  db: Db,
-  env: PlatformEmailEnv,
-  row: Row,
-  now: number,
-): Promise<Delivery> {
-  const week = digestWeekOfRow(row);
-  const counts = await digestCountsOfRow(db, row, now);
-  if (week === null || counts === null) {
+async function deliverDigest({ db, env, row, now }: DeliveryInput): Promise<Delivery> {
+  const digest = await digestOfRow(db, row, now);
+  if (digest === null) {
     return SKIP;
   }
-  const { week: _week, ...rest } = counts;
-  const data = {
-    ...rest,
-    weekLabel: `${formatSecurityDay(week.fromMs)} – ${formatSecurityDay(week.toMs - DAY_MS)}`,
-  };
-  const recipients = await resolveInstallationAdminRecipients(db);
-  return sendToAll(recipients, (recipient) =>
-    sendSecurityDigestEmail(env, recipient.email, data, recipient.reason),
-  );
+  const { week: _week, ...counts } = digest.counts;
+  return mailAll(env, await resolveInstallationAdminRecipients(db), sendSecurityDigestEmail, {
+    ...counts,
+    weekLabel: `${formatSecurityDay(digest.fromMs)} – ${formatSecurityDay(digest.fromMs + 6 * DAY_MS)}`,
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Webhook (M26): the twin row of any event, posted signed; ids and counts only
-// ---------------------------------------------------------------------------
 
 /** The webhook body of the event a `webhook` row copies; `null` when there is nothing to tell. */
 export async function securityWebhookEventOf(
@@ -1502,17 +1269,17 @@ export async function securityWebhookEventOf(
   const key = eventKeyOf(row);
   const parts = key.split(':');
   const kind = parts[0] ?? '';
-  const event = (data: Record<string, unknown>, slug: string | null): SecurityWebhookEvent => ({
+  const slug = row.project_id === null ? null : await projectSlug(db, row.project_id);
+  if (row.project_id !== null && slug === null) {
+    return null;
+  }
+  const event = (data: Record<string, unknown>): SecurityWebhookEvent => ({
     id: row.id,
     type: `security.${kind}`,
     createdAt: iso(stampMs(row.created_at)),
     project: row.project_id === null ? null : { id: row.project_id, slug },
     data,
   });
-  const slug = row.project_id === null ? null : await projectSlug(db, row.project_id);
-  if (row.project_id !== null && slug === null) {
-    return null;
-  }
   switch (kind) {
     case 'findings': {
       if (row.project_id === null) {
@@ -1523,17 +1290,14 @@ export async function securityWebhookEventOf(
       for (const finding of findings) {
         bySeverity[finding.severity] = (bySeverity[finding.severity] ?? 0) + 1;
       }
-      return event(
-        {
-          scanIds: row.scan_ids,
-          newFindings: findings.length,
-          urgent: findings.filter((finding) => finding.urgent).length,
-          bySeverity,
-          findingIds: findings.map((finding) => finding.label),
-          leads,
-        },
-        slug,
-      );
+      return event({
+        scanIds: row.scan_ids,
+        newFindings: findings.length,
+        urgent: findings.filter((finding) => finding.urgent).length,
+        bySeverity,
+        findingIds: findings.map((finding) => finding.label),
+        leads,
+      });
     }
     case 'reopen': {
       const [finding] = await db
@@ -1546,86 +1310,69 @@ export async function securityWebhookEventOf(
         .where(eq(securityFindings.id, parts[1] ?? ''))
         .limit(1);
       return finding
-        ? event(
-            {
-              findingId: `F-${finding.number}`,
-              severity: finding.override ?? finding.severity,
-              reopenCount: Number(parts[2]),
-            },
-            slug,
-          )
+        ? event({
+            findingId: `F-${finding.number}`,
+            severity: finding.override ?? finding.severity,
+            reopenCount: Number(parts[2]),
+          })
         : null;
     }
     case 'cap_project':
     case 'cap_platform': {
       const cap = capKeyParts(key);
-      return cap ? event({ month: cap.month, percent: cap.percent }, slug) : null;
+      return cap ? event({ month: cap.month, percent: cap.percent }) : null;
     }
     case 'public_held':
-      return event(
-        {
-          requestId: row.request_id,
-          state: parts[2] ?? null,
-          gateScanId: parts[3] && parts[3] !== '-' ? parts[3] : null,
-        },
-        slug,
-      );
+      return event({
+        requestId: row.request_id,
+        state: parts[2] ?? null,
+        gateScanId: parts[3] && parts[3] !== '-' ? parts[3] : null,
+      });
     case 'public_now_public':
     case 'public_canceled':
-      return event({ requestId: row.request_id }, slug);
+      return event({ requestId: row.request_id });
     case 'scan_bypass':
-      return event({ requestId: row.request_id, bypassId: row.scan_bypass_id }, slug);
+      return event({ requestId: row.request_id, bypassId: row.scan_bypass_id });
     case 'streak_project': {
       const streak = await streakOfRow(db, row, now);
       return streak
-        ? event(
-            {
-              failures: streak.failures,
-              scanIds: streak.scanIds.slice(0, STREAK_SCANS_SHOWN),
-              sinceScanId: streak.sinceScanId,
-            },
-            slug,
-          )
+        ? event({
+            failures: streak.failures,
+            scanIds: streak.scanIds.slice(0, STREAK_SCANS_SHOWN),
+            sinceScanId: streak.sinceScanId,
+          })
         : null;
     }
     case 'streak_installation': {
       const failures = await readSecurityInstallationFailures(db, stampMs(row.created_at));
-      return event(
-        {
-          day: parts[1] ?? null,
-          ended: failures.ended,
-          failed: failures.failed,
-          byReason: failures.byReason,
-        },
-        null,
-      );
+      return event({
+        day: parts[1] ?? null,
+        ended: failures.ended,
+        failed: failures.failed,
+        byReason: failures.byReason,
+      });
     }
     case 'digest': {
-      const counts = await digestCountsOfRow(db, row, now);
-      return counts ? event({ ...counts }, null) : null;
+      const digest = await digestOfRow(db, row, now);
+      return digest ? event({ ...digest.counts }) : null;
     }
     default:
       return null;
   }
 }
 
-async function deliverWebhook(
-  db: Db,
-  env: SecurityNotifyEnv,
-  row: Row,
-  now: number,
-  options: SecurityNotifyOptions,
-): Promise<Delivery> {
+async function deliverWebhook({ db, env, row, now, options }: DeliveryInput): Promise<Delivery> {
   const event = await securityWebhookEventOf(db, row, now);
   if (event === null) {
     return SKIP;
   }
-  if (!env.PROJECT_SECRET_KEYS_JSON || !env.PROJECT_SECRET_ACTIVE_KEY_VERSION) {
+  const { PROJECT_SECRET_KEYS_JSON, PROJECT_SECRET_ACTIVE_KEY_VERSION } = env;
+  if (!PROJECT_SECRET_KEYS_JSON || !PROJECT_SECRET_ACTIVE_KEY_VERSION) {
     throw new Error('The platform keyring is not bound; the webhook secret cannot be read.');
   }
   const webhookEnv: SecurityWebhookEnv = {
-    PROJECT_SECRET_KEYS_JSON: env.PROJECT_SECRET_KEYS_JSON,
-    PROJECT_SECRET_ACTIVE_KEY_VERSION: env.PROJECT_SECRET_ACTIVE_KEY_VERSION,
+    PROJECT_SECRET_KEYS_JSON,
+    PROJECT_SECRET_ACTIVE_KEY_VERSION,
     PLATFORM_INSTALLATION_ID: env.PLATFORM_INSTALLATION_ID,
   };
   const result = await postSecurityWebhook(webhookEnv, db, event, options.fetch);

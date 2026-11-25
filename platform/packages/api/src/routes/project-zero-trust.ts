@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { getPlatformCapabilities } from '../capabilities.ts';
+import { securityAuditsEnabled } from '../capabilities.ts';
 import type { ApiEnv } from '../env.ts';
 import {
   ProjectAccessDeniedError,
@@ -81,11 +81,7 @@ function zeroTrustErrorResponse(
 
 /** Whether the public gate is on for this request (capability on, policy gate on). */
 async function publicGateOn(context: Context<ApiEnv>): Promise<boolean> {
-  try {
-    if (!getPlatformCapabilities(context.env).securityAudits) {
-      return false;
-    }
-  } catch {
+  if (!securityAuditsEnabled(context.env)) {
     return false;
   }
   const policy = await readSecurityPolicyLenient(context.get('db'));

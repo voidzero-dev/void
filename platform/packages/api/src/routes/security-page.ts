@@ -1,28 +1,14 @@
 /**
- * `GET /security/projects/:slug` (spec §13.2): the project security page, and its forms
- * (Phase 2, M29).
+ * `/security/projects/:slug` (spec §13.2) and its forms. A signed link from
+ * `void project security open` is the credential (like the email confirm link):
  *
- * There is no browser session for project users on the API host, so a signed link from
- * `void project security open` is the credential, like the email confirm link:
+ *   ?t=<token> ─► verify ─► HttpOnly cookie on this path ─► 303 to the clean URL
+ *   cookie     ─► verify ─► re-check the member and account on every load ─► page
+ *   neither    ─► landing page with no project data
  *
- *   ?t=<token> ─► verify (15 min, one user, this project) ─► HttpOnly cookie on this
- *                 path only ─► 303 to the clean URL (the token leaves the address bar)
- *   cookie     ─► verify ─► re-check the member's role and account on every load ─► page
- *   neither    ─► landing page with no project data (links in email land here)
- *
- * Forms post below the page path, so the path-scoped cookie goes with them:
- *
- *   POST …/findings/:fid/resolve   settings    POST …/model    settings
- *   POST …/findings/:fid/comment   configure   POST …/budget   settings
- *   POST …/bypass                  settings
- *
- *   same origin? (Origin, else Referer; the admin CSRF rule) ─► cookie + member check
- *   ─► the server operation the API route calls ─► 303 to the page with ?done=<what>
- *   a refusal re-renders the page with the reason and the refusal's status
- *
- * The same text answers an unknown project and a project the reader may not see, so
- * the page does not tell whether a slug exists. Access protection still applies to the
- * route: a person behind the platform's Access app signs in there first.
+ * Forms post below the page path, so the cookie goes with them: same origin, cookie and
+ * member check, then the operation the API route calls, then 303 with `?done=`. An
+ * unknown project and a hidden one get the same text. Platform Access still applies.
  */
 import { SECURITY_PROVIDER_NOTICE_VERSION } from '@void/platform/security-models';
 import { parseSecurityDigits, parseSecurityUsdText } from '@void/platform/security-policy';
@@ -30,8 +16,9 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { parseOrigin } from '../admin/middleware/csrf.ts';
 import { platformBrowserPage } from '../browser-page.ts';
-import { getPlatformCapabilities } from '../capabilities.ts';
+import { securityAuditsEnabled } from '../capabilities.ts';
 import { getProjectBySlug, getUser } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { OperatorError } from '../operator/common.ts';
@@ -76,9 +63,7 @@ const COOKIE_NAME = 'void_security_page';
 /** `?done=` keys a form redirect sets, and the line the page shows for each. */
 type DoneKey = 'resolved' | 'commented' | 'model' | 'budget' | 'bypassed';
 
-type DoneCopy = Readonly<Record<DoneKey, string> & { [key: string]: string | undefined }>;
-
-const DONE_COPY: DoneCopy = {
+const DONE_COPY: Readonly<Record<DoneKey, string> & Record<string, string | undefined>> = {
   resolved: 'Finding resolved.',
   commented: 'Comment added.',
   model: 'Scan model saved.',
@@ -97,14 +82,6 @@ app.use('*', async (context, next) => {
   context.res.headers.set('cache-control', 'no-store');
   context.res.headers.set('referrer-policy', 'same-origin');
 });
-
-function capabilityOn(env: ApiEnv['Bindings']): boolean {
-  try {
-    return getPlatformCapabilities(env).securityAudits;
-  } catch {
-    return false;
-  }
-}
 
 function cleanPath(slug: string): string {
   return `/security/projects/${encodeURIComponent(slug)}`;
@@ -152,7 +129,7 @@ async function renderPage(
   const data = await loadSecurityPage(context.get('db'), {
     project: viewer.project,
     role: viewer.role,
-    capability: capabilityOn(context.env),
+    capability: securityAuditsEnabled(context.env),
   });
   return platformBrowserPage(context, 'Project security', renderSecurityPage(data, notice), status);
 }
@@ -185,18 +162,6 @@ app.get('/:slug', async (context) => {
   const done = DONE_COPY[context.req.query('done') ?? ''];
   return renderPage(context, viewer, done ? { kind: 'ok', text: done } : null);
 });
-
-// ---------------------------------------------------------------------------
-// Forms
-// ---------------------------------------------------------------------------
-
-function parseOrigin(value: string): string | null {
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
 
 /** The admin CSRF rule (`admin/middleware/csrf.ts`): Origin, else Referer, must be ours. */
 function sameOrigin(context: Context<ApiEnv>): boolean {
@@ -301,7 +266,7 @@ class PageRefusalError extends Error {
 
 /** `capabilityOff` in `project-security.ts`: model and budget need the capability. */
 function requireCapability(context: Context<ApiEnv>): void {
-  if (!capabilityOn(context.env)) {
+  if (!securityAuditsEnabled(context.env)) {
     throw new PageRefusalError('This Void platform does not enable securityAudits.', 501);
   }
 }

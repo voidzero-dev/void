@@ -4,15 +4,12 @@
 // checks the report and writes it to the file the runner named. The first refused report
 // gets its error back so the model can fix it; the runner reads what was accepted.
 
-import { constants } from 'node:fs';
-import { open, rename } from 'node:fs/promises';
 import { validateFindingsLenient } from '../coerce.ts';
 import { scanToolDefinitions } from '../tools/definitions.ts';
+import { readToolsByName } from '../tools/fs.ts';
 import type { FsTools, ToolResult } from '../tools/fs.ts';
+import { writeWhole } from '../util.ts';
 import { describeValidationError } from '../validate-findings.ts';
-
-export const MCP_SERVER_NAME = 'void-scan';
-export const MCP_SERVER_VERSION = '1';
 
 export type McpServerOptions = {
   tools: FsTools;
@@ -35,59 +32,41 @@ type Reply = {
 
 export type McpServer = { handle(message: unknown): Promise<Reply | null> };
 
-async function writeWhole(path: string, text: string): Promise<void> {
-  const temp = `${path}.tmp`;
-  const handle = await open(
-    temp,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-    0o644,
-  );
-  try {
-    await handle.writeFile(text);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(temp, path);
-}
-
 export function createMcpServer(options: McpServerOptions): McpServer {
   const definitions = scanToolDefinitions();
+  const readTools = readToolsByName(options.tools);
   let submitted = false;
   let rejections = 0;
   let codeReads = 0;
+
+  async function reject(kind: string, message: string): Promise<ToolResult> {
+    rejections++;
+    await writeWhole(
+      `${options.outPath}.rejected`,
+      JSON.stringify({ count: rejections, kind, message }),
+    );
+    return {
+      ok: false,
+      text:
+        rejections === 1
+          ? `error: your last output was invalid: ${message}. Fix it and call submit_findings again. This is your only retry.`
+          : 'error: the report was not accepted again. Stop and answer with the status only.',
+    };
+  }
 
   async function submit(args: Json): Promise<ToolResult> {
     if (submitted) {
       return { ok: false, text: 'error: the report was already accepted. The session is over.' };
     }
     const checked = validateFindingsLenient(args);
-    let problem: { kind: string; message: string } | null = null;
     if (!checked.ok) {
-      problem = { kind: checked.kind, message: describeValidationError(checked) };
-    } else if (
-      options.maxRecords !== undefined &&
-      checked.report.findings.length > options.maxRecords
-    ) {
-      problem = {
-        kind: 'shape',
-        message: `a verify session submits exactly one record, for the candidate it was given`,
-      };
+      return reject(checked.kind, describeValidationError(checked));
     }
-    if (problem !== null || !checked.ok) {
-      rejections++;
-      const note = problem ?? { kind: 'shape', message: 'report refused' };
-      await writeWhole(
-        `${options.outPath}.rejected`,
-        JSON.stringify({ count: rejections, ...note }),
+    if (options.maxRecords !== undefined && checked.report.findings.length > options.maxRecords) {
+      return reject(
+        'shape',
+        'a verify session submits exactly one record, for the candidate it was given',
       );
-      return {
-        ok: false,
-        text:
-          rejections === 1
-            ? `error: your last output was invalid: ${note.message}. Fix it and call submit_findings again. This is your only retry.`
-            : 'error: the report was not accepted again. Stop and answer with the status only.',
-      };
     }
     await writeWhole(options.outPath, JSON.stringify(checked.report));
     submitted = true;
@@ -95,24 +74,19 @@ export function createMcpServer(options: McpServerOptions): McpServer {
   }
 
   async function call(name: unknown, args: Json): Promise<ToolResult> {
-    switch (name) {
-      case 'read_file': {
-        const result = await options.tools.readFile(args);
-        if (result.code === true) {
-          codeReads++;
-          await writeWhole(`${options.outPath}.reads`, JSON.stringify({ count: codeReads }));
-        }
-        return result;
-      }
-      case 'list_files':
-        return options.tools.listFiles(args);
-      case 'grep':
-        return options.tools.grep(args);
-      case 'submit_findings':
-        return submit(args);
-      default:
-        return { ok: false, text: 'error: unknown tool' };
+    if (name === 'submit_findings') {
+      return submit(args);
     }
+    const tool = typeof name === 'string' ? readTools.get(name) : undefined;
+    if (!tool) {
+      return { ok: false, text: 'error: unknown tool' };
+    }
+    const result = await tool(args);
+    if (name === 'read_file' && result.code === true) {
+      codeReads++;
+      await writeWhole(`${options.outPath}.reads`, JSON.stringify({ count: codeReads }));
+    }
+    return result;
   }
 
   return {
@@ -125,15 +99,14 @@ export function createMcpServer(options: McpServerOptions): McpServer {
         return null; // a notification
       }
       const ok = (result: unknown): Reply => ({ jsonrpc: '2.0', id, result });
+      const input = (params ?? {}) as Json;
       switch (method) {
         case 'initialize':
           return ok({
             protocolVersion:
-              typeof (params as Json | undefined)?.protocolVersion === 'string'
-                ? (params as Json).protocolVersion
-                : '2025-06-18',
+              typeof input.protocolVersion === 'string' ? input.protocolVersion : '2025-06-18',
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
+            serverInfo: { name: 'void-scan', version: '1' },
           });
         case 'ping':
           return ok({});
@@ -144,14 +117,13 @@ export function createMcpServer(options: McpServerOptions): McpServer {
               description: tool.description,
               inputSchema: tool.parameters,
               annotations: {
-                readOnlyHint: tool.readOnly,
+                readOnlyHint: tool.name !== 'submit_findings',
                 destructiveHint: false,
                 openWorldHint: false,
               },
             })),
           });
         case 'tools/call': {
-          const input = (params ?? {}) as Json;
           const args =
             typeof input.arguments === 'object' && input.arguments !== null
               ? (input.arguments as Json)
@@ -165,11 +137,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
           return ok({ content: [{ type: 'text', text: result.text }], isError: !result.ok });
         }
         default:
-          return {
-            jsonrpc: '2.0',
-            id,
-            error: { code: -32_601, message: 'method not found' },
-          };
+          return { jsonrpc: '2.0', id, error: { code: -32_601, message: 'method not found' } };
       }
     },
   };

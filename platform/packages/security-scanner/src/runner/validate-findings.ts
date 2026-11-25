@@ -1,6 +1,5 @@
-// Container-side check of a findings report. Hand-written (no regex, no schema
-// library) so the runner bundle stays dependency-free. The API reuses
-// `validateFindingsValue` at ingest (M12); here it gives the model its one repair turn.
+// Check of a findings report, hand-written so the runner bundle stays dependency-free.
+// The API reuses `validateFindingsValue` at ingest; here it gives the model its repair turn.
 
 import {
   CONFIDENCES,
@@ -101,7 +100,7 @@ function readReport(value: unknown): ScanReport {
   return { run_status: runStatus, findings, notes };
 }
 
-const FINDING_KEYS = [
+export const FINDING_KEYS = [
   'fingerprint',
   'verdict',
   'severity',
@@ -124,17 +123,17 @@ const FINDING_KEYS = [
   'runtime_proof',
 ] as const;
 
+export const TRACE_KEYS = ['file', 'line', 'note'] as const;
+
 function readFinding(value: unknown, path: string): FindingRecord {
   const object = readObject(value, path, FINDING_KEYS);
   const verdict = readEnum<Verdict>(object.verdict, `${path}.verdict`, VERDICTS);
-  const severity =
-    object.severity === undefined || object.severity === null
-      ? null
-      : readEnum<Severity>(object.severity, `${path}.severity`, SEVERITIES);
-  const confidence =
-    object.confidence === undefined || object.confidence === null
-      ? null
-      : readEnum<Confidence>(object.confidence, `${path}.confidence`, CONFIDENCES);
+  const severity = readOptionalEnum<Severity>(object.severity, `${path}.severity`, SEVERITIES);
+  const confidence = readOptionalEnum<Confidence>(
+    object.confidence,
+    `${path}.confidence`,
+    CONFIDENCES,
+  );
   const lineStart = readLine(object.line_start, `${path}.line_start`);
   const lineEnd = readLine(object.line_end, `${path}.line_end`);
   if (lineStart !== null && lineEnd !== null && lineEnd < lineStart) {
@@ -214,23 +213,22 @@ function checkVerdictRules(record: FindingRecord, path: string): void {
     }
   }
   if (record.verdict === 'confirmed') {
-    if (record.severity === null) {
-      throw new ShapeError(`${path}.severity`, 'is required for a confirmed finding');
-    }
-    if (record.sink_path === null) {
-      throw new ShapeError(`${path}.sink_path`, 'is required for a confirmed finding');
-    }
-    if (record.trace.length === 0) {
+    const missing = (
+      [
+        ['severity', record.severity === null],
+        ['sink_path', record.sink_path === null],
+        ['trace', record.trace.length === 0],
+        ['evidence', record.evidence.length === 0],
+        ['fix', record.fix.length === 0],
+      ] as const
+    ).find(([, isMissing]) => isMissing)?.[0];
+    if (missing !== undefined) {
       throw new ShapeError(
-        `${path}.trace`,
-        'needs the source-to-sink steps for a confirmed finding',
+        `${path}.${missing}`,
+        missing === 'trace'
+          ? 'needs the source-to-sink steps for a confirmed finding'
+          : 'is required for a confirmed finding',
       );
-    }
-    if (record.evidence.length === 0) {
-      throw new ShapeError(`${path}.evidence`, 'is required for a confirmed finding');
-    }
-    if (record.fix.length === 0) {
-      throw new ShapeError(`${path}.fix`, 'is required for a confirmed finding');
     }
     return;
   }
@@ -254,7 +252,7 @@ function readTrace(value: unknown, path: string): Array<TraceStep> {
   }
   return value.map((step, index) => {
     const stepPath = `${path}[${index}]`;
-    const object = readObject(step, stepPath, ['file', 'line', 'note']);
+    const object = readObject(step, stepPath, TRACE_KEYS);
     return {
       file: readPath(object.file, `${stepPath}.file`),
       line: readLine(object.line, `${stepPath}.line`),
@@ -285,6 +283,14 @@ function readEnum<T extends string>(value: unknown, path: string, values: Readon
     throw new ShapeError(path, `must be one of ${values.join(', ')}`);
   }
   return value as T;
+}
+
+function readOptionalEnum<T extends string>(
+  value: unknown,
+  path: string,
+  values: ReadonlyArray<T>,
+): T | null {
+  return value === undefined || value === null ? null : readEnum(value, path, values);
 }
 
 function readText(value: unknown, path: string, max: number): string {
@@ -333,23 +339,15 @@ function readCwe(value: unknown, path: string): string | null {
   if (value === undefined || value === null || value === '') {
     return null;
   }
-  if (typeof value !== 'string' || !value.startsWith('CWE-')) {
+  const digits = typeof value === 'string' && value.startsWith('CWE-') ? value.slice(4) : '';
+  if (
+    digits.length === 0 ||
+    digits.length > 6 ||
+    Array.from(digits).some((c) => c < '0' || c > '9')
+  ) {
     throw new ShapeError(path, 'must look like CWE-79 or be null');
   }
-  const digits = value.slice(4);
-  if (digits.length === 0 || digits.length > 6 || !isDigits(digits)) {
-    throw new ShapeError(path, 'must look like CWE-79 or be null');
-  }
-  return value;
-}
-
-function isDigits(text: string): boolean {
-  for (const char of text) {
-    if (char < '0' || char > '9') {
-      return false;
-    }
-  }
-  return true;
+  return value as string;
 }
 
 const INPUT_PREFIXES = ['/scan/input/', 'input/', './'];

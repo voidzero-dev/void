@@ -1,9 +1,9 @@
 /**
  * The installation security audit policy store (spec §5.3, §5.4): lenient and strict
- * readers of the `platform_settings` row, the locked revision CAS write, and the
- * operator change operation with its `dryRun` preview text. The admin panel (M18) and
- * the operator CLI share `changeSecurityPolicy`.
+ * readers, the locked revision write, and the change operation with its `dryRun` preview
+ * that the admin panel (M18) and the operator CLI share.
  */
+import { isRecord } from '@void/deploy-core';
 import {
   getSecurityModel,
   isSecurityModelId,
@@ -30,7 +30,6 @@ import {
   SECURITY_POLICY_SETTINGS_KEY,
 } from '@void/platform/security-policy';
 import type {
-  SecurityLimitKey,
   SecurityMode,
   SecurityPolicy,
   SecurityEntitlement,
@@ -64,26 +63,18 @@ import { projectSecuritySettings, securityPlatformSpend, securityScans } from '.
 import type { SecurityScanStatus } from './schema.ts';
 import { securityWebhookView } from './webhook.ts';
 
-// ---------------------------------------------------------------------------
-// Readers
-// ---------------------------------------------------------------------------
-
-/** The stored row as read. `unreadable` holds the reason when the row is bad data. */
+/** The stored row as read: `saved` when a row exists, `unreadable` the reason it is bad data. */
 export type StoredSecurityPolicy = Readonly<{
   policy: SecurityPolicy;
-  /** A row exists (readable or not). */
   saved: boolean;
   unreadable: string | null;
 }>;
 
 function storedRevision(value: unknown): number {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const revision = (value as Record<string, unknown>).revision;
-    if (typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0) {
-      return revision;
-    }
-  }
-  return 0;
+  const revision = isRecord(value) ? value.revision : undefined;
+  return typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0
+    ? revision
+    : 0;
 }
 
 /**
@@ -105,10 +96,12 @@ export function interpretStoredSecurityPolicy(value: unknown): StoredSecurityPol
   }
 }
 
+async function readRawPolicy(db: DbOrTx): Promise<StoredSecurityPolicy> {
+  return interpretStoredSecurityPolicy(await getPlatformSetting(db, SECURITY_POLICY_SETTINGS_KEY));
+}
+
 export async function readStoredSecurityPolicy(db: DbOrTx): Promise<StoredSecurityPolicy> {
-  const stored = interpretStoredSecurityPolicy(
-    await getPlatformSetting(db, SECURITY_POLICY_SETTINGS_KEY),
-  );
+  const stored = await readRawPolicy(db);
   if (stored.unreadable !== null) {
     console.error(
       `[security-policy] ${SECURITY_POLICY_SETTINGS_KEY} is malformed; reading it as disabled: ${stored.unreadable}`,
@@ -122,15 +115,9 @@ export async function readSecurityPolicyLenient(db: DbOrTx): Promise<SecurityPol
   return (await readStoredSecurityPolicy(db)).policy;
 }
 
-/**
- * Strict reader for paths that must fail closed (the public gate and its Zero Trust
- * refusals). Bad data throws `SecurityPolicyUnreadableError` (503). A missing row is
- * the default policy.
- */
+/** Strict reader for paths that fail closed (the public gate): bad data throws (503). */
 export async function readSecurityPolicyStrict(db: DbOrTx): Promise<SecurityPolicy> {
-  const stored = interpretStoredSecurityPolicy(
-    await getPlatformSetting(db, SECURITY_POLICY_SETTINGS_KEY),
-  );
+  const stored = await readRawPolicy(db);
   if (stored.unreadable !== null) {
     throw new SecurityPolicyUnreadableError(stored.unreadable);
   }
@@ -151,10 +138,7 @@ export async function lockSecurityPolicyShared(tx: DbOrTx): Promise<void> {
   );
 }
 
-/**
- * Writes `next` with the revision after `current`'s. Call under `lockSecurityPolicy`
- * in the transaction that read `current`. Throws when `next` breaks a policy rule.
- */
+/** Writes `next` as `current`'s next revision, under the lock that read `current`. */
 export async function replaceSecurityPolicy(
   tx: DbOrTx,
   current: SecurityPolicy,
@@ -164,10 +148,6 @@ export async function replaceSecurityPolicy(
   await setPlatformSetting(tx, SECURITY_POLICY_SETTINGS_KEY, written);
   return written;
 }
-
-// ---------------------------------------------------------------------------
-// Change request
-// ---------------------------------------------------------------------------
 
 export type SecurityPolicyChangeRequest = Readonly<{
   expectedRevision?: number;
@@ -190,21 +170,11 @@ export type SecurityPolicyChangeRequest = Readonly<{
   digest?: boolean;
 }>;
 
-const REQUEST_KEYS = new Set([
-  'dryRun',
-  'expectedRevision',
-  'mode',
-  'defaultModel',
-  'blockedModels',
-  'block',
-  'unblock',
-  'acceptProviderNoticeVersion',
-  'limits',
-  'publicGate',
-  'sweeps',
-  'fallbackToCf',
-  'digest',
-]);
+const REQUEST_KEYS = new Set(
+  'dryRun expectedRevision mode defaultModel blockedModels block unblock acceptProviderNoticeVersion limits publicGate sweeps fallbackToCf digest'.split(
+    ' ',
+  ),
+);
 
 function requestModel(value: unknown, label: string): SecurityModelId {
   if (!isSecurityModelId(value)) {
@@ -230,7 +200,7 @@ function requestModels(value: unknown, label: string): ReadonlyArray<SecurityMod
   return ids;
 }
 
-function wholeNumber(value: unknown, label: string): number {
+export function parseSecurityWholeNumber(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     throw SecurityApiError.invalid(`${label} must be a nonnegative whole number.`);
   }
@@ -256,7 +226,7 @@ export function parseSecurityPolicyChangeRequest(
     -readonly [Key in keyof SecurityPolicyChangeRequest]: SecurityPolicyChangeRequest[Key];
   } = {};
   if (body.expectedRevision !== undefined) {
-    request.expectedRevision = wholeNumber(body.expectedRevision, 'expectedRevision');
+    request.expectedRevision = parseSecurityWholeNumber(body.expectedRevision, 'expectedRevision');
   }
   if (body.mode !== undefined) {
     if (!isSecurityMode(body.mode)) {
@@ -267,21 +237,17 @@ export function parseSecurityPolicyChangeRequest(
   if (body.defaultModel !== undefined) {
     request.defaultModel = requestModel(body.defaultModel, 'defaultModel');
   }
-  if (body.blockedModels !== undefined) {
-    request.blockedModels = requestModels(body.blockedModels, 'blockedModels');
-  }
-  if (body.block !== undefined) {
-    request.block = requestModels(body.block, 'block');
-  }
-  if (body.unblock !== undefined) {
-    request.unblock = requestModels(body.unblock, 'unblock');
+  for (const key of ['blockedModels', 'block', 'unblock'] as const) {
+    if (body[key] !== undefined) {
+      request[key] = requestModels(body[key], key);
+    }
   }
   const both = (request.block ?? []).filter((id) => request.unblock?.includes(id));
   if (both.length > 0) {
     throw SecurityApiError.invalid(`A model cannot be blocked and unblocked at once: ${both[0]}.`);
   }
   if (body.acceptProviderNoticeVersion !== undefined) {
-    request.acceptProviderNoticeVersion = wholeNumber(
+    request.acceptProviderNoticeVersion = parseSecurityWholeNumber(
       body.acceptProviderNoticeVersion,
       'acceptProviderNoticeVersion',
     );
@@ -313,14 +279,12 @@ export function parseSecurityPolicyChangeRequest(
   return request;
 }
 
-/** The sweep fields one request changes. */
 type SweepsChange = { on?: boolean; everyDays?: number };
 
-function parseSweepsRequest(value: unknown): Partial<SecuritySweeps> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+function parseSweepsRequest(input: unknown): Partial<SecuritySweeps> {
+  if (!isRecord(input)) {
     throw SecurityApiError.invalid('sweeps must be an object with on and everyDays.');
   }
-  const input = value as Record<string, unknown>;
   const sweeps: SweepsChange = {};
   for (const key of Object.keys(input)) {
     if (key !== 'on' && key !== 'everyDays') {
@@ -346,46 +310,16 @@ function parseSweepsRequest(value: unknown): Partial<SecuritySweeps> {
   return sweeps;
 }
 
-// ---------------------------------------------------------------------------
-// Proposal (pure)
-// ---------------------------------------------------------------------------
-
-export type SecurityPolicyChanges = Readonly<{
-  mode: Readonly<{ from: SecurityMode; to: SecurityMode }> | null;
-  defaultModel: Readonly<{ from: SecurityModelId; to: SecurityModelId }> | null;
-  blocked: ReadonlyArray<SecurityModelId>;
-  unblocked: ReadonlyArray<SecurityModelId>;
-  noticeAccepted: number | null;
-  limits: ReadonlyArray<Readonly<{ key: SecurityLimitKey; from: number; to: number }>>;
-  publicGateOn: boolean;
-  publicGateOff: boolean;
-  sweeps: Readonly<{ from: SecuritySweeps; to: SecuritySweeps }> | null;
-  /** The new value when it changes, else `null`. */
-  fallbackToCf: boolean | null;
-  digest: boolean | null;
-  /** The stored row was bad data; this write replaces it. */
-  repaired: boolean;
-}>;
-
-export type SecurityPolicyProposal = Readonly<{
-  next: SecurityPolicy;
-  changes: SecurityPolicyChanges;
-}>;
+export type SecurityPolicyChanges = ReturnType<typeof proposeSecurityPolicyChange>['changes'];
 
 export type SecurityPolicyChangeContext = Readonly<{
   userId: string;
   now: number;
-  /**
-   * A probe that just ran (the policy change re-runs it when it leaves `disabled`).
-   * It replaces the stored result and is what the turn-on check reads.
-   */
+  /** A probe that just ran: it replaces the stored result for the turn-on check. */
   entitlement?: SecurityEntitlement;
   /** A preview of a change whose apply runs the probe: the stored result is not checked. */
   probeOnApply?: boolean;
-  /**
-   * Installation Zero Trust as the public gate needs it. Left out, the gate cannot turn
-   * on (it is read under the Zero Trust lock by `changeSecurityPolicy`).
-   */
+  /** Installation Zero Trust, read under its lock; left out, the gate cannot turn on. */
   zeroTrust?: SecurityZeroTrustFact;
 }>;
 
@@ -460,25 +394,15 @@ function assertEntitlement(policy: SecurityPolicy, now: number): void {
   if (isSecurityEntitlementFresh(entitlement, now)) {
     return;
   }
-  if (!entitlement) {
-    throw SecurityApiError.of(
-      'entitlementMissing',
-      'Run the entitlement probe before turning security audits on: void platform security probe',
-      { missing: ['probe'], checkedAt: null },
-    );
-  }
-  if (entitlement.ok) {
-    throw SecurityApiError.of(
-      'entitlementMissing',
-      'The last entitlement probe is more than 24 hours old. Run it again: void platform security probe',
-      { missing: ['probe'], checkedAt: entitlement.checkedAt },
-    );
-  }
-  throw SecurityApiError.of(
-    'entitlementMissing',
-    `The last entitlement probe failed (${entitlement.missing.join(', ')}). Fix it and run: void platform security probe`,
-    { missing: entitlement.missing, checkedAt: entitlement.checkedAt },
-  );
+  const message = !entitlement
+    ? 'Run the entitlement probe before turning security audits on'
+    : entitlement.ok
+      ? 'The last entitlement probe is more than 24 hours old. Run it again'
+      : `The last entitlement probe failed (${entitlement.missing.join(', ')}). Fix it and run`;
+  throw SecurityApiError.of('entitlementMissing', `${message}: void platform security probe`, {
+    missing: entitlement && !entitlement.ok ? entitlement.missing : ['probe'],
+    checkedAt: entitlement?.checkedAt ?? null,
+  });
 }
 
 function probeRunsOnApply(
@@ -530,15 +454,14 @@ function assertPublicGateTurnsOn(
 }
 
 /**
- * The policy after `request`, with every rule checked. Throws `SecurityApiError` for
- * a refused change. Leaving `disabled` needs a probe pass less than 24 hours old;
- * turning the policy Off also turns "Scan before a project goes public" off.
+ * The policy after `request`, with every rule checked (`SecurityApiError` when refused).
+ * Leaving `disabled` needs a probe pass under 24 hours old; Off also turns the gate off.
  */
 export function proposeSecurityPolicyChange(
   stored: StoredSecurityPolicy,
   request: SecurityPolicyChangeRequest,
   context: SecurityPolicyChangeContext,
-): SecurityPolicyProposal {
+) {
   const current = stored.policy;
   let thirdPartyNotice = current.thirdPartyNotice;
   if (request.acceptProviderNoticeVersion !== undefined) {
@@ -579,7 +502,7 @@ export function proposeSecurityPolicyChange(
   if (current.mode === 'disabled' && mode !== 'disabled' && !probeApplies) {
     assertEntitlement(next, context.now);
   }
-  const changes: SecurityPolicyChanges = {
+  const changes = {
     mode: mode === current.mode ? null : { from: current.mode, to: mode },
     defaultModel:
       next.defaultModel === current.defaultModel
@@ -599,8 +522,10 @@ export function proposeSecurityPolicyChange(
       next.sweeps.on === current.sweeps.on && next.sweeps.everyDays === current.sweeps.everyDays
         ? null
         : { from: current.sweeps, to: next.sweeps },
+    // The new value when it changes, else `null`.
     fallbackToCf: next.fallbackToCf === current.fallbackToCf ? null : next.fallbackToCf,
     digest: next.digest === current.digest ? null : next.digest,
+    // The stored row was bad data; this write replaces it.
     repaired: stored.unreadable !== null,
   };
   const changed =
@@ -629,54 +554,8 @@ export function proposeSecurityPolicyChange(
   return { next, changes };
 }
 
-// ---------------------------------------------------------------------------
-// Preview (spec §5.4)
-// ---------------------------------------------------------------------------
-
-export type SecurityPolicyPreviewCounts = Readonly<{
-  /** Projects in scope for the new mode (Off → on). */
-  scannedProjects: number;
-  /** Of those, projects with no succeeded scan: their first scan is a full scan. */
-  firstFullScan: number;
-  /** Of those, projects with an open urgent finding. */
-  urgentProjects: number;
-  /** Projects protected by Zero Trust right now. */
-  protectedProjects: number;
-  /** Scans `pending_input` or `queued`. */
-  queuedScans: number;
-  runningScans: number;
-  /** Projects with no model of their own. */
-  noOwnModel: number;
-  /** Of those, projects that accepted the current provider notice. */
-  noOwnModelAccepted: number;
-  /** Projects whose own pick is a newly blocked model, per model. */
-  pickedBlocked: Readonly<Partial<Record<SecurityModelId, number>>>;
-  /**
-   * Of those, projects that accepted the current provider notice. Read only when the
-   * new default is third-party: the others stay on `securityFallbackModel` (spec §8.3).
-   */
-  pickedBlockedAccepted: Readonly<Partial<Record<SecurityModelId, number>>>;
-  /** Only with a public gate change (spec §5.5). */
-  gate?: SecurityPolicyGateCounts;
-  /** Only when sweeps turn on or change: projects due for a sweep now. */
-  sweepProjects?: number;
-  /**
-   * Only when scans turn on with the platform and default project budgets off: some
-   * plan has a scan cap amount (`plans:security-caps`, M27), so not all spending is open.
-   */
-  planCapped?: boolean;
-}>;
-
-export type SecurityPolicyGateCounts = Readonly<{
-  /** Turning on: protected projects the gate covers. */
-  protectedProjects: number;
-  /** Turning on: projects already going public; they finish going public (edge #87). */
-  goingPublic: number;
-  /** Turning on: new projects start public, so they are not gated. */
-  newProjectsStartPublic: boolean;
-  /** Turning off: slugs with an open request; the requests are canceled. */
-  openRequests: ReadonlyArray<string>;
-}>;
+/** The counts behind the preview lines (spec §5.4). */
+export type SecurityPolicyPreviewCounts = Awaited<ReturnType<typeof securityPolicyPreviewCounts>>;
 
 function projectsText(count: number, adjective = ''): string {
   const noun = count === 1 ? 'project' : 'projects';
@@ -934,19 +813,12 @@ export function securityPolicyPreviewLines(
   return lines;
 }
 
-// ---------------------------------------------------------------------------
-// Counts
-// ---------------------------------------------------------------------------
-
 const QUEUED_STATUSES = [
   'pending_input',
   'queued',
 ] as const satisfies ReadonlyArray<SecurityScanStatus>;
 
-/**
- * Scans that count toward the 24-hour failure rate. An `incomplete` scan hit a cap and
- * kept its confirmed findings: it is counted apart, as on the Scans screen.
- */
+/** Scans that count toward the 24-hour failure rate; `incomplete` is counted apart. */
 const FAILED_STATUSES = [
   'failed',
   'refused',
@@ -955,11 +827,7 @@ const FAILED_STATUSES = [
 
 type ProjectScope = 'all' | 'protected';
 
-/**
- * Project protection as spec §4 defines it (fail-safe): protected only while
- * installation Zero Trust is on and not public-only, and the project row is settled
- * protected. Bad Zero Trust data reads as "everything public".
- */
+/** Spec §4, fail-safe: Zero Trust protects only while on and not public-only; bad data reads public. */
 export async function installationZeroTrustProtects(db: DbOrTx): Promise<boolean> {
   try {
     const configuration = await readZeroTrustConfigurationStrict(db);
@@ -1009,13 +877,18 @@ async function countScans(
 const noSucceededScan = sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.status = 'succeeded' AND s.deployment_id IS NOT NULL)`;
 const openUrgentFinding = sql`EXISTS (SELECT 1 FROM security_findings f WHERE f.project_id = ${projects.id} AND f.verdict = 'confirmed' AND COALESCE(f.severity_override, f.severity) IN ('critical', 'high') AND f.state = 'open')`;
 
-/** Counts behind the preview lines. Only the counts a change needs are read. */
-export async function securityPolicyPreviewCounts(
+/**
+ * Only the counts a change needs are read. `firstFullScan` and `urgentProjects` are of
+ * `scannedProjects`; `pickedBlockedAccepted` is read only for a third-party default (the
+ * others stay on `securityFallbackModel`, spec §8.3); `planCapped`: a plan has a scan cap
+ * while the platform and project budgets are off (M27).
+ */
+async function securityPolicyPreviewCounts(
   db: DbOrTx,
   current: SecurityPolicy,
   next: SecurityPolicy,
   changes: SecurityPolicyChanges,
-): Promise<SecurityPolicyPreviewCounts> {
+) {
   const protects = await installationZeroTrustProtects(db);
   const turningOn = changes.mode?.from === 'disabled';
   // The project rules (M34) count too: `never` is left out, `always` is in under `public`.
@@ -1106,17 +979,14 @@ export async function securityPolicyPreviewCounts(
   };
 }
 
-async function gatePreviewCounts(
-  db: DbOrTx,
-  changes: SecurityPolicyChanges,
-  protects: boolean,
-): Promise<SecurityPolicyGateCounts> {
+/** Gate on: protected projects, those already going public (edge #87); off: open requests. */
+async function gatePreviewCounts(db: DbOrTx, changes: SecurityPolicyChanges, protects: boolean) {
   if (changes.publicGateOff) {
     return {
       protectedProjects: 0,
       goingPublic: 0,
       newProjectsStartPublic: false,
-      openRequests: await listOpenRequestSlugs(db),
+      openRequests: (await listOpenRequestSlugs(db)) as ReadonlyArray<string>,
     };
   }
   const [goingPublic] = await db
@@ -1141,7 +1011,7 @@ async function gatePreviewCounts(
     protectedProjects: await countProjects(db, 'protected', protects),
     goingPublic: goingPublic?.total ?? 0,
     newProjectsStartPublic,
-    openRequests: [],
+    openRequests: [] as ReadonlyArray<string>,
   };
 }
 
@@ -1160,10 +1030,6 @@ export async function readSecurityZeroTrustFact(db: DbOrTx): Promise<SecurityZer
     return 'off';
   }
 }
-
-// ---------------------------------------------------------------------------
-// Operation
-// ---------------------------------------------------------------------------
 
 /** The policy plus what the panel and CLI show next to it. */
 export function securityPolicyView(stored: StoredSecurityPolicy, capability: boolean, now: number) {
@@ -1229,10 +1095,8 @@ export class SecurityPolicyRevisionError extends SecurityApiError {
 }
 
 /**
- * Changes the policy (operator CLI and admin panel). A real change needs
- * `expectedRevision`; a preview takes it optionally and returns the revision to send.
- * Turning the policy Off cancels queued scans in the same transaction; running scans
- * finish.
+ * Changes the policy. A real change needs `expectedRevision`; a preview returns the one to
+ * send. Turning the policy Off cancels queued scans in the same transaction.
  */
 export async function changeSecurityPolicy(
   db: Db,
@@ -1241,11 +1105,7 @@ export async function changeSecurityPolicy(
     userId: string;
     preview: boolean;
     now?: number;
-    /**
-     * Runs the entitlement probe (spec §5.2). When given, a change that leaves
-     * `disabled` runs it before the write and checks its result instead of the stored
-     * one; a failing probe is stored and refuses the change.
-     */
+    /** The entitlement probe (spec §5.2) a change that leaves `disabled` runs first. */
     probe?: () => Promise<SecurityProbeReport>;
   }>,
 ): Promise<SecurityPolicyChangeResult> {
@@ -1262,16 +1122,14 @@ export async function changeSecurityPolicy(
   if (options.probe && !options.preview) {
     const before = await readStoredSecurityPolicy(db);
     if (leavesDisabled(before.policy) && request.expectedRevision === before.policy.revision) {
-      // Refuse a change that fails anyway before the probe provisions the scanner,
-      // starts a container and pays for model calls. Only the probe result is unknown.
+      // Refuse a change that fails anyway before the probe spends anything.
       proposeSecurityPolicyChange(before, request, {
         userId: options.userId,
         now: options.now ?? Date.now(),
         probeOnApply: true,
         zeroTrust: request.publicGate === true ? await readSecurityZeroTrustFact(db) : undefined,
       });
-      // The probe takes up to a few minutes, so it runs outside the transaction. The
-      // revision check below still refuses the write if the policy changed meanwhile.
+      // Minutes long, so outside the transaction; the revision check still guards the write.
       const report = await options.probe();
       entitlement = report.entitlement;
       keyIds = report.keyIds;
@@ -1284,10 +1142,7 @@ export async function changeSecurityPolicy(
   // Read the clock after the probe: its result must not look like it is from the future.
   const now = options.now ?? Date.now();
   return db.transaction(async (tx) => {
-    // Turning the gate on re-reads Zero Trust under its lock, taken before the policy
-    // lock (the order the public gate checkpoint uses). The disable and public-only
-    // claims take the same lock exclusive and read `publicGate` under it, so the two
-    // writes run one at a time (spec §5.5, edge #90).
+    // Gate on: Zero Trust's lock first, as the gate checkpoint takes it (spec §5.5, edge #90).
     if (request.publicGate === true) {
       await lockZeroTrustConfiguration(tx, 'shared');
     }
@@ -1298,8 +1153,7 @@ export async function changeSecurityPolicy(
       throw new SecurityPolicyRevisionError(request.expectedRevision, current.revision);
     }
     if (entitlement && keyIds) {
-      // Key writes take the policy lock too: read under it, a key changed during the
-      // probe is seen here, and that host keeps the value the key write stored.
+      // A key changed during the probe keeps the value its write stored (same lock).
       entitlement = entitlementForSavedKeys(
         entitlement,
         keyIds,
@@ -1343,28 +1197,16 @@ export async function changeSecurityPolicy(
     }
     let canceledRequests = 0;
     if (changes.publicGateOff) {
-      // Gate off, for any cause: open requests are canceled and the projects stay
-      // protected. The emails are queued here and sent after the commit.
-      canceledRequests = (
-        await cancelAllOpenRequests(
-          tx,
-          changes.mode?.to === 'disabled' ? 'policy_off' : 'gate_off',
-          {
-            kind: 'installation_admin',
-            userId: options.userId,
-            role: null,
-          },
-        )
-      ).length;
+      // Gate off: open requests are canceled (emails after commit); projects stay protected.
+      const reason = changes.mode?.to === 'disabled' ? 'policy_off' : 'gate_off';
+      const by = { kind: 'installation_admin', userId: options.userId, role: null } as const;
+      canceledRequests = (await cancelAllOpenRequests(tx, reason, by)).length;
     }
     return { ok: true as const, policy: written, changes, canceledScans, canceledRequests };
   });
 }
 
-/**
- * The refusal for a failed turn-on probe: each failing check's own copy (spec §5.2),
- * and the probe id that finds its log line.
- */
+/** The refusal for a failed turn-on probe: each failing check's copy (spec §5.2) and probe id. */
 function probeFailedError(report: SecurityProbeReport): SecurityApiError {
   // Only the checks that refuse the change (1–4); a host without credits does not.
   const failing = report.checks.filter((check) => report.entitlement.missing.includes(check.name));
@@ -1407,11 +1249,8 @@ function withProbeLine(lines: ReadonlyArray<string>): Array<string> {
   ];
 }
 
-/**
- * A failing probe keeps the time its run of failures began, which the admin banner shows
- * as "failing since" (spec §5.2). A passing probe drops it.
- */
-export function withFailingSince(
+/** A failing probe keeps when its failures began ("failing since", spec §5.2). */
+function withFailingSince(
   next: SecurityEntitlement,
   previous: SecurityEntitlement | null,
 ): SecurityEntitlement {
@@ -1427,10 +1266,8 @@ export function withFailingSince(
 }
 
 /**
- * Stores a probe result (`entitlement`, revision + 1) under the policy lock. A stored
- * row that cannot be read is left alone: the operator saves the policy first. With the
- * provider key ids the probe ran with, a host whose key changed meanwhile keeps its
- * stored value, which the key write set (M33).
+ * Stores a probe result under the policy lock; an unreadable row is left alone. With the
+ * key ids it ran with, a host whose key changed meanwhile keeps its stored value (M33).
  */
 export async function recordSecurityEntitlement(
   db: Db,
@@ -1460,10 +1297,6 @@ export async function recordSecurityEntitlement(
     return { saved: true, revision: written.revision };
   });
 }
-
-// ---------------------------------------------------------------------------
-// Status (`void platform security status`)
-// ---------------------------------------------------------------------------
 
 /** First day of the UTC month of `now`, as stored in the spend tables. */
 export function securitySpendMonth(now: number): string {

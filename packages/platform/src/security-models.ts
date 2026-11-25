@@ -1,10 +1,6 @@
 /**
- * The models a security audit scan can run on, shared by the platform API (scheduler,
- * model proxy, budget, picker) and the CLI. This is the only list: a platform release
- * updates it when models or prices change.
- *
- * Prices are list prices in USD per million tokens. The spend meter and the scan
- * reserve use them; a model without a price cannot be picked until one is filled in.
+ * The only list of models a security scan can run on, shared by the platform API and the
+ * CLI. Prices are list prices in USD per million tokens; an unpriced model cannot be picked.
  */
 
 /** How the scanner runs a model (spec §8.1). Stored on `security_scans.engine`. */
@@ -190,10 +186,8 @@ function assertTokenCount(value: number, label: string): void {
 }
 
 /**
- * Cost of `inputTokens` and `outputTokens` at the model's list price, in whole
- * nano-dollars. `cachedInputTokens` is the part of `inputTokens` read from the
- * prompt cache, priced at the model's cached-input price when it has one. `null` when
- * the model has no price.
+ * Cost at the model's list price in whole nano-dollars; `cachedInputTokens` is the part of
+ * `inputTokens` read from the prompt cache. `null` when the model has no price.
  */
 export function securityModelCostNanoUsd(
   id: SecurityModelId,
@@ -226,11 +220,7 @@ export function securityModelCostUsd(
   return nano === null ? null : nano / 1_000_000_000;
 }
 
-/**
- * Worst-case cost of one scan, reserved against the caps when the scan starts:
- * `maxInputTokens × input price + maxOutputTokens × output price` (spec §16.1).
- * Defaults to the default policy limits. `null` when the model has no price.
- */
+/** Worst-case cost of one scan, reserved against the caps at start (spec §16.1). */
 export function securityScanReserveUsd(
   id: SecurityModelId,
   limits: Readonly<{ maxInputTokens: number; maxOutputTokens: number }> = {
@@ -256,15 +246,6 @@ export function securityProviderNotice(host: SecurityThirdPartyHost): ReadonlyAr
     'Scans run only on code this project deploys. Pick this model only if you own the code or may have it reviewed.',
     'Policies: anthropic.com/legal/aup · openai.com/policies/usage-policies · developers.cloudflare.com/workers-ai/platform/data-usage',
   ];
-}
-
-/** One-line form for deploy output, `status` and the findings email. */
-export function securityProviderNoticeShort(id: SecurityModelId): string | null {
-  const host = securityModelThirdPartyHost(id);
-  if (!host) {
-    return null;
-  }
-  return `Model ${id} is run by ${SECURITY_PROVIDER_NAMES[host]}. Its usage policy applies and it may refuse.`;
 }
 
 /** Why a scan does not run on the project's own pick (the platform API sends it as `pickProblem`). */

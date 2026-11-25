@@ -1,16 +1,7 @@
 /**
- * Saving and removing an installation provider key (design doc 0095 M33).
- *
- *   POST /operator/v1/security/provider-keys {host, key | null, dryRun?}
- *     dryRun ─► preview lines (no call, nothing stored)
- *     key    ─► 1-token test call on the key ─ fails ─► 422, nothing stored
- *                                            └ ok ──► stored encrypted (policy lock)
- *     null   ─► removed; the host's probe result is cleared (policy lock), because its
- *               scans go back to Unified Billing credits the probe has not checked
- *
- * A saved key that passed the test call keeps the host's probe result: the engine image
- * is the same, and the key itself was just checked. A host that never passed (no
- * credits, so no image copied) still needs `void platform security probe`.
+ * Saving and removing an installation provider key (design doc 0095 M33). A key is saved
+ * only after a 1-token test call passes (else 422) and keeps the host's probe result;
+ * removing one clears it, as its scans go back to unchecked Unified Billing credits.
  */
 import { SECURITY_PROVIDER_NAMES } from '@void/platform/security-models';
 import type { SecurityThirdPartyHost } from '@void/platform/security-models';
@@ -105,15 +96,6 @@ export async function previewSecurityProviderKey(db: DbOrTx, request: SecurityPr
   };
 }
 
-export type SecurityProviderKeyChangeResult = Readonly<{
-  ok: true;
-  host: SecurityThirdPartyHost;
-  providerKey: Readonly<{ setAt: string }> | null;
-  /** Projects cannot pick this host's models until a probe passes. */
-  probeNeeded: boolean;
-  message: string;
-}>;
-
 type ChangeOptions = Readonly<{
   userId: string;
   now: number;
@@ -142,7 +124,7 @@ export async function changeSecurityProviderKey(
   db: Db,
   request: SecurityProviderKeyRequest,
   options: ChangeOptions,
-): Promise<SecurityProviderKeyChangeResult> {
+) {
   const { host } = request;
   if (request.key !== null) {
     const key: SecurityProviderKey = { host, key: request.key, keyId: 'test' };

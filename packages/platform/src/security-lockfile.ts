@@ -1,16 +1,10 @@
 /**
- * Third-party code by package identity (security audits, design doc 0095 M10), shared by
- * the CLI that reads the project's lockfile at deploy and the platform API that drops
- * registry packages from a scan input.
- *
- *   source path ─► package name (after the last `node_modules/`)
- *   lockfile    ─► name → registry | local
- *     pnpm-lock.yaml: `importers` (direct) + `packages` (every resolved package)
- *     package-lock.json / npm-shrinkwrap.json: `packages["node_modules/…"]`
- *
- * A package seen as both local and registry is local: code that may be the owner's is
- * never dropped. Hand-written readers, no YAML library and no regex.
+ * Third-party code by package identity (design doc 0095 M10), shared by the CLI at deploy
+ * and the API that drops registry packages from a scan input. A package seen as both
+ * local and registry is local: code that may be the owner's is never dropped.
  */
+
+import { isRecord } from './validate.ts';
 
 export type SecurityPackageSource = 'registry' | 'local';
 
@@ -41,12 +35,7 @@ export type SecurityPackageClaims = Readonly<{
 /** The package a path sits in: the part after its last `node_modules/`. */
 export function packageNameOfPath(path: string): string | null {
   const segments = path.split('/');
-  let last = -1;
-  for (let index = 0; index < segments.length; index++) {
-    if (segments[index] === 'node_modules') {
-      last = index;
-    }
-  }
+  const last = segments.lastIndexOf('node_modules');
   if (last === -1) {
     return null;
   }
@@ -62,17 +51,10 @@ export function packageNameOfPath(path: string): string | null {
 }
 
 function sourceOfSpecifier(version: string): SecurityPackageSource {
-  if (
-    version.startsWith('link:') ||
-    version.startsWith('file:') ||
-    version.startsWith('workspace:') ||
-    version.startsWith('git') ||
-    version.startsWith('github:') ||
-    version.includes('://')
-  ) {
-    return 'local';
-  }
-  return 'registry';
+  const local =
+    ['link:', 'file:', 'workspace:', 'git'].some((prefix) => version.startsWith(prefix)) ||
+    version.includes('://');
+  return local ? 'local' : 'registry';
 }
 
 function record(
@@ -93,21 +75,16 @@ export function parsePackageLock(text: string): SecurityLockfileIndex | null {
   } catch {
     return null;
   }
-  if (typeof value !== 'object' || value === null) {
-    return null;
-  }
-  const packages = (value as { packages?: unknown }).packages;
-  if (typeof packages !== 'object' || packages === null) {
+  if (!isRecord(value) || !isRecord(value.packages)) {
     return null;
   }
   const index = new Map<string, SecurityPackageSource>();
-  const entries: Array<[string, unknown]> = Object.entries(packages);
-  for (const [key, entry] of entries) {
+  for (const [key, entry] of Object.entries(value.packages)) {
     const name = packageNameOfPath(key);
-    if (name === null || typeof entry !== 'object' || entry === null) {
+    if (name === null || !isRecord(entry)) {
       continue;
     }
-    const { link, resolved } = entry as { link?: unknown; resolved?: unknown };
+    const { link, resolved } = entry;
     // A registry tarball is an `https://` URL; a link, a `file:` path or a git URL is local.
     const local =
       link === true ||
@@ -153,13 +130,8 @@ function localResolution(text: string): boolean {
 }
 
 /**
- * `pnpm-lock.yaml` (v6–v9), read line by line from its indentation:
- *
- * - `importers`: each direct dependency's `version:`; `link:`/`file:` or a git URL is
- *   local, anything else came from the registry.
- * - `packages`: every resolved package, direct or not. A `resolution` with an
- *   `integrity` and no folder, `file:` tarball or git repo is a registry package.
- *
+ * `pnpm-lock.yaml` (v6–v9), read line by line from its indentation: `importers` give each
+ * direct dependency's `version:`, `packages` each resolved package's `resolution`.
  * Workspace packages are importers, never `packages` entries, so they stay local.
  */
 export function parsePnpmLock(text: string): SecurityLockfileIndex | null {
@@ -291,17 +263,17 @@ function validName(value: unknown): value is string {
  * malformed or too long (the scan then keeps third-party code, ranked last).
  */
 export function parseSecurityPackageClaims(value: unknown): SecurityLockfileIndex | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return null;
   }
-  const { registry, local } = value as { registry?: unknown; local?: unknown };
-  if (!Array.isArray(registry) || !Array.isArray(local)) {
-    return null;
-  }
-  if (registry.length + local.length > SECURITY_PACKAGE_CLAIMS_MAX) {
-    return null;
-  }
-  if (!registry.every(validName) || !local.every(validName)) {
+  const { registry, local } = value;
+  if (
+    !Array.isArray(registry) ||
+    !Array.isArray(local) ||
+    registry.length + local.length > SECURITY_PACKAGE_CLAIMS_MAX ||
+    !registry.every(validName) ||
+    !local.every(validName)
+  ) {
     return null;
   }
   const index = new Map<string, SecurityPackageSource>();

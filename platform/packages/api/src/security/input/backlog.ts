@@ -1,14 +1,7 @@
 /**
- * Focus caps and the unscanned backlog (spec §7.4, edges #13, #36).
- *
- * A scan sends at most 400 changed files, 2 MB in all, as its focus. Each later scan
- * takes up to 400 files from the project's backlog first, then the new diff; the
- * rest goes (back) to the backlog. A file over 256 KB counts as 256 KB: only part
- * of it fits in the model's view anyway.
- *
- * The backlog is `security-scans/{project}/backlog.json`. A scan writes the backlog
- * it leaves behind next to its raw output; ingest (M12) makes it the project's
- * backlog only when the scan succeeds, so a failed scan loses no file.
+ * Focus caps and the unscanned backlog (spec §7.4, edges #13, #36). A scan's focus is at
+ * most 400 files, 2 MB (a file counts at most 256 KB): backlog first, then the new diff;
+ * the rest goes to the backlog, which ingest keeps only when the scan succeeds.
  */
 import { assertTarPath } from './tar.ts';
 
@@ -21,11 +14,8 @@ export const SECURITY_BACKLOG_MAX_PATHS = 50_000;
 export type SecurityFocusCandidate = Readonly<{ path: string; bytes: number }>;
 
 export type SecurityFocus = Readonly<{
-  /** Paths sent as focus, backlog first. */
   focus: ReadonlyArray<string>;
-  /** Paths left for later scans. */
   backlog: ReadonlyArray<string>;
-  /** How many focus paths came from the backlog. */
   fromBacklog: number;
 }>;
 
@@ -49,28 +39,24 @@ export function selectSecurityFocus(
   const maxFiles = input.maxFiles ?? SECURITY_FOCUS_MAX_FILES;
   const maxBytes = input.maxBytes ?? SECURITY_FOCUS_MAX_BYTES;
   const focus: Array<string> = [];
-  const taken = new Set<string>();
   const left: Array<string> = [];
-  const leftSet = new Set<string>();
+  const seen = new Set<string>();
   let bytes = 0;
   let fromBacklog = 0;
 
   const offer = (path: string, size: number, isBacklog: boolean) => {
-    if (taken.has(path) || leftSet.has(path)) {
+    if (seen.has(path)) {
       return;
     }
+    seen.add(path);
     const cost = weight(size);
     if (focus.length < maxFiles && bytes + cost <= maxBytes) {
       focus.push(path);
-      taken.add(path);
       bytes += cost;
-      if (isBacklog) {
-        fromBacklog++;
-      }
-      return;
+      fromBacklog += Number(isBacklog);
+    } else {
+      left.push(path);
     }
-    left.push(path);
-    leftSet.add(path);
   };
 
   for (const path of input.backlog) {
@@ -91,20 +77,14 @@ export function serializeSecurityBacklog(paths: ReadonlyArray<string>): string {
 
 /** A missing, unreadable or malformed backlog is empty; bad paths are left out. */
 export function parseSecurityBacklog(text: string | null): Array<string> {
-  if (text === null) {
-    return [];
-  }
-  let value: unknown;
+  let paths: unknown;
   try {
-    value = JSON.parse(text);
+    const value = JSON.parse(text ?? 'null') as { version?: unknown; paths?: unknown } | null;
+    paths = value?.version === 1 ? value.paths : null;
   } catch {
     return [];
   }
-  if (typeof value !== 'object' || value === null) {
-    return [];
-  }
-  const { version, paths } = value as { version?: unknown; paths?: unknown };
-  if (version !== 1 || !Array.isArray(paths)) {
+  if (!Array.isArray(paths)) {
     return [];
   }
   const out: Array<string> = [];

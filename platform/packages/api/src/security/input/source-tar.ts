@@ -1,13 +1,6 @@
 /**
- * Reads a GitHub source tarball (`git archive` output, gzip) one entry at a time,
- * for the T1 source diff (design doc 0095, M11). Hand-written ustar / pax reader:
- * no dependency, no regex, nothing held but the entry being read.
- *
- *   gzip ─► 512-byte headers ─► pax `path` / `size`, GNU long name, ustar prefix
- *        └► regular files only, the top folder (`owner-repo-sha/`) cut off
- *
- * Links, devices and folders are skipped. A name with an empty, `.` or `..` part,
- * or one starting with `/`, is skipped too: the archive is not trusted.
+ * Streams a GitHub source tarball (gzip) one entry at a time for T1 (M11): a small ustar /
+ * pax reader that keeps regular files with safe names, the top folder cut off.
  */
 
 const BLOCK = 512;
@@ -16,22 +9,16 @@ const decoder = new TextDecoder();
 
 export class SourceTarballError extends Error {}
 
-/** The archive holds more than the limits allow; the scan falls back to T2. */
 export class SourceTarballTooLarge extends SourceTarballError {}
 
 export type SourceTarballLimits = Readonly<{
-  /** Regular files, at most. */
   maxFiles: number;
-  /** Bytes of all regular files, uncompressed. */
   maxBytes: number;
 }>;
 
 export type SourceTarballEntry = Readonly<{ path: string; size: number }>;
 
-/**
- * Called for each regular file. Return a sink to get its bytes (called once per
- * chunk, then with `null` at the end), or `null` to skip it.
- */
+/** Per regular file: a sink for its chunks (then `null`), or `null` to skip it. */
 export type SourceTarballVisitor = (
   entry: SourceTarballEntry,
 ) => ((chunk: Uint8Array | null) => void) | null;
@@ -55,14 +42,10 @@ class StreamBytes {
     if (value.length === 0) {
       return true;
     }
-    if (this.pending.length === 0) {
-      this.pending = value;
-    } else {
-      const joined = new Uint8Array(this.pending.length + value.length);
-      joined.set(this.pending);
-      joined.set(value, this.pending.length);
-      this.pending = joined;
-    }
+    const joined = new Uint8Array(this.pending.length + value.length);
+    joined.set(this.pending);
+    joined.set(value, this.pending.length);
+    this.pending = joined;
     return true;
   }
 
@@ -145,12 +128,7 @@ function checksumOk(block: Uint8Array): boolean {
 }
 
 function isZeroBlock(block: Uint8Array): boolean {
-  for (const byte of block) {
-    if (byte !== 0) {
-      return false;
-    }
-  }
-  return true;
+  return block.every((byte) => byte === 0);
 }
 
 type PaxFields = { path?: string; size?: number };
@@ -215,11 +193,7 @@ function padOf(size: number): number {
   return (BLOCK - (size % BLOCK)) % BLOCK;
 }
 
-/**
- * Walks a gzip tar stream. Throws `SourceTarballTooLarge` past the limits and
- * `SourceTarballError` on a broken archive or a failed read; the stream is canceled
- * either way.
- */
+/** Walks a gzip tar stream; throws `SourceTarballTooLarge` / `SourceTarballError`, then cancels. */
 export async function walkSourceTarball(
   gzipped: ReadableStream<Uint8Array>,
   limits: SourceTarballLimits,

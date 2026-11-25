@@ -1,5 +1,5 @@
 // Read-only file tools for the model: read_file, list_files, grep. Engine B calls
-// them in its loop; Engine C's `void-scan` MCP server (M13) wraps the same code.
+// them in its loop; Engine C's `void-scan` MCP server wraps the same code.
 //
 // Rules (spec §15.2 T3, §15.3): only `/scan/input` and `/scan/memory` are readable;
 // a path holding `..`, or leading outside `/scan`, is refused; no symlink is ever
@@ -20,13 +20,9 @@ export type ToolResult = {
 export type FsToolsOptions = {
   /** The real directory that stands for `/scan`. */
   root: string;
-  /** How the model sees the root. Default `/scan`. */
-  displayRoot?: string;
-  maxFileBytes?: number;
-  maxOutputChars?: number;
 };
 
-export const FS_TOOL_LIMITS = {
+const FS_TOOL_LIMITS = {
   maxFileBytes: 4 * 1024 * 1024,
   maxOutputChars: 64_000,
   maxPathChars: 1024,
@@ -43,17 +39,11 @@ export const FS_TOOL_LIMITS = {
 } as const;
 
 const READABLE_AREAS = new Set(['input', 'memory']);
+/** How the model sees the scan folder. */
+const ROOT = '/scan';
 
-export type FsTools = {
-  readFile(args: { path?: unknown; offset?: unknown; limit?: unknown }): Promise<ToolResult>;
-  listFiles(args: { path?: unknown; recursive?: unknown }): Promise<ToolResult>;
-  grep(args: {
-    pattern?: unknown;
-    path?: unknown;
-    case_insensitive?: unknown;
-    max_results?: unknown;
-  }): Promise<ToolResult>;
-};
+type Tool = (args: Record<string, unknown>) => Promise<ToolResult>;
+export type FsTools = Record<'readFile' | 'listFiles' | 'grep', Tool>;
 
 class ToolInputError extends Error {}
 
@@ -78,10 +68,19 @@ async function guard(run: () => Promise<ToolResult>): Promise<ToolResult> {
   }
 }
 
+/** The read tools by the name the model calls them. */
+export function readToolsByName(tools: FsTools): ReadonlyMap<string, Tool> {
+  return new Map<string, Tool>([
+    ['read_file', (args) => tools.readFile(args)],
+    ['list_files', (args) => tools.listFiles(args)],
+    ['grep', (args) => tools.grep(args)],
+  ]);
+}
+
+const displayPath = (segments: ReadonlyArray<string>) => [ROOT, ...segments].join('/');
+
 export function createFsTools(options: FsToolsOptions): FsTools {
-  const displayRoot = trimTrailingSlash(options.displayRoot ?? '/scan');
-  const maxFileBytes = options.maxFileBytes ?? FS_TOOL_LIMITS.maxFileBytes;
-  const maxOutputChars = options.maxOutputChars ?? FS_TOOL_LIMITS.maxOutputChars;
+  const { maxFileBytes, maxOutputChars } = FS_TOOL_LIMITS;
   let realRootPromise: Promise<string> | undefined;
   const realRoot = () => (realRootPromise ??= realpath(options.root));
 
@@ -101,12 +100,12 @@ export function createFsTools(options: FsToolsOptions): FsTools {
       }
     }
     let relative: string;
-    if (asked === displayRoot) {
+    if (asked === ROOT) {
       relative = '';
-    } else if (asked.startsWith(`${displayRoot}/`)) {
-      relative = asked.slice(displayRoot.length + 1);
+    } else if (asked.startsWith(`${ROOT}/`)) {
+      relative = asked.slice(ROOT.length + 1);
     } else if (asked.startsWith('/')) {
-      throw new ToolInputError(`path is outside ${displayRoot}`);
+      throw new ToolInputError(`path is outside ${ROOT}`);
     } else {
       relative = `input/${asked}`;
     }
@@ -121,7 +120,7 @@ export function createFsTools(options: FsToolsOptions): FsTools {
       segments.push(segment);
     }
     if (segments.length === 0 || !READABLE_AREAS.has(segments[0])) {
-      throw new ToolInputError(`only ${displayRoot}/input and ${displayRoot}/memory can be read`);
+      throw new ToolInputError(`only ${ROOT}/input and ${ROOT}/memory can be read`);
     }
     const base = await realRoot();
     const expected = join(base, ...segments);
@@ -135,10 +134,6 @@ export function createFsTools(options: FsToolsOptions): FsTools {
       throw new ToolInputError(`symlinks are not followed: ${displayPath(segments)}`);
     }
     return { segments, real, display: displayPath(segments) };
-  }
-
-  function displayPath(segments: ReadonlyArray<string>): string {
-    return [displayRoot, ...segments].join('/');
   }
 
   async function readSmallFile(real: string, display: string): Promise<string> {
@@ -164,18 +159,16 @@ export function createFsTools(options: FsToolsOptions): FsTools {
     }
   }
 
-  function cap(text: string, hint: string): string {
-    if (text.length <= maxOutputChars) {
-      return text;
-    }
-    return `${text.slice(0, maxOutputChars)}\n[output truncated; ${hint}]`;
-  }
+  const cap = (text: string, hint: string): string =>
+    text.length <= maxOutputChars
+      ? text
+      : `${text.slice(0, maxOutputChars)}\n[output truncated; ${hint}]`;
 
   /** Walks regular files and directories under `start`, never through a symlink. */
   async function* walk(
     start: Resolved,
     maxDepth: number,
-  ): AsyncGenerator<{ display: string; real: string; kind: 'file' | 'dir'; depth: number }> {
+  ): AsyncGenerator<{ display: string; real: string; kind: 'file' | 'dir' }> {
     const stack: Array<{ real: string; display: string; depth: number }> = [
       { real: start.real, display: start.display, depth: 0 },
     ];
@@ -187,12 +180,12 @@ export function createFsTools(options: FsToolsOptions): FsTools {
         const real = join(current.real, entry.name);
         const display = `${current.display}/${entry.name}`;
         if (entry.isDirectory()) {
-          yield { display, real, kind: 'dir', depth: current.depth };
+          yield { display, real, kind: 'dir' };
           if (current.depth + 1 < maxDepth) {
             subdirs.push({ real, display, depth: current.depth + 1 });
           }
         } else if (entry.isFile()) {
-          yield { display, real, kind: 'file', depth: current.depth };
+          yield { display, real, kind: 'file' };
         }
         // Symlinks, sockets, fifos and devices are skipped.
       }
@@ -245,7 +238,7 @@ export function createFsTools(options: FsToolsOptions): FsTools {
 
     listFiles: (args) =>
       guard(async () => {
-        const target = await resolve(args.path, `${displayRoot}/input`);
+        const target = await resolve(args.path, `${ROOT}/input`);
         const recursive = args.recursive === true;
         const stat = await lstat(target.real);
         if (!stat.isDirectory()) {
@@ -286,7 +279,7 @@ export function createFsTools(options: FsToolsOptions): FsTools {
           FS_TOOL_LIMITS.maxGrepResults,
           'max_results',
         );
-        const target = await resolve(args.path, `${displayRoot}/input`);
+        const target = await resolve(args.path, `${ROOT}/input`);
         const stat = await lstat(target.real);
         const files: Array<{ real: string; display: string }> = [];
         if (stat.isFile()) {
@@ -360,8 +353,4 @@ function readCount(
 
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-function trimTrailingSlash(text: string): string {
-  return text.length > 1 && text.endsWith('/') ? text.slice(0, -1) : text;
 }

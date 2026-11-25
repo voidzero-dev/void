@@ -29,6 +29,14 @@ export type SecurityScanSummary = {
   createdAt: string;
 };
 
+/** Public request states that still hold the project protected. */
+export const OPEN_PUBLIC_REQUEST_STATES: ReadonlySet<string> = new Set([
+  'waiting_scan',
+  'held_findings',
+  'held_no_result',
+  'needs_deploy',
+]);
+
 export type SecurityPublicRequest = {
   id: string;
   state: string;
@@ -36,8 +44,6 @@ export type SecurityPublicRequest = {
   targetDeploymentId: string;
   gateScanId: string | null;
   blockers: { count: number; ids: Array<string> };
-  requestedAt: string;
-  requestedByRole: string | null;
 };
 
 export type SecurityUrgentFinding = {
@@ -122,15 +128,11 @@ export type SecurityFinding = {
   line?: number | null;
   lineEnd?: number | null;
   resolution?: string | null;
-  resolvedAt?: string | null;
-  resolvedBy?: string | null;
   /** `severity` was set by a person; `scanSeverity` is what the scans said. Newer platforms only. */
   severityEdited?: boolean;
   scanSeverity?: string | null;
   notSeenInLatest?: boolean;
   possibleDuplicateOf?: { id: string; resolution: string | null } | null;
-  reopenCount?: number;
-  fixChecked?: boolean;
   deploymentId?: string | null;
   firstSeenAt?: string | null;
   trace?: unknown;
@@ -165,59 +167,39 @@ export type SecurityFindingDetail = {
 };
 
 export type SecurityFindingChange = {
-  ok: true;
   id: string;
-  state: string;
   resolution: string | null;
-  revision: number;
   publicRequest?: SecurityPublicRequest;
 };
 
 /** `POST …/findings/:fid/severity`: the finding after a severity edit. */
 export type SecuritySeverityChange = {
-  ok: true;
   id: string;
   severity: string | null;
   scanSeverity: string | null;
   severityEdited: boolean;
-  urgent: boolean;
-  revision: number;
   changed: boolean;
   publicRequest?: SecurityPublicRequest;
 };
 
 export type SecurityScanList = { scans: Array<SecurityScanSummary>; nextCursor: string | null };
 
-export type SecurityModelChange = { ok: true; model: ProjectSecurityStatus['model'] };
+export type SecurityModelChange = { model: ProjectSecurityStatus['model'] };
 
 /** `POST /projects/:id/security/scans` with `dryRun: true`: what a rescan would run. */
 export type SecurityRescanPreview = {
-  dryRun: true;
   deploymentId: string;
   alreadyScanned: boolean;
-  tier: string;
   /** M31: the scan also reads client bundle sources; older platforms omit it. */
   clientAssets?: boolean;
   model: string | null;
-  thirdParty: boolean;
   worstCaseUsd: number | null;
   budget: ProjectSecurityStatus['budget'];
 };
 
-export type SecurityRescanQueued = {
-  ok: true;
-  scanId: string;
-  deploymentId: string;
-  tier: string;
-  clientAssets?: boolean;
-  model: string | null;
-  alreadyScanned: boolean;
-};
+export type SecurityRescanQueued = { scanId: string; deploymentId: string; clientAssets?: boolean };
 
-export type SecurityBudgetChange = {
-  ok: true;
-  budget: NonNullable<ProjectSecurityStatus['budget']>;
-};
+export type SecurityBudgetChange = { budget: NonNullable<ProjectSecurityStatus['budget']> };
 
 export type SecurityFindingQuery = {
   state: 'open' | 'resolved' | 'all';
@@ -229,38 +211,23 @@ export type SecurityFindingQuery = {
 
 /** M32: what a local check would run, before any code is sent. */
 export type SecurityCheckPreview = {
-  dryRun: true;
   model: string;
-  thirdParty: boolean;
   /** The provider notice, for a third-party model; `null` for a Cloudflare model. */
   notice: Array<string> | null;
   worstCaseUsd: number | null;
-  budget: ProjectSecurityStatus['budget'];
-  limits: { maxFiles: number; maxBytes: number; maxArchiveBytes: number };
 };
 
 export type SecurityCheckCreated = {
-  ok: true;
   checkId: string;
   upload: { url: string; headers: Record<string, string> };
-  expiresAt: string;
-  model: string;
-  thirdParty: boolean;
 };
 
 export type SecurityCheckFinding = {
   verdict: 'confirmed' | 'needs_validation';
   severity: string | null;
-  confidence: string | null;
   title: string;
-  category: string;
-  cwe: string | null;
   file: string;
   lineStart: number | null;
-  lineEnd: number | null;
-  source: 'scanner' | 'server';
-  verdictSource: 'static' | 'runtime';
-  detail: Record<string, unknown>;
 };
 
 export type SecurityCheckView = {

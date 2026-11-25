@@ -6,19 +6,20 @@ import { jsonFromText, validateFindingsLenient, validateFindingsTextLenient } fr
 import { classifyProxyStop, PROXY_STOP_HEADER, readProxyStopReason } from '../status.ts';
 import type { OutcomeBody } from '../status.ts';
 import { scanToolDefinitions } from '../tools/definitions.ts';
+import { readToolsByName } from '../tools/fs.ts';
 import type { FsTools, ToolResult } from '../tools/fs.ts';
+import { count, delay } from '../util.ts';
 import { describeValidationError } from '../validate-findings.ts';
 import { emptyStats } from './types.ts';
-import type { Engine, SessionOutcome, SessionSpec, SessionTool } from './types.ts';
+import type { Engine, SessionOutcome, SessionSpec } from './types.ts';
 
 export const VOID_LOOP_VERSION = 'void-loop/1';
 export const MODEL_BASE_URL = 'http://model.void.internal';
-export const CHAT_COMPLETIONS_PATH = '/v1/chat/completions';
 
 export type VoidLoopOptions = {
   model: string;
   tools: FsTools;
-  baseUrl?: string;
+  baseUrl: string;
   fetch?: typeof fetch;
   /** Wait before the one retry of a failed call. */
   retryDelayMs?: number;
@@ -29,130 +30,84 @@ type ChatMessage =
   | { role: 'system' | 'user'; content: string }
   | { role: 'assistant'; content: string | null; tool_calls?: Array<ToolCall> }
   | { role: 'tool'; tool_call_id: string; content: string };
+type Json = Record<string, unknown>;
+type CallResult = { ok: true; body: Json } | { ok: false; outcome: OutcomeBody; retry?: boolean };
 
 const NO_SUBMIT_NUDGE =
   'You answered without calling a tool. Call submit_findings now with your report, as the system prompt says.';
 const LAST_TURN_NOTE =
   'This is your last turn. Call submit_findings now with what you have found so far; set run_status to incomplete if you did not finish.';
+const ABORTED: CallResult = { ok: false, outcome: { kind: 'aborted' } };
+
+const asFunction = (tool: { name: string; description: string; parameters: Json }) => ({
+  type: 'function' as const,
+  function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+});
+
+const infrastructure = (errorClass: string, detail: string): CallResult => ({
+  ok: false,
+  outcome: { kind: 'infrastructure', errorClass, detail },
+  retry: true,
+});
 
 export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
-  const baseUrl = options.baseUrl ?? MODEL_BASE_URL;
   const doFetch = options.fetch ?? fetch;
   const retryDelayMs = options.retryDelayMs ?? 1000;
-  const toolSpecs = scanToolDefinitions().map((tool) => ({
-    type: 'function' as const,
-    function: { name: tool.name, description: tool.description, parameters: tool.parameters },
-  }));
+  const toolSpecs = scanToolDefinitions().map(asFunction);
+  const readTools = readToolsByName(options.tools);
 
-  async function runTool(
-    name: string,
-    args: Record<string, unknown>,
-    extra: ReadonlyArray<SessionTool>,
-  ): Promise<ToolResult> {
-    const tool = extra.find((candidate) => candidate.name === name);
-    if (tool) {
-      return tool.run(args);
+  /** One model call. A failure that is not a proxy stop may be retried. */
+  async function callOnce(request: string, signal?: AbortSignal): Promise<CallResult> {
+    let response: Response;
+    try {
+      response = await doFetch(`${options.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: request,
+        signal,
+      });
+    } catch {
+      return infrastructure('model_network', 'model call failed twice');
     }
-    switch (name) {
-      case 'read_file':
-        return options.tools.readFile(args);
-      case 'list_files':
-        return options.tools.listFiles(args);
-      case 'grep':
-        return options.tools.grep(args);
-      default:
-        return { ok: false, text: `error: unknown tool ${JSON.stringify(name.slice(0, 64))}` };
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      const stop = classifyProxyStop(
+        response.status,
+        readProxyStopReason(response.headers.get(PROXY_STOP_HEADER)),
+      );
+      return stop
+        ? { ok: false, outcome: stop }
+        : infrastructure(`model_http_${response.status}`, `model call answered ${response.status}`);
     }
+    const body: unknown = await response.json().catch(() => null);
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return infrastructure('model_bad_response', 'model answer is not a JSON object');
+    }
+    return { ok: true, body: body as Json };
   }
 
-  type CallResult =
-    | { ok: true; body: Record<string, unknown> }
-    | { ok: false; outcome: OutcomeBody };
-
-  async function callModel(
-    messages: Array<ChatMessage>,
-    extra: ReadonlyArray<SessionTool>,
-    signal?: AbortSignal,
-  ): Promise<CallResult> {
+  /** Any failure that is not a proxy stop is retried once (README "Model proxy stops"). */
+  async function callModel(messages: Array<ChatMessage>, spec: SessionSpec): Promise<CallResult> {
     const request = JSON.stringify({
       model: options.model,
       messages,
-      tools:
-        extra.length === 0
-          ? toolSpecs
-          : [
-              ...toolSpecs,
-              ...extra.map((tool) => ({
-                type: 'function' as const,
-                function: {
-                  name: tool.name,
-                  description: tool.description,
-                  parameters: tool.parameters,
-                },
-              })),
-            ],
+      tools: [...toolSpecs, ...(spec.tools ?? []).map(asFunction)],
       tool_choice: 'auto',
     });
-    // Any failure that is not a proxy stop is retried once (README "Model proxy stops").
-    let failure: OutcomeBody | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) {
-        await delay(retryDelayMs, signal);
+    for (let attempt = 1; ; attempt++) {
+      if (spec.signal?.aborted) {
+        return ABORTED;
       }
-      if (signal?.aborted) {
-        return { ok: false, outcome: { kind: 'aborted' } };
+      const result = await callOnce(request, spec.signal);
+      if (result.ok || result.retry !== true) {
+        return result;
       }
-      let response: Response;
-      try {
-        response = await doFetch(`${baseUrl}${CHAT_COMPLETIONS_PATH}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: request,
-          signal,
-        });
-      } catch {
-        failure = {
-          kind: 'infrastructure',
-          errorClass: 'model_network',
-          detail: 'model call failed twice',
-        };
-        continue;
+      if (attempt === 2) {
+        // A stop that lands while a call or its body is in flight is a timeout, not a failure.
+        return spec.signal?.aborted ? ABORTED : result;
       }
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => undefined);
-        const stop = classifyProxyStop(
-          response.status,
-          readProxyStopReason(response.headers.get(PROXY_STOP_HEADER)),
-        );
-        if (stop) {
-          return { ok: false, outcome: stop };
-        }
-        failure = {
-          kind: 'infrastructure',
-          errorClass: `model_http_${response.status}`,
-          detail: `model call answered ${response.status}`,
-        };
-        continue;
-      }
-      const body = await response.json().catch(() => null);
-      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-        failure = {
-          kind: 'infrastructure',
-          errorClass: 'model_bad_response',
-          detail: 'model answer is not a JSON object',
-        };
-        continue;
-      }
-      return { ok: true, body: body as Record<string, unknown> };
+      await delay(retryDelayMs, spec.signal);
     }
-    // A stop that lands while a call or its body is in flight is a timeout, not a failure.
-    if (signal?.aborted) {
-      return { ok: false, outcome: { kind: 'aborted' } };
-    }
-    if (failure === null) {
-      throw new Error('The model call loop ended with no outcome.');
-    }
-    return { ok: false, outcome: failure };
   }
 
   return {
@@ -179,13 +134,15 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
         if (stats.turns > 0 && stats.turns === spec.maxTurns - 1) {
           addUserNote(messages, LAST_TURN_NOTE);
         }
-        const call = await callModel(messages, extra, spec.signal);
+        const call = await callModel(messages, spec);
         if (!call.ok) {
           return done(call.outcome);
         }
         stats.turns++;
         stats.modelCalls++;
-        addUsage(stats, call.body.usage);
+        const usage = (call.body.usage ?? {}) as Json;
+        stats.inputTokens += count(usage.prompt_tokens);
+        stats.outputTokens += count(usage.completion_tokens);
         const choice = firstChoice(call.body);
         if (choice === null) {
           return done({
@@ -229,61 +186,59 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
         let repairOfferedThisTurn = false;
         for (const toolCall of choice.toolCalls) {
           const name = toolCall.function.name;
+          const reply = (content: string) =>
+            messages.push({ role: 'tool', tool_call_id: toolCall.id, content });
           if (name === 'submit_findings') {
             if (repairOfferedThisTurn) {
-              messages.push({
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: 'error: call submit_findings once per answer.',
-              });
+              reply('error: call submit_findings once per answer.');
               continue;
             }
             const result = validateFindingsTextLenient(toolCall.function.arguments);
-            let problem: SubmitProblem;
-            if (!result.ok) {
-              problem = { kind: result.kind, message: describeValidationError(result) };
-            } else {
-              const extra = spec.check?.(result.report) ?? null;
-              if (extra === null) {
-                return done({
-                  kind: 'submitted',
-                  report: result.report,
-                  repaired: repairUsed || nudgeUsed,
-                });
-              }
-              problem = { kind: 'shape', message: extra };
+            const problem = result.ok
+              ? (spec.check?.(result.report) ?? null)
+              : describeValidationError(result);
+            if (result.ok && problem === null) {
+              return done({
+                kind: 'submitted',
+                report: result.report,
+                repaired: repairUsed || nudgeUsed,
+              });
             }
             if (repairUsed) {
               return done({
                 kind: 'bad_output',
-                errorKind: problem.kind,
-                message: problem.message,
+                errorKind: result.ok ? 'shape' : result.kind,
+                message: problem ?? '',
               });
             }
             repairUsed = true;
             repairOfferedThisTurn = true;
-            messages.push({
-              role: 'tool',
-              tool_call_id: toolCall.id,
-              content: `error: your last output was invalid: ${problem.message}. Fix it and call submit_findings again. This is your only retry.`,
-            });
+            reply(
+              `error: your last output was invalid: ${problem}. Fix it and call submit_findings again. This is your only retry.`,
+            );
             continue;
           }
           const args = parseArguments(toolCall.function.arguments);
-          const result =
-            args === null
-              ? { ok: false, text: 'error: tool arguments must be a JSON object' }
-              : await runTool(name, args, extra);
-          // Only a read_file that returned code counts (FsTools sets `code`).
-          if (
-            'code' in result &&
-            result.code === true &&
-            name === 'read_file' &&
-            !extra.some((tool) => tool.name === name)
-          ) {
-            stats.reads++;
+          const sessionTool = extra.find((tool) => tool.name === name);
+          const readTool = readTools.get(name);
+          let result: ToolResult;
+          if (args === null) {
+            result = { ok: false, text: 'error: tool arguments must be a JSON object' };
+          } else if (sessionTool) {
+            result = await sessionTool.run(args);
+          } else if (readTool) {
+            result = await readTool(args);
+            // Only a read_file that returned code counts (FsTools sets `code`).
+            if (result.code === true && name === 'read_file') {
+              stats.reads++;
+            }
+          } else {
+            result = {
+              ok: false,
+              text: `error: unknown tool ${JSON.stringify(name.slice(0, 64))}`,
+            };
           }
-          messages.push({ role: 'tool', tool_call_id: toolCall.id, content: result.text });
+          reply(result.text);
         }
       }
       return done({ kind: 'stopped', reason: 'turns' });
@@ -291,44 +246,34 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
   };
 }
 
-/** Why a `submit_findings` call was not taken, for the repair turn. */
-type SubmitProblem = { kind: string; message: string };
-
 type Choice = { content: string | null; toolCalls: Array<ToolCall>; finishReason: string | null };
 
-function firstChoice(body: Record<string, unknown>): Choice | null {
-  const choices = body.choices;
-  if (!Array.isArray(choices) || choices.length === 0) {
+function firstChoice(body: Json): Choice | null {
+  const choice = (Array.isArray(body.choices) ? body.choices[0] : null) as Json | null | undefined;
+  const message = choice?.message;
+  if (typeof message !== 'object' || message === null) {
     return null;
   }
-  const choice = choices[0] as Record<string, unknown> | null;
-  const message = (choice?.message ?? null) as Record<string, unknown> | null;
-  if (message === null || typeof message !== 'object') {
-    return null;
-  }
+  const { content, tool_calls: rawCalls } = message as Json;
   const toolCalls: Array<ToolCall> = [];
-  if (Array.isArray(message.tool_calls)) {
-    message.tool_calls.forEach((raw: unknown, index: number) => {
-      const call = raw as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
-      if (typeof call?.function?.name !== 'string') {
-        return;
-      }
-      toolCalls.push({
-        id: typeof call.id === 'string' && call.id.length > 0 ? call.id : `call_${index}`,
-        type: 'function',
-        // Some models return arguments as an object; the API expects them back as a string.
-        function: {
-          name: call.function.name,
-          arguments:
-            typeof call.function.arguments === 'string'
-              ? call.function.arguments
-              : JSON.stringify(call.function.arguments ?? {}),
-        },
-      });
+  for (const [index, raw] of (Array.isArray(rawCalls) ? rawCalls : []).entries()) {
+    const call = raw as { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+    if (typeof call?.function?.name !== 'string') {
+      continue;
+    }
+    const args = call.function.arguments;
+    toolCalls.push({
+      id: typeof call.id === 'string' && call.id.length > 0 ? call.id : `call_${index}`,
+      type: 'function',
+      // Some models return arguments as an object; the API expects them back as a string.
+      function: {
+        name: call.function.name,
+        arguments: typeof args === 'string' ? args : JSON.stringify(args ?? {}),
+      },
     });
   }
   return {
-    content: typeof message.content === 'string' ? message.content : null,
+    content: typeof content === 'string' ? content : null,
     toolCalls,
     finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
   };
@@ -339,53 +284,21 @@ function addUserNote(messages: Array<ChatMessage>, note: string): void {
   const last = messages.at(-1);
   if (last?.role === 'user') {
     last.content = `${last.content}\n\n${note}`;
-    return;
-  }
-  messages.push({ role: 'user', content: note });
-}
-
-function parseArguments(value: unknown): Record<string, unknown> | null {
-  let parsed = value;
-  if (typeof value === 'string') {
-    if (value.trim() === '') {
-      return {};
-    }
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-  return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : null;
-}
-
-function addUsage(stats: SessionOutcome['stats'], usage: unknown): void {
-  if (typeof usage !== 'object' || usage === null) {
-    return;
-  }
-  const { prompt_tokens: input, completion_tokens: output } = usage as Record<string, unknown>;
-  if (typeof input === 'number' && Number.isFinite(input) && input > 0) {
-    stats.inputTokens += Math.floor(input);
-  }
-  if (typeof output === 'number' && Number.isFinite(output) && output > 0) {
-    stats.outputTokens += Math.floor(output);
+  } else {
+    messages.push({ role: 'user', content: note });
   }
 }
 
-/** Waits `ms`, or less when the signal stops first. */
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (ms <= 0 || signal?.aborted) {
-    return Promise.resolve();
+function parseArguments(value: string): Json | null {
+  if (value.trim() === '') {
+    return {};
   }
-  return new Promise((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal?.addEventListener('abort', done, { once: true });
-  });
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Json)
+      : null;
+  } catch {
+    return null;
+  }
 }

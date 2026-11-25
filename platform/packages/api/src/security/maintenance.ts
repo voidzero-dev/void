@@ -1,24 +1,12 @@
 /**
- * Hourly security audit jobs (spec §6.1, §6.2, §14, §15.3), run from the hourly cron
- * branch only, with the `securityAudits` capability on. Each job is isolated: one
- * failure is logged and the others still run.
+ * Hourly security audit jobs (spec §6.1, §6.2, §14, §15.3), with the `securityAudits`
+ * capability on. Each job is isolated: a failure is logged and the others still run.
  *
- *   always (capability on)          policy not Off
- *   ─ reaper: running past lease    ─ re-poke: stale pending_input → queued, poke
- *     → timed_out                   ─ 24 h wait → skipped:backlog
- *   ─ ended rows still holding a reserve → released
- *   ─ runtime copies of attempts no longer running → deleted (M30)
- *   ─ raw output sweep (30 d)       ─ daily probe (entitlement older than 24 h)
- *   ─ gateway cost of ended scans
- *   ─ local checks (M32): stale uploads canceled, ended trees deleted
- *                                   ─ scheduled full sweeps (policy `sweeps.on`)
- *                                   ─ fallback backstop (policy `fallbackToCf`)
- *   ─ failure-streak emails, weekly digest (policy `digest`), M26
- *   ─ scan row retention
- *   ─ closed request retention
- *
- * The reaper and the sweeps also run while the policy is Off: Off cancels waiting
- * scans but a running one still needs its lease enforced, and stored data still ages.
+ *   always                                  policy not Off
+ *   ─ reaper, stranded reserves             ─ re-poke stale pending_input, 24 h backlog skip
+ *   ─ runtime copies (M30), gateway cost    ─ exposure catch-up, scheduled sweeps, fallback
+ *   ─ notification poke                     ─ streak emails, weekly digest, daily probe
+ *   ─ raw output sweep (30 d), local checks (M32), scan + request retention
  */
 import { SECURITY_ENTITLEMENT_MAX_AGE_MS } from '@void/platform/security-policy';
 import type { SecurityPolicy } from '@void/platform/security-policy';
@@ -29,7 +17,7 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { deriveSecurityScanTag } from '../proxy-token.ts';
 import { queueSecurityDigest, queueSecurityStreakNotifications } from './alerts.ts';
-import { pokeSecurityScanScheduler } from './enqueue.ts';
+import { pokeSecurityScanScheduler, securityScheduler } from './enqueue.ts';
 import { queueExposureCatchUpScans } from './exposure.ts';
 import { queueSecurityFallbackScans } from './fallback.ts';
 import { fillSecurityGatewayCosts, queryAiGatewayTagCost } from './gateway-cost.ts';
@@ -50,19 +38,16 @@ import type { SecurityScanController } from './scheduler.ts';
 import { securityScans } from './schema.ts';
 import { queueSecuritySweeps } from './sweeps.ts';
 
-/** Raw scan output (`findings.json`, ledger) is kept this long (D28). */
-export const SECURITY_RAW_OUTPUT_RETENTION_MS = 30 * 24 * 60 * 60_000;
-/** Scans whose raw output one hourly run deletes, at most. */
-export const SECURITY_RAW_SWEEP_LIMIT = 50;
-/** ROUTING key of the raw output sweep cursor. */
-export const SECURITY_RAW_SWEEP_CURSOR_KEY = 'security-audits:raw-output-sweep';
-/** Scan rows: the newest 200 per project, or 180 days (spec §14). */
-export const SECURITY_SCAN_ROWS_KEPT = 200;
-export const SECURITY_SCAN_ROW_MAX_AGE_MS = 180 * 24 * 60 * 60_000;
-/** Closed public requests kept per project (spec §14). */
-export const SECURITY_CLOSED_REQUESTS_KEPT = 50;
-/** Rows one retention statement deletes, at most. */
-export const SECURITY_RETENTION_DELETE_LIMIT = 500;
+const DAY_MS = 24 * 60 * 60_000;
+/** Raw scan output is kept 30 days (D28), swept 50 scans a run from a ROUTING cursor. */
+const RAW_OUTPUT_RETENTION_MS = 30 * DAY_MS;
+const RAW_SWEEP_LIMIT = 50;
+const RAW_SWEEP_CURSOR_KEY = 'security-audits:raw-output-sweep';
+/** Spec §14: newest 200 scan rows per project or 180 days; 50 closed requests. */
+const SCAN_ROWS_KEPT = 200;
+const SCAN_ROW_MAX_AGE_MS = 180 * DAY_MS;
+const CLOSED_REQUESTS_KEPT = 50;
+const RETENTION_DELETE_LIMIT = 500;
 
 /** R2 prefix of one scan's raw output. */
 export function securityRawOutputPrefix(projectId: string, scanId: string): string {
@@ -70,7 +55,7 @@ export function securityRawOutputPrefix(projectId: string, scanId: string): stri
 }
 
 /** Daily probe (spec §5.2): the policy is on and the stored result is 24 h old or missing. */
-export function securityProbeDue(policy: SecurityPolicy, now: number): boolean {
+function securityProbeDue(policy: SecurityPolicy, now: number): boolean {
   if (policy.mode === 'disabled') {
     return false;
   }
@@ -83,13 +68,11 @@ export type SecurityMaintenanceDeps = Readonly<{
   forget(scanId: string, attempt: number): Promise<number>;
   poke(): Promise<void>;
   probe(): Promise<void>;
-  /** Deletes runtime copies whose attempt is not running; returns how many. */
   reapCopies(): Promise<number>;
-  /** Fills the gateway cost of ended scans; returns how many (`0` with no API token). */
   gatewayCosts(now: number): Promise<number>;
 }>;
 
-export type SecurityMaintenanceReport = Readonly<{
+type SecurityMaintenanceReport = Readonly<{
   reaped: number;
   reservesReleased: number;
   copiesReaped: number;
@@ -100,7 +83,6 @@ export type SecurityMaintenanceReport = Readonly<{
   fallbacksQueued: number;
   alertsQueued: number;
   rawSwept: number;
-  /** Uploaded trees of ended local checks deleted (M32). */
   localTreesDeleted: number;
   scanRowsDeleted: number;
   requestsDeleted: number;
@@ -108,11 +90,9 @@ export type SecurityMaintenanceReport = Readonly<{
 }>;
 
 function realDeps(env: ApiEnv['Bindings'], db: Db): SecurityMaintenanceDeps {
-  const scheduler = () =>
-    env.SECURITY_SCAN_SCHEDULER.get(env.SECURITY_SCAN_SCHEDULER.idFromName('global'));
   return {
     controller: securityScanControllerClient(env),
-    forget: (scanId, attempt) => scheduler().forgetModelCalls(scanId, attempt),
+    forget: (scanId, attempt) => securityScheduler(env).forgetModelCalls(scanId, attempt),
     poke: () => pokeSecurityScanScheduler(env),
     probe: async () => {
       await probeAndRecord(env, db);
@@ -250,13 +230,11 @@ export async function runSecurityMaintenance(
 type SweepCursor = Readonly<{ finishedAt: string; id: string }>;
 
 async function readSweepCursor(routing: KVNamespace): Promise<SweepCursor | null> {
-  const raw = await routing.get(SECURITY_RAW_SWEEP_CURSOR_KEY);
-  if (!raw) {
-    return null;
-  }
   try {
-    const value = JSON.parse(raw) as Partial<SweepCursor>;
-    return typeof value.finishedAt === 'string' && typeof value.id === 'string'
+    const value = JSON.parse(
+      (await routing.get(RAW_SWEEP_CURSOR_KEY)) ?? 'null',
+    ) as Partial<SweepCursor> | null;
+    return typeof value?.finishedAt === 'string' && typeof value.id === 'string'
       ? { finishedAt: value.finishedAt, id: value.id }
       : null;
   } catch {
@@ -264,21 +242,14 @@ async function readSweepCursor(routing: KVNamespace): Promise<SweepCursor | null
   }
 }
 
-/**
- * Deletes the raw output of scans that finished more than 30 days ago, at most 50
- * scans a run, walking `(finished_at, id)` from a cursor kept in ROUTING.
- */
-export async function sweepSecurityRawOutputs(
+async function sweepSecurityRawOutputs(
   db: Db,
   r2: R2Bucket,
   routing: KVNamespace,
   now: number,
 ): Promise<number> {
   const cursor = await readSweepCursor(routing);
-  const due = lt(
-    securityScans.finished_at,
-    new Date(now - SECURITY_RAW_OUTPUT_RETENTION_MS).toISOString(),
-  );
+  const due = lt(securityScans.finished_at, new Date(now - RAW_OUTPUT_RETENTION_MS).toISOString());
   const rows = await db
     .select({
       id: securityScans.id,
@@ -295,14 +266,14 @@ export async function sweepSecurityRawOutputs(
         : due,
     )
     .orderBy(asc(securityScans.finished_at), asc(securityScans.id))
-    .limit(SECURITY_RAW_SWEEP_LIMIT);
+    .limit(RAW_SWEEP_LIMIT);
   for (const row of rows) {
     await paginatedR2Delete(r2, securityRawOutputPrefix(row.projectId, row.id));
   }
   const last = rows.at(-1);
   if (last?.finishedAt) {
     await routing.put(
-      SECURITY_RAW_SWEEP_CURSOR_KEY,
+      RAW_SWEEP_CURSOR_KEY,
       JSON.stringify({ finishedAt: last.finishedAt, id: last.id }),
     );
   }
@@ -310,14 +281,10 @@ export async function sweepSecurityRawOutputs(
 }
 
 /**
- * Scan rows (spec §14): a row goes once it is outside its project's newest 200 (local
- * checks and deployment scans counted apart) or older than 180 days, at most 500 a
- * run. Never a waiting or running scan, a project's current base (its latest
- * succeeded scan of a deployment) or an open request's gate scan.
- * Only rows the raw output sweep has passed, so a deleted row never leaves its raw
- * output behind.
+ * Scan rows past retention, never a live scan, a project's base or an open request's gate
+ * scan; only rows the raw sweep has passed, so none leaves raw output behind.
  */
-export async function deleteOldSecurityScanRows(
+async function deleteOldSecurityScanRows(
   db: Db,
   routing: KVNamespace,
   now: number,
@@ -326,7 +293,7 @@ export async function deleteOldSecurityScanRows(
   if (!cursor) {
     return 0;
   }
-  const maxAge = new Date(now - SECURITY_SCAN_ROW_MAX_AGE_MS).toISOString();
+  const maxAge = new Date(now - SCAN_ROW_MAX_AGE_MS).toISOString();
   const deleted = await db.execute<{ id: string }>(sql`
     DELETE FROM security_scans WHERE id IN (
       SELECT ranked.id FROM (
@@ -340,7 +307,7 @@ export async function deleteOldSecurityScanRows(
       WHERE ranked.status NOT IN ('pending_input', 'queued', 'running')
         AND ranked.finished_at IS NOT NULL
         AND (ranked.finished_at, ranked.id) <= (${cursor.finishedAt}::timestamptz, ${cursor.id})
-        AND (ranked.rank > ${SECURITY_SCAN_ROWS_KEPT} OR ranked.finished_at < ${maxAge}::timestamptz)
+        AND (ranked.rank > ${SCAN_ROWS_KEPT} OR ranked.finished_at < ${maxAge}::timestamptz)
         AND ranked.id NOT IN (
           SELECT DISTINCT ON (project_id) id FROM security_scans
           WHERE status = 'succeeded' AND deployment_id IS NOT NULL
@@ -351,7 +318,7 @@ export async function deleteOldSecurityScanRows(
           WHERE r.gate_scan_id = ranked.id
             AND r.state IN ('waiting_scan', 'held_findings', 'held_no_result', 'needs_deploy')
         )
-      LIMIT ${SECURITY_RETENTION_DELETE_LIMIT}
+      LIMIT ${RETENTION_DELETE_LIMIT}
     )
     RETURNING id
   `);
@@ -359,7 +326,7 @@ export async function deleteOldSecurityScanRows(
 }
 
 /** Closed public requests: the newest 50 per project, never one a bypass row names. */
-export async function deleteOldSecurityPublicRequests(db: Db): Promise<number> {
+async function deleteOldSecurityPublicRequests(db: Db): Promise<number> {
   const deleted = await db.execute<{ id: string }>(sql`
     DELETE FROM security_public_requests WHERE id IN (
       SELECT ranked.id FROM (
@@ -368,9 +335,9 @@ export async function deleteOldSecurityPublicRequests(db: Db): Promise<number> {
         FROM security_public_requests
         WHERE state IN ('passed', 'bypassed', 'canceled')
       ) ranked
-      WHERE ranked.rank > ${SECURITY_CLOSED_REQUESTS_KEPT}
+      WHERE ranked.rank > ${CLOSED_REQUESTS_KEPT}
         AND NOT EXISTS (SELECT 1 FROM security_scan_bypasses b WHERE b.request_id = ranked.id)
-      LIMIT ${SECURITY_RETENTION_DELETE_LIMIT}
+      LIMIT ${RETENTION_DELETE_LIMIT}
     )
     RETURNING id
   `);

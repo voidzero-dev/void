@@ -1,22 +1,17 @@
+import { parseSecurityDigits } from '@void/platform/security-policy';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 import type { OperatorCommand } from './operator-args.ts';
+import { isDollarAmount } from './project-security-args.ts';
 
-/**
- * `void platform security …` (spec §13.4). The table feeds the generic operator parser
- * and the nested help. `applySecurityArgs` turns the raw flags into request bodies.
- * Projects are addressed by id, like every other operator command; the lists also take
- * a slug in `--project`.
- */
-export const securityOperatorCommands: Array<OperatorCommand> = [
+/** `void platform security …` (spec §13.4): feeds the generic operator parser and the help. */
+const commands: Array<Omit<OperatorCommand, 'group'>> = [
   {
-    group: 'security',
     action: 'status',
     description:
       'Inspect capability, last probe, policy, queue depth, running scans and month totals',
     path: '/security/status',
   },
   {
-    group: 'security',
     action: 'probe',
     description: 'Run the entitlement probe (checks Containers, Workers AI and model hosts)',
     path: '/security/probe',
@@ -24,7 +19,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     noConfirm: true,
   },
   {
-    group: 'security',
     action: 'policy',
     description: 'Set the scan mode (disabled, public or all), or one project’s own scan rule',
     path: '/security/policy',
@@ -40,7 +34,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'models',
     description:
       'Set the default model, block or unblock models, or save your own OpenAI or Anthropic key',
@@ -64,7 +57,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'limits',
     description: 'Set scan limits: concurrent scans and the time one scan may run',
     path: '/security/policy',
@@ -75,7 +67,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'budget',
     description:
       'Show the monthly caps and this month’s spend, or set the platform cap, the default project cap or one project’s limit',
@@ -97,7 +88,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'findings',
     description: 'List findings across projects, oldest first',
     path: '/security/findings',
@@ -111,7 +101,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     paged: true,
   },
   {
-    group: 'security',
     action: 'show',
     description: 'Show findings of a project, by comma-separated finding ids',
     path: '/projects/:id/security/findings/:fid',
@@ -119,7 +108,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     usage: ['void platform security show <project-id> <finding-id,…> [options]'],
   },
   {
-    group: 'security',
     action: 'resolve',
     description: 'Resolve findings as an installation admin',
     path: '/projects/:id/security/findings/:fid/resolve',
@@ -134,7 +122,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'reopen',
     description: 'Reopen resolved findings as an installation admin',
     path: '/projects/:id/security/findings/:fid/reopen',
@@ -144,7 +131,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'comment',
     description: 'Add a comment to findings as an installation admin',
     path: '/projects/:id/security/findings/:fid/comments',
@@ -153,7 +139,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'model',
     description: 'Set one project’s scan model, or go back to the platform default',
     path: '/projects/:id/security/model',
@@ -168,7 +153,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'scans',
     description: 'List scans across projects, newest first, with month totals',
     path: '/security/scans',
@@ -180,7 +164,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     paged: true,
   },
   {
-    group: 'security',
     action: 'rescan',
     description: 'Run a full scan of the live deployment (asks first; it can cost real money)',
     path: '/projects/:id/security/scans',
@@ -191,7 +174,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'backfill',
     description:
       'Scan every live deployment that was never scanned (asks first; it can cost real money)',
@@ -199,7 +181,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'sweeps',
     description: 'Turn scheduled full sweeps of every live app on or off',
     path: '/security/policy',
@@ -209,7 +190,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'fallback',
     description:
       'Re-scan once on the @cf default after a third-party scan is refused, fails or times out',
@@ -219,7 +199,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'digest',
     description: 'Turn the weekly security summary email to installation admins on or off',
     path: '/security/policy',
@@ -228,7 +207,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'webhook',
     description:
       'Send signed security events (ids and counts only) to an https URL, or turn it off',
@@ -238,7 +216,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'cancel',
     description: 'Cancel a waiting or running scan',
     path: '/security/scans/:sid/cancel',
@@ -246,7 +223,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'public-gate',
     description: 'Turn “Scan before a project goes public” on or off',
     path: '/security/policy',
@@ -255,7 +231,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'public-requests',
     description: 'List public requests across projects, longest waiting first',
     path: '/security/public-requests',
@@ -266,7 +241,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     paged: true,
   },
   {
-    group: 'security',
     action: 'bypass',
     description: 'Bypass the gate scan of a project’s public request',
     path: '/projects/:id/security/public-request/bypass',
@@ -275,7 +249,6 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     method: 'POST',
   },
   {
-    group: 'security',
     action: 'bypasses',
     description: 'List bypass records, newest first',
     path: '/security/bypasses',
@@ -283,6 +256,11 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
     paged: true,
   },
 ];
+
+export const securityOperatorCommands: Array<OperatorCommand> = commands.map((command) => ({
+  group: 'security',
+  ...command,
+}));
 
 const MODES = new Set(['disabled', 'public', 'all']);
 /** One project's own scan rule (M34). */
@@ -296,6 +274,15 @@ const REASONS = {
   accepted_risk: 'accepted_risk',
 };
 const MAX_FINDING_IDS = 20;
+const ON_OFF_FIELDS = { fallback: 'fallbackToCf', digest: 'digest', 'public-gate': 'publicGate' };
+
+/** An id for a URL path segment. */
+function pathId(id: string): string {
+  if (id === '.' || id === '..') {
+    throw new Error('platform: An object ID cannot be a dot path segment.');
+  }
+  return encodeURIComponent(id);
+}
 
 function list(value: string, name: string): Array<string> {
   const items = [
@@ -313,14 +300,15 @@ function list(value: string, name: string): Array<string> {
 }
 
 function wholeNumber(value: string, name: string): number {
-  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+  const number = parseSecurityDigits(value, 16);
+  if (number === null || value.startsWith('0') || !Number.isSafeInteger(number)) {
     throw new Error(`platform: --${name} must be a whole number.`);
   }
-  return Number(value);
+  return number;
 }
 
 function dollars(value: string, name: string): number {
-  if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+  if (!isDollarAmount(value)) {
     throw new Error(`platform: --${name} must be a dollar amount such as 50 or 12.50.`);
   }
   return Number(value);
@@ -336,10 +324,8 @@ export type SecurityParsed = {
 };
 
 /**
- * Fills the request for one security command. The path keeps `:fid` when the command
- * takes finding ids, and the ids ride the body as `findingIds` for the runner, which
- * sends one request per id. Internal body keys (`findingIds`, `acceptProviderNotice`,
- * `projectCapsOn`, `keyStdin`) never reach the server.
+ * Fills the request for one security command. The path keeps `:fid`: the runner sends one
+ * request per `findingIds` entry. The runner strips the internal body keys.
  */
 export function applySecurityArgs(
   command: OperatorCommand,
@@ -367,12 +353,7 @@ export function applySecurityArgs(
   }
   const projectId = parameters[0];
   if (projectId !== undefined) {
-    if (projectId === '.' || projectId === '..') {
-      throw new Error('platform: An object ID cannot be a dot path segment.');
-    }
-    if (command.path.includes(':id')) {
-      parsed.path = parsed.path.replace(':id', encodeURIComponent(projectId));
-    }
+    parsed.path = parsed.path.replace(':id', pathId(projectId));
   }
   if (action === 'cancel') {
     parsed.path = parsed.path.replace(':sid', encodeURIComponent(parameters[0]));
@@ -433,11 +414,8 @@ export function applySecurityArgs(
             'platform: Usage: void platform security policy --project <project-id> <inherit|always|never>.',
           );
         }
-        if (project === '.' || project === '..') {
-          throw new Error('platform: An object ID cannot be a dot path segment.');
-        }
         parsed.action = 'project-policy';
-        parsed.path = `/projects/${encodeURIComponent(project)}/security/policy`;
+        parsed.path = `/projects/${pathId(project)}/security/policy`;
         parsed.body = { override: mode };
         return;
       }
@@ -452,30 +430,27 @@ export function applySecurityArgs(
       parsed.body = { mode };
       return;
     }
-    case 'sweeps': {
+    case 'sweeps':
+    case 'fallback':
+    case 'digest':
+    case 'public-gate': {
       const state = parameters[0];
       if (state !== 'on' && state !== 'off') {
         throw new Error(
-          'platform: Usage: void platform security sweeps <on|off> [--every-days <n>].',
+          `platform: Usage: void platform security ${action} <on|off>${action === 'sweeps' ? ' [--every-days <n>]' : ''}.`,
         );
       }
-      parsed.body = {
-        sweeps: {
-          on: state === 'on',
-          ...(values['every-days'] !== undefined
-            ? { everyDays: wholeNumber(values['every-days'], 'every-days') }
-            : {}),
-        },
-      };
-      return;
-    }
-    case 'fallback':
-    case 'digest': {
-      const state = parameters[0];
-      if (state !== 'on' && state !== 'off') {
-        throw new Error(`platform: Usage: void platform security ${action} <on|off>.`);
-      }
-      parsed.body = { [action === 'fallback' ? 'fallbackToCf' : 'digest']: state === 'on' };
+      const on = state === 'on';
+      const days = values['every-days'];
+      parsed.body =
+        action === 'sweeps'
+          ? {
+              sweeps: {
+                on,
+                ...(days === undefined ? {} : { everyDays: wholeNumber(days, 'every-days') }),
+              },
+            }
+          : { [ON_OFF_FIELDS[action]]: on };
       return;
     }
     case 'webhook': {
@@ -484,14 +459,6 @@ export function applySecurityArgs(
         throw new Error('platform: Usage: void platform security webhook <https-url|off>.');
       }
       parsed.body = { url: url === 'off' ? null : url };
-      return;
-    }
-    case 'public-gate': {
-      const state = parameters[0];
-      if (state !== 'on' && state !== 'off') {
-        throw new Error('platform: Usage: void platform security public-gate <on|off>.');
-      }
-      parsed.body = { publicGate: state === 'on' };
       return;
     }
     case 'models': {
@@ -556,14 +523,12 @@ export function applySecurityArgs(
     }
     case 'budget': {
       const project = values.project;
-      const platformFlags = ['platform-usd', 'project-default-usd', 'project-caps'].filter(
-        (name) => values[name] !== undefined,
-      );
-      if (flags.has('platform-off')) {
-        platformFlags.push('platform-off');
-      }
+      const platformChange =
+        ['platform-usd', 'project-default-usd', 'project-caps'].some(
+          (name) => values[name] !== undefined,
+        ) || flags.has('platform-off');
       if (project !== undefined) {
-        if (platformFlags.length > 0) {
+        if (platformChange) {
           throw new Error(
             'platform: --project changes one project; do not combine it with platform cap flags.',
           );
@@ -573,10 +538,7 @@ export function applySecurityArgs(
             'platform: Usage: void platform security budget --project <id> (--usd <amount> | --clear).',
           );
         }
-        if (project === '.' || project === '..') {
-          throw new Error('platform: An object ID cannot be a dot path segment.');
-        }
-        parsed.path = `/projects/${encodeURIComponent(project)}/security/budget`;
+        parsed.path = `/projects/${pathId(project)}/security/budget`;
         parsed.body = { monthlyUsd: values.usd === undefined ? null : dollars(values.usd, 'usd') };
         return;
       }
@@ -612,11 +574,7 @@ export function applySecurityArgs(
         // The saved default amount; the runner reads it.
         body.projectCapsOn = true;
       }
-      if (Object.keys(body).length === 0) {
-        throw new Error(
-          'platform: Usage: void platform security budget [--platform-usd <n> | --platform-off] [--project-default-usd <n> | --project-caps on|off] | --project <id> (--usd <n> | --clear).',
-        );
-      }
+      // Some cap flag is set here: with none the command is a read (above).
       parsed.body = body;
       return;
     }

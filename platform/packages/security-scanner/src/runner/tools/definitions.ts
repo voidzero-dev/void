@@ -1,27 +1,20 @@
 // The four scanner tools, described once for every engine that calls them by name
-// (Engine B's chat-completions loop now, Engine C's `void-scan` MCP server in M13).
+// (Engine B's chat-completions loop and Engine C's `void-scan` MCP server).
 
 import { submitFindingsParameters } from '../report.ts';
-
-export const SCAN_TOOL_NAMES = ['read_file', 'list_files', 'grep', 'submit_findings'] as const;
-export type ScanToolName = (typeof SCAN_TOOL_NAMES)[number];
-
-export type ScanToolDefinition = {
-  name: ScanToolName;
-  description: string;
-  parameters: Record<string, unknown>;
-  readOnly: boolean;
-};
 
 const PATH_HELP =
   'An absolute path under /scan/input or /scan/memory, or a path relative to /scan/input.';
 
-export function scanToolDefinitions(): Array<ScanToolDefinition> {
+export function scanToolDefinitions(): Array<{
+  name: 'read_file' | 'list_files' | 'grep' | 'submit_findings';
+  description: string;
+  parameters: Record<string, unknown>;
+}> {
   return [
     {
       name: 'read_file',
       description: `Read lines of a text file. ${PATH_HELP} Lines come back numbered.`,
-      readOnly: true,
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -36,20 +29,15 @@ export function scanToolDefinitions(): Array<ScanToolDefinition> {
     {
       name: 'list_files',
       description: `List files and folders. ${PATH_HELP} Defaults to /scan/input.`,
-      readOnly: true,
       parameters: {
         type: 'object',
         additionalProperties: false,
-        properties: {
-          path: { type: 'string' },
-          recursive: { type: 'boolean' },
-        },
+        properties: { path: { type: 'string' }, recursive: { type: 'boolean' } },
       },
     },
     {
       name: 'grep',
       description: `Find lines that contain a plain text string (not a regular expression). ${PATH_HELP} Defaults to /scan/input.`,
-      readOnly: true,
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -66,7 +54,6 @@ export function scanToolDefinitions(): Array<ScanToolDefinition> {
       name: 'submit_findings',
       description:
         'Submit the final report. Call it exactly once, when you are done. It ends the session.',
-      readOnly: false,
       parameters: submitFindingsParameters(),
     },
   ];

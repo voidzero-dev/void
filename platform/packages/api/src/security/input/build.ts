@@ -1,17 +1,10 @@
 /**
- * Builds one scan's input (design doc 0095, M10) from data already read: the
- * deployed Worker modules, the base snapshot's hashes, changed text assets, the
- * backlog, project secrets and past findings. Pure apart from hashing; the I/O
- * lives in `prepare.ts`.
+ * Builds one scan's input (M10) from data `prepare.ts` already read. Pure apart from hashing.
  *
- *   modules ─► sources (source maps) ─► filters / third-party / path check ─► candidates
- *   candidates ─► read set (32 MB, the runner's 16 MB a file and 20,000 entries)
- *     └─► T2: changed by hash ─► focus (backlog first, 400 files / 2 MB) ─► rest → backlog
- *   changed (or backlog) files left out of the read set ─► backlog, never "seen"
- *   read set + memory ─► redaction ─► tar entries (`task.json`, `input/…`, `memory/…`)
- *   focus ─► phrase check ─► server leads
- *   read set + built modules + searched assets ─► stored secret values found (M31)
- *     ─► server leads (`secret_in_output`), one per secret and side (client / Worker)
+ *   modules ─► sources ─► filters / third-party / path check ─► read set (32 MB)
+ *     └─► diff tiers: focus (backlog first) ─► changed files left out → backlog
+ *   read set + memory ─► redaction ─► tar entries; focus ─► phrase check ─► server leads
+ *   read set + built modules + searched assets ─► stored secret values (M31)
  */
 import type { SecurityEngine } from '@void/platform/security-models';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
@@ -45,13 +38,9 @@ import type { SecurityTierChoice } from './tier.ts';
 /** Text sent to the container in all, so a scan input fits the API isolate's memory. */
 export const SECURITY_INPUT_MAX_BYTES = 32 * 1024 * 1024;
 /** Where the deployment's vars and binding names go under `/scan/input`. */
-export const SECURITY_DEPLOY_CONFIG_PATH = '_deploy/bindings.json';
+const SECURITY_DEPLOY_CONFIG_PATH = '_deploy/bindings.json';
 
-/**
- * The manifest fields a review needs: plain-text `vars` (values included: they ship in
- * the Worker, and a stored secret value in one is redacted like any file) and the names
- * of the bindings, Durable Objects, queues and cron schedules. `null` with no manifest.
- */
+/** The manifest's plain-text `vars` and binding, Durable Object, queue and cron names. */
 export function securityDeployConfigText(manifest: DeployManifest | null): string | null {
   if (manifest === null) {
     return null;
@@ -66,28 +55,23 @@ export function securityDeployConfigText(manifest: DeployManifest | null): strin
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 /** Dropped code above this share of the bundle's source bytes makes the scan `partial`. */
-export const SECURITY_DROPPED_PARTIAL_SHARE = 0.05;
-/**
- * The coverage note of a rescan that asked for the client asset pass (M31): set when
- * it is queued, kept by the builder, so a fallback of that rescan asks for it too.
- */
+const SECURITY_DROPPED_PARTIAL_SHARE = 0.05;
+/** The note of a rescan that asked for the client asset pass (M31); a fallback keeps it. */
 export const SECURITY_CLIENT_ASSETS_NOTE = 'client-assets';
-/** Project files the scan never read, as `<note> N files`: each one holds the public gate. */
-export const SECURITY_DROPPED_BAD_PATH_NOTE = 'dropped-bad-path';
-export const SECURITY_DROPPED_OVERSIZE_NOTE = 'dropped-oversize';
-export const SECURITY_DROPPED_BINARY_NOTE = 'dropped-binary';
-/** Client assets left out the same ways: noted apart, they do not hold the gate. */
-export const SECURITY_ASSETS_DROPPED_NOTE = 'assets-dropped';
 /**
- * Unverified third-party code (a package the lockfile does not name) left out the
- * same ways: noted apart, it does not hold the gate, as the user did not write it.
+ * `<note> N files` per way a file is dropped. The first three are project files the scan
+ * never read, which hold the public gate; client assets and unverified third-party code
+ * are noted apart and do not.
  */
-export const SECURITY_UNVERIFIED_DROPPED_NOTE = 'third-party-unverified-dropped';
-const UNREAD_FILE_NOTES = [
-  SECURITY_DROPPED_BAD_PATH_NOTE,
-  SECURITY_DROPPED_OVERSIZE_NOTE,
-  SECURITY_DROPPED_BINARY_NOTE,
-];
+const DROP_NOTES = {
+  bad_path: 'dropped-bad-path',
+  oversize: 'dropped-oversize',
+  binary: 'dropped-binary',
+  asset: 'assets-dropped',
+  unverified: 'third-party-unverified-dropped',
+} as const;
+type DropKind = keyof typeof DROP_NOTES;
+const UNREAD_FILE_NOTES = [DROP_NOTES.bad_path, DROP_NOTES.oversize, DROP_NOTES.binary];
 
 /** True when the coverage notes say a project file was never read. */
 export function securityNotesLeftFilesUnread(notes: ReadonlyArray<string>): boolean {
@@ -104,7 +88,7 @@ export type SecurityClientSource = Readonly<{
 }>;
 
 /** Secret findings (secret and side) one scan sends to ingest, at most. */
-export const SECURITY_MAX_SECRET_LEADS = 200;
+const SECURITY_MAX_SECRET_LEADS = 200;
 /** Other files one secret finding lists besides its first. */
 const MAX_SECRET_OTHER_FILES = 10;
 /** Secret-like file names listed in the coverage notes, at most. */
@@ -143,10 +127,7 @@ export type SecurityInputPlan = Readonly<{
     engine: SecurityEngine;
     model: string;
     trigger: SecurityScanTrigger;
-    /**
-     * It runs for an open public request: a fallback of a gate scan (M26) then follows
-     * the gate rules too. Only read with `trigger: fallback`.
-     */
+    /** For an open public request: a fallback of a gate scan (M26) follows the gate rules. */
     forPublicRequest?: boolean;
     /** The deployment's claimed commit; `null` for a dirty tree, `--skip-build`, no git. */
     commit: string | null;
@@ -159,10 +140,7 @@ export type SecurityInputPlan = Readonly<{
   /** Coverage notes from before the build (why T1 fell back to T2). */
   notes?: ReadonlyArray<string>;
   head: Readonly<{ modules: ReadonlyArray<SecurityModuleFile>; main: string | null }>;
-  /**
-   * The deployment's env from its manifest (`SECURITY_DEPLOY_CONFIG_PATH`): plain-text
-   * vars and binding names. A secret written into `vars` is only here, never in code.
-   */
+  /** The deployment's vars and binding names (`securityDeployConfigText`). */
   deployConfig?: Readonly<{ text: string; sha256: string }> | null;
   /** `bundleSources(head.modules, head.main)` when the caller already has it. */
   bundle?: SecurityBundleSources | null;
@@ -183,10 +161,7 @@ export type SecurityInputPlan = Readonly<{
   clientSources?: ReadonlyArray<SecurityClientSource>;
   /** Client source maps that were not read (over the map limits, or gone from storage). */
   clientMapsUnread?: number;
-  /**
-   * M31: secrets found in text assets too big to read (searched only, never sent), by
-   * deployed path. `unsearchedAssets` counts the big ones not searched (the limits).
-   */
+  /** M31: secret hits in assets too big to read, and how many were not searched. */
   searchedAssets?: ReadonlyArray<
     Readonly<{ path: string; hits: ReadonlyArray<SecuritySecretHit> }>
   >;
@@ -212,32 +187,20 @@ export type SecurityBuiltInput = Readonly<{
   notes: ReadonlyArray<string>;
   /** Paths under `/scan/input` sent as focus. */
   focus: ReadonlyArray<string>;
-  /**
-   * The backlog this scan leaves; the project's backlog once it succeeds (M12). It
-   * holds every changed file this scan did not read, so none is counted as seen.
-   */
+  /** The backlog this scan leaves (every changed file it did not read); kept on success. */
   backlog: ReadonlyArray<string>;
   filesScanned: number;
   droppedFiles: number;
   droppedBytes: number;
   inputBytes: number;
   serverLeads: ReadonlyArray<SecurityServerLead>;
-  /**
-   * Source path → sha256 of its (unredacted) text: the next scan's base index.
-   * Files this scan did not read are left out, so the next scan sees them as changed.
-   */
+  /** Source path → sha256 of what it read: the next scan's base index. */
   sourceIndex: ReadonlyMap<string, string>;
-  /**
-   * Project files this scan could never send. A built module in it that a later diff
-   * scan does not list again (same bytes) is noted again there, so the note stays.
-   */
+  /** Project files this scan could never send; a later diff scan notes them again. */
   neverSent: SecurityNeverSent;
   /** Asset paths (as in `plan.assets` / `unreadAssets`) this scan did not read. */
   unscannedAssets: ReadonlySet<string>;
-  /**
-   * A diff scan with no file to send (empty focus): no model runs and ingest stores the
-   * scan server-side. `noChanges` when the diff was empty too (edge #14).
-   */
+  /** A diff scan with no file to send: no model runs. */
   emptyFocus: boolean;
   /** A diff scan with nothing changed (edge #14): `status_reason` `no_changes`. */
   noChanges: boolean;
@@ -289,6 +252,17 @@ type Candidate = SecuritySourceFile & {
 
 type ReadFile = Candidate & { sent: string; sentBytes: number };
 
+function candidate(
+  path: string,
+  text: string,
+  sha256: string,
+  extra: Partial<Candidate> = {},
+): Candidate {
+  const bytes = utf8Length(text);
+  const base = { module: '', map: null, built: false, unverified: false, asset: null };
+  return { path, text, sha256, bytes, ...base, ...extra };
+}
+
 type SecretLeadDraft = Omit<SecuritySecretLead, 'forms' | 'alsoIn' | 'files'> & {
   forms: Array<SecuritySecretHit['forms'][number]>;
   alsoIn: Array<string>;
@@ -304,17 +278,9 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   const bundle = plan.bundle ?? bundleSources(plan.head.modules, plan.head.main);
   const noSourceMaps = bundle.noSourceMaps;
   // The deploy config goes first: it is small, and a secret in `vars` is only there.
-  const deployConfig: Array<SecuritySourceFile> = plan.deployConfig
-    ? [
-        {
-          path: SECURITY_DEPLOY_CONFIG_PATH,
-          text: plan.deployConfig.text,
-          sha256: plan.deployConfig.sha256,
-          module: '',
-          map: null,
-          built: false,
-        },
-      ]
+  const { deployConfig: config } = plan;
+  const deployConfig: Array<SecuritySourceFile> = config
+    ? [candidate(SECURITY_DEPLOY_CONFIG_PATH, config.text, config.sha256)]
     : [];
   // A diff of the bundle reads a changed module as built code when its map does not
   // explain the change; a full scan reads the map's sources (§7.1).
@@ -327,24 +293,25 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
           plan.base.sources,
         )
       : [];
-  if (builtOnly.length > 0) {
-    notes.push(`built-only-change ${builtOnly.length}`);
-  }
+  const noteIf = (count: number, note: string) => {
+    if (count > 0) {
+      notes.push(note);
+    }
+  };
+  noteIf(builtOnly.length, `built-only-change ${builtOnly.length}`);
   const sources = [...deployConfig, ...(sourceDiff?.files ?? bundle.files), ...builtOnly];
   const sourceIndex = new Map<string, string>();
   let totalSourceBytes = 0;
   let droppedFiles = 0;
   let droppedBytes = 0;
   let thirdPartyDropped = 0;
-  let badPaths = 0;
-  /** Files over the runner's per-file limit: they can never be sent (noted, not backlogged). */
-  let oversized = 0;
-  /** Code that is not UTF-8 text (a NUL byte or U+FFFD): never sent, noted. */
-  let binary = 0;
-  /** Client assets with a bad path, not text, or over the per-file limit. */
-  let assetsDropped = 0;
-  /** Unverified third-party code dropped the same ways. */
-  let unverifiedDropped = 0;
+  const dropped: Record<DropKind, number> = {
+    bad_path: 0,
+    oversize: 0,
+    binary: 0,
+    asset: 0,
+    unverified: 0,
+  };
   // Code left out for coverage reasons (registry packages, the input cap). Secret-like
   // files are dropped on purpose and do not make a scan partial.
   let lostBytes = 0;
@@ -358,44 +325,26 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       neverSent.set(file.path, { sha256: file.sha256, kind });
     }
   };
-  const dropBadPath = (file: DroppedFile) => {
-    badPaths++;
+  /**
+   * A file that can never be sent: counted as lost and noted, never backlogged. Project
+   * files are kept as never sent; unverified and oversized ones are indexed as seen.
+   */
+  const drop = (kind: DropKind, file: DroppedFile) => {
+    dropped[kind]++;
     droppedFiles++;
     droppedBytes += file.bytes;
     lostBytes += file.bytes;
-    keepNeverSent(file, 'bad_path');
-  };
-  const dropBinary = (file: DroppedFile) => {
-    binary++;
-    droppedFiles++;
-    droppedBytes += file.bytes;
-    lostBytes += file.bytes;
-    keepNeverSent(file, 'binary');
-  };
-  const dropAsset = (bytes: number) => {
-    assetsDropped++;
-    droppedFiles++;
-    droppedBytes += bytes;
-    lostBytes += bytes;
-  };
-  const dropUnverified = (file: Readonly<{ path: string; sha256: string; bytes: number }>) => {
-    unverifiedDropped++;
-    droppedFiles++;
-    droppedBytes += file.bytes;
-    lostBytes += file.bytes;
-    sourceIndex.set(file.path, file.sha256);
-  };
-  const dropOversized = (file: DroppedFile) => {
-    oversized++;
-    droppedFiles++;
-    droppedBytes += file.bytes;
-    lostBytes += file.bytes;
-    keepNeverSent(file, 'oversize');
-    if (file.sha256 !== '') {
+    if (kind === 'unverified') {
+      sourceIndex.set(file.path, file.sha256);
+    } else if (kind !== 'asset') {
+      keepNeverSent(file, kind);
+    }
+    if (kind === 'oversize' && file.sha256 !== '') {
       // Seen as it is: the next diff scan does not take it as changed again.
       sourceIndex.set(file.path, file.sha256);
     }
   };
+  const dropAsset = () => drop('asset', { path: '', sha256: '', bytes: 0 });
 
   for (const source of sources) {
     const bytes = utf8Length(source.text);
@@ -421,28 +370,26 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       continue;
     }
     if (party === 'unverified' && (looksBinary(source.text) || !usableInputPath(source.path))) {
-      dropUnverified({ path: source.path, sha256: source.sha256, bytes });
+      drop('unverified', { path: source.path, sha256: source.sha256, bytes });
       continue;
     }
     if (looksBinary(source.text)) {
       // Not text the scanner can read: counted, so the scan is not labeled complete.
       sourceIndex.set(source.path, source.sha256);
-      dropBinary({ path: source.path, sha256: source.sha256, bytes });
+      drop('binary', { path: source.path, sha256: source.sha256, bytes });
       continue;
     }
     if (!usableInputPath(source.path)) {
       // It can never be sent: noted and counted as lost, not left in the backlog.
       sourceIndex.set(source.path, source.sha256);
-      dropBadPath({ path: source.path, sha256: source.sha256, bytes });
+      drop('bad_path', { path: source.path, sha256: source.sha256, bytes });
       continue;
     }
     const file = { ...source, bytes, unverified: party === 'unverified', asset: null };
     (file.unverified ? unverified : firstParty).push(file);
   }
-  // A built module the base could not send and that is not listed again (its bytes did
-  // not change): noted again, so a redeploy does not clear the note (§7.4). Never
-  // backlogged. Matched by path, or by bytes alone: a module renamed with the same bytes
-  // is not listed either (`builtOnlyChanges` skips any hash the base had).
+  // A built module the base could not send and not listed again (same bytes, by path or
+  // renamed): noted again, so a redeploy does not clear the note (§7.4).
   const baseNeverSent = plan.tier.tier === 'full' ? null : (plan.base?.neverSent ?? null);
   if (baseNeverSent !== null && baseNeverSent.size > 0) {
     const listed = new Set(sources.map((source) => source.path));
@@ -464,11 +411,11 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       }
       const file = { path, sha256: module.sha256, bytes: utf8Length(module.text) };
       if (kind === 'binary') {
-        dropBinary(file);
+        drop('binary', file);
       } else if (!usableInputPath(path)) {
-        dropBadPath(file);
+        drop('bad_path', file);
       } else if (kind === 'oversize' || file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
-        dropOversized(file);
+        drop('oversize', file);
       } else {
         // Its old name was the only reason it could not be sent.
         continue;
@@ -476,9 +423,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       totalSourceBytes += file.bytes;
     }
   }
-  // T1: secret-like repo files were never read. Unread ones that changed (or wait in
-  // the backlog) count as cut below; unchanged ones are read access only (§7.4), so
-  // they are dropped without making a diff scan partial.
+  // T1: unread files that changed (or wait in the backlog) count as cut below; unchanged
+  // ones are dropped without making a diff scan partial (§7.4).
   const unreadSources: Array<Candidate> = [];
   const unreadUnchanged: Array<Candidate> = [];
   if (sourceDiff !== null) {
@@ -496,20 +442,11 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
         totalSourceBytes += file.bytes;
       }
       if (due && file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
-        dropOversized(file);
+        drop('oversize', file);
         continue;
       }
-      (due ? unreadSources : unreadUnchanged).push({
-        path: file.path,
-        text: '',
-        sha256: file.sha256,
-        module: '',
-        map: null,
-        built: false,
-        bytes: file.bytes,
-        unverified: false,
-        asset: null,
-      });
+      const unread = candidate(file.path, '', file.sha256, { bytes: file.bytes });
+      (due ? unreadSources : unreadUnchanged).push(unread);
     }
   }
 
@@ -525,7 +462,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       return null;
     }
     if (!usableInputPath(inputPath)) {
-      dropAsset(0);
+      dropAsset();
       return null;
     }
     taken.add(inputPath);
@@ -537,20 +474,10 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       continue;
     }
     if (looksBinary(asset.text)) {
-      dropAsset(0);
+      dropAsset();
       continue;
     }
-    assetFiles.push({
-      path,
-      text: asset.text,
-      sha256: '',
-      module: '',
-      map: null,
-      built: false,
-      bytes: utf8Length(asset.text),
-      unverified: false,
-      asset: asset.path,
-    });
+    assetFiles.push(candidate(path, asset.text, '', { asset: asset.path }));
   }
   for (const asset of plan.unreadAssets ?? []) {
     const path = assetPath(asset);
@@ -614,11 +541,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     }
   };
   let readBytes = 0;
-  /**
-   * Adds the file to the read set when it fits: `read`. `full` when the read set has no
-   * room left for it; `never` when it is over the runner's per-file limit, so no scan
-   * can ever send it.
-   */
+  /** Adds the file to the read set: `full` when it does not fit, `never` over the per-file limit. */
   const read = (file: Candidate): 'read' | 'full' | 'never' => {
     if (file.bytes > SCAN_INPUT_LIMITS.maxFileBytes) {
       return 'never';
@@ -643,23 +566,15 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   for (const file of ordered) {
     const result = read(file);
     if (result === 'never') {
-      // Like a bad path: noted and counted as lost, never left in the backlog, so a
-      // public request does not queue gate scans for it forever.
-      if (file.asset !== null) {
-        dropAsset(file.bytes);
-      } else if (file.unverified) {
-        dropUnverified(file);
-      } else {
-        dropOversized(file);
-      }
+      // Never backlogged, so a public request does not queue gate scans for it forever.
+      drop(file.asset !== null ? 'asset' : file.unverified ? 'unverified' : 'oversize', file);
     } else if (result === 'full') {
       cut.push(file);
     }
   }
   if (plan.clientAssets) {
-    // M31 client asset pass: the sources of client bundles, from their source maps, in
-    // what is left of the read limits. Extra input: the bundles stay in the read set,
-    // so a source that does not fit is only noted (no backlog, no partial label).
+    // M31 client asset pass, in what is left of the read limits. The bundles stay in the
+    // read set, so a source that does not fit is only noted (no backlog, no partial).
     notes.push(SECURITY_CLIENT_ASSETS_NOTE);
     const first: Array<Candidate> = [];
     const later: Array<Candidate> = [];
@@ -678,17 +593,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
         continue;
       }
       taken.add(path);
-      (party === 'unverified' ? later : first).push({
-        path,
-        text: source.text,
-        sha256: '',
-        module: '',
-        map: null,
-        built: false,
-        bytes: utf8Length(source.text),
-        unverified: party === 'unverified',
+      const unverifiedSource = party === 'unverified';
+      const file = candidate(path, source.text, '', {
+        unverified: unverifiedSource,
         asset: source.asset,
       });
+      (unverifiedSource ? later : first).push(file);
     }
     let clientRead = 0;
     let clientLeft = 0;
@@ -700,16 +610,11 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       }
     }
     notes.push(`client-sources ${clientRead} files`);
-    if (clientLeft > 0) {
-      notes.push(`client-sources-left ${clientLeft} files`);
-    }
-    if ((plan.clientMapsUnread ?? 0) > 0) {
-      notes.push(`client-maps-unread ${plan.clientMapsUnread} files`);
-    }
+    noteIf(clientLeft, `client-sources-left ${clientLeft} files`);
+    noteIf(plan.clientMapsUnread ?? 0, `client-maps-unread ${plan.clientMapsUnread} files`);
   }
-  // The read set holds a module's sources when it has a map, but a value the build
-  // wrote in (`define`, `import.meta.env`) is only in the built code: search every
-  // deployed module as built too. Never sent, so it costs no input.
+  // A value the build wrote in (`define`) is only in the built code: search every module
+  // as built too. Never sent, so it costs no input.
   for (const module of plan.head.modules) {
     const path = `${SECURITY_BUILT_PREFIX}${module.name}`;
     if (
@@ -729,12 +634,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       addSecretHits(path, asset.hits, true);
     }
   }
-  if ((plan.unsearchedAssets ?? 0) > 0) {
-    notes.push(`secret-check-unread ${plan.unsearchedAssets} files`);
-  }
-  if (secretLeadsDropped > 0) {
-    notes.push(`secret-leads-capped ${secretLeadsDropped}`);
-  }
+  noteIf(plan.unsearchedAssets ?? 0, `secret-check-unread ${plan.unsearchedAssets} files`);
+  noteIf(secretLeadsDropped, `secret-leads-capped ${secretLeadsDropped}`);
   cut.push(...unreadSources);
   for (const file of cut) {
     droppedFiles++;
@@ -771,9 +672,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       (plan.scan.trigger === 'fallback' && plan.scan.forPublicRequest === true);
     const diff: Array<SecurityFocusCandidate> = [];
     if (gateScan) {
-      // A gate scan (or its fallback) always re-checks the files of open `fixed` claims
-      // (edge #85): a Void build changes a file on every deploy, so the diff is never
-      // empty, and a scan that did not look at a claimed file must not prove it.
+      // A gate scan always re-checks the files of `fixed` claims (edge #85): one that did
+      // not look at a claimed file must not prove it.
       for (const path of plan.recheckFiles) {
         const bytes = available.get(path);
         if (bytes !== undefined) {
@@ -802,8 +702,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       unscanned.push(path);
     }
     if (focus.length === 0 && unscanned.length === 0 && gateScan) {
-      // A gate scan is never `no changes` (edge #85). No claimed file to re-check and
-      // nothing changed: it reads the whole app.
+      // A gate scan is never `no changes` (edge #85): with nothing to look at, it reads all.
       tier = 'full';
       fullReason = 'gate_recheck';
     }
@@ -811,31 +710,22 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   }
   for (const file of unreadUnchanged) {
     const oversize = file.bytes > SCAN_INPUT_LIMITS.maxFileBytes;
-    // Only the project's own files are noted as never read: registry and unverified
-    // third-party code is left out quietly.
+    // Only the project's own files are noted as never read.
     const own = classifyThirdParty(file.path, plan.lockfile) === 'first_party';
     // Same bytes as a file the base could not send (binary, bad path): noted again.
     const kept = tier === 'full' ? undefined : baseNeverSent?.get(file.path);
     const neverSentAgain = kept !== undefined && kept.sha256 === file.sha256;
     if (own && (oversize || neverSentAgain)) {
-      // Never sent, so never backlogged, but noted on every scan while it stays (§7.4):
-      // a diff scan that left it out would clear the note.
+      // Never sent, but noted on every scan while it stays (§7.4).
       totalSourceBytes += file.bytes;
-      if (oversize || kept?.kind === 'oversize') {
-        dropOversized(file);
-      } else if (kept?.kind === 'binary') {
-        dropBinary(file);
-      } else {
-        dropBadPath(file);
-      }
+      drop(oversize || kept?.kind === 'oversize' ? 'oversize' : (kept?.kind ?? 'bad_path'), file);
       sourceIndex.set(file.path, file.sha256);
       continue;
     }
     droppedFiles++;
     droppedBytes += file.bytes;
     if (tier === 'full' && !oversize) {
-      // A full scan reads everything it can, unchanged files too: as in T2, the rest is
-      // capped and waits for the next scan.
+      // A full scan reads unchanged files too: the rest is capped and waits.
       totalSourceBytes += file.bytes;
       lostBytes += file.bytes;
       cut.push(file);
@@ -875,46 +765,23 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (noChanges) {
     notes.push('no-changes');
   }
-  if (noSourceMaps > 0) {
-    notes.push('no-source-maps');
-  }
+  noteIf(noSourceMaps, 'no-source-maps');
   // A local check (M32) sends a working tree, not a deployment: there is no claimed commit.
   if (plan.scan.commit === null && plan.scan.trigger !== 'local') {
     notes.push('no-commit');
   }
-  if (unverified.length > 0) {
-    notes.push(`third-party-unverified ${unverified.length} files`);
-  }
-  if (thirdPartyDropped > 0) {
-    notes.push(`third-party-dropped ${thirdPartyDropped} files`);
-  }
+  noteIf(unverified.length, `third-party-unverified ${unverified.length} files`);
+  noteIf(thirdPartyDropped, `third-party-dropped ${thirdPartyDropped} files`);
   for (const path of secretFiles.slice(0, MAX_LISTED_SECRET_FILES)) {
     notes.push(`dropped secret-like file ${path}`);
   }
-  if (secretFiles.length > MAX_LISTED_SECRET_FILES) {
-    notes.push(`dropped ${secretFiles.length - MAX_LISTED_SECRET_FILES} more secret-like files`);
+  const moreSecretFiles = secretFiles.length - MAX_LISTED_SECRET_FILES;
+  noteIf(moreSecretFiles, `dropped ${moreSecretFiles} more secret-like files`);
+  for (const kind of Object.keys(DROP_NOTES) as Array<DropKind>) {
+    noteIf(dropped[kind], `${DROP_NOTES[kind]} ${dropped[kind]} files`);
   }
-  if (badPaths > 0) {
-    notes.push(`${SECURITY_DROPPED_BAD_PATH_NOTE} ${badPaths} files`);
-  }
-  if (oversized > 0) {
-    notes.push(`${SECURITY_DROPPED_OVERSIZE_NOTE} ${oversized} files`);
-  }
-  if (binary > 0) {
-    notes.push(`${SECURITY_DROPPED_BINARY_NOTE} ${binary} files`);
-  }
-  if (assetsDropped > 0) {
-    notes.push(`${SECURITY_ASSETS_DROPPED_NOTE} ${assetsDropped} files`);
-  }
-  if (unverifiedDropped > 0) {
-    notes.push(`${SECURITY_UNVERIFIED_DROPPED_NOTE} ${unverifiedDropped} files`);
-  }
-  if (capped > 0) {
-    notes.push(`input-capped ${capped} files`);
-  }
-  if (unreadAssetPaths.size > 0) {
-    notes.push(`assets-unread ${unreadAssetPaths.size} files`);
-  }
+  noteIf(capped, `input-capped ${capped} files`);
+  noteIf(unreadAssetPaths.size, `assets-unread ${unreadAssetPaths.size} files`);
 
   // Memory, then redaction over every text the container gets.
   const memory = buildSecurityMemory({
@@ -945,38 +812,16 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
       addText(`memory/${history.path}`, history.text);
     }
   }
-  if (memory.indexTrimmed > 0) {
-    notes.push(`memory-index-trimmed ${memory.indexTrimmed}`);
-  }
-  if (memory.historyTrimmed > 0) {
-    notes.push('memory-trimmed');
-  }
-  if (redactor.hits() > 0) {
-    notes.push(`redacted ${redactor.hits()} secret values`);
-  }
+  noteIf(memory.indexTrimmed, `memory-index-trimmed ${memory.indexTrimmed}`);
+  noteIf(memory.historyTrimmed, 'memory-trimmed');
+  noteIf(redactor.hits(), `redacted ${redactor.hits()} secret values`);
 
   const dropShare = totalSourceBytes === 0 ? 0 : lostBytes / totalSourceBytes;
   const droppedPartial = dropShare > SECURITY_DROPPED_PARTIAL_SHARE;
+  const neverSentAny = Object.values(dropped).some((count) => count > 0);
   const partial =
-    backlog.length > 0 ||
-    droppedPartial ||
-    capped > 0 ||
-    badPaths > 0 ||
-    oversized > 0 ||
-    binary > 0 ||
-    assetsDropped > 0 ||
-    unverifiedDropped > 0 ||
-    unscanned.length > 0;
-  if (
-    droppedPartial &&
-    backlog.length === 0 &&
-    capped === 0 &&
-    badPaths === 0 &&
-    oversized === 0 &&
-    binary === 0 &&
-    assetsDropped === 0 &&
-    unverifiedDropped === 0
-  ) {
+    backlog.length > 0 || droppedPartial || capped > 0 || neverSentAny || unscanned.length > 0;
+  if (droppedPartial && backlog.length === 0 && capped === 0 && !neverSentAny) {
     // Only registry code was dropped: this does not hold a public request (§7.4, #92).
     notes.push('partial-third-party-only');
   }
@@ -998,8 +843,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     task.runtime_copy = true;
   }
   if (plan.tier.fullReason === 'sweep') {
-    // A scheduled sweep (or its fallback, M26) runs the deeper profile (M25). An older runner ignores the field
-    // and runs its deploy-diff profile over the whole app.
+    // A scheduled sweep (or its fallback) runs the deeper profile (M25).
     task.profile = 'standard';
   }
   const taskText = JSON.stringify(task);

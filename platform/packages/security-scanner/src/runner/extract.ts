@@ -9,24 +9,11 @@ import { mkdir, open } from 'node:fs/promises';
 import { join } from 'node:path/posix';
 import { SCAN_INPUT_LIMITS } from './limits.ts';
 
-export type ExtractLimits = {
-  maxFiles: number;
-  maxFileBytes: number;
-  maxTotalBytes: number;
-};
-
-export const DEFAULT_EXTRACT_LIMITS: ExtractLimits = {
-  maxFiles: SCAN_INPUT_LIMITS.maxFiles,
-  maxFileBytes: SCAN_INPUT_LIMITS.maxFileBytes,
-  maxTotalBytes: SCAN_INPUT_LIMITS.maxTotalBytes,
-};
-
 export type ExtractOptions = {
   /** Fresh directory to write into. */
   dest: string;
   /** Allowed first path segments, e.g. `task.json`, `input`, `memory`. Empty = any. */
   allowedRoots?: ReadonlyArray<string>;
-  limits?: Partial<ExtractLimits>;
   /** Stops a read that waits on the stream (the controller's SIGTERM). */
   signal?: AbortSignal;
 };
@@ -45,10 +32,14 @@ export async function extractTar(
   source: AsyncIterable<Uint8Array> | Uint8Array,
   options: ExtractOptions,
 ): Promise<ExtractResult> {
-  const limits = { ...DEFAULT_EXTRACT_LIMITS, ...options.limits };
+  const limits = SCAN_INPUT_LIMITS;
   const allowed = new Set(options.allowedRoots ?? []);
-  const reader = new BlockReader(
-    source instanceof Uint8Array ? single(source) : source,
+  const read = blockReader(
+    source instanceof Uint8Array
+      ? (async function* () {
+          yield source;
+        })()
+      : source,
     options.signal,
   );
   const seen = new Map<string, 'file' | 'dir'>();
@@ -60,7 +51,7 @@ export async function extractTar(
   await mkdir(options.dest, { recursive: true });
 
   for (;;) {
-    const block = await reader.read(BLOCK);
+    const block = await read(BLOCK);
     if (block === null) {
       throw new ExtractError('tar input ended without an end marker');
     }
@@ -73,7 +64,7 @@ export async function extractTar(
       if (header.size > 1024 * 1024) {
         throw new ExtractError('tar extended header is too large');
       }
-      const data = await readData(reader, header.size, padTo(header.size));
+      const data = await readData(read, header.size);
       if (header.type === 'x') {
         const records = readPaxRecords(data);
         paxPath = records.path ?? paxPath;
@@ -88,7 +79,6 @@ export async function extractTar(
     }
 
     const size = paxSize ?? header.size;
-    const dataLength = padTo(size);
     const rawName = paxPath ?? longName ?? header.name;
     paxPath = null;
     paxSize = null;
@@ -146,7 +136,7 @@ export async function extractTar(
         mode: DIR_MODE,
       });
     }
-    const data = await readData(reader, size, dataLength);
+    const data = await readData(read, size);
     let handle;
     try {
       // O_EXCL + O_NOFOLLOW: never replace or follow what is already there.
@@ -168,10 +158,6 @@ export async function extractTar(
     result.files++;
     result.bytes += size;
   }
-}
-
-function padTo(size: number): number {
-  return Math.ceil(size / BLOCK) * BLOCK;
 }
 
 function readHeader(block: Uint8Array): Header {
@@ -308,8 +294,11 @@ export function safeSegments(rawName: string, isDir: boolean): Array<string> {
   return segments;
 }
 
-async function readData(reader: BlockReader, size: number, padded: number): Promise<Uint8Array> {
-  const data = await reader.read(padded);
+async function readData(
+  read: (length: number) => Promise<Uint8Array | null>,
+  size: number,
+): Promise<Uint8Array> {
+  const data = await read(Math.ceil(size / BLOCK) * BLOCK);
   if (data === null) {
     throw new ExtractError('tar input ended inside an entry');
   }
@@ -350,84 +339,58 @@ function quote(name: string): string {
   return JSON.stringify(name.length > 200 ? `${name.slice(0, 200)}…` : name);
 }
 
-async function* single(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
-  yield bytes;
-}
+const stopped = () => new ExtractError('tar input was stopped');
 
-/** Reads exact byte counts from a chunked stream. */
-class BlockReader {
-  private readonly iterator: AsyncIterator<Uint8Array>;
-  private chunks: Array<Uint8Array> = [];
-  private buffered = 0;
-  private ended = false;
-
-  private readonly signal: AbortSignal | undefined;
-
-  constructor(source: AsyncIterable<Uint8Array>, signal?: AbortSignal) {
-    this.iterator = source[Symbol.asyncIterator]();
-    this.signal = signal;
-  }
-
-  /** `null` when the stream ends before `length` bytes. */
-  async read(length: number): Promise<Uint8Array | null> {
-    this.throwIfStopped();
-    while (this.buffered < length && !this.ended) {
-      const next = await this.next();
-      if (next.done) {
-        this.ended = true;
-        break;
-      }
-      if (next.value.length > 0) {
-        this.chunks.push(next.value);
-        this.buffered += next.value.length;
-      }
-    }
-    if (this.buffered < length) {
-      return null;
-    }
-    const out = new Uint8Array(length);
-    let filled = 0;
-    while (filled < length) {
-      const chunk = this.chunks[0];
-      const take = Math.min(chunk.length, length - filled);
-      out.set(chunk.subarray(0, take), filled);
-      filled += take;
-      if (take === chunk.length) {
-        this.chunks.shift();
-      } else {
-        this.chunks[0] = chunk.subarray(take);
-      }
-    }
-    this.buffered -= length;
-    return out;
-  }
-
-  private throwIfStopped(): void {
-    if (this.signal?.aborted) {
-      throw new ExtractError('tar input was stopped');
-    }
-  }
-
-  /** The next chunk, or a throw as soon as the signal stops the read. */
-  private next(): Promise<IteratorResult<Uint8Array>> {
-    const signal = this.signal;
-    const pending = this.iterator.next();
+/** Reads exact byte counts from a chunked stream; `null` when it ends first. */
+function blockReader(source: AsyncIterable<Uint8Array>, signal?: AbortSignal) {
+  const iterator = source[Symbol.asyncIterator]();
+  const chunks: Array<Uint8Array> = [];
+  let buffered = 0;
+  let ended = false;
+  // The next chunk, or a throw as soon as the signal stops the read.
+  const next = (): Promise<IteratorResult<Uint8Array>> => {
+    const pending = iterator.next();
     if (signal === undefined) {
       return pending;
     }
     return new Promise((resolve, reject) => {
-      const onAbort = () => reject(new ExtractError('tar input was stopped'));
+      const onAbort = () => reject(stopped());
       signal.addEventListener('abort', onAbort, { once: true });
-      pending.then(
-        (value) => {
-          signal.removeEventListener('abort', onAbort);
-          resolve(value);
-        },
-        (error: unknown) => {
-          signal.removeEventListener('abort', onAbort);
-          reject(error);
-        },
-      );
+      pending
+        .then(resolve, reject)
+        .finally(() => signal.removeEventListener('abort', onAbort))
+        .catch(() => undefined);
     });
-  }
+  };
+  return async (length: number): Promise<Uint8Array | null> => {
+    if (signal?.aborted) {
+      throw stopped();
+    }
+    while (buffered < length && !ended) {
+      const chunk = await next();
+      if (chunk.done) {
+        ended = true;
+      } else if (chunk.value.length > 0) {
+        chunks.push(chunk.value);
+        buffered += chunk.value.length;
+      }
+    }
+    if (buffered < length) {
+      return null;
+    }
+    const out = new Uint8Array(length);
+    for (let filled = 0; filled < length;) {
+      const chunk = chunks[0];
+      const take = Math.min(chunk.length, length - filled);
+      out.set(chunk.subarray(0, take), filled);
+      filled += take;
+      if (take === chunk.length) {
+        chunks.shift();
+      } else {
+        chunks[0] = chunk.subarray(take);
+      }
+    }
+    buffered -= length;
+    return out;
+  };
 }

@@ -13,18 +13,11 @@
 //                                                     ▼ alarm: heartbeat, poll /scan/out/status.json
 //   API ◄──── SecurityScanControl (service binding, props = installation identity) ────┘
 //
-// Engines (M13b): `ScannerController` runs Engine B on the managed image and streams the
-// runner in. `ScannerControllerEngineA` / `ScannerControllerEngineC` run the Engine A / C
-// image (copied by digest into the account registry; `images.default` of their container
-// app), which already holds the runner, the SDK and the MCP server. One container app per
-// class. An engine whose image is not in `__VOID_SECURITY_SCANNER_IMAGES` is refused.
+// `ScannerController` runs Engine B on the managed image and streams the runner in.
+// `ScannerControllerEngineA` / `ScannerControllerEngineC` run their engine image, which
+// already holds the runner, the SDK and the MCP server; one container app per class.
 //
-// Runtime copy (M30, spike S13): once the runner runs, the controller asks the API for
-// this attempt's copy (`control.copy`). `CopyOutbound` dispatches the container's
-// requests to that copy only; the copy namespace's outbound Worker blocks the copy's own
-// fetches. The copy name comes from the attempt, never from the container.
-//
-// Spike S1 facts this file relies on: the hostname intercept is registered before the
+// Spike S1 facts this file relies on: the hostname intercepts are registered before the
 // catch-all (else the catch-all wins); HTTPS needs its own `interceptOutboundHttps('*')`
 // deny, else a TLS client hangs ~8 s; scan code starts through stdin and a short argv;
 // nothing reads /run/cloudchamber.
@@ -34,47 +27,38 @@ import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import runnerSource from 'void:security-scanner-runner-source';
 import { COPY_HEADER, COPY_HOST, runtimeCopyScriptName } from './security/runtime-copy-names.ts';
 
-/** The only host the container may call. The runner's base URL points here. */
+/** The only host the container may call besides its copy. The runner's base URL points here. */
 export const MODEL_HOST = 'model.void.internal';
 export const MANAGED_IMAGE = 'cloudflare/debian-trixie';
-export const SCANNER_USER = 'scanner';
+const SCANNER_USER = 'scanner';
 export const RUNNER_PATH = '/opt/void-scanner/runner.mjs';
 export const STATUS_PATH = '/scan/out/status.json';
 export const FINDINGS_PATH = '/scan/out/findings.json';
 /** The runner refuses a report above 5 MiB; one more byte tells the API it was cut. */
-export const FINDINGS_READ_LIMIT = 5 * 1024 * 1024 + 1;
-export const POLL_MS = 10_000;
+const FINDINGS_READ_LIMIT = 5 * 1024 * 1024 + 1;
+const POLL_MS = 10_000;
 /** After SIGTERM at the wall clock, the runner has this long to write `timed_out`. */
-export const STOP_GRACE_MS = 60_000;
-export const READY_TIMEOUT_MS = 120_000;
-/**
- * A probe waits less for the container, so the controller's whole self-test
- * (ready + setup + run, at most 210 s) ends before the API stops waiting (240 s).
- */
-export const PROBE_READY_TIMEOUT_MS = 90_000;
-export const SETUP_TIMEOUT_MS = 30_000;
-export const SELF_TEST_RUN_TIMEOUT_MS = 90_000;
+const STOP_GRACE_MS = 60_000;
+const READY_TIMEOUT_MS = 120_000;
+/** A probe's whole self-test (ready + setup + run, at most 210 s) ends before the API stops waiting (240 s). */
+const PROBE_READY_TIMEOUT_MS = 90_000;
+const SETUP_TIMEOUT_MS = 30_000;
+const SELF_TEST_RUN_TIMEOUT_MS = 90_000;
 /** Reading one result file, or sending SIGTERM, never holds an alarm longer than this. */
-export const READ_TIMEOUT_MS = 30_000;
-/**
- * The whole env of every command the controller runs in the container: enough to find
- * `node` and a home, nothing else. No token, URL or project data.
- */
+const READ_TIMEOUT_MS = 30_000;
+/** The whole env of every command run in the container: no token, URL or project data. */
 export const EXEC_ENV: Readonly<Record<string, string>> = Object.freeze({
   PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
   HOME: '/scan',
 });
 /** A probe container is destroyed by this alarm even when the request was dropped. */
-export const PROBE_CLEANUP_MS = 10 * 60_000;
-const SCAN_INSTANCE = 'standard-1';
-const PROBE_INSTANCE = 'lite';
+const PROBE_CLEANUP_MS = 10 * 60_000;
 const CONTROL_TIMEOUT_MS = 30_000;
 /** The API reads the deployment, past findings and secrets to build the input tar. */
-export const INPUT_TIMEOUT_MS = 120_000;
+const INPUT_TIMEOUT_MS = 120_000;
 /** Making the runtime copy (stores, schema, upload; S13: about 10 s). */
-export const COPY_TIMEOUT_MS = 120_000;
-/** One container request to the copy, at most. */
-export const COPY_REQUEST_TIMEOUT_MS = 30_000;
+const COPY_TIMEOUT_MS = 120_000;
+const COPY_REQUEST_TIMEOUT_MS = 30_000;
 const STATE_KEY = 'state';
 
 export type ScanFence =
@@ -89,7 +73,7 @@ export type ScanResultReport = Readonly<{
 }>;
 
 /** `SecurityScanControl` in the API Worker, reached through the service binding. */
-export type SecurityScanControlRpc = {
+type SecurityScanControlRpc = {
   heartbeat(scanId: string, attempt: number): Promise<ScanFence>;
   input(scanId: string, attempt: number): Promise<ReadableStream<Uint8Array> | null>;
   model(scanId: string, attempt: number, request: Request): Promise<Response>;
@@ -101,16 +85,7 @@ export type SecurityScanControlRpc = {
   ): Promise<{ ok: true; script: string; ms: number } | { ok: false; reason: string }>;
 };
 
-/** The copy namespace binding (M30). */
-export type CopyNamespace = {
-  get(
-    name: string,
-    args?: Record<string, unknown>,
-    options?: Record<string, unknown>,
-  ): { fetch(request: Request): Promise<Response> };
-};
-
-export type ControllerEnv = {
+type ControllerEnv = {
   SCANNER: DurableObjectNamespace<ScannerController>;
   SCANNER_ENGINE_A?: DurableObjectNamespace<ScannerController>;
   SCANNER_ENGINE_C?: DurableObjectNamespace<ScannerController>;
@@ -118,34 +93,16 @@ export type ControllerEnv = {
   __VOID_SECURITY_SCANNER_IMAGES?: string;
   __VOID_SECURITY_SCAN_CONTROL: SecurityScanControlRpc;
   /** M30: this installation's runtime copies, and their name prefix. */
-  __VOID_SECURITY_COPIES?: CopyNamespace;
+  __VOID_SECURITY_COPIES?: {
+    get(name: string): { fetch(request: Request): Promise<Response> };
+  };
   __VOID_SECURITY_COPY_PREFIX?: string;
 };
 
-/** The engines this controller knows, and the class that runs each. */
 export type ScannerEngine = 'void_loop' | 'agent_sdk' | 'codex_sdk';
 
-/** The engine images the API uploaded this controller with (bad data means none). */
-export function readyImageEngines(env: Pick<ControllerEnv, '__VOID_SECURITY_SCANNER_IMAGES'>) {
-  const ready = new Set<ScannerEngine>();
-  try {
-    const value = JSON.parse(env.__VOID_SECURITY_SCANNER_IMAGES ?? '{}') as unknown;
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      for (const engine of ['agent_sdk', 'codex_sdk'] as const) {
-        const ref = (value as Record<string, unknown>)[engine];
-        if (typeof ref === 'string' && ref.length > 0) {
-          ready.add(engine);
-        }
-      }
-    }
-  } catch {
-    // Unreadable: no image engine runs.
-  }
-  return ready;
-}
-
-/** The Durable Object namespace that runs `engine`, or null when it cannot run here. */
-export function scannerNamespace(
+/** The namespace that runs `engine`, or null when it cannot run here (an image engine needs its image). */
+function scannerNamespace(
   env: ControllerEnv,
   engine: unknown,
 ): DurableObjectNamespace<ScannerController> | null {
@@ -155,7 +112,15 @@ export function scannerNamespace(
   if (engine !== 'agent_sdk' && engine !== 'codex_sdk') {
     return null;
   }
-  if (!readyImageEngines(env).has(engine)) {
+  let ref: unknown;
+  try {
+    ref = (
+      JSON.parse(env.__VOID_SECURITY_SCANNER_IMAGES ?? '{}') as Record<string, unknown> | null
+    )?.[engine];
+  } catch {
+    // Unreadable: no image engine runs.
+  }
+  if (typeof ref !== 'string' || ref.length === 0) {
     return null;
   }
   return (engine === 'agent_sdk' ? env.SCANNER_ENGINE_A : env.SCANNER_ENGINE_C) ?? null;
@@ -179,21 +144,19 @@ export type SelfTestResult = Readonly<{
   error?: string;
 }>;
 
-type ScanPhase = 'starting' | 'running' | 'stopping' | 'done';
 type ScanState = {
   kind: 'scan';
   scanId: string;
   attempt: number;
   engine: string;
-  phase: ScanPhase;
+  phase: 'starting' | 'running' | 'stopping' | 'done';
   createdAt: number;
   wallDeadline: number;
   hardDeadline: number;
   stopDeadline?: number;
   pid?: number;
 };
-type ProbeState = { kind: 'probe'; probeId: string; createdAt: number };
-type State = ScanState | ProbeState;
+type State = ScanState | { kind: 'probe'; probeId: string; createdAt: number };
 
 type ModelOutboundProps = { scanId: string; attempt: number } | { probeId: string };
 type CopyOutboundProps = { scanId: string; attempt: number };
@@ -203,22 +166,15 @@ type ExportsLoopback = {
   DenyAll(options: { props: Record<string, never> }): Fetcher;
 };
 
+const ID_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+
 function isId(value: unknown): value is string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 64) {
-    return false;
-  }
-  for (const char of value) {
-    const ok =
-      (char >= 'a' && char <= 'z') ||
-      (char >= 'A' && char <= 'Z') ||
-      (char >= '0' && char <= '9') ||
-      char === '_' ||
-      char === '-';
-    if (!ok) {
-      return false;
-    }
-  }
-  return true;
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 64 &&
+    Array.from(value).every((char) => ID_CHARS.includes(char))
+  );
 }
 
 function isAttempt(value: unknown): value is number {
@@ -226,18 +182,12 @@ function isAttempt(value: unknown): value is number {
 }
 
 function isDuration(value: unknown): value is number {
-  return (
-    typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 6 * 3_600_000
-  );
+  return isAttempt(value) && value <= 6 * 3_600_000;
 }
 
 /** One container instance per scan attempt and per probe: never shared, never reused (edge #42). */
-export function scanInstanceName(scanId: string, attempt: number): string {
+function scanInstanceName(scanId: string, attempt: number): string {
   return `scan:${scanId}:${attempt}`;
-}
-
-export function probeInstanceName(probeId: string): string {
-  return `probe:${probeId}`;
 }
 
 async function bounded<T>(operation: Promise<T>, ms = CONTROL_TIMEOUT_MS): Promise<T> {
@@ -256,24 +206,29 @@ async function bounded<T>(operation: Promise<T>, ms = CONTROL_TIMEOUT_MS): Promi
 
 const decoder = new TextDecoder();
 
+const SETUP_HEAD = [
+  'const fs=require("node:fs"),cp=require("node:child_process");',
+  `const user=${JSON.stringify(SCANNER_USER)},runner=${JSON.stringify(RUNNER_PATH)};`,
+].join('');
+const SCAN_DIR_SETUP =
+  'fs.mkdirSync("/scan",{recursive:true});cp.execFileSync("chown",[user+":"+user,"/scan"]);fs.chmodSync("/scan",0o700);';
+
 // Runs as root in an engine image (A/C) before the scan: the image already has the
 // `scanner` user and the runner; this only makes /scan an empty folder that user owns.
 // Exit 2: the image is not a scanner image.
 const IMAGE_SETUP_SCRIPT = [
-  'const fs=require("node:fs"),cp=require("node:child_process");',
-  `const user=${JSON.stringify(SCANNER_USER)},runner=${JSON.stringify(RUNNER_PATH)};`,
+  SETUP_HEAD,
   'try{cp.execFileSync("id",["-u",user],{stdio:"ignore"})}catch{process.exit(2)}',
   'try{if(!fs.lstatSync(runner).isFile())process.exit(2)}catch{process.exit(2)}',
-  'fs.mkdirSync("/scan",{recursive:true});cp.execFileSync("chown",[user+":"+user,"/scan"]);fs.chmodSync("/scan",0o700);',
+  SCAN_DIR_SETUP,
 ].join('');
 
 // Runs as root before the scan: a non-root `scanner` user, an empty /scan it owns, and
-// the runner bundle from stdin, read-only. Short argv; the bundle comes on stdin.
+// the runner bundle from stdin, read-only.
 const SETUP_SCRIPT = [
-  'const fs=require("node:fs"),cp=require("node:child_process");',
-  `const user=${JSON.stringify(SCANNER_USER)},runner=${JSON.stringify(RUNNER_PATH)};`,
+  SETUP_HEAD,
   'try{cp.execFileSync("id",["-u",user],{stdio:"ignore"})}catch{cp.execFileSync("useradd",["--system","--no-create-home","--shell","/usr/sbin/nologin",user],{stdio:"ignore"})}',
-  'fs.mkdirSync("/scan",{recursive:true});cp.execFileSync("chown",[user+":"+user,"/scan"]);fs.chmodSync("/scan",0o700);',
+  SCAN_DIR_SETUP,
   'fs.mkdirSync(require("node:path").dirname(runner),{recursive:true});',
   'const chunks=[];process.stdin.on("data",c=>chunks.push(c));',
   'process.stdin.on("end",()=>{const tmp=runner+".tmp";fs.writeFileSync(tmp,Buffer.concat(chunks),{mode:0o555});fs.renameSync(tmp,runner);});',
@@ -294,18 +249,15 @@ const READ_SCRIPT = [
   'process.stdout.write(buf.subarray(0,n));',
 ].join('');
 
-type FileRead = Readonly<{ kind: 'ok'; text: string } | { kind: 'missing' } | { kind: 'refused' }>;
-
 /** Model route for one scan attempt. Identity comes from props the container never sees. */
 export class ScanModelOutbound extends WorkerEntrypoint<ControllerEnv, ModelOutboundProps> {
   async fetch(request: Request): Promise<Response> {
     const props = this.ctx.props;
     if ('probeId' in props) {
       // Probe check 3: the container reaches this handler and learns an id it never had.
-      if (new URL(request.url).pathname === '/v1/self-test') {
-        return Response.json({ probe: props.probeId });
-      }
-      return new Response('not found', { status: 404 });
+      return new URL(request.url).pathname === '/v1/self-test'
+        ? Response.json({ probe: props.probeId })
+        : new Response('not found', { status: 404 });
     }
     return this.env.__VOID_SECURITY_SCAN_CONTROL.model(props.scanId, props.attempt, request);
   }
@@ -320,9 +272,8 @@ function copyUnavailable(detail: string): Response {
 
 /**
  * Copy route for one scan attempt (M30): `http://copy.void.internal/<path>` goes to this
- * attempt's copy as `https://copy.void.internal/<path>`. Identity comes from the props;
- * nothing the container sends picks another copy. Every answer is marked: `dispatched`
- * (the copy answered) or `unavailable` (no copy, or it failed).
+ * attempt's copy only; nothing the container sends picks another copy. Every answer is
+ * marked `dispatched` (the copy answered) or `unavailable` (no copy, or it failed).
  */
 export class CopyOutbound extends WorkerEntrypoint<ControllerEnv, CopyOutboundProps> {
   async fetch(request: Request): Promise<Response> {
@@ -333,9 +284,9 @@ export class CopyOutbound extends WorkerEntrypoint<ControllerEnv, CopyOutboundPr
       return copyUnavailable('this controller has no copy namespace');
     }
     const url = new URL(request.url);
-    const target = new URL(`${url.pathname}${url.search}`, `https://${COPY_HOST}`);
     const headers = new Headers(request.headers);
     headers.delete(COPY_HEADER);
+    const target = new URL(`${url.pathname}${url.search}`, `https://${COPY_HOST}`);
     const init: RequestInit = {
       method: request.method,
       headers,
@@ -365,6 +316,8 @@ export class DenyAll extends WorkerEntrypoint<ControllerEnv> {
   }
 }
 
+const INVALID = { ok: false, reason: 'invalid_request' } as const;
+
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
   try {
     const value = await request.json<unknown>();
@@ -388,10 +341,10 @@ export default class ScannerService extends WorkerEntrypoint<ControllerEnv> {
     }
     const body = await readJson(request);
     if (!body) {
-      return Response.json({ ok: false, reason: 'invalid_request' }, { status: 400 });
+      return Response.json(INVALID, { status: 400 });
     }
+    const { scanId, attempt, engine, wallClockMs, hardCapMs, probeId } = body;
     if (url.pathname === '/v1/scans/start') {
-      const { scanId, attempt, engine, wallClockMs, hardCapMs } = body;
       if (
         !isId(scanId) ||
         !isAttempt(attempt) ||
@@ -400,20 +353,19 @@ export default class ScannerService extends WorkerEntrypoint<ControllerEnv> {
         !isDuration(hardCapMs) ||
         hardCapMs < wallClockMs
       ) {
-        return Response.json({ ok: false, reason: 'invalid_request' }, { status: 400 });
+        return Response.json(INVALID, { status: 400 });
       }
-      const namespace = scannerNamespace(this.env, engine);
-      if (!namespace) {
-        // No container app runs this engine yet (its image is not ready).
-        return Response.json({ ok: false, reason: 'engine_unavailable' });
-      }
-      const stub = namespace.getByName(scanInstanceName(scanId, attempt));
-      return Response.json(await stub.start({ scanId, attempt, engine, wallClockMs, hardCapMs }));
+      // No container app runs this engine yet (its image is not ready).
+      const stub = scannerNamespace(this.env, engine)?.getByName(scanInstanceName(scanId, attempt));
+      return Response.json(
+        stub
+          ? await stub.start({ scanId, attempt, engine, wallClockMs, hardCapMs })
+          : { ok: false, reason: 'engine_unavailable' },
+      );
     }
     if (url.pathname === '/v1/scans/cancel') {
-      const { scanId, attempt, engine } = body;
       if (!isId(scanId) || !isAttempt(attempt)) {
-        return Response.json({ ok: false, reason: 'invalid_request' }, { status: 400 });
+        return Response.json(INVALID, { status: 400 });
       }
       // The scheduler sends no engine; a cancel reaches every class that could hold it.
       const namespaces =
@@ -432,12 +384,10 @@ export default class ScannerService extends WorkerEntrypoint<ControllerEnv> {
       return Response.json({ ok: true });
     }
     if (url.pathname === '/v1/self-test') {
-      const { probeId } = body;
-      const engine = body.engine ?? 'void_loop';
       if (!isId(probeId)) {
-        return Response.json({ ok: false, reason: 'invalid_request' }, { status: 400 });
+        return Response.json(INVALID, { status: 400 });
       }
-      const namespace = scannerNamespace(this.env, engine);
+      const namespace = scannerNamespace(this.env, engine ?? 'void_loop');
       if (!namespace) {
         return Response.json({
           started: false,
@@ -446,24 +396,27 @@ export default class ScannerService extends WorkerEntrypoint<ControllerEnv> {
           error: 'engine_unavailable',
         } satisfies SelfTestResult);
       }
-      // RPC types a result holding an `unknown` report as never; the stub still returns
-      // the method's promise, so call it through the class's own signature.
-      const stub: Pick<ScannerController, 'selfTest'> = namespace.getByName(
-        probeInstanceName(probeId),
-      );
+      // RPC types a result holding an `unknown` report as never; call it through the
+      // class's own signature.
+      const stub: Pick<ScannerController, 'selfTest'> = namespace.getByName(`probe:${probeId}`);
       return Response.json(await stub.selfTest(probeId));
     }
     return new Response('not found', { status: 404 });
   }
 }
 
+type ExecOptions = {
+  user?: string;
+  cwd?: string;
+  stdin?: ReadableStream<Uint8Array>;
+  timeoutMs: number;
+};
+/** Commands run as the scanner user start in its own folder. */
+const AS_SCANNER = { user: SCANNER_USER, cwd: '/scan' } as const;
+
 export class ScannerController extends DurableObject<ControllerEnv> {
   /** The engine this class runs. Engine B: the managed image, runner streamed in. */
   protected readonly engine: ScannerEngine = 'void_loop';
-
-  private get usesManagedImage(): boolean {
-    return this.engine === 'void_loop';
-  }
 
   private get container(): Container {
     const container = this.ctx.container;
@@ -471,10 +424,6 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       throw new Error('The scanner Durable Object has no container.');
     }
     return container;
-  }
-
-  private get loopback(): ExportsLoopback {
-    return (this.ctx as DurableObjectState & { exports: ExportsLoopback }).exports;
   }
 
   private get control(): SecurityScanControlRpc {
@@ -489,28 +438,39 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     await this.ctx.storage.put(STATE_KEY, state);
   }
 
+  /** Runs one command to its end with the fixed env and a time limit. */
+  private async exec(argv: Array<string>, { timeoutMs, ...options }: ExecOptions) {
+    const process = await this.container.exec(argv, {
+      ...options,
+      env: { ...EXEC_ENV },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return process.output();
+  }
+
   /**
-   * Egress lock, in the order S1 proved: the model host first, then the HTTP
-   * catch-all, then the HTTPS catch-all. Registered before `start`, so the container
+   * Egress lock, in the order S1 proved: the model host and the copy host first, then the
+   * HTTP catch-all, then the HTTPS catch-all. Registered before `start`, so the container
    * never runs a moment without them.
    */
   private async lockEgress(props: ModelOutboundProps): Promise<void> {
     const container = this.container;
-    await container.interceptOutboundHttp(MODEL_HOST, this.loopback.ScanModelOutbound({ props }));
+    const loopback = (this.ctx as DurableObjectState & { exports: ExportsLoopback }).exports;
+    await container.interceptOutboundHttp(MODEL_HOST, loopback.ScanModelOutbound({ props }));
     if ('scanId' in props) {
-      // M30: the scan's own copy, before the catch-alls (else they win).
       await container.interceptOutboundHttp(
         COPY_HOST,
-        this.loopback.CopyOutbound({ props: { scanId: props.scanId, attempt: props.attempt } }),
+        loopback.CopyOutbound({ props: { scanId: props.scanId, attempt: props.attempt } }),
       );
     }
-    await container.interceptAllOutboundHttp(this.loopback.DenyAll({ props: {} }));
-    await container.interceptOutboundHttps('*', this.loopback.DenyAll({ props: {} }));
+    await container.interceptAllOutboundHttp(loopback.DenyAll({ props: {} }));
+    await container.interceptOutboundHttps('*', loopback.DenyAll({ props: {} }));
   }
 
-  private startContainer(instance: typeof SCAN_INSTANCE | typeof PROBE_INSTANCE): void {
+  /** Starts the container and waits until it runs a command; the wait in ms. */
+  private async startContainer(instance: 'standard-1' | 'lite', timeoutMs: number) {
     // Engines A/C: the copied image their container app was uploaded with.
-    const image = this.usesManagedImage ? MANAGED_IMAGE : this.container.images.default;
+    const image = this.engine === 'void_loop' ? MANAGED_IMAGE : this.container.images.default;
     if (!image) {
       throw new Error('The scanner engine has no image.');
     }
@@ -522,15 +482,11 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       env: {},
       instance,
     });
-  }
-
-  private async waitReady(timeoutMs: number): Promise<number> {
     const started = Date.now();
     let lastError = 'not ready';
     while (Date.now() - started < timeoutMs) {
       try {
-        const process = await this.container.exec(['true']);
-        const output = await process.output();
+        const output = await (await this.container.exec(['true'])).output();
         if (output.exitCode === 0) {
           return Date.now() - started;
         }
@@ -546,14 +502,12 @@ export class ScannerController extends DurableObject<ControllerEnv> {
   }
 
   private async installRunner(): Promise<void> {
-    if (!this.usesManagedImage) {
+    if (this.engine !== 'void_loop') {
       // The engine image ships its own runner (with its SDK); only /scan is prepared.
-      const process = await this.container.exec(['node', '-e', IMAGE_SETUP_SCRIPT], {
+      const output = await this.exec(['node', '-e', IMAGE_SETUP_SCRIPT], {
         user: 'root',
-        env: { ...EXEC_ENV },
-        signal: AbortSignal.timeout(SETUP_TIMEOUT_MS),
+        timeoutMs: SETUP_TIMEOUT_MS,
       });
-      const output = await process.output();
       if (output.exitCode !== 0) {
         throw new Error(`Scanner image setup failed (exit ${output.exitCode}).`);
       }
@@ -562,12 +516,10 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     if (!runnerSource) {
       throw new Error('The scanner controller is missing its runner bundle.');
     }
-    const process = await this.container.exec(['node', '-e', SETUP_SCRIPT], {
-      env: { ...EXEC_ENV },
+    const output = await this.exec(['node', '-e', SETUP_SCRIPT], {
       stdin: new Blob([runnerSource]).stream(),
-      signal: AbortSignal.timeout(SETUP_TIMEOUT_MS),
+      timeoutMs: SETUP_TIMEOUT_MS,
     });
-    const output = await process.output();
     if (output.exitCode !== 0) {
       throw new Error(`Scanner setup failed (exit ${output.exitCode}).`);
     }
@@ -633,19 +585,18 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     let coldStartMs: number | null = null;
     try {
       await this.lockEgress({ probeId });
-      this.startContainer(PROBE_INSTANCE);
-      coldStartMs = await this.waitReady(PROBE_READY_TIMEOUT_MS);
+      coldStartMs = await this.startContainer('lite', PROBE_READY_TIMEOUT_MS);
       await this.installRunner();
-      const process = await this.container.exec(['node', RUNNER_PATH, '--self-test'], {
-        user: SCANNER_USER,
-        cwd: '/scan',
-        env: { ...EXEC_ENV },
-        signal: AbortSignal.timeout(SELF_TEST_RUN_TIMEOUT_MS),
+      const output = await this.exec(['node', RUNNER_PATH, '--self-test'], {
+        ...AS_SCANNER,
+        timeoutMs: SELF_TEST_RUN_TIMEOUT_MS,
       });
-      const output = await process.output();
-      const text = decoder.decode(output.stdout).trim();
       try {
-        return { started: true, coldStartMs, report: JSON.parse(text) };
+        return {
+          started: true,
+          coldStartMs,
+          report: JSON.parse(decoder.decode(output.stdout).trim()),
+        };
       } catch {
         return {
           started: true,
@@ -668,8 +619,7 @@ export class ScannerController extends DurableObject<ControllerEnv> {
 
   private async fence(state: ScanState): Promise<boolean> {
     try {
-      const fence = await bounded(this.control.heartbeat(state.scanId, state.attempt));
-      return fence.ok;
+      return (await bounded(this.control.heartbeat(state.scanId, state.attempt))).ok;
     } catch (error) {
       // The API is unreachable: keep going until the hard cap; the lease is the authority.
       console.error('[security-scanner] heartbeat failed', error);
@@ -679,31 +629,33 @@ export class ScannerController extends DurableObject<ControllerEnv> {
 
   private async report(state: ScanState, report: ScanResultReport): Promise<boolean> {
     try {
-      const result = await bounded(this.control.result(state.scanId, state.attempt, report));
-      return result.ok;
+      return (await bounded(this.control.result(state.scanId, state.attempt, report))).ok;
     } catch (error) {
       console.error('[security-scanner] result report failed', error);
       return false;
     }
   }
 
+  /** Reports a status the controller set, then ends the attempt. */
+  private async end(state: ScanState, status: Record<string, string>): Promise<void> {
+    await this.report(state, { status, findings: null });
+    await this.finish();
+  }
+
   /**
    * Scanned code runs as `scanner` and owns /scan, so it can put a symlink or a FIFO
    * where a result file should be. The read runs as `scanner` too, refuses anything
-   * but a regular file and has a time limit.
+   * but a regular file and has a time limit. `null`: not there yet; `false`: refused.
    */
-  private async readFile(path: string, limit: number): Promise<FileRead> {
-    const process = await this.container.exec(['node', '-e', READ_SCRIPT, path, String(limit)], {
-      user: SCANNER_USER,
-      cwd: '/scan',
-      env: { ...EXEC_ENV },
-      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  private async readFile(path: string, limit: number): Promise<string | null | false> {
+    const output = await this.exec(['node', '-e', READ_SCRIPT, path, String(limit)], {
+      ...AS_SCANNER,
+      timeoutMs: READ_TIMEOUT_MS,
     });
-    const output = await process.output();
     if (output.exitCode === 0) {
-      return { kind: 'ok', text: decoder.decode(output.stdout) };
+      return decoder.decode(output.stdout);
     }
-    return output.exitCode === 1 ? { kind: 'missing' } : { kind: 'refused' };
+    return output.exitCode === 1 ? null : false;
   }
 
   private async begin(state: ScanState): Promise<void> {
@@ -713,21 +665,19 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       return;
     }
     await this.lockEgress({ scanId: state.scanId, attempt: state.attempt });
-    this.startContainer(SCAN_INSTANCE);
-    await this.waitReady(READY_TIMEOUT_MS);
+    await this.startContainer('standard-1', READY_TIMEOUT_MS);
     await this.installRunner();
     const input = await bounded(this.control.input(state.scanId, state.attempt), INPUT_TIMEOUT_MS);
     if (!input) {
-      await this.report(state, {
-        status: { status: 'failed', reason: 'infrastructure', error_class: 'input_unavailable' },
-        findings: null,
+      await this.end(state, {
+        status: 'failed',
+        reason: 'infrastructure',
+        error_class: 'input_unavailable',
       });
-      await this.finish();
       return;
     }
     const process = await this.container.exec(['node', RUNNER_PATH, '--stdin-tar'], {
-      user: SCANNER_USER,
-      cwd: '/scan',
+      ...AS_SCANNER,
       env: { ...EXEC_ENV },
       stdin: 'pipe',
       stdout: 'ignore',
@@ -765,19 +715,15 @@ export class ScannerController extends DurableObject<ControllerEnv> {
   private async poll(state: ScanState): Promise<void> {
     const now = Date.now();
     if (now >= state.hardDeadline) {
-      await this.report(state, {
-        status: { status: 'timed_out', reason: 'hard_cap' },
-        findings: null,
-      });
-      await this.finish();
+      await this.end(state, { status: 'timed_out', reason: 'hard_cap' });
       return;
     }
     if (!this.container.running) {
-      await this.report(state, {
-        status: { status: 'failed', reason: 'infrastructure', error_class: 'container_exited' },
-        findings: null,
+      await this.end(state, {
+        status: 'failed',
+        reason: 'infrastructure',
+        error_class: 'container_exited',
       });
-      await this.finish();
       return;
     }
     if (!(await this.fence(state))) {
@@ -785,18 +731,18 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       return;
     }
     const status = await this.readFile(STATUS_PATH, 64 * 1024);
-    if (status.kind !== 'missing') {
+    if (status !== null) {
       const unreadable = {
         status: 'failed',
         reason: 'bad_output',
         error_class: 'status_unreadable',
       };
       let result: ScanResultReport = { status: unreadable, findings: null };
-      if (status.kind === 'ok') {
+      if (status !== false) {
         const read = await this.readFile(FINDINGS_PATH, FINDINGS_READ_LIMIT);
-        const findings = read.kind === 'ok' ? read.text : null;
+        const findings = typeof read === 'string' ? read : null;
         try {
-          result = { status: JSON.parse(status.text), findings };
+          result = { status: JSON.parse(status), findings };
         } catch {
           result = { status: unreadable, findings };
         }
@@ -814,23 +760,17 @@ export class ScannerController extends DurableObject<ControllerEnv> {
       state.stopDeadline !== undefined &&
       now >= state.stopDeadline
     ) {
-      await this.report(state, {
-        status: { status: 'timed_out', reason: 'wall_clock' },
-        findings: null,
-      });
-      await this.finish();
+      await this.end(state, { status: 'timed_out', reason: 'wall_clock' });
       return;
     }
     if (state.phase === 'running' && now >= state.wallDeadline) {
       // The runner ends its session and writes `timed_out (wall_clock)` on SIGTERM.
       if (state.pid !== undefined) {
         // As `scanner`: the runner is its process, and nothing else is.
-        const kill = await this.container.exec(['kill', '-TERM', String(state.pid)], {
+        await this.exec(['kill', '-TERM', String(state.pid)], {
           user: SCANNER_USER,
-          env: { ...EXEC_ENV },
-          signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+          timeoutMs: READ_TIMEOUT_MS,
         });
-        await kill.output();
       }
       await this.save({ ...state, phase: 'stopping', stopDeadline: now + STOP_GRACE_MS });
     }
@@ -842,27 +782,19 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     if (!state) {
       return;
     }
-    if (state.kind === 'probe') {
-      await this.destroyContainer().catch(() => {});
-      return;
-    }
-    if (state.phase === 'done') {
+    if (state.kind === 'probe' || state.phase === 'done') {
       await this.destroyContainer().catch(() => {});
       return;
     }
     try {
-      if (state.phase === 'starting') {
-        await this.begin(state);
-      } else {
-        await this.poll(state);
-      }
+      await (state.phase === 'starting' ? this.begin(state) : this.poll(state));
     } catch (error) {
       console.error('[security-scanner] scan attempt failed', error);
-      await this.report(state, {
-        status: { status: 'failed', reason: 'infrastructure', error_class: 'controller_error' },
-        findings: null,
+      await this.end(state, {
+        status: 'failed',
+        reason: 'infrastructure',
+        error_class: 'controller_error',
       });
-      await this.finish();
     }
   }
 }

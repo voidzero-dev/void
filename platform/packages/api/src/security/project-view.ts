@@ -1,18 +1,18 @@
 /**
- * What the project API shows about security audits (spec §13.5), and who sees what
- * (spec §3). The role filter lives here, in one place, so every route applies it.
- *
- *   full   (user session, `deploy` and up): titles, files, lines, dollars
- *   counts (readers, CI tokens, GitHub Actions OIDC): F-ids and severities of open
- *          findings, counts, no titles, files, lines or dollars
+ * What the project API shows about security audits (spec §13.5) and who sees what (spec
+ * §3), in one place so every route applies it: `full` (a user session with `deploy`) gets
+ * titles, files, lines and dollars; `counts` (readers, CI tokens, OIDC) F-ids, severities
+ * and counts only.
  */
+import { isRecord } from '@void/deploy-core';
 import {
   isThirdPartySecurityModel,
   SECURITY_PROVIDER_NOTICE_VERSION,
 } from '@void/platform/security-models';
-import type { SecurityModelId, SecurityPickProblem } from '@void/platform/security-models';
+import type { SecurityModelId } from '@void/platform/security-models';
 import type { SecurityPolicy } from '@void/platform/security-policy';
 import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import { hasProjectCapability } from '../project-access.ts';
 import { deployments, projectZeroTrust } from '../schema.ts';
@@ -26,13 +26,12 @@ import {
   securityScanReserveNano,
   securitySpendMonth,
 } from './budget.ts';
-import type { SecurityCeilingSource, SecurityProjectCapSettings } from './budget.ts';
+import type { SecurityProjectCapSettings } from './budget.ts';
 import { securityCoverageLabel } from './input/tier.ts';
 import { resolveSecurityScanModel, securityPickProblem } from './models.ts';
 import { readSecurityPlanCap } from './plan-caps.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import { readSecurityProjectPolicyOverride } from './project-policy.ts';
-import type { SecurityProjectPolicyOverride } from './project-policy.ts';
 import {
   projectSecuritySettings,
   securityFindings,
@@ -41,7 +40,7 @@ import {
   securityScans,
   SECURITY_PUBLIC_REQUEST_OPEN_STATES,
 } from './schema.ts';
-import type { SecurityScanStatus, SecurityScanTier, SecuritySeverity } from './schema.ts';
+import type { SecuritySeverity } from './schema.ts';
 
 export type SecurityDetailLevel = 'full' | 'counts';
 
@@ -81,36 +80,25 @@ export function securityIso(value: string | null): string | null {
 /** The severity a finding counts with: a human edit (Phase 3) wins over the model's. */
 export const effectiveSeverity = sql<SecuritySeverity | null>`COALESCE(${securityFindings.severity_override}, ${securityFindings.severity})`;
 
-const urgentCondition = sql`${securityFindings.verdict} = 'confirmed' AND ${securityFindings.state} = 'open' AND COALESCE(${securityFindings.severity_override}, ${securityFindings.severity}) IN ('critical', 'high')`;
+/** Open, confirmed, critical or high. */
+export const securityUrgentSql = sql`${securityFindings.verdict} = 'confirmed' AND ${securityFindings.state} = 'open' AND COALESCE(${securityFindings.severity_override}, ${securityFindings.severity}) IN ('critical', 'high')`;
 
 const MAX_URGENT_ROWS = 5;
-
-// ---------------------------------------------------------------------------
-// Policy
-// ---------------------------------------------------------------------------
-
-export type SecurityProjectPolicyView = Readonly<{
-  mode: SecurityPolicy['mode'];
-  applies: boolean;
-  reason: string;
-  publicGate: boolean;
-  /** The project's own rule, set by an installation admin (M34). */
-  override: SecurityProjectPolicyOverride;
-}>;
+const notLocal = ne(securityScans.trigger, 'local');
 
 /**
- * Whether scans apply to this project now, and why (spec §11.4 policy reason copy).
- * A project counts as protected only when every part says so; anything else is public.
- * The project rule (M34) comes after the mode: `never` takes the project out (a public
- * request still scans it), `always` keeps a protected project in under `public`.
+ * Whether scans apply to this project now, and why (spec §11.4). A project counts as
+ * protected only when every part says so. The project rule (M34) comes after the mode:
+ * `never` takes the project out (a public request still scans it), `always` keeps a
+ * protected project in under `public`.
  */
 export async function securityProjectPolicyView(
   db: DbOrTx,
   input: Readonly<{ projectId: string; slug: string; capability: boolean; policy: SecurityPolicy }>,
-): Promise<SecurityProjectPolicyView> {
+) {
   const { policy } = input;
   const override = await readSecurityProjectPolicyOverride(db, input.projectId);
-  const view = (applies: boolean, reason: string): SecurityProjectPolicyView => ({
+  const view = (applies: boolean, reason: string) => ({
     mode: policy.mode,
     applies,
     reason,
@@ -118,7 +106,10 @@ export async function securityProjectPolicyView(
     override,
   });
   if (!input.capability || policy.mode === 'disabled') {
-    return { ...view(false, 'Security audits are off on this platform.'), mode: 'disabled' };
+    return {
+      ...view(false, 'Security audits are off on this platform.'),
+      mode: 'disabled' as const,
+    };
   }
   if (input.slug.startsWith('preview-')) {
     return view(false, 'preview projects are not scanned');
@@ -192,20 +183,12 @@ async function hasOpenPublicRequest(db: DbOrTx, projectId: string): Promise<bool
   return open !== undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Settings, model, budget
-// ---------------------------------------------------------------------------
-
-export type SecurityProjectSettingsRow = Readonly<{
-  model: string | null;
-  noticeVersion: number | null;
-  caps: SecurityProjectCapSettings;
-}>;
-
 export async function readSecurityProjectSettings(
   db: DbOrTx,
   projectId: string,
-): Promise<SecurityProjectSettingsRow> {
+): Promise<
+  Readonly<{ model: string | null; noticeVersion: number | null; caps: SecurityProjectCapSettings }>
+> {
   const [row] = await db
     .select({
       model: projectSecuritySettings.model,
@@ -226,26 +209,15 @@ export async function readSecurityProjectSettings(
   };
 }
 
-export type SecurityProjectModelView = Readonly<{
-  /** The model the next scan runs on; `null` when every model is blocked. */
-  id: SecurityModelId | null;
-  /** What the project asked for: its own pick, else the installation default. */
-  requested: string;
-  /** `fallback` whenever the project's own pick does not run, even when the default does. */
-  source: 'project' | 'default' | 'fallback' | null;
-  /** Why the project's own pick does not run; `null` when it runs or there is none. */
-  pickProblem: SecurityPickProblem | null;
-  thirdParty: boolean;
-  /** This project accepted the current provider notice. */
-  noticeAccepted: boolean;
-  /** A third-party installation default that waits for this project to accept the notice. */
-  pendingDefault: SecurityModelId | null;
-}>;
-
+/**
+ * `id`: what the next scan runs on (`null`: every model is blocked); `requested`: the
+ * project's pick, else the default; `source` is `fallback` whenever the pick does not run;
+ * `pendingDefault`: a third-party default that waits for the provider notice.
+ */
 export function securityProjectModelView(
   policy: SecurityPolicy,
-  settings: Pick<SecurityProjectSettingsRow, 'model' | 'noticeVersion'>,
-): SecurityProjectModelView {
+  settings: Readonly<{ model: string | null; noticeVersion: number | null }>,
+) {
   const resolved = resolveSecurityScanModel(policy, settings);
   const noticeAccepted = settings.noticeVersion === SECURITY_PROVIDER_NOTICE_VERSION;
   const used = resolved?.used ?? null;
@@ -256,19 +228,18 @@ export function securityProjectModelView(
     used !== policy.defaultModel
       ? policy.defaultModel
       : null;
+  const source: 'project' | 'default' | 'fallback' | null =
+    used === null
+      ? null
+      : used === (settings.model ?? policy.defaultModel)
+        ? settings.model === null
+          ? 'default'
+          : 'project'
+        : 'fallback';
   return {
     id: used,
     requested: settings.model ?? policy.defaultModel,
-    source:
-      used === null
-        ? null
-        : settings.model !== null
-          ? used === settings.model
-            ? 'project'
-            : 'fallback'
-          : used === policy.defaultModel
-            ? 'default'
-            : 'fallback',
+    source,
     pickProblem: securityPickProblem(policy, settings, used),
     thirdParty: used !== null && isThirdPartySecurityModel(used),
     noticeAccepted,
@@ -276,28 +247,11 @@ export function securityProjectModelView(
   };
 }
 
-export type SecurityProjectBudgetView = Readonly<{
-  /** The cap that applies now (the lower of the limit and the project's own); `null` = none. */
-  capUsd: number | null;
-  /** `own` = the project's cap decides, `limit` = the platform's per-project limit, `none`. */
-  capSource: 'own' | 'limit' | 'none';
-  /** The most a project admin may set; `null` = any amount. */
-  ceilingUsd: number | null;
-  /**
-   * Where `ceilingUsd` comes from: this project's limit, its plan's cap (M27) or the
-   * default for every project; `null` with no ceiling.
-   */
-  ceilingSource: SecurityCeilingSource | null;
-  spentUsd: number;
-  month: string;
-  resetsAt: string;
-  /**
-   * The most one scan with `model` can cost (its reserve, spec §16.1): a scan starts only
-   * when this still fits under the cap. `null` when no model was given or it has no price.
-   */
-  scanReserveUsd: number | null;
-}>;
-
+/**
+ * `capUsd` is the cap that applies now (the lower of the limit and the project's own) and
+ * `ceilingUsd` the most a project admin may set; `null` is none. `scanReserveUsd` is the
+ * most one scan with `model` can cost (spec §16.1): a scan starts only when it still fits.
+ */
 export async function securityProjectBudgetView(
   db: DbOrTx,
   projectId: string,
@@ -305,7 +259,7 @@ export async function securityProjectBudgetView(
   caps: SecurityProjectCapSettings,
   now = Date.now(),
   model: SecurityModelId | null = null,
-): Promise<SecurityProjectBudgetView> {
+) {
   const month = securitySpendMonth(now);
   const [spend] = await db
     .select({ spent: securityProjectSpend.spent_nano_usd })
@@ -318,14 +272,15 @@ export async function securityProjectBudgetView(
   const effective = securityEffectiveProjectCapCents(caps, policy.budgets);
   const own = caps.monthlyCapCents;
   const reserve = model === null ? null : securityScanReserveNano(model, policy.limits);
+  const capSource: 'own' | 'limit' | 'none' =
+    effective === null
+      ? 'none'
+      : own !== null && (ceiling === null || own <= ceiling)
+        ? 'own'
+        : 'limit';
   return {
     capUsd: effective === null ? null : effective / 100,
-    capSource:
-      effective === null
-        ? 'none'
-        : own !== null && (ceiling === null || own <= ceiling)
-          ? 'own'
-          : 'limit',
+    capSource,
     ceilingUsd: ceiling === null ? null : ceiling / 100,
     ceilingSource: limit?.source ?? null,
     spentUsd: (spend?.spent ?? 0) / NANO_USD_PER_USD,
@@ -334,10 +289,6 @@ export async function securityProjectBudgetView(
     scanReserveUsd: reserve === null ? null : reserve / NANO_USD_PER_USD,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Scans
-// ---------------------------------------------------------------------------
 
 export const scanColumns = {
   id: securityScans.id,
@@ -363,88 +314,42 @@ export const scanColumns = {
   createdAt: securityScans.created_at,
 };
 
-type ScanRow = Readonly<{
-  id: string;
-  status: SecurityScanStatus;
-  statusReason: string | null;
-  failureCause: 'installation' | 'project' | null;
-  errorClass: string | null;
-  refusalCategory: string | null;
-  trigger: string;
-  deploymentId: string | null;
-  baseDeploymentId: string | null;
-  tier: SecurityScanTier | null;
-  coverage: 'complete' | 'partial' | null;
-  coverageNotes: Array<string>;
-  backlogFiles: number;
-  filesScanned: number;
-  modelUsed: string | null;
-  engine: string | null;
-  meteredNanoUsd: number;
-  queuedAt: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  createdAt: string;
-}>;
+/** Scan rows with `scanColumns`, newest first. */
+function scanRows(db: DbOrTx, where: SQL | undefined) {
+  return db
+    .select(scanColumns)
+    .from(securityScans)
+    .where(where)
+    .orderBy(desc(securityScans.created_at), desc(securityScans.id));
+}
+
+type ScanRow = Awaited<ReturnType<typeof scanRows>>[number];
 
 /**
- * Why the budget skipped a scan (spec §16.1), from the scheduler's `error_class`:
- * `*_cap` = that cap is used up, `*_reserve` = it is not, but one scan's worst case
- * does not fit in what is left.
+ * Why the budget skipped a scan (spec §16.1), from the scheduler's `error_class`: `*_cap`
+ * = that cap is used up, `*_reserve` = one scan's worst case does not fit in what is left.
  */
-export type SecurityBudgetCause =
-  | 'project_cap'
-  | 'platform_cap'
-  | 'project_reserve'
-  | 'platform_reserve';
-
-const BUDGET_CAUSES: ReadonlyArray<SecurityBudgetCause> = [
+const BUDGET_CAUSES = [
   'project_cap',
   'platform_cap',
   'project_reserve',
   'platform_reserve',
-];
+] as const;
+export type SecurityBudgetCause = (typeof BUDGET_CAUSES)[number];
 
-function budgetCause(row: ScanRow): SecurityBudgetCause | null {
-  if (row.status !== 'skipped' || row.statusReason !== 'budget') {
-    return null;
-  }
-  return BUDGET_CAUSES.find((cause) => cause === row.errorClass) ?? null;
-}
+export type SecurityScanView = ReturnType<typeof securityScanView>;
 
-export type SecurityScanView = Readonly<{
-  id: string;
-  status: string;
-  statusReason: string | null;
-  failureCause: string | null;
-  /** Which cap skipped a `skipped:budget` scan; `null` for any other scan. */
-  budgetCause: SecurityBudgetCause | null;
-  refusalCategory: string | null;
-  trigger: string;
-  deploymentId: string | null;
-  baseDeploymentId: string | null;
-  tier: string | null;
-  coverage: string | null;
-  coverageLabel: string | null;
-  backlogFiles: number;
-  filesScanned: number;
-  model: string | null;
-  engine: string | null;
-  /** Live spend of the scan, only for the `full` level. */
-  meteredUsd: number | null;
-  queuedAt: string | null;
-  startedAt: string | null;
-  finishedAt: string | null;
-  createdAt: string;
-}>;
-
-export function securityScanView(row: ScanRow, level: SecurityDetailLevel): SecurityScanView {
+export function securityScanView(row: ScanRow, level: SecurityDetailLevel) {
   return {
     id: row.id,
     status: row.status,
     statusReason: row.statusReason,
     failureCause: row.failureCause,
-    budgetCause: budgetCause(row),
+    /** Which cap skipped a `skipped:budget` scan; `null` for any other scan. */
+    budgetCause:
+      row.status === 'skipped' && row.statusReason === 'budget'
+        ? (BUDGET_CAUSES.find((cause) => cause === row.errorClass) ?? null)
+        : null,
     refusalCategory: row.refusalCategory,
     trigger: row.trigger,
     deploymentId: row.deploymentId,
@@ -462,6 +367,7 @@ export function securityScanView(row: ScanRow, level: SecurityDetailLevel): Secu
     filesScanned: row.filesScanned,
     model: row.modelUsed,
     engine: row.engine,
+    /** Live spend of the scan, only for the `full` level. */
     meteredUsd: level === 'full' ? row.meteredNanoUsd / NANO_USD_PER_USD : null,
     queuedAt: securityIso(row.queuedAt),
     startedAt: securityIso(row.startedAt),
@@ -481,13 +387,12 @@ export function decodeSecurityCursor(value: string): SecurityCursor | null {
   try {
     const parsed: unknown = JSON.parse(atob(value.replaceAll('-', '+').replaceAll('_', '/')));
     if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as SecurityCursor).at === 'string' &&
-      typeof (parsed as SecurityCursor).id === 'string' &&
-      !Number.isNaN(Date.parse((parsed as SecurityCursor).at))
+      isRecord(parsed) &&
+      typeof parsed.at === 'string' &&
+      typeof parsed.id === 'string' &&
+      !Number.isNaN(Date.parse(parsed.at))
     ) {
-      return { at: (parsed as SecurityCursor).at, id: (parsed as SecurityCursor).id };
+      return { at: parsed.at, id: parsed.id };
     }
   } catch {
     // Not ours.
@@ -516,19 +421,15 @@ export async function listSecurityScans(
   level: SecurityDetailLevel,
   page: Readonly<{ limit: number; cursor: SecurityCursor | null }>,
 ): Promise<Readonly<{ scans: ReadonlyArray<SecurityScanView>; nextCursor: string | null }>> {
-  const rows = await db
-    .select(scanColumns)
-    .from(securityScans)
-    .where(
-      and(
-        eq(securityScans.project_id, projectId),
-        page.cursor
-          ? sql`(${securityScans.created_at}, ${securityScans.id}) < (${page.cursor.at}::timestamptz, ${page.cursor.id})`
-          : undefined,
-      ),
-    )
-    .orderBy(desc(securityScans.created_at), desc(securityScans.id))
-    .limit(page.limit + 1);
+  const rows = await scanRows(
+    db,
+    and(
+      eq(securityScans.project_id, projectId),
+      page.cursor
+        ? sql`(${securityScans.created_at}, ${securityScans.id}) < (${page.cursor.at}::timestamptz, ${page.cursor.id})`
+        : undefined,
+    ),
+  ).limit(page.limit + 1);
   const more = rows.length > page.limit;
   const shown = more ? rows.slice(0, page.limit) : rows;
   const last = shown.at(-1);
@@ -540,22 +441,6 @@ export async function listSecurityScans(
         : null,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Status
-// ---------------------------------------------------------------------------
-
-export type SecurityUrgentRow = Readonly<{
-  id: string;
-  severity: SecuritySeverity | null;
-  title?: string;
-  file?: string | null;
-  line?: number | null;
-  deploymentId?: string | null;
-  firstSeenAt?: string;
-  notSeenInLatest?: boolean;
-  possibleDuplicateOf?: SecurityDuplicateHint | null;
-}>;
 
 export type SecurityDuplicateHint = Readonly<{
   id: string;
@@ -593,16 +478,8 @@ export async function securityDuplicateHints(
   return out;
 }
 
-export type SecurityCounts = Readonly<{
-  /** Open and confirmed, by severity. */
-  open: Readonly<Record<SecuritySeverity, number>>;
-  /** Open leads (`needs_validation`). */
-  leads: number;
-  resolved: number;
-  urgent: number;
-}>;
-
-async function securityCounts(db: DbOrTx, projectId: string): Promise<SecurityCounts> {
+/** `open`: open and confirmed, by severity; `leads`: open `needs_validation`. */
+async function securityCounts(db: DbOrTx, projectId: string) {
   const rows = await db
     .select({
       state: securityFindings.state,
@@ -634,16 +511,16 @@ async function securityCounts(db: DbOrTx, projectId: string): Promise<SecurityCo
   return { open, leads, resolved, urgent: open.critical + open.high };
 }
 
-export type SecurityStatusInput = Readonly<{
-  db: Db;
-  project: Readonly<{ id: string; slug: string }>;
-  viewer: SecurityViewer;
-  capability: boolean;
-  now?: number;
-}>;
-
 /** `GET /projects/:id/security` (spec §13.5). */
-export async function projectSecurityStatus(input: SecurityStatusInput) {
+export async function projectSecurityStatus(
+  input: Readonly<{
+    db: Db;
+    project: Readonly<{ id: string; slug: string }>;
+    viewer: SecurityViewer;
+    capability: boolean;
+    now?: number;
+  }>,
+) {
   const { db, project, viewer } = input;
   const now = input.now ?? Date.now();
   const level = securityDetailLevel(viewer);
@@ -671,7 +548,7 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
         duplicate: securityFindings.possible_duplicate_of,
       })
       .from(securityFindings)
-      .where(and(eq(securityFindings.project_id, project.id), urgentCondition))
+      .where(and(eq(securityFindings.project_id, project.id), securityUrgentSql))
       .orderBy(
         sql`CASE COALESCE(${securityFindings.severity_override}, ${securityFindings.severity}) WHEN 'critical' THEN 0 ELSE 1 END`,
         asc(securityFindings.created_at),
@@ -681,14 +558,9 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
     db
       .select({ oldest: sql<string | null>`min(${securityFindings.created_at})` })
       .from(securityFindings)
-      .where(and(eq(securityFindings.project_id, project.id), urgentCondition)),
+      .where(and(eq(securityFindings.project_id, project.id), securityUrgentSql)),
     // The last scan of what the project serves: a local check (M32) is a separate result.
-    db
-      .select(scanColumns)
-      .from(securityScans)
-      .where(and(eq(securityScans.project_id, project.id), ne(securityScans.trigger, 'local')))
-      .orderBy(desc(securityScans.created_at), desc(securityScans.id))
-      .limit(1),
+    scanRows(db, and(eq(securityScans.project_id, project.id), notLocal)).limit(1),
     db
       .select(scanColumns)
       .from(securityScans)
@@ -696,7 +568,7 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
         and(
           eq(securityScans.project_id, project.id),
           eq(securityScans.status, 'succeeded'),
-          ne(securityScans.trigger, 'local'),
+          notLocal,
         ),
       )
       .orderBy(desc(securityScans.finished_at), desc(securityScans.id))
@@ -710,7 +582,7 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
           urgentRows.flatMap((row) => (row.duplicate ? [row.duplicate] : [])),
         )
       : new Map<string, SecurityDuplicateHint>();
-  const findings: ReadonlyArray<SecurityUrgentRow> = urgentRows.map((row) =>
+  const findings = urgentRows.map((row) =>
     level === 'full'
       ? {
           id: securityFindingLabel(row.number),
@@ -730,19 +602,15 @@ export async function projectSecurityStatus(input: SecurityStatusInput) {
   // newest one of another deployment that was not replaced by a newer deploy.
   const lastDeploymentId = lastScan[0]?.deploymentId ?? null;
   const [previous] = lastDeploymentId
-    ? await db
-        .select(scanColumns)
-        .from(securityScans)
-        .where(
-          and(
-            eq(securityScans.project_id, project.id),
-            ne(securityScans.trigger, 'local'),
-            ne(securityScans.status, 'superseded'),
-            ne(securityScans.deployment_id, lastDeploymentId),
-          ),
-        )
-        .orderBy(desc(securityScans.created_at), desc(securityScans.id))
-        .limit(1)
+    ? await scanRows(
+        db,
+        and(
+          eq(securityScans.project_id, project.id),
+          notLocal,
+          ne(securityScans.status, 'superseded'),
+          ne(securityScans.deployment_id, lastDeploymentId),
+        ),
+      ).limit(1)
     : [];
   let deploysSinceLastSuccess: number | null = null;
   if (lastSuccessfulScan?.deploymentId) {

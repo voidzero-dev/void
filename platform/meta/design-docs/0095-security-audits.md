@@ -6,12 +6,12 @@ created: 2026-11-18
 
 # Security audits on deploy
 
-Plan for building the approved PRD, all three phases, in one PR with one commit
-per milestone. Product rules, copy and the 94 edge cases stay in the PRD and spec;
-this file says where the code goes, in what order, and how we test it.
+The design as built for the approved PRD, all three phases. Product rules, copy and the
+94 edge cases stay in the PRD and spec; this file says where the code is, how the parts
+fit, which rules every change must keep, and what is still open.
 
 - PRD: `void-prds/security-audits-prd.md` (short), spec: `void-prds/security-audits-spec.md`.
-  Decision numbers D1–D52 and Q1–Q15 come from there.
+  Decision numbers D1–D52, Q1–Q15 and edge case numbers (#1–#94) come from there.
 - Background: [project Zero Trust](./0083-project-zero-trust.md),
   [managed Sandbox restoration](./0082-managed-sandbox-restoration.md),
   [operator CLI](./0078-platform-operator-cli.md),
@@ -19,6 +19,8 @@ this file says where the code goes, in what order, and how we test it.
   [installation plans](./0090-installation-plans.md),
   [AI Gateway logging policy](./0094-ai-gateway-logging-policy.md).
 - The spec calls this doc `0094-security-audits.md`; 0094 is taken, so it is 0095.
+- Code comments name milestones (M1–M36) and risks (R1–R20); the
+  [milestone index](#milestone-index) and [risks](#risks-and-items-for-the-user) map them.
 
 ## Contract (short)
 
@@ -80,7 +82,7 @@ Each one has tests (named) or a spike that checks it.
                          └───────────────▲───────────────────────────────┬───────────────────────────────┘
                                          │ service binding (props = identity)  ▲ email (env.EMAIL)
  ┌──────── void-security-scanner controller Worker (ours) ────────┐     │     │
- │ ScannerController DO, one instance per scan id                  │─────┘     └── owner, admins, deploy authors,
+ │ ScannerController DO, one instance per scan attempt             │─────┘     └── owner, admins, deploy authors,
  │   interceptOutboundHttp('model.void.internal', ScanModelOutbound)│               installation admins
  │   interceptAllOutboundHttp(DenyAll)                              │
  │   start({enableInternet:false, env: no tokens})                  │
@@ -100,2097 +102,369 @@ Each one has tests (named) or a spike that checks it.
  Admin: /admin/security · Project detail · Zero Trust page    security-scans/{project}/scans/{scan}/   raw, 30 d
 ```
 
-Main choices (spec text says the same promise another way; flagged in Risks):
+Main choices (the spec says the same promise another way; flagged in Risks):
 
-| Choice                                                                                     | Why                                                                                                                                                                                                         |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SecurityScanControl` RPC entrypoint, not `/internal/security-scans/*` HTTP                | Same as `SandboxControl`: identity comes from immutable binding `props`, nothing on the API hostname, no Access allowlist entry                                                                             |
-| API builds the input and streams it to the controller                                      | Redaction needs project secrets; the controller and container get no R2, DB or secret                                                                                                                       |
-| `@cf/*` through `env.AI.run`, third-party through REST `/ai/v1/*` with `cf-aig-gateway-id` | No new token permission for the default model; REST only when a third-party host is used (probe check 5 reports a missing permission). S10 can move `@cf` to REST if the binding ignores the payload header |
-| Scheduler DO in the API Worker, scanner in a separate controller Worker                    | Losing Containers never breaks API upgrades (spec §5.1)                                                                                                                                                     |
-| One installation-wide controller Worker + container app                                    | Created at first move away from `disabled`, verified by the probe                                                                                                                                           |
+| Choice                                                                                     | Why                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SecurityScanControl` RPC entrypoint, not `/internal/security-scans/*` HTTP                | Same as `SandboxControl`: identity comes from immutable binding `props`, nothing on the API hostname, no Access allowlist entry                                          |
+| API builds the input and streams it to the controller                                      | Redaction needs project secrets; the controller and container get no R2, DB or secret                                                                                    |
+| `@cf/*` through `env.AI.run`, third-party through REST `/ai/v1/*` with `cf-aig-gateway-id` | No new token permission for the default model; REST only when a third-party host is used (probe check 5 names a missing permission)                                      |
+| Scheduler DO in the API Worker, scanner in a separate controller Worker                    | Losing Containers never breaks API upgrades (spec §5.1)                                                                                                                  |
+| One installation-wide controller Worker + container app per engine                         | Created at first move away from `disabled`, verified by the probe                                                                                                        |
+| API reaches the controller through a gate script in the platform dispatch namespace        | A service binding from the API cannot point at a Worker created later; the gate (`void-security-scanner-gate-<hash>`) holds one binding `SCANNER` and no logic or secret |
 
 ## Package and file layout
-
-New code (paths from repo root):
 
 ```
 packages/platform/src/
   security-models.ts            model list, engines, hosts, badges, prices, reserves  → @void/platform/security-models
-  security-policy.ts            policy type, defaults, parser, limits ranges, copy keys → @void/platform/security-policy
-platform/packages/security-scanner/          @voidcloud/security-scanner (private, new workspace package)
-  src/runner/{main,phases,extract,status,validate-findings}.ts
-  src/runner/engines/{void-loop,claude,codex}.ts
+  security-policy.ts            policy type, defaults, strict + lenient parser, ranges, plan caps, form parsers
+  security-lockfile.ts          package-lock / pnpm-lock readers (third-party identity)
+  security-local-check.ts       local check path filter, limits, small ustar writer
+platform/packages/security-scanner/          @voidcloud/security-scanner (private)
+  src/runner/{main,phases,extract,status,validate-findings,coerce,prompts,report,limits}.ts
+  src/runner/engines/{void-loop,claude,codex,proxy-failure}.ts, src/runner/mcp/{server,void-scan}.ts
   src/runner/tools/fs.ts        read_file / list_files / grep, realpath under /scan, no symlinks
-  src/runner/mcp/void-scan.ts   stdio MCP server, 4 tools (Engine C)
-  src/self-test.ts              probe checks 2–3 inside the container
-  skill/                        vendored skill + LICENSE, Void Workers companion, deploy-diff profile, report-schema.json
-  config/codex/{config.toml,requirements.toml,model_catalog.json}, config/claude/managed-settings.json
-  image/{Dockerfile.claude,Dockerfile.codex,package.json,pnpm-lock.yaml,codex-wrapper.sh,NOTICE}
-  test/fake-model/server.ts     scripted Anthropic SSE, Responses SSE, chat completions
-  test/unit/*.test.ts
-  vite.config.ts / package.json (vp pack → dist/runner.mjs)
+  src/runner/runtime/copy.ts    copy_request tool (Engine B)
+  src/runner/self-test.ts       probe checks 2–3 inside the container
+  image/{Dockerfile.claude,Dockerfile.codex,claude/,codex/,codex-wrapper.sh,NOTICE}
+  test/fake-model/server.ts, test/unit/*, test/e2e/recorded-run.e2e.test.ts (VOID_SCANNER_E2E=1)
 platform/packages/api/src/security/
   schema.ts                     drizzle tables, re-exported from src/schema.ts
-  policy.ts                     lenient + strict readers, CAS write, preview builders
-  models.ts                     "which model runs" resolver, notice checks
-  enqueue.ts                    enqueueSecurityScanInTx, coalesce, after-commit copy + poke, input hold check
-  scheduler.ts                  SecurityScanScheduler DO
-  control.ts                    SecurityScanControl WorkerEntrypoint (input / model / heartbeat / result)
-  input/{tier,t2,t1,filters,third-party,redact,phrase-check,memory,backlog,tar}.ts
-  model-proxy.ts                allowlist, caps, headers, SSE metering, failure reasons
-  budget.ts                     ceilings, reserve, per-call check, month math, alerts
-  ingest.ts, findings.ts        validate (zod), fingerprint, state machine, reopen, F-numbers
-  public-gate.ts                request store, judge, re-check, bypass, cancel, backstop
-  notifications.ts, recipients.ts
-  page-token.ts                 15-min signed page link
-  maintenance.ts                hourly jobs (re-poke, reaper, backlog skip, sweeps, probe, exposure)
-  probe.ts                      checks 1–6
-  errors.ts                     typed errors → status + code
+  policy.ts, project-policy.ts, models.ts, errors.ts
+  enqueue.ts, queue.ts, scheduler.ts, call-ledger.ts, fence.ts, control.ts
+  input/{tier,t1,t1-github,t2,filters,third-party,redact,phrase-check,memory,backlog,tar,source-tar,build,prepare,local,project-data}.ts
+  model-proxy.ts, budget.ts, plan-caps.ts, provider-keys.ts, gateway-cost.ts
+  ingest.ts, findings.ts, project-findings.ts, project-view.ts, project-settings.ts, project-page.ts
+  public-gate{,-judge,-copy,-flow}.ts, exposure.ts
+  notifications.ts, notification-copy.ts, recipients.ts, alerts.ts, streaks.ts, digest.ts, webhook.ts
+  operator.ts, sweeps.ts, scan-candidates.ts, fallback.ts, local-check.ts, github-check.ts
+  runtime-copy{,-names,-plan,-sources,-sweep}.ts, scanner-images.{json,ts}
+  page-token.ts, probe.ts, maintenance.ts
 platform/packages/api/src/
-  provisioning/security-scanner.ts           provision / verify / delete controller Worker + container app
-  security-scanner-controller-runtime.ts     controller Worker source (DO, outbound entrypoints)
-  security-scanner-controller-source.ts      reads the alias
-  scripts/build-security-scanner-controller.mjs   (under platform/packages/api/scripts/)
-  routes/project-security.ts, routes/security-page.ts
-  operator/security-routes.ts
-  admin/routes/security.tsx
-  admin/react/views/{SecurityPage,SecurityFindingsPage,SecurityScansPage,SecurityPublicRequestsPage,ProjectSecuritySection,AdminBanner}.tsx
+  provisioning/security-scanner{,-images}.ts      controller Worker, gate, apps, image copy
+  security-scanner-controller-runtime.ts          controller Worker source (DOs, outbound entrypoints)
+  routes/project-security.ts, routes/security-page.ts, operator/security-routes.ts
+  admin/security-data.ts, admin/routes/security.ts, admin/react/views/{Security,ProjectSecuritySection}*.tsx
+platform/packages/dashboard/pages/projects/{index,[slug]/security}.{tsx,server.ts}
 packages/void/src/cli/
-  project-security.ts, deploy-security-notice.ts, platform-security-audits.ts (runtime guard)
-platform/scripts/
-  publish-security-scanner-images.ts   release: publish the Engine A / C images
+  project-security{,-args,-check}.ts, deploy-security-{notice,packages}.ts, security-sarif.ts,
+  operator-security{,-args}.ts, platform-security-audits.ts
+platform/scripts/publish-security-scanner-images.ts   release: publish the Engine A / C images
 ```
 
-Edited (main touch points; file:line refs are in the four maps kept with the PRD):
-
-- Capability: `packages/platform/src/{manifest,discovery,worker-config,installer}.ts`,
-  `packages/platform/scripts/build-runtime.mjs`, `platform/packages/api/src/capabilities.ts`,
-  `platform/packages/proxy/src/capabilities.ts`, `platform/packages/api/wrangler.jsonc`,
-  `platform/packages/api/src/{env,index}.ts`, `src/worker/index.ts`.
-- Deploy: `deploy/{recovery,execute,compensate,publish-worker,publish-static}.ts`,
-  `deployment-execution.ts`, `assets.ts`, `provisioning/cleanup.ts`, `routes/projects.ts` (rollback).
-- Zero Trust: `zero-trust/{project,operation,installation,maintenance}.ts`,
-  `routes/project-zero-trust.ts`, `operator/zero-trust-routes.ts`, `admin/routes/{zero-trust,projects}.tsx`.
-- Shared: `email.ts`, `operator/{index,audit}.ts`, `admin/react/views/{Layout,ProjectDetailPage,ProjectZeroTrustSection,ZeroTrustPage}.tsx`,
-  `admin/react/{pages,server}.ts`, `admin/fate/{page-server,page-data,render,views}.ts` (+ regenerated `client.generated.ts`),
-  `api.ts` (typed routes for the dashboard), `test/integration/helpers.ts`, `vite.config.ts`, root `.dockerignore`,
-  `.github/workflows/platform-ci.yml`, `pnpm-workspace.yaml` (nothing: `platform/packages/*` is already a glob).
-- CLI: `project-{args,cmd,zero-trust}.ts`, `list.ts`, `client.ts`, `platform-errors.ts`, `help.ts`, `cli-main.ts`,
-  `deploy-managed-{full,static,framework}.ts`, `operator-{args,cmd}.ts`, `platform-{args,lifecycle,setup,management,plan,teardown}.ts`.
-
-## Milestones
-
-One PR, one commit per milestone, in this order. Each commit passes
-`vp check` and the exact test files it adds. "Exit" is the check that ends it.
-
-```
-P1  M1 cap+DO ─► M2 shared types ─► M3 schema ─► M4 policy ─► M6 controller+probe ─► M7 model proxy+budget
-                                         │             └────────────► M5 runner (no deps) ─┘        │
-                                         ├─► M8 outbox+hold ─► M9 scheduler+cron ─► M10 input ─► M11 T1
-                                         │                                              └─► M12 ingest ─► M13 engines A/C
-                                         └─► M14 project API ─► M15 email ─► M16 public gate ─► M17 operator
-                                             M18 admin ─► M19 page ─► M20–M23 CLI ─► M24 docs
-P2  M25 rescan/backfill/sweeps · M26 fallback+streaks+digest · M27 plan caps · M28 GitHub check
-    M29 page forms + dashboard · M30 runtime copy · M31 secret findings, client assets, SARIF, webhooks
-P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits · M36 final docs + full suite
-```
-
-### Phase 1 (MVP)
-
-**M1 Capability, scheduler DO class, config.**
-
-- Scope: optional `securityAudits` in all parsers (missing = false, non-boolean = error);
-  `HOSTED_CAPABILITIES.securityAudits = false`; manifest writes `schemaVersion: 7` when true
-  (v7 allows `storageLocationHint`/`runtimeLogs` absent) so an old CLI refuses instead of
-  dropping it; `PlatformRuntimeManifest.securityAudits: 1`. `SecurityScanScheduler` stub
-  (answers `/poke`, alarm no-op) exported from `src/worker/index.ts` and `src/index.ts`.
-  `worker-config.ts`: DO binding + `{tag:'security-audits-v1', new_sqlite_classes:['SecurityScanScheduler']}`
-  always; `ai:{binding:'AI'}` on the API Worker only when the capability is on. Hosted
-  `wrangler.jsonc`: binding ×3 blocks, tag after v6 (sqlite). `env.ts`: `SECURITY_SCAN_SCHEDULER`, `AI?`.
-- Tests (unit): `platform/packages/api/test/unit/capabilities.test.ts`,
-  `packages/platform/test/unit/{worker-config,auth-discovery,auth-manifest}.test.ts`
-  (old documents parse, v7 round-trip, v6 parser refuses v7),
-  `platform/packages/api/test/unit/{platform-worker-config,hosted-config}.test.ts`,
-  `platform/packages/api/test/unit/security-scheduler-stub.test.ts`.
-- Exit: capability off → config diff is exactly the DO binding + tag; worker keys still
-  `[api, dispatch, emailGateway, proxy, tail]`.
-- As built: the DO binding + tag follow the runtime manifest (`securityAudits: 1`,
-  input `securityScanScheduler`), not the capability, so a new CLI can still deploy an
-  older runtime that has no such class. `PLATFORM_CAPABILITIES` leaves out
-  `securityAudits` while it is off (`serializePlatformCapabilities`), so the vars are
-  unchanged. The proxy never reads this capability, so `proxy/src/capabilities.ts` is
-  unchanged.
-  `assertPlatformRollbackCompatibility` refuses a rollback to a runtime without
-  `securityAudits: 1` when the installed runtime has it or the capability is on, and says
-  to roll forward (R2). `readPlatformCapability` in `@void/platform` is the one place that
-  reads a missing optional capability as `false` (manifest, discovery, API). Deployment
-  schema version 7 and the capability must go together; later versions may carry it too.
-  Extra tests: `packages/void/test/unit/{platform-rollback,platform-installer}.test.ts`.
-
-**M2 Shared model list and policy types.**
-
-- Scope: `security-models.ts` (6 models, engine, host, badges, $/M, reserve =
-  1.2M×in + 120k×out, notice version, provider names); `security-policy.ts` (type,
-  defaults, strict parser, ranges, error code strings shared by API and CLI). Sonnet
-  price: see Risks R6. New package exports in `packages/platform/package.json`.
-- Tests (unit): `packages/platform/test/unit/security-models.test.ts` (every model has a
-  price; reserves match spec §16.1 table; ids use catalog spelling),
-  `packages/platform/test/unit/security-policy.test.ts`.
-- Exit: API and CLI import one list.
-- As built: Sonnet has `price: null`. "Every model has a price" holds for the five
-  priced models; the policy parser refuses an unpriced default, and the M4/M14 pickers
-  treat `isSecurityModelPriced() === false` as blocked (R6). Costs are kept in whole
-  nano-dollars per token so metered sums do not drift. The spec gives ranges only for
-  concurrency (1–10) and timeout (5–60); ours for the rest: `maxInputTokens`
-  50k–2M, `maxOutputTokens` 5k–200k, `modelCallsPerScan` 10–200, caps $0–$1,000,000 in
-  whole cents. The strict parser needs every known field, checks cross-field rules
-  (default not blocked, priced, third-party default needs the notice, gate needs mode
-  `public`/`all`) and ignores unknown fields; probe check names in
-  `entitlement.missing` stay open text so a later probe still reads. The strict
-  `parseSecurityPolicy` guards writes; the stored row is read with `readSecurityPolicy`,
-  which survives an upgrade or rollback: unknown blocked ids are dropped, an unknown,
-  unpriced or blocked default becomes the first non-blocked priced `@cf` model (spec
-  edge case 23), limits are clamped into range. Otherwise one model change would make
-  the whole policy unreadable (Off, or 503 with the public gate on). Runtime
-  conditions (fresh probe, Zero Trust state) stay with the API writes (M4, M16). The
-  provider notice text lives next to `SECURITY_PROVIDER_NOTICE_VERSION`. Exports
-  also go in the `vp pack` entry list (`packages/platform/vite.config.ts`).
-
-**M3 Schema and migration 0065.**
-
-- Scope: all Phase 1 tables in `src/security/schema.ts` (spec §14). Project FKs cascade;
-  no FK to deployments; `actor_user_id` no FK. Partial uniques: running scan per project,
-  open request per project. F-numbers from `project_security_settings.next_finding_number`
-  under the project lock. `security_notifications` gets `attempts`, `next_attempt_at`.
-  Phase 2/3 columns that are cheap to add now are added now (one migration, see M25+):
-  `security_scans.deployment_id` nullable + `trigger` incl. `local`/`sweep`/`backfill`/`fallback`,
-  `security_findings.verdict_source static|runtime`, `severity_override`,
-  `project_security_settings.policy_override`. Generate with `vp run --filter @voidcloud/api db:generate`.
-- Data: `drizzle/0065_security_audits.sql`, `meta/0065_snapshot.json`, journal entry.
-  `compatibility.json` edge added only after the old-runtime check (schema-ci guide).
-- Tests: `platform/packages/api/test/unit/security-migration.test.ts` (PGlite; add to
-  `pgliteUnitTests` in `vite.config.ts`); `test/integration/api-delete.test.ts` gains a
-  case: project with scans, findings, requests, spend deletes cleanly; `clearTables`
-  adds `security_platform_spend`, `security_notifications`.
-- Exit: template DB rebuilds; project delete cascade test passes.
-- As built: 11 tables, re-exported from `src/schema.ts`. Money is in whole units, not
-  `numeric` USD, to match M2: spend, reserves and costs in nano-dollars (`*_nano_usd`,
-  `bigint`), caps in cents (`*_cents`, `integer`, 0–100,000,000). `month` is a `date`
-  with a first-of-month check (`EXTRACT(DAY …) = 1`, which does not depend on the session
-  time zone). Status, trigger, state and kind lists are `CHECK`s built from exported TS
-  lists in the same file; the migration test checks that the mode list, the engine list
-  and the max cap match M2's `SECURITY_MODES`, `SecurityEngine` and
-  `SECURITY_MAX_MONTHLY_USD`. A bypass row's `request_state` is limited to
-  `waiting_scan`, `held_no_result` and `needs_deploy` (D50). The urgent index uses
-  `COALESCE(severity_override, severity)` so M35 needs no new index. Extra, not in
-  spec §14: `next_finding_number`, `policy_override` (default `inherit`), `created_at`
-  on scans, a waiting-scan index and an input-hold index (M8/M9), `severity_edited` in
-  the event actions (M35), `project_id` FK on finding events, PK
-  `(project_id, fingerprint_key)` on `security_memory_rejected`. The bypass → request
-  FK is `NO ACTION`: retention cannot delete a request a bypass points to, while a
-  project delete still removes both. `security_notifications.project_id` cascades and
-  is `NULL` only for `cap_platform`. `compatibility.json` is unchanged (old-runtime
-  check first).
-
-**M4 Policy store and operator policy routes.**
-
-- Scope: `security/policy.ts` lenient reader (bad data → `disabled` + `console.error`),
-  strict reader (`SecurityPolicyUnreadableError` → 503), CAS by `revision`. Operator
-  `GET/POST /operator/v1/security/policy` (mode, default model, blocked models, notice,
-  limits) with dryRun preview text (spec §5.4); `GET /security/status`. Mode change to
-  Off also cancels queued scans (after M9) and turns the gate off (after M16). Audit
-  targets for every path (ids + new state only).
-- Tests: unit `security-policy-store.test.ts`; integration `operator-security-policy.test.ts`
-  (CAS 409, preview counts, 501 when capability off, entitlement missing 409),
-  `operator-audit.test.ts` (new targets).
-- Exit: policy round-trips; nothing turns on without a fresh probe.
-- As built: `security/policy.ts` + `security/errors.ts` (`SecurityApiError`, mapped to
-  `OperatorError` by `operator/security-routes.ts`). The routes are
-  `/operator/v1/security/{policy,status}`. Every policy writer takes the advisory lock
-  `void:platform:security-policy`, then checks `expectedRevision` (409
-  `revision_conflict`, like plans) and writes `revision + 1`. A preview takes the
-  revision optionally and returns the one to send. Extra fields such as `missing[]` sit in
-  `details`, the way every operator error does. Bad stored data reads as Off and keeps its
-  revision, so an operator write can replace it (the preview says so). Body:
-  `mode`, `defaultModel`, `blockedModels` (full list, admin panel) or `block`/`unblock`
-  (CLI), `acceptProviderNoticeVersion` (must equal the current notice version), `limits`
-  (patch). Unknown fields get a 400. A third-party default needs its host to pass probe check 5
-  and the current notice; blocking the default and unpriced models get 422 `security model
-  not allowed`. `publicGate: true` gets a 400 until M16. Off cancels `pending_input` and
-  `queued` scans in the same transaction (`status_reason 'policy_off'`); the tables exist
-  since M3, so this did not wait for M9. All → Public does not cancel queued protected
-  scans: the scheduler (M9 scope) checks protection when it claims a scan. The "re-run the probe in
-  set mode" step (spec §5.2) comes with the probe (M6 scope); until then a stored pass less than
-  24 h old is required. GET policy and status work with the capability off; only POST
-  answers 501. Status failure rate = `failed|refused|timed_out|incomplete` out of those plus
-  `succeeded`, finished in the last 24 h.
-
-**M5 Scanner runner package (Engine B first).**
-
-- Scope: new `platform/packages/security-scanner`. `task.json` → phases (1 hunt, ≤10
-  verify, 1 repair turn) → `/scan/out/findings.json` + `status.json`. Engine B loop
-  (chat-completions messages, 4 tools, 40 turns). Safe tar extract (regular files only,
-  reject symlink, `..`, absolute). Hand-written validator (≤5 MiB, ≤1000 records, no
-  regex). Status mapping per engine. Base URL `http://model.void.internal`. Engine
-  interface so A/C plug in at M13. Real SDKs are **not** workspace deps (see Test strategy).
-- Tests (unit, `platform/packages/security-scanner/test/unit/`): `void-loop.test.ts`
-  (fake model server), `fs-tools.test.ts` (temp dirs: symlink, `..`, big file),
-  `extract.test.ts`, `validate-findings.test.ts`, `status.test.ts`, `phases.test.ts`.
-- Exit: `dist/runner.mjs` built by `vp pack`; Engine B passes on the fake model.
-- As built: the runner has no runtime dependency (63 kB, Node built-ins only). The
-  controller (M6) starts `node runner.mjs --stdin-tar [--root /scan]` and streams the
-  input tar on stdin (S1: short argv). The tar may hold only `task.json`, `input/**`
-  and `memory/**`; any symlink, link, device, `..`, absolute path or duplicate refuses
-  the whole input (`failed`, `error_class: input_invalid`). Of pax records only
-  `path` and `size` are decoded; others (binary `SCHILY.xattr.*`) are skipped. Paths
-  with a control character are refused in the tar, `changed_files` and the report,
-  and the hunt prompt lists changed files as JSON strings. Files are written with
-  `O_EXCL|O_NOFOLLOW`, mode 0444. `findings.json` is written first, then
-  `status.json` is renamed into place whole, so the controller polls one file. Exit
-  0 means `status.json` exists; SIGTERM writes `timed_out (wall_clock)`, also while
-  the tar is still coming in (stdin is closed then, and after the tar). Model calls
-  go to `POST http://model.void.internal/v1/chat/completions` with no credentials;
-  M7 must answer a stop with a non-2xx status and `x-void-scan-stop:
-  session_calls|scan_calls|tokens|budget|credits` (a bare 402 = credits); any other
-  failure (other non-2xx, network error, unreadable body) is retried once, then
-  `failed (infrastructure)`. The last allowed turn tells the model to submit now. Tools read only
-  `/scan/input` and `/scan/memory`; relative paths mean `/scan/input`; `grep` is
-  plain text (no regex). The verify phase keeps the hunt fingerprint, an empty
-  verify answer rejects the candidate, and candidates past `max_verify` stay leads
-  (confirmed needs the second session). The one repair turn is shared by a bad
-  report and a plain-text answer. `status.ts` also maps Engine A/C signals (§8.4)
-  so M13 only feeds them; S2/S3 confirm the wording. Deviations: the upstream
-  skill at `c1c8a8c` is not in the repo, so the prompts are Void's own
-  (`prompts.ts`: trust rule, verdicts, severity scale, Workers checks) and the
-  report schema is ours (`report.ts`); vendoring the skill and its
-  `report-schema.json` contract test move to M13 with `skill/`. `task.json` is
-  defined here (M10 builds it): `version`, `scan_id`, `attempt`, `engine`, `model`,
-  `tier`, `changed_files`, optional `limits`. Extra test file: none; `task.json`
-  cases live in `phases.test.ts`, the CLI tar path in `void-loop.test.ts`.
-
-**M6 Controller Worker, provisioning, probe.**
-
-- Scope: `security-scanner-controller-runtime.ts` (DO per scan id; register model
-  intercept then `DenyAll`; `start({enableInternet:false})`; stream input tar into the
-  container; exec runner as `scanner`; poll result files; alarm at wall clock and hard
-  cap; destroy after result). Build script + alias `void:security-scanner-controller-source`
-  in `wrangler.jsonc`, `scripts/build-worker.mjs`, `packages/platform/scripts/build-runtime.mjs`,
-  `vite.config.ts` mock. Runner bundle embedded for the managed image (Engine B, image
-  option C). `provisioning/security-scanner.ts` (copy of `sandbox-controller.ts`: upload
-  with `If-None-Match:*`, ownership marker, service binding to `SecurityScanControl`
-  with props, `containers[]`, workers.dev off, container app create/find/verify, delete
-  app then Worker). Name derived per installation. `SecurityScanControl` entrypoint
-  with `heartbeat` (fenced). `security/probe.ts` checks 1–6 + operator `POST /security/probe`.
-  Re-run the probe inside the policy change that leaves `disabled` (spec §5.2); this
-  replaces the 24 h stored-pass check in `assertEntitlement` (`security/policy.ts`).
-  Daily probe hook comes in M9.
-- Tests: unit `security-scanner-controller-runtime.test.ts` (mocked `ctx.container`
-  with `interceptOutbound*`: order, `enableInternet:false`, env has no token, alarm kill,
-  stale attempt refused, two scans never share an instance id — edge #42),
-  `security-scan-control.test.ts`; integration `api-security-provisioning.test.ts`
-  (`mockCfApi` containers state: create, reuse, ownership mismatch, delete order),
-  `operator-security-probe.test.ts` (each failing check copy; Off → on runs the probe
-  and a failing check refuses the change).
-- Exit: probe reports all six checks against fakes.
-- As built: the plan did not say how the API calls the controller. A service binding
-  from the API Worker cannot point at a Worker that does not exist yet (the deploy
-  fails), and the controller is created only at turn-on. So `provisionSecurityScanner`
-  also uploads a gate script into the platform dispatch namespace
-  (`void-security-scanner-gate-<hash>`, one service binding `SCANNER` → the
-  controller, no logic, no secret). The API calls `env.DISPATCH.get(gate).fetch(…)`:
-  `POST /v1/scans/start | /v1/scans/cancel | /v1/self-test`. The controller keeps
-  workers.dev off; nothing is on a public hostname and the installer config is
-  unchanged. Names are `void-security-scanner[-gate]-<12 hex of sha256(installation
-  id)>` (Worker and container app share one name). Unlike Sandbox controllers, this one
-  is shared and is re-uploaded (no `If-None-Match`, no repeated migration) when a
-  platform release ships a new bundle (`__VOID_SECURITY_SCANNER_SOURCE` digest).
-  The control binding's props are `{protocol: 1, installation}`; `SecurityScanControl`
-  refuses any other caller and everything while the capability is off.
-  `heartbeat` is the fence (current attempt, `running`, lease not past, project not
-  `deleting` → `ok`, else `stale` or `canceled`); `input`, `model` and `result` are
-  present but refuse until M10, M7 and M12. One Durable Object per attempt
-  (`scan:<id>:<attempt>`) or probe (`probe:<id>`), so an instance is never reused,
-  and a start is accepted once. The start runs in the alarm: fence check first (a
-  stale attempt never starts a container), then the S1 egress lock (model host
-  intercept → all HTTP deny → all HTTPS deny), `start({image:
-  'cloudflare/debian-trixie', enableInternet: false, env: {}})`, a root setup step
-  (`useradd scanner`, `/scan` 0700, runner from stdin to
-  `/opt/void-scanner/runner.mjs` 0555), then the runner as `user: 'scanner'` with
-  the input tar piped to stdin. Alarms every 10 s: fence, read
-  `/scan/out/status.json` (then `findings.json`, at most 5 MiB + 1 byte) as
-  `scanner` with a 30 s limit (a short `node -e` reader: `/scan/out` must be a real
-  directory, the file is opened `O_NOFOLLOW|O_NONBLOCK` and must be a regular file; a
-  refused `status.json` reports `failed (bad_output)` with no findings), hand both to
-  `result`, destroy. Every exec gets `env: {PATH, HOME=/scan}` and nothing else. At the wall clock: `kill -TERM`, 60 s
-  grace, then `timed_out (wall_clock)`; at the hard cap: `timed_out (hard_cap)`. The
-  container stays until `result` accepts, so nothing large is kept in DO storage.
-  Engines A/C answer `engine_unavailable` until M13. The runner gained
-  `--self-test` (`src/runner/self-test.ts`, not `src/self-test.ts`, so it ships in the
-  one bundle): uid, model route answers with the probe id from the outbound props, the
-  four egress targets fail or end in `DenyAll`, no credential-like env name; no file
-  system walk (S1). The runner bundle is built by
-  `build-security-scanner-controller.mjs` with Vite (SSR, Node built-ins external) and
-  embedded through `void:security-scanner-runner-source`; `build-runtime.mjs` and
-  `build-worker.mjs` build it. Probe: checks run in parallel (2+3 share one
-  self-test); a skipped required check counts as missing (`container` failing gives
-  `missing: ['container', 'egress']`). Check 4 calls `env.AI.run` with
-  `skipCache` and `cf-aig-collect-log-payload: false`; "no cached entry after" is not
-  read back (no gateway log read yet, S10). Check 5 calls REST `/ai/v1/messages` and
-  `/ai/v1/responses` (with `access_programs`) on the first priced model of each host;
-  401/403 names the token permission instead of credits. Probe calls carry
-  `cf-aig-metadata {"securityScan":"probe"}`. `POST /operator/v1/security/probe` has no
-  501 guard: with the capability off it returns check 1's copy and makes no other call
-  and stores nothing. A stored row that cannot be read is not overwritten by a probe.
-  Turning the policy on (`changeSecurityPolicy` with `probe`) runs the probe outside
-  the transaction when the revision still matches, stores a failing result and
-  answers 409, or writes the passing result with the mode in one write; a preview
-  does not check the stored probe and says the probe runs on apply. Without `probe`
-  (direct callers) the stored < 24 h check stays. `deleteSecurityScanner` (gate →
-  container app → Worker) exists for uninstall; wiring it into `void platform
-  uninstall` is left to the CLI milestone.
-  Review fixes: turn-on first runs the full proposal (`probeOnApply`) so a change
-  refused anyway (public gate, blocked or unpriced default, no provider notice) never
-  provisions or calls a model; a third-party default is checked against the fresh
-  probe, not the stored hosts. A failed turn-on probe answers 409 with `probeId` and
-  each refusing check (`name`, `message`, `link`) in `details`. A gate with no marker
-  or another installation's marker is refused. Timing: probe ready wait 90 s + setup
-  30 s + self-test 90 s < the API's 240 s wait. Check 2 keeps the Workers Paid /
-  permissions copy for plan and token errors and shows the provisioning error's own
-  copy for `ownership`, `outdated`, `missing` and `gate`.
-
-**M7 Model proxy and budget.**
-
-- Scope: `SecurityScanControl.model()` → `security/model-proxy.ts`: scan id + attempt +
-  lease; `model == scan.model_used`; allowlist minus blocked, host passed check 5, notice;
-  per-session (40) and per-scan (80) call counts; token caps; pre-call worst case and
-  post-call spend in one `UPDATE … RETURNING` on both spend rows; fixed headers
-  (`cf-aig-gateway-id`, `cf-aig-metadata {"securityScan":tag}`, collect-log true,
-  payload false, skip-cache true); `access_programs` for `openai/*`; SSE pass-through
-  with usage read; failure reason store so the runner can ask why (Engine C). `@cf` rate
-  token asked from the scheduler DO. `deriveSecurityScanTag` (own HMAC label).
-  `security/budget.ts`: ceilings (spec §16.2), reserve, month math (UTC, cross-midnight),
-  80/100% thresholds (alerts queued in M15).
-- Tests (unit): `security-model-proxy.test.ts` (mock `fetch` + `AI`: headers, strips
-  caller `cf-aig-*`, 402 → credits, cap stop → `incomplete (budget)`, wrong model 422),
-  `security-budget.test.ts` (ceiling table, edges #49–#52); integration
-  `security-spend.test.ts` (two reserves near the cap: one wins — edge #51, real SQL).
-- Exit: metered spend equals tokens × list price in tests.
-- As built: `SecurityScanControl.model()` calls `handleSecurityModelRequest`
-  (`security/model-proxy.ts`). One route per host: `POST /v1/chat/completions`
-  (`@cf`, `env.AI.run`), `/v1/messages` (`anthropic/*`), `/v1/responses` (`openai/*`)
-  (REST `/ai/v1/*`); a route that does not match the model's host is a 422. Policy Off
-  refuses every call (409). Check 5 uses the stored `entitlement.hosts` (no 24 h
-  freshness: the daily probe in M9 keeps it current). A third-party call needs the
-  project's own notice at the current version. REST headers are built from nothing
-  (only `anthropic-version`/`anthropic-beta` pass on Messages), so no caller credential
-  or `cf-aig-*` header passes. The binding answer is turned into chat-completions shape
-  when it is the legacy `{response, tool_calls}` form (Engine B reads `choices`).
-  Money: a call's worst case (request bytes as input tokens, since a token is at least
-  one byte, plus its output limit) is held on `spent_nano_usd` of both month rows in
-  the `UPDATE … WHERE spent + worst ≤ cap RETURNING` that checks the cap, after the
-  scan row `UPDATE` that checks attempt, `running`, lease, call cap and token caps. One
-  transaction, always scan → project → platform row (also for reserve, settle,
-  release, so no lock cycle). After the answer the hold is replaced by tokens × list
-  price; an upstream error with an HTTP status or a Workers AI code costs 0; a paid
-  answer with no usage, a call lost with no status or code, a dropped stream (also an Anthropic stream that
-  ends before its `message_delta` usage or carries an `error` event) or a failed settle
-  keeps the worst case (the meter errs high). The proxy clamps the
-  output limit to what the scan has left (`max_tokens` / `max_output_tokens`; 16,384
-  when the caller sets none) so the worst case is bounded. Stops answer 429 (402 for
-  credits) with `x-void-scan-stop`; other failures carry no header (runner retries once).
-  `budget.ts` also has `reserveSecurityScanBudget` (scan start, for M9: sets
-  `started_at`, refuses a scan that already holds a reserve) and
-  `releaseSecurityScanReserve` (month of `started_at`, edge #52), the §16.2 ceiling
-  rules, the edge #49 refusal copy, 80/100 % thresholds (alerts stay M15) and the
-  `Dec 1` reset label. Deviation: per-session counts (40), the `@cf` token bucket
-  (10/min/model) and the last refused call live in the `SecurityScanScheduler` DO
-  storage (`security/call-ledger.ts`, RPC `admitModelCall`, `recordModelCallFailure`,
-  `modelCallFailure`, `forgetModelCalls`): Postgres has no column for them and M3 is
-  done. The session comes from an optional `x-void-scan-session: 0–63` header (Engine C
-  config in M13; Engine B sends none and counts its own turns); the per-scan cap in
-  Postgres stays the hard bound. M9 adds 429 back-off to the bucket and calls
-  `forgetModelCalls` when an attempt ends. `GET /v1/void/last-failure` answers the last
-  refused or failed call of the attempt (Engine C). Waiting for a rate token (≤ 120 s)
-  does not use a model call; after a wait the proxy reads the caps again, so a cap
-  lowered meanwhile applies to that call (#50). `deriveSecurityScanTag` sits in `proxy-token.ts`
-  (`<scanId>.<22-char MAC>`, HKDF label `void-security-scan`). Extra test cases: the
-  call ledger in `security-budget.test.ts`; the proxy on real SQL in
-  `security-spend.test.ts`.
-  Review fixes: the proxy refuses (422 `tool_not_allowed`, failure `not_allowed`)
-  any tool the provider runs (Messages: any typed tool except `custom`; Responses:
-  anything but `function`/`custom`, also inside a `namespace` or an `additional_tools`
-  input item) and `mcp_servers`, `container`, `background`; the container's tool
-  lockdown is untrusted (spec T2). `anthropic-beta` keeps only an allowlist
-  (`SECURITY_ALLOWED_ANTHROPIC_BETAS`, no `context-1m-*`); S2 recorded header names,
-  not values, so M13 confirms the list and the Codex namespace type. When the output
-  left is below the route minimum (16 on Responses) or a `budget_tokens` thinking
-  budget cannot drop to ≥ 1,024 under it, the call answers the `tokens` stop before
-  the hold; otherwise the budget is lowered to `max_tokens − 1`. A 2xx answer that is
-  not JSON keeps the worst case (502 to the runner). Cache writes are priced 1.25×
-  (5 min) / 2× (1 h) input and a Messages hold counts input at 2×; cache reads stay
-  at 1× (over). On the binding only a 402 is a credits stop.
-
-**M8 Outbox enqueue and input hold.**
-
-- Scope: `enqueueSecurityScanInTx(tx, …)` called in `commitCutoverLive` after
-  `setActiveDeployment` (pass `env`), in `promoteProtectedDeployment` (`trigger=recovery`),
-  and in the compensate `post_routing_recovery` branch in its own short tx (best effort,
-  logged; see Risks R8). Rules: policy lenient read; public state fresh (strict ZT read,
-  any error = public); `preview-*`, owner suspended, deleting → no row; protected under
-  `public` → `skipped:protected`; open request → `trigger=gate`; coalesce (old queued →
-  `superseded`, keep `first_queued_at`). After commit: copy inline modules
-  (`publish-worker.ts`, ≤50 MB / 30 s), then move the row with a compare-and-set
-  (`UPDATE … SET status = 'queued' WHERE id = :id AND status = 'pending_input'`), so a
-  scan canceled meanwhile (policy Off, `policy_off`) stays canceled; poke only when the
-  row moved. Hold in
-  `deleteDeploymentInputs` and `sweepStaleDeploymentInputs` (check `security_scans.input_prefix`).
-  `deleteProjectAssets` adds `security-scans/{project}/`.
-- Tests: integration `security-enqueue.test.ts` (row in same tx; rollback of the tx
-  leaves none; skip table spec §6.1; coalesce keeps `first_queued_at` — edges #2, #37;
-  recovery row — #41; unchanged static redeploy no row; policy Off between commit and
-  the input copy leaves the row `canceled`), `deployment-execution.test.ts`
-  (hold + release), `unread-deploy-cleanup.test.ts` unchanged pass.
-- Exit: no live deploy path (except R8) can go live without a row while policy is on.
-- As built: `security/enqueue.ts`. `enqueueSecurityScanInTx(tx, env, …)` runs in a
-  savepoint, so a failed statement is logged and the deploy commits with no row (D45).
-  Capability off → no row and no read. It takes the policy advisory lock in shared mode
-  (lock order: project row, then policy), so an Off write waits for the deploy commit
-  and cancels the new row instead of missing it. Owner suspended = any
-  `users.suspended_reason`. Protection is spec §4 read in the transaction (the
-  installation check is `installationZeroTrustProtects`, now exported from
-  `policy.ts`). One row per live deployment: a second call (compensation after a
-  committed cutover, R8) gets the same row back while it is still `pending_input`
-  (or `skipped:protected` with no module copy yet).
-  An open public request sets `trigger=gate` and `public_request_id` only; the
-  request state (`needs_deploy` → `waiting_scan`, `gate_scan_id`) is M16. Coalescing
-  supersedes `pending_input` and `queued` rows (not only `queued`), so an earlier
-  deploy's after-commit step cannot queue a replaced row; a `skipped:protected` row
-  supersedes them too (the old deployment is no longer live and the project is out of
-  scope), without taking a `first_queued_at`. The hold is `input_prefix` = the
-  deployment operation's prefix (operation id = deployment id) while `inputs_deleted`
-  is false. Copy: when the row
-  holds no staged input (inline `workerFiles`, no Queue) the modules go to
-  `security-scans/{project}/{deployment}/modules/{i}`, then `modules.json` last (a
-  copy without it is incomplete), and `input_r2_key` is that prefix. A
-  `skipped:protected` row holds nothing, so its modules are copied too (staged or
-  inline) for the exposure catch-up (spec §7.2). Over 50 MB, not done in 30 s, or a
-  read error → `failed`, `status_reason`/`error_class` `input_missing`, `failure_cause
-  project`. A copy whose compare-and-set misses (row canceled or superseded
-  meanwhile) is deleted unless a row points at it; a timed-out copy is deleted again
-  once its last `put` settles. `finishSecurityScanEnqueue` runs after `done` in both
-  publish paths (so the copy never delays the result), right after the admission
-  commit for `trigger=recovery`, and in compensation whenever a failed deploy is
-  still live: an unclear cutover that did commit, or a step after the cutover commit
-  that threw. There the pipeline hands over its `workerFiles`, and the short
-  transaction gets the row the cutover wrote back (still `pending_input`) or, when
-  live was written outside any transaction, writes one (R8). A `trigger=recovery`
-  row of an inline deploy is queued with no input (the modules left with the request
-  that died): M10 has to read it from the stored Worker bundle (`bundle_stored`), else
-  it ends `input_missing`. A row left in `pending_input` by a lost after-commit step is
-  for the M9 re-poke.
-  `dispatchPendingDeployments` leaves held operations out of its page so they cannot
-  starve the others. Unchanged static redeploy: the API has no such path (the CLI
-  skips unchanged assets, but a deploy still makes a deployment); the test covers an
-  idempotent replay, which makes no new deployment and no row.
-
-**M9 Scheduler and hourly jobs.**
-
-- Scope: real `SecurityScanScheduler`: claim queued rows round-robin by owner, oldest
-  first; installation concurrency (policy) and 1 per project; `@cf` token bucket in DO
-  storage (10/min/model, back off on 429); reserve at start (`skipped:budget`); set
-  `attempt`, `lease_until`; call the controller; retry once on infra error; re-arm while
-  work remains. At claim, a non-gate queued scan of a project that is now protected
-  under `public` becomes `skipped:protected` (spec §5.4 All → Public). Cancel API for
-  teardown and operator cancel. `security/maintenance.ts`
-  in the hourly branch only (after `index.ts:768`, gated by capability and policy):
-  re-poke, reaper (`timed_out`), 24 h → `skipped:backlog`, raw output sweep (cursor in
-  ROUTING, capped deletes), scan row and closed request retention, daily probe
-  (`entitlement.checkedAt` > 24 h, mode ≠ disabled). `teardownProject` cancels scans.
-- Tests: unit `security-scheduler.test.ts` (round-robin, bucket, re-arm, back-off);
-  integration `security-scheduler-claim.test.ts` (running unique index, lease fencing —
-  edge #33; under `public` a queued non-gate scan of a now-protected project becomes
-  `skipped:protected` at claim, a gate scan still runs), `scheduled.test.ts` (hourly jobs run only when on; fast tier untouched),
-  `api-delete.test.ts` (mid-scan delete cancels — #26).
-- Exit: fake controller drives queued → running → result.
-- As built: the queue's Postgres side is a new `security/queue.ts` (read, claim, end,
-  requeue, cancel, reaper, backlog skip, re-poke); `scheduler.ts` keeps the DO and
-  `runSecurityScanQueue(deps)`, which tests drive with a fake store and controller.
-  The "which model runs" resolver (`security/models.ts`, from the layout) landed here
-  because the claim stores `model_requested`, `model_used` and `engine`: project model,
-  else the default; unknown/blocked/unpriced → default (#23); third-party without a
-  passing check 5 host, the current installation notice or the project's own notice →
-  first non-blocked priced `@cf` model (#44, #84); none → `failed (infrastructure,
-  no_model)`. A pass, per candidate in round-robin order (owners never served first,
-  then least recently served, kept in DO storage, ≤ 1,000 owners): claim under the
-  project lock + shared policy lock (attempt + 1, lease = 2× wall clock + 5 min); the
-  claim re-checks what may have changed while the row waited: project `deleting` /
-  owner suspended → `canceled` (`project_deleted` / `owner_suspended`), 24 h →
-  `skipped:backlog`, `public` + protected + not `gate` → `skipped:protected`; a unique
-  index hit is `busy` (row stays queued). Then reserve (refusal → `skipped`, reason
-  `budget`, `error_class` `project_cap|platform_cap`), then `POST /v1/scans/start`
-  through the gate. A failed start (throw, non-2xx, `ok:false`) cancels that attempt at
-  the controller, forgets its ledger, gives the reserve back and requeues it with a
-  60 s back-off; the second failure is `failed (infrastructure, start_failed)`. A
-  container that started and then failed is M12's to retry (`requeueSecurityScan`,
-  `endSecurityScanAttempt` are there). At most `floor(10 / 10) = 1` running scan per
-  `@cf` model. A Workers AI 429 now reaches the scheduler (`rateLimited` proxy dep →
-  RPC `backOffModelRate`): the bucket goes 5 tokens (30 s) into debt per 429, at most
-  one minute; calls wait for the refill and no new scan starts on that model until it
-  is paid. Re-arm 30 s while queued rows remain, sooner for a retry or back-off end, no
-  alarm when empty; ingest (M12) should poke on completion. With the capability off
-  the alarm does nothing. Cancel: `cancelSecurityScans` writes the rows first (that is
-  the fence), then controller cancel + ledger forget, best effort; `teardownProject`
-  calls it right after `lockAndMarkDeleting` (direct, not through the DO: the rows
-  are the fence, and the running scan's reserve must go back to the platform month
-  before the cascade); DO RPC `cancelScans(scanIds, reason)` is for M17. Hourly
-  (`maintenance.ts`, after the "Hourly tier" line): the capability gates everything;
-  policy Off skips re-poke, backlog and probe, but the reaper, the raw output sweep and
-  retention still run (Off does not end running scans, and stored data still ages).
-  Reaper: `timed_out` / `lease_expired` / `installation`, reserve back, controller
-  cancel, ledger forget. Re-poke: `pending_input` older than 10 min → `queued`, then a
-  poke if anything is queued. Raw output: `securityRawOutputPrefix` =
-  `security-scans/{project}/scans/{scan}/` (M12 writes there), cursor `(finished_at,
-  id)` in ROUTING `security-audits:raw-output-sweep`, 50 scans a run. Scan rows: deleted
-  outside the newest 200 or past 180 days, never active, a current base (latest
-  `succeeded`), an open request's gate scan, or a row the raw sweep has not passed;
-  500 a run. Closed requests: newest 50 per project, never one a bypass names. Daily
-  probe: `probeAndRecord` when the mode is on and the stored result is missing or
-  ≥ 24 h old. The exit test ends with the reaper (`timed_out`), since `result()`
-  refuses until M12. The M1 stub test now checks that the alarm does nothing with the
-  capability off. Extra tests: the 429 back-off case in `security-model-proxy.test.ts`.
-  Review fixes: the reserve is fenced on `running` + `attempt` (a cancel after the
-  claim gives `gone`: no start, no end), and a start that worked re-reads the row and
-  cancels at the controller if it moved; every end, requeue and cancel releases the
-  reserve in the same transaction, and an hourly step releases any ended row that still
-  holds one. The first failed start ends the pass and the alarm waits for the retry
-  back-off (an outage costs one scan its retry, not the queue); an error on one
-  candidate ends only it (`failed (infrastructure, scheduler_error)` once claimed).
-  Cancel locks its rows in one `SELECT … FOR UPDATE` over every active status, so a
-  claim in flight is waited for and still canceled. A pass keeps an earlier alarm (a
-  poke). Teardown lets a failed cancel throw (retried before the cascade). The binding
-  often throws only `3040: …` with no status: the proxy reads that leading code (3036
-  and 3040 → 429). The month's `scans` count only goes up on the first attempt. The
-  hourly security step stays first in the hourly tier, as planned; a due daily probe
-  can add about 3 minutes before the jobs after it.
-
-**M10 Input builder (T2, T3, filters, memory).**
-
-- Scope: base selection at scan start; T2 from changed Worker modules by sha256 +
-  source-map `sourcesContent`, changed text assets by hash; T3 full; claimed-commit
-  check (sha256 of `sourcesContent` vs file at commit when T1 is possible); filters and
-  secret-like file drop; third-party by lockfile registry identity (else keep, rank last,
-  `third-party-unverified`); caps 400 files / 2 MB / 256 KB; priority by import graph;
-  `backlog.json`; redaction (8+ mixed chars, 4 forms); phrase check (plain substring,
-  no regex) → server lead; memory index (64 KB, 200 records, role only) + history files;
-  copy staged inputs to `security-scans/…` at start and release the hold;
-  `SecurityScanControl.input()` streams a tar.
-- Tests (unit, pure): `security-input-tier.test.ts`, `security-input-t2.test.ts`
-  (fixture bundles with source maps for React/Vue/Svelte/Solid), `security-filters.test.ts`,
-  `security-third-party.test.ts`, `security-redact.test.ts` (4 forms, short values kept —
-  #30), `security-phrase-check.test.ts`, `security-memory.test.ts` (order, caps, no model
-  rejections — #40), `security-backlog.test.ts` (#13, #36); integration
-  `security-input-capture.test.ts` (R2 copy, hold release, input_missing — #12).
-- Exit: a fixture deploy produces the expected tar and coverage label.
-- As built: `security/input/{tier,t2,filters,third-party,redact,phrase-check,memory,backlog,tar,build,prepare}.ts`.
-  The pure parts take data already read; `build.ts` puts them together and
-  `prepare.ts` does the I/O. `SecurityScanControl.input()` checks the fence, then
-  `prepareSecurityScanInput` builds and checks every entry before it answers (the
-  controller now waits 120 s for it, `INPUT_TIMEOUT_MS`), so a failure gives `null`, never
-  half a tar; the tar is then encoded entry by entry as the controller reads it.
-  Tar: own ustar writer, regular files only, pax `path` for long or non-ASCII names, same
-  name rules as the runner's reader. Head modules, first match: the scan snapshot
-  (`input_r2_key`), the staged deploy input (`input_prefix`), the stored Worker bundle
-  (`bundle_stored`, new `loadStoredWorkerModules` in `durable-objects.ts`, for M8's
-  recovered inline deploys); staged and stored modules are copied to
-  `security-scans/{project}/{deployment}/` and the hold is released with a fenced write
-  (`input_r2_key = prefix, input_prefix = NULL`). Modules are read one at a time (hashed,
-  copied, decoded, a map cut to its `sourcesContent`), so the API isolate never holds the
-  bundle's bytes. None, an incomplete snapshot, a missing object or > 50 MB counted as
-  read (not as recorded) → `failed (input_missing)`, project cause, reserve back, poke (#12).
-  Deviation: the claim moves the row to `running`, which used to drop the hold before the
-  copy, so `SECURITY_SCAN_INPUT_HOLD_STATUSES` now includes `running` (a running row holds
-  its prefix until the copy clears it); coalescing uses the new
-  `SECURITY_SCAN_WAITING_STATUSES`. The `idx_security_scans_input_hold` partial index
-  still names only the two waiting states (no migration change); the hold check is a
-  small lookup either way. The snapshot gains `sha256` in `modules.json` (an inline copy
-  from M8 has none: the first scan fills it in), `sources.json` (path → sha256 of the
-  unredacted text) and `assets.json` (path → hash), so it can be the next scan's base
-  without the deployment row. Base = last `succeeded` scan; tier: rescan → full (#43), no
-  base → `first-scan`, snapshot gone → `no-usable-base`, else T2 (T1 is M11). T2: a source
-  changed when its module or that module's map changed and its text hash differs from the
-  base index (no index: every source of a changed module); modules with no map are read as
-  built code under `input/_worker/` (`no-source-maps`); a changed module whose mapped
-  sources all match the base index is read as built code too (`built-only-change N`, #14a:
-  a `define` value or an edited bundle), unless some base module had the same bytes (a
-  renamed chunk) or it is a facade; T3 still reads map sources; changed text assets (≤ 256 KB)
-  under `input/_assets/`, read from R2 then KV. Priority: breadth-first over relative
-  imports from `workerMain` (plain text scan), then assets, then `third-party-unverified`.
-  Source paths: scheme and query cut, resolved against the map folder and `sourceRoot`,
-  `..` above the root dropped, duplicates with other text get `~2`. Focus: backlog first,
-  400 files / 2 MB, a file over 256 KB counts as 256 KB (T2 has no hunks); T3 sends no
-  focus list; its backlog is only what it could not read. The backlog a scan leaves is written to
-  `security-scans/{project}/scans/{scan}/backlog.json`, not the project's `backlog.json`:
-  M12 must promote it only on `succeeded`, so a failed scan loses no file. Server leads
-  (phrase check) go to `…/scans/{scan}/server-leads.json` for M12 to store. Empty diff:
-  note `no-changes` and `no_changes: true` in `task.json` (the runner ignores the field
-  today); M12 must take the "no changes" path (no model call, #14). A gate scan with no
-  diff re-checks the files of `fixed` findings resolved since the base; with none it runs
-  in full (`gate-recheck`, #85). Filters: `id_*` matches only key files (no extension or
-  `.pub`) so `id_utils.ts` stays; binary = NUL or U+FFFD in the first 8 KiB. Third-party:
-  `package-lock.json` and `pnpm-lock.yaml` readers (completeness review: now in
-  `@void/platform/security-lockfile`, and `pnpm-lock.yaml` also reads `packages`, so
-  transitive packages are placed). T1 reads the repo lockfile nearest the project folder
-  from the same tarball pass; a CLI deploy sends `securityPackages` (`{registry, local}`
-  for the packages its source maps name, read from the nearest lockfile up to the repo
-  root), kept as `packages.json` next to the head snapshot for retries. With neither (old
-  CLI, yarn or bun lockfile, recovered inline deploy) `node_modules/…` sources stay as
-  unverified. Read set: 32 MB, and the runner's 16 MB a file (after redaction) and 20,000
-  entries with memory (`security-scanner/src/runner/limits.ts`, shared by both sides);
-  assets: 400 files / 16 MB. A changed or backlogged file left out (`input-capped`), and
-  an asset not read (`assets-unread`, over the limits or gone from storage), goes to the
-  backlog and stays out of `sources.json` / `assets.json`, so no later scan counts it as
-  seen. A path over 960 characters becomes `_long/<hash>/<name>`; a path the runner still
-  refuses is dropped (`dropped-bad-path`, partial), not the whole tar. A file over the
-  runner's 16 MB is dropped the same way (`dropped-oversize`, partial), never backlogged:
-  no scan can send it, so a gate scan would be queued for it forever. A project file
-  dropped as bad-path, oversize or binary holds a public request instead (`held_no_result`,
-  `unread_files`, #92a; asking again queues no scan); registry files are classified first,
-  a later diff scan notes such a file again while its bytes stay the same (an unchanged
-  repo file over 16 MB in T1; a built module through `never-sent.json`, written next to
-  `sources.json`), until it changes to readable bytes or is removed;
-  and client assets or unverified third-party code dropped the same ways are noted
-  `assets-dropped N files` / `third-party-unverified-dropped N files` and do not hold it. Inline source maps
-  are found at any length. `partial` = backlog left, a cut, bad-path or oversize file, or > 5 % of
-  source bytes lost to registry drops or the cap; secret-like files are dropped and
-  counted in `dropped_files` but do not make a scan partial; a partial from registry
-  drops alone adds `partial-third-party-only` (#92). Redaction covers every file in the
-  tar, memory included; a secret that cannot be decrypted fails the build (the
-  controller reports `input_unavailable`). Phrase check: whole-word, case-insensitive,
-  `LLM` upper case only (lower `llm` is common in identifiers); a full scan checks the
-  project's own files. Memory: no `security_memory_rejected` read; history files capped
-  at 8 MB and 2,000 files (oldest resolved first). The row gets tier, coverage, notes, counts and
-  `base_scan_id`/`base_deployment_id` (fenced on `running` + attempt).
-  `securityCoverageLabel` (tier.ts) builds the label from the row for M14+.
-
-**M11 T1 source diff (hosted, `managedBuilds`).**
-
-- Scope: `compareCommits` in `github/installation-token.ts` (files, patch, truncation);
-  head tarball to R2; project root + source-map-listed shared files; OIDC `sha` match.
-- Tests: unit `security-input-t1.test.ts` (truncated → T2, force push → T2/T3 — #9,
-  monorepo — #32, mismatch → `commit-mismatch` — #38); integration
-  `security-t1-github.test.ts` with mocked GitHub.
-- Exit: self-hosted never takes T1.
-- As built: `security/input/{t1,t1-github,source-tar}.ts`; `prepare.ts` tries T1 when the
-  tier would be T2 (a base snapshot exists, not a rescan), after assets are read, and
-  passes the files to `build.ts` as `sourceDiff` (or a fallback note as `notes`).
-  `compareCommits(token, repo, base, head)` asks for one page of one commit (the file list
-  is on page 1 only); ≥ 300 files or no list = truncated. Start: `managedBuilds`, a
-  `github_connections` row, hex base and head commits; the bundle is parsed only past this
-  point and handed to `build.ts`, so T2 parses it once. Before the token, the connection must
-  pass `installationCoversRepo` (active installation, repo still selected, owner/admin
-  authorizer), as a managed build does; else `source-diff-unavailable`. The head's build comes from
-  `deployment_operations.build_id` (or `builds.deployment_id`): `container` = managed (no
-  content check), `github_actions` = its `commit_sha` (the OIDC `sha` claim) must equal
-  the claimed commit; a build whose commit differs → `commit-mismatch`. One scoped token
-  (this repository, `contents: read`) for the compare and the tarball. Compare: only
-  `ahead` / `identical` (`behind` / `diverged` = force push → `base-not-ancestor`; a 404 or
-  error → `source-diff-unavailable`; truncated → `compare-truncated`), each T2 with that
-  note. The tarball goes to R2 by multipart (100 MB compressed, 512 MB / 100,000 files
-  unpacked, else `source-too-large`) at `…/scans/{scan}/source-{attempt}-{uuid}.tar.gz` (one key per call, so
-  overlapping runs never delete each other's) in parts of exactly 8 MiB (R2 wants equal
-  non-last parts) and is deleted as
-  soon as the input is built (a retry fetches it again), so the whole repository is never
-  kept. Pass 1 hashes every file, pass 2 reads the planned ones. Own streaming ustar/pax
-  reader: regular files only, top folder cut, unsafe names and links skipped (but every
-  entry counts toward the limits).
-  Root: a source-map path is the map's path with `..` above the output folder dropped, so
-  it ends a repo path; each source whose text is at exactly one such path votes for the
-  folder in front. The folders must form one line (deepest = project root, the rest hold
-  shared packages), else `monorepo-shared-code`; no vote → `commit-mismatch`. A managed
-  build's root is `''` (it ran at the repo root). Content check (not managed): no source
-  maps, or a mapped source whose text differs from the commit while it changed (in the
-  compare or in the built output) → `commit-mismatch`. A file that differs but did not
-  change is read from the bundle (its live text). Scope: the root (no `node_modules/`) plus
-  repo files the maps list; secret-like files noted, filters as M10. Changed = compare
-  files in scope ∪ T2's changed sources. Deviation (safer than the spec): the T2 changes
-  are part of T1, so code that went live is scanned even when the base's claimed commit
-  did not match what it shipped. Bundle sources with no repo file (packages, generated
-  code) stay in the input under their own path. Input paths match T2 (a mapped file keeps
-  its source-map path, others are relative to the root), so findings keep their file when
-  a project moves between T1 and T2. Order: changed first; server code (bundle order),
-  config, other code, tests and docs. Changed repo files may use the whole read budget,
-  unchanged ones what bundle-only sources leave; the rest is unread. An unread file that changed
-  (or waits in the backlog) is cut: capped, lost, back to the backlog. An unchanged one is
-  read access only (§7.4): dropped, not capped, so a big repo is not `partial` on every
-  scan (a gate scan that turns full caps it, as in T2). Deviation: no hunks for files over 256 KB: the runner takes only
-  `changed_files` and reads whole files, so a big file counts as 256 KB in the focus, as in
-  T2. `MemoryR2Bucket` gained `createMultipartUpload`. New note names beyond the spec:
-  `compare-truncated`, `base-not-ancestor`, `source-diff-unavailable`, `source-too-large`.
-
-**M12 Ingest and findings.**
-
-- Scope: `SecurityScanControl.result()` → zod check → one tx: fingerprint key
-  (project + skill fingerprint + sink path), dedupe, F-number, 50+50 cap
-  (`findings_capped`), promote, `not_seen` hint, reopen rules and stale-scan rule,
-  `fix_checked_scan_id`, `rejected` store (never fed), events only on change, base
-  moves only on `succeeded`, `no changes` path for empty Worker diff, raw output to R2,
-  `ledger_summary`. Late or reaped attempt rejected. Then (after commit) gate re-check
-  (M16) and notification rows (M15).
-- Tests: unit `security-findings-rules.test.ts` (reopen table, "new" rules spec §9.4,
-  possible duplicate), `security-ingest-schema.test.ts`; integration
-  `security-ingest.test.ts` (one tx; concurrent same key — #20; stale scan — #35;
-  incomplete keeps confirmed only; refused stores none; #3, #4, #14, #18, #19).
-- Exit: full fake path deploy → findings rows with the fake controller.
-- As built: `security/ingest.ts` (status and report parsing, the outcome table, the one
-  transaction), `security/findings.ts` (pure rules) and `security/fence.ts` (the fence,
-  moved out of `control.ts`, which re-exports it). `result()` answers `ok: true` once the
-  result is taken (stored, or requeued), `false` when fenced off or when the store threw
-  (the controller keeps polling until the hard cap; the reaper ends a scan nobody
-  stored). Deviation: no Zod in the API Worker; `findings.json` goes through the runner's
-  own hand-written validator (`validate-findings.ts`, one copy of the rules on both
-  sides) and must carry `schema_version: 1`. `status.json` is read by a small parser:
-  unknown status, a reason that does not go with it, or another scan id / attempt →
-  `failed (bad_output)` (`status_unreadable` / `status_mismatch`). Outcome: `succeeded`
-  stores all; a report with `run_status: incomplete` makes the scan `incomplete
-  (run_incomplete)`; `incomplete` stores validated confirmed only; the rest store none.
-  Cause: `infrastructure`/`credits` installation, every other failure project. The
-  first `failed (infrastructure)` attempt is requeued (`requeueSecurityScan`), the second
-  ends. The transaction locks the project row (serializes ingests and F-numbers), then
-  the scan row, re-checks the fence (attempt, `running`, lease, project not `deleting`),
-  writes findings, events, scan status and gives the reserve back. After commit: the
-  scan's `backlog.json` becomes the project's (only on `succeeded`, and only when the
-  scan file exists), `status.json` + `findings.json` go to `…/scans/{scan}/`, the call
-  ledger forgets the attempt, poke. Key = sha256(source, project, skill fingerprint, sink
-  path or file): the source (`scanner` / `server`) comes first, so a model fingerprint
-  such as `server:reviewer_text` never takes over a server lead's row (§10.3). The
-  per-scan cap counts new keys only (a key the project has adds no row, so a capped scan
-  still re-sees, reopens and promotes all it reported); of those it keeps the most
-  severe confirmed and puts server leads first in the 50 leads; note `findings-capped`.
-  Finding rows are locked in id order (`SELECT … ORDER BY id FOR UPDATE`); bulk resolve
-  (later milestone) must take them in the same order. Severity only rises and a confirmed finding
-  is never demoted (a scan cannot downgrade, §10.3). `revision` moves only on
-  `reopened`, `promoted`, `severity_changed` (a re-see never makes a resolve in flight
-  answer 409). Stale-scan rule: unknown admission time = stale; `rescan` uses
-  `started_at`. A sink hash unknown on either side is not a change. One `seen_again` /
-  `seen_again_stale` per resolve. `possible_duplicate_of` = id of the newest resolved
-  finding with the same file + category. Server leads and `rejected` records are stored
-  on `succeeded` only (otherwise the base does not move and the next scan finds them
-  again). `prepare.ts` now also writes `…/scans/{scan}/scope.json` (diff focus, or every
-  input file of a full scan, plus each input file's hash: a source's unredacted hash,
-  else the hash of the text sent), used for `sink_content_hash` and the not-seen hint:
-  set on `succeeded` scans for open findings not reported whose file the scan looked at
-  (diff: focus; full: the files in its input, so a file the filters dropped, a backlog
-  file or a file gone from the deployment never gets it), one `not_seen` event.
-  `fix_checked_scan_id` is set by a `succeeded`, uncapped scan with no backlog, model
-  calls on the row (proxy count, not the container's) and a model run, of a deployment
-  admitted after the `fixed` resolve (compared in SQL). `ledger_summary` (succeeded
-  only) is server-built from paths + `finding|scanned|backlog`, ≤ 6 KB of JSON; a diff
-  scan (and a scan with no model run) merges the base scan's ledger (this scan wins a
-  path; base `backlog` entries drop, this scan's backlog is the whole one), a full scan
-  replaces it. Deviation: the server-side path (#14) is in `prepareSecurityScanInput`:
-  a diff scan with an empty focus is stored as `succeeded` with no model call and
-  `input()` answers `null`, so the runner never starts. `status_reason` is `no_changes`
-  (and the `no-changes` note) only when nothing was cut; when changed files were all cut
-  to the backlog the scan is a plain partial `succeeded`; the controller's `input_unavailable` report
-  that follows is fenced off. Not yet: ingest returns `news` / `reopened` / `capped` for
-  M15 (notification rows) and M16 (gate re-check); neither is written here.
-
-**M13 Engines A and C, images, drift test.** (Code lands; turning models on depends on S2/S3.)
-
-- Scope: `engines/claude.ts` (locked options spec §15.3, `ANTHROPIC_BASE_URL`, placeholder
-  key, managed settings), `engines/codex.ts` (SDK with `codexPathOverride` → `codex-wrapper.sh`
-  adding `--ephemeral --ignore-user-config --ignore-rules --strict-config --skip-git-repo-check`,
-  empty `/work`, own `CODEX_HOME`, config/requirements/model catalog), `mcp/void-scan.ts`.
-  Two images (`Dockerfile.claude`, `Dockerfile.codex`), exact pins in `image/package.json`
-  with its own lockfile, `--ignore-scripts`, linux-x64 only, non-root, `LICENSE`/`NOTICE`.
-  Image distribution per R1. CI job `build-security-scanner-images` next to
-  `build-api-container` in `platform-ci.yml`; root `.dockerignore` allowlist.
-- Tests: unit `claude-engine.test.ts`, `codex-engine.test.ts` (option shapes, env has no
-  key, wrapper args), `void-scan-mcp.test.ts`, `image-pins.test.ts` (Dockerfile ↔
-  `image/package.json` ↔ wrapper versions match; like `build-container-package.test.ts`);
-  opt-in `recorded-run.e2e.test.ts` (`VOID_SCANNER_E2E=1`, Docker, `--network none`,
-  fake model: tools list only Read/Glob/Grep(/Skill) or the 4 MCP tools; planted
-  `AGENTS.md`, `.codex/`, `CLAUDE.md`, `.mcp.json` never load; `codex --version` matches).
-- Exit: drift test green; models whose engine spike failed stay out of the list (blocked by default).
-- As built: `engines/{claude,codex,proxy-failure}.ts`, `mcp/{server,void-scan}.ts`,
-  `coerce.ts`, `image/{Dockerfile.claude,Dockerfile.codex,claude/,codex/,codex-wrapper.sh,NOTICE}`,
-  CI job `build-security-scanner-images`, one `Dockerfile.<engine>.dockerignore` allowlist each
-  (the root `.dockerignore` is pinned to the API build container by its own test). The SDKs are loaded
-  by a variable specifier when the first session starts, so the runner bundle stays
-  dependency-free and a managed (Engine B) image that gets an A/C task ends `failed
-  (engine_unavailable)`. `vp pack` now writes `runner.mjs` and `void-scan-mcp.mjs`.
-  Each image has its own exact-pin `package.json` and an npm `package-lock.json` (plan
-  said one pnpm lockfile; two images need two sets, and the base image has npm), installed
-  with `npm ci --ignore-scripts`; everything under `/opt/void-scanner` (the controller's
-  `RUNNER_PATH` folder). The wrapper also refuses a `codex` that is not the pinned version.
-  Engine A: `systemPrompt` is Void's own prompt (skill vendoring is still R5) plus a note
-  that the tools are Read/Glob/Grep and the end is the structured output (size keywords
-  stripped from the schema, `validate-findings` still enforces them); no plugin, no
-  `Skill` tool; cwd `/scan/input` plus `/scan/memory`; the PreToolUse hook checks realpath.
-  Both engines send `x-void-scan-session` (the proxy's per-session call cap), set the CLI
-  retry caps from spikes S2/S3 (Codex 0 and 0; Claude Code 2, since a 401 retried for
-  120 s), and after a session with no report ask the proxy `GET /v1/void/last-failure`;
-  a failure that is new since the session started decides credits or a cap stop.
-  `classifyClaudeResult` reads `is_error` + `API Error: 402` as credits (S2).
-  The proxy (M7) now takes the gateway name (`claude-sonnet-5.5`, `gpt-6.1-terra`) as the
-  scan's model and sends that name on, the form S2/S3 verified, and never passes an
-  upstream 401 on to an engine. Engine B (and the other engines) read a report sent as JSON
-  text, repair harmless slips (`coerce.ts`) and retry once with "your last output was
-  invalid: …". Not built here: the controller dispatch for A/C, the image copy into the
-  operator registry, the publish script and the `recorded-run.e2e` Docker test (all in
-  M13b below), and the upstream skill (R5). Live quality numbers for A/C are blocked on
-  credits (S2/S3).
-  Checked locally on an arm64 colima build of both images: they build, `import()` of the SDK
-  works, the wrapper refuses other subcommands and a missing version match, the catalog
-  holds only `gpt-6.1-terra`/`gpt-6.1-sol` with `shell_type: disabled`, and the Codex SDK
-  accepts our whole config under `--strict-config` (`http_headers` and the MCP server
-  included) and reaches the model URL. Codex still prints "Reconnecting…" on a dropped
-  connection after the retry caps are 0 (those caps cover HTTP statuses such as 402), so
-  the wall clock ends such a session. `vp pack` runs two builds: one shared chunk would
-  break the single-file `runner.mjs` the controller embeds. The Codex image keeps only the
-  `codex` binary (the platform package also carries `bwrap`, `codex-code-mode-host` and
-  LGPL voice libraries) and the Apache-2.0 `LICENSE` from the SDK package.
-
-**M13b Engine A/C images in the operator account, controller dispatch, recorded run.**
-
-- Scope: what M13 left out so A/C can run a real scan: copy the digest-pinned images into
-  the operator registry (S1b option A), one container app per engine, controller dispatch
-  by engine, a probe check for the images, uninstall, a release script (no push here),
-  and the Docker recorded run with the fake model.
-- As built:
-
-  ```
-  release: publish-security-scanner-images.ts --push (manual workflow)
-    └─► ghcr.io/voidzero-dev/void-security-scanner-engine-{a,c}@sha256 (public)
-          └─► api/src/security/scanner-images.json  { digest | null }
-  probe (per host, right after its credits call passes, unless all its models are
-         blocked; calls + copy end 45 s after the probe start):
-    registry credentials (push, pull; 15 min) ─► HEAD dest manifest ─► skip if there
-      └─► ghcr manifest (sha256 = pin, not an index) ─► config (linux/amd64)
-            ─► layers missing in the account, deadline checked before each (resumable)
-            ─► PUT manifest by tag sha256-<hex> ─► /containers/image-preparations
-  provision: one Worker, classes ScannerController (B, managed image)
-                                + ScannerControllerEngineA / ScannerControllerEngineC
-             one container app per deployed engine: void-security-scanner-engine-{a,c}-<suffix>
-             deployed = images it already runs at the current pin + images ready now
-  scheduler start ─► SCANNER / SCANNER_ENGINE_A / SCANNER_ENGINE_C by task engine
-  ```
-
-  - Files: `security/scanner-images.{json,ts}` (pins; parse refuses a bad pin),
-    `provisioning/security-scanner-images.ts` (copy, prepare, delete + `/v2/gc/layers`),
-    `provisioning/security-scanner.ts` (engine classes, bindings, apps, images text
-    `__VOID_SECURITY_SCANNER_IMAGES`, `assertSecurityScannerContainers`),
-    `security-scanner-controller-runtime.ts` (dispatch, engine subclasses),
-    `security/probe.ts`, CLI `platform-security-audits.ts` (uninstall),
-    `platform/scripts/publish-security-scanner-images.ts`,
-    `.github/workflows/platform-security-scanner-images.yml` (manual, main or a tag only,
-    no cache, `packages: write`; images carry `org.opencontainers.image.revision`, which
-    the script checks equals HEAD, and `--push` refuses a dirty tree),
-    `security-scanner/test/e2e/{recorded-run.e2e.test.ts,fake-sdk-model.mjs}`, and a new step
-    in `build-security-scanner-images` that runs the recorded run with `VOID_SCANNER_E2E=1`.
-  - Deviations from the plan, with reasons:
-    - The image check is a new row `image` per third-party host in check 5, after the
-      credits row. A host can be picked only when credits, the image copy and that engine's
-      self-test all pass. Checks 1–4 (the probe's pass) do not depend on it, so a missing
-      image never blocks the `@cf` engine. No credits for a host, or every model of it
-      blocked: no copy and no self-test for it (row `skipped`).
-    - What is deployed never depends on one probe's results. The controller keeps every
-      engine image it already runs whose ref matches the current release pin, and adds the
-      ones made ready now; an image leaves only when its pin changes, or on uninstall. A
-      failed credits call, registry call or `pending` prepare therefore never re-uploads
-      the controller (an upload is a code deploy that restarts every scan). A deployed image
-      of a callable, unblocked host is judged by its self-test even when this run's copy
-      step failed. Two probes at once converge without a lock: each re-reads after its
-      upload and uploads again (at most 3 times) until the controller runs at least its
-      own images; only different code ends `outdated`.
-    - The pins live in the API package (it does the copy), not in the scanner package.
-      Both digests are `null` until the first release push; `null` reads as "this
-      release has no image" (`unpublished`) and keeps those models unpickable.
-    - The copy runs in the API Worker on each probe and goes on from the layers already
-      copied, since a full image is too large for one request. The model calls and the copy
-      end 45 s after the probe start; every registry request gets what is left (a layer
-      still in flight is cut off and copied again next time), so with provisioning and the
-      self-test (≤ 240 s) a probe stays under the CLI's 5-minute timeout. A layer must fit
-      one window. Once copied, a probe does credentials, one HEAD and the prepare call.
-    - A cancel without an engine goes to all three classes at once (`allSettled`); one
-      class that fails answers 500 but never keeps the cancel from the others.
-    - The engine images keep their baked `runner.mjs`; the controller does not stream it.
-      As root it checks the `scanner` user and the runner file (exit 2 →
-      `controller_error`), then makes `/scan` owned by `scanner`, mode 0700. The
-      Dockerfiles now create `/scan` the same way: a root-owned `/scan` broke extraction.
-      The egress lock and `EXEC_ENV` are the same as Engine B.
-    - Each engine needs its own Durable Object class (one namespace binds one container
-      app). A controller provisioned before M13b gets migration `v1 → v2` adding both
-      classes; a new one gets all three in `v1`. Cancel without an engine goes to all three
-      namespaces (the scheduler does not send the engine on cancel).
-    - Names use `engine-a` / `engine-c`, never a vendor name (branding rule).
-    - Uninstall also deletes the engine apps (namespace checked like the B app) and the
-      copied images, then runs layer cleanup. A manifest the registry cannot read (not 200
-      or 404) or a failed cleanup fails the uninstall instead of reporting it done; the API
-      version also deletes the images when the controller is already gone, so a retry after
-      a failed image delete finishes the job.
-    - The recorded run builds for the host arch (arm64 locally, amd64 in CI). It is opt-in
-      everywhere: only `VOID_SCANNER_E2E=1` with Docker present (the CI image job sets it),
-      so the normal test suite never builds the images. Claude Code offers
-      `DeferredToolPlaceholder` next to Read/Glob/Grep/StructuredOutput (S2), so the test
-      allows it. The fake model also answers `/v1/void/last-failure`.
-    - Admin and project copy for a host that cannot be picked now says "not ready (probe
-      check 5: credits or scanner image)" instead of blaming credits only.
-    - Not run here: the ghcr push (release step), a live A/C scan on Cloudflare (needs the
-      push and credits, S2/S3), and the upstream skill (R5).
-    - **Needs the user's OK (R1):** this builds option A (copy into the operator registry)
-      with Void publishing public images at `ghcr.io/voidzero-dev/void-security-scanner-engine-{a,c}`.
-      Both pins stay `null` (A/C models off) until the user agrees and a release pushes.
-
-**M14 Project API routes.**
-
-- Scope: `routes/project-security.ts` mounted with `/projects/*` auth: `GET /security`
-  (spec §13.5 shape, role filtering, `detail:'counts'` for CI tokens and OIDC), findings
-  list/show (scoped `WHERE project_id`, cursor paging), comment (`configure`),
-  resolve/reopen (`settings`, `expectedRevision`, capability re-checked in tx — #21,
-  #22), scans (`deploy`), model (notice version, 422s), budget (422 above ceiling),
-  page-link. Capability off: write and scan routes 501, read/comment/resolve open.
-  Add to `api.ts` typed routes.
-- Tests: integration `api-project-security.test.ts` (role matrix PRD §3, 404 vs 403,
-  cross-project id 404, readers get no titles or dollars, CI detail).
-- Exit: role matrix test covers every row of PRD §3.
-- As built: `routes/project-security.ts` (mounted after the zero-trust routes; in `api.ts`),
-  with `security/project-view.ts` (status, policy reason, model and budget views, scan list,
-  cursor and role filter), `project-findings.ts` (list, show, comment, resolve, reopen) and
-  `project-settings.ts` (model, budget). Routes: status, findings list and show, comments,
-  resolve, reopen, scans, `PUT model`, `PUT budget`, `POST page-link`. There is no project
-  route that starts a scan: a manual rescan is operator only (spec §3), so "scans (`deploy`)"
-  is the history list. Role filter: `full` = user session with `deploy`; `counts` = readers and
-  any deploy token (`deployScope` set: CI, remote build, OIDC). `GET /projects/:id/security` is
-  on the deploy-token allowlist (`middleware/auth.ts`); nothing else under `/security` is.
-  Counts level shows F-id, severity, verdict and state of open findings; a resolved finding also
-  shows its title (spec §3). `budget` is `null` unless `full`. Severity everywhere is
-  `COALESCE(severity_override, severity)`. Finding lists page by `number` ascending (cursor =
-  the last number); the scan list pages by `(created_at, id)` descending (opaque cursor).
-  `limit` 1–100 (default 25), a bad limit, cursor, `state` or `severity` is a 400. A finding is
-  addressed by `F-12`, `12` or its id, always scoped to the project. Resolve and reopen lock the
-  project row (as ingest does), re-check `settings` with the same lock held (#22), lock the
-  finding, then compare `expectedRevision` (#21); a resolved finding cannot be resolved again and
-  an open one cannot be reopened (both 409 `finding changed`, with `state`, `resolution`,
-  `revision`, `changedAt`, `byRole`). Resolve stores `resolved_sink_hash` and
-  `resolved_severity`, clears `fix_checked_scan_id` and bumps the revision; reopen clears the
-  resolved columns, bumps `reopen_count` and the revision. Comments need `configure`, 1–4,000
-  characters, change no revision, and are events only. The route takes one finding per call:
-  bulk resolve is the CLI looping (M20). Capability off: `PUT model` and `PUT budget` answer
-  501 (after the access check, so a private project still 404s / 403s first); status, findings,
-  comments, resolve, reopen, scans and page-link stay open. Model: a pick must be a listed,
-  unblocked, priced model (422 `security model not allowed`); a third-party pick also needs the
-  host's probe check 5 (same 422, as the policy picker does) and the notice
-  (`acceptProviderNoticeVersion` = current, or accepted before; else 422 `provider notice not
-  accepted` with the notice lines). `model:null` is always allowed; with a third-party
-  default, `acceptProviderNoticeVersion` accepts it for the project. A wrong notice version is
-  refused. Without the installation notice a third-party pick is stored but the next scan
-  still falls back to `@cf` (`model.source: 'fallback'`). `model` in the status is
-  `{id, requested, source: project|default|fallback, thirdParty, noticeAccepted, pendingDefault}`
-  (`pendingDefault` is the model id or `null`). Budget: `monthlyUsd` whole cents, 0 to
-  1,000,000 or `null`; above the ceiling is 422 with `ceilingUsd` and the operator command; a
-  `cap_changed` project event is written only when the cap moves. `budget` in the status is
-  `{capUsd, capSource: own|limit|none, ceilingUsd, spentUsd, month, resetsAt}`. Policy reason
-  copy follows §11.4; a protected project in `public` mode with no open request reads
-  `applies:false`. **Deviations:** (1) `publicRequest` is `null` and the status gains no
-  request text until M16 (the table exists; the shape belongs to the gate). (2) `security/page-token.ts`
-  (mint and verify, own HMAC label, 15 minutes, user + project, key `JWT_SECRET`) was added
-  here because `page-link` needs it; M19 only adds the page route that calls
-  `verifySecurityPageToken`. The link points at the request origin
-  (`/security/projects/:slug?t=…`) and is a dead link until M19. (3) A human reopen
-  does not enqueue the "reopened" email and resolve/reopen do not re-check a public request:
-  both hook in at M15 and M16. (4) `packages/platform/dist` was stale (old model order); run
-  `vp run --filter ./packages/platform build` before the tests. (5) `GET /security/scans` answers 501
-  while the capability is off (spec §13.5); status, findings, comment and resolve stay open.
-  A comment re-checks no role inside a transaction (it never changes state); the model PUT takes
-  no lock (scan time re-checks the model).
-
-**M15 Notifications.**
-
-- Scope: senders in `email.ts` (findings, reopen, project and platform cap, public held /
-  now public / canceled, bypass) with escaping and 120/300 char cuts; footer reason;
-  `recipients.ts` worked out at send time (owner, project admins, deploy authors with
-  `deploy`, requester while `settings`, installation admins); outbox in the scheduler
-  alarm: dedupe key, 30-min findings cooldown per project, merged scan authors, attempts
-  ×3 with backoff, skip quietly when `EMAIL` unbound.
-- Tests: unit `email.test.ts` (new templates; never a bypass line in the held-urgent
-  email), `security-notifications.test.ts`; integration `security-recipients.test.ts`
-  (#25, #27, #46–#48, #69, #70).
-- Exit: one email per scan; bypass email to every installation admin.
-- As built: copy is pure in `security/notification-copy.ts`; the senders are in `email.ts`
-  (`sendSecurity*Email`, subject prefix is `[<platform display name>]`, so `[Void Cloud]` on
-  the hosted platform, not a fixed `[Void]`); `security/recipients.ts` works out who gets
-  what at send time (suspended or email-less users skipped, one email per person and per
-  address, reason order requester, owner/admin, author); `security/notifications.ts` has
-  `enqueueSecurityNotification` (dedupe key per spec §12), the cap helpers and
-  `runSecurityNotifications`, which the scheduler alarm runs after each queue pass and
-  re-arms for the next due row. Rows are queued in the same transaction as the change: findings
-  at ingest (`news` non-empty), human reopen of an urgent finding (`reopenSecurityFinding`,
-  route pokes the scheduler), 80/100% after a model call settles (`notifyCaps` dep in the proxy)
-  and 100% when a scan is `skipped:budget` (`onBudgetRefused` dep of the queue pass: a hold
-  keeps `spent + hold ≤ cap`, so spend alone may never reach 100%). Public and bypass kinds
-  have senders, builders and `enqueueSecurityNotification` inputs; **M16 calls them**.
-  Deviations: (1) the table has no column for the new-finding ids, so the findings email
-  rebuilds them at send time from the scan's `created` / `promoted` / `reopened` /
-  `severity_changed` events (open, confirmed, not informational; reopened and raised ones only
-  while urgent). A raise to critical counts as new there even when the finding was already high (ingest's own `news` is stricter). **Decision:** keep it. The event stores no old severity, so the email cannot tell high→critical from medium→critical, and a schema change is not worth it for a rare second email that reports a worse finding. A test pins it (`security-recipients`).
-  (2) Cap, reopen and public rows keep their parameters in the dedupe key (no schema change);
-  a held row whose request left that state, a cap-80 row whose cap was raised, a finding
-  resolved since, and rows older than 7 days are dropped unsent. (3) Retries: 1 min, then 5
-  min, third failure is `failed`; a recipient that failed while another got the email is
-  logged and not retried (no double send). (4) `EMAIL` unbound marks every pending row
-  `skipped` (a later "on" does not replay old news). (5) The hourly maintenance pokes the
-  scheduler while any row is pending, also with the policy Off. (6) Unit
-  `security-notifications.test.ts` covers keys, retry constants and the copy helpers; the
-  database cases (recipients #25 #27 #46–#48 #69 #70, cooldown, merge, retry, email off, bypass
-  to every installation admin) are in integration `security-recipients.test.ts`. (7) Tests that expected the old default model and scan limits (commits 9727781b8 and
-  8d3a1a067) now name the new default, or pin glm where they price a glm reserve. (8) A crash
-  between the send and the row update leaves the row pending, so the email goes out twice
-  on the retry. Accepted: an email twice beats an email never, and no test covers it. (9)
-  Test clocks: a row is due from the database clock at its insert, so tests that pass a
-  time start it a few seconds ahead.
-
-**M16 Scan before public (gate).**
-
-- Scope: `publicGate` turn-on/off in the policy POST (conditions + copy spec §5.5;
-  holds `lockZeroTrustConfiguration(shared)` and re-reads ZT); strict `publicGate`
-  read inside `claimConfiguration` → 409 `security public gate on` / 503 for disable
-  and public-only; `security/public-gate.ts` (`requestPublic`, `judge`, `recheck`,
-  `bypass`, `cancelOpen`, `cancelAll`); `checkpointProjectReconciliation` hook with the
-  new `publicRequestId` option; `setProjectZeroTrustProtection` returns
-  `{row, publicRequest, held}` and `protect` with an open request only cancels (no
-  reconcile). Re-check triggers: request, ingest, resolve/reopen, after
-  `commitCutoverLive` commit (moves `target_deployment_id`), rollback tx in
-  `routes/projects.ts` (moves target, re-check after commit), bypass, hourly backstop
-  after `reconcilePendingProjectZeroTrust` (own query on open requests, flips only when
-  the full reconcile fits the routing budget; on roll-forward cancels requests whose ZT
-  row changed after creation). Exposure catch-up in `maintenance.ts`. Gate errors as a
-  new error type (not `ZeroTrustUnavailableError`). Project routes: GET adds
-  `publicRequest`/`publicGate`; PUT answers 202 with the old-CLI-safe `state:'reconciling'`
-  - held line; new `POST …/public-request/bypass`. Operator `zero-trust/projects/:id`
-    and admin form go through the same path with `requested_via` and actor.
-- Tests (integration, nearest suites copied): `security-public-gate.test.ts` (states
-  and transitions; #54–#62, #65–#68, #79–#85, #88, #91–#92), `security-gate-bypass.test.ts`
-  (#72, #89, #93, #94: bypass races under the lock), `security-gate-zero-trust.test.ts`
-  (disable / public-only refused, turn-on race — #64, #90; strict reader 503),
-  extend `zero-trust-surface.test.ts`, `zero-trust-deploy-admission.test.ts` (deploys
-  keep working while held — D45), `zero-trust-disable-bypass.test.ts`; unit
-  `security-gate-judge.test.ts` (pure judge function over scan + findings + deployment).
-- Exit: invariant tests: no flip without pass or bypass; no bypass with urgent open;
-  no deploy ever refused because of a request.
-- As built: pure judge in `security/public-gate-judge.ts` and copy in `public-gate-copy.ts`;
-  tx-level code in `public-gate.ts`; drivers (re-check, bypass, hourly backstop) in
-  `public-gate-flow.ts`, split so `zero-trust/project.ts` has no import cycle. The checkpoint
-  takes `gate: ask | flip | bypass` and `requester`; `reconcileProjectZeroTrustGated` returns
-  `{row, publicRequest, held, skipped}`. Lock order is project row, ZT shared, policy shared;
-  the policy writer takes ZT shared first when turning the gate on. `security/exposure.ts`
-  holds the exposure catch-up, run by `maintenance.ts` under `public` mode.
-  Deviations: tests are fewer than listed. Built: `security-gate-judge.test.ts` (unit),
-  `security-public-gate.test.ts` (ask, hold, pass, bypass, protect-cancel, ZT disable
-  refused), `security-exposure.test.ts`; existing suites updated for the new
-  `setProjectZeroTrustProtection` result and GET fields. Not built yet:
-  `security-gate-bypass.test.ts`, `security-gate-zero-trust.test.ts` (race cases #64, #72,
-  #89, #90, #93, #94, strict reader 503), and the `zero-trust-deploy-admission` and
-  `zero-trust-disable-bypass` extensions. Review round: the hourly backstop judges every
-  picked request (holds need no budget), rotates by touching `updated_at`, and shares the
-  cron run's routing budget with `reconcilePendingProjectZeroTrust` (passed from `scheduled`);
-  a pass with too little budget commits its checkpoint and the project stays reconciling,
-  as the checkpoint already does. Any `trigger=exposure` scan of the live deployment stops
-  further catch-up scans. `held_reason` for a failed gate scan is `failed_installation` or
-  `failed_project`; copy varies on it. Added afterwards (commit 3fddc9dba): the race tests (#64, #72, #89, #90, #93, #94) in
-  `security-gate-bypass.test.ts` and `security-gate-zero-trust.test.ts`, the strict-reader
-  503, the deploy and rollback admission cases and the operator 202 and dry-run shapes.
-  Completeness review: `security-gate-resolve.test.ts` runs Q13 end to end (real resolve,
-  ingest and flip). A rollback to a deployment with no past scan queues a gate scan when its
-  code is kept, else `needs_deploy` (recorded deviation from §12.4, which says
-  `needs_deploy`: the scan can only hold or pass on a clean result, so nothing goes public
-  sooner). A succeeded scan with a backlog and no kept input is `needs_deploy` (`no_input`),
-  not a `waiting_scan` with no scan queued.
-  The scheduler poke after the hourly backstop runs only when a request was judged.
-
-**M17 Operator security routes (rest).**
-
-- Scope: `operator/security-routes.ts`: budget GET/POST, findings, scans, rescan (T3,
-  never `no changes`, cost preview — #43), cancel, public-requests, bypasses, project
-  findings resolve/reopen/comments, model, budget, public-request bypass. Paging with
-  the existing `pagination()` (page/limit). All writes POST + dryRun; audit targets.
-- Tests: integration `operator-security.test.ts`, `operator-audit.test.ts`.
-- Exit: every route in spec §13.5 operator row exists and is audited.
-- As built: routes in `operator/security-routes.ts`, logic in `security/operator.ts` (so the
-  admin panel can call it). Added to the M4 routes: `GET/POST /security/budget`, `GET
-  /security/{findings,scans,public-requests,bypasses}`, `POST /security/scans/:sid/cancel`
-  (DO RPC `cancelScans`, reason `operator_canceled`), and under `/projects/:id/security`:
-  `GET findings/:fid` (added for the CLI `show`), `POST findings/:fid/{resolve,reopen,comments}`,
-  `POST scans` (rescan), `POST model`, `POST budget`, `POST public-request/bypass`. Reads stay
-  open with the capability off; scans, cancel, model, budget and rescan answer 501. Lists use
-  `page`/`limit`; findings and public requests list oldest first, scans and bypasses newest
-  first. The scans list carries the month totals (metered, gateway, refused, failed, skipped
-  for budget). Budget body: `platformMonthlyUsd` and `projectDefaultMonthlyUsd`, a number
-  (cap on at that amount) or `null` (cap off), by `expectedRevision` under the policy lock
-  (same revision as the policy, so the two writers never overwrite). The project budget route
-  sets the per-project ceiling (`cap_ceiling_cents`, event `cap_kind=ceiling`, actor
-  `installation_admin`). Previews of finding, model and ceiling writes run the real write in a
-  transaction and roll it back (`previewInRollback`), so they fail wherever the write fails.
-  Finding writers take `actor: 'installation_admin'` (no project role checked or recorded).
-  Rescan: a `trigger=rescan` row, `queued`, reading the live deployment's snapshot
-  (`findLiveInput`); refuses when the capability, policy or scope is off, nothing is live, the
-  code is gone, or a scan already waits or runs (409, own codes). The preview is the cost check:
-  `alreadyScanned`, `tier: full`, the model, `worstCaseUsd` (the reserve at list price) and the
-  budget view; the CLI confirms from it. Deviation: spec §13.3 says a live deployment with no
-  succeeded scan diffs from the base as usual; `chooseSecurityTier` makes every `rescan` a full
-  scan (as the plan says), so that case also runs T3. Bypass: `gateBypass` writes its own
-  `operator_events` row only for project members now; an installation admin's bypass is audited
-  by the operator API (or the admin panel), so there is one row, not two. A Zero Trust not
-  ready refusal maps to 409 `zero trust not ready`. Audit targets (`operator/audit.ts`) are ids,
-  known values and numbers only: no comment, reason or note text; `security/probe` now records
-  `{installation:'platform'}`.
-
-**M18 Admin panel.**
-
-- Scope: Security nav item with unseen-bypass badge; banner slot in `Layout` through
-  `renderAdminPage` and fate renders (probe failing, platform cap); screens Settings
-  (with previews), Findings (Urgent filter, oldest first), Scans (metered + gateway
-  cost, top 5 spenders, silent-gap flags), Public requests (+ bypass list); Project
-  detail Security section; Zero Trust page greys Disable/public-only;
-  `ProjectZeroTrustSection` request state, Cancel, Bypass form. All writes through
-  `executeAuditedMutation`. Regenerate `client.generated.ts`.
-- Tests: integration `admin-security.test.ts`, extend `admin-zero-trust-actions.test.ts`;
-  unit view snapshots where the admin suite already has them.
-- Exit: every PRD §10.6 item reachable; no comment or reason text in audit rows.
-- As built: data in `admin/security-data.ts` (one Fate source `AdminSecurity` with a
-  `section` for the four pages, so the pages are `/admin/security`, `/findings`, `/scans`,
-  `/requests`); writes in `admin/routes/security.ts` (`/admin/security/*` and
-  `/admin/projects/:id/security/*`, the latter mounted beside the project routes with a guard scoped
-  to its own paths). Every write calls the operator function (`changeSecurityPolicy`,
-  `changeSecurityBudgets`, `setProjectSecurityModel`, `setProjectSecurityCeiling`,
-  `queueSecurityRescan`, `bypassPublicRequest`) inside `executeAuditedMutation`; policy and
-  budget forms post twice (`step=preview` renders the `securityPreview` page from the real
-  `dryRun`, `step=apply` writes). Banner and badge: `renderAdminPage` puts `securityChrome`
-  into the shared page data (read only while the capability is on, never throws) and `Layout`
-  reads it with `useShared` (guarded, because the navigation fallback renders the shell outside a
-  Void page). "Unseen" bypasses use a per-admin `platform_settings` row
-  (`security.bypasses-seen.<userId>`) and an explicit "Mark all as seen" button, audited as
-  `security/bypasses-seen`; no new table. "Cancel request" is the existing `protected=true` form.
-  Deviations: (1) no finding detail page, resolve, reopen or comment forms in the panel (the plan's
-  M18 scope lists none; the operator API has them); (2) the probe banner says "failing (checked
-  <time>)" because the policy stores the last check time, not when it began to fail, and the cause
-  text comes from the failed check name; (3) the silent-gap flags are the 3-project-cause-failures
-  streak and the installation failure rate over 20% in 24 h; the "protection changed 2+ times in 7
-  days" flag was added in the completeness review: the Zero Trust checkpoint writes
-  `protection_on` / `protection_off` project events (migration 0065 changed in place, still
-  unreleased) for each asked-for change, and the Scans page flags projects with 2+ in 7 days
-  and an urgent finding open (installation-wide enable / disable is not counted); (4) Findings sort is the operator
-  list order (oldest first), with the Urgent preset as a filter, not "urgent first"; (5) the
-  "public-only switch" on the Zero Trust page is not a control in the admin form (blank fields only
-  re-save an installation that is already public-only, which the gate cannot coexist with), so only
-  Disable is greyed out; the server refusals are unchanged. `client.generated.ts` is regenerated
-  with `node platform/packages/api/scripts/build-admin-client.mjs`.
-  Review round: (a) "Mark all as seen" posts the newest bypass time the page listed (`through`);
-  the server clamps it to the newest real `created_at` and stores the first millisecond after
-  that row, so neither the app clock nor database microseconds can hide or re-show a bypass, and
-  a bypass made after the page loaded stays new. (b) The admin bypass route is deliberately open
-  with the capability off, like `POST /projects/:id/security/public-request/bypass`: held
-  requests are no longer re-checked while the capability is off (the backstop returns early), so
-  the bypass is how an admin releases one. Model, limit and rescan routes stay 501. (c) Deviation 1
-  is a real gap against spec §13.1, which lists a finding detail page with a comment box and
-  Resolve / Reopen. The panel does not have them; use the operator API or CLI until a later
-  milestone adds them.
-
-**M19 Signed project page.**
-
-- Scope: `page-token.ts` (HMAC, own purpose label, 15 min, user + project);
-  `routes/security-page.ts` at `/security/projects/:slug` mounted next to `/email`
-  without `/projects` auth; token → HttpOnly cookie (path-scoped, Lax, 15 min) →
-  redirect; access re-checked each load; landing page without token; `no-store`,
-  `no-referrer`; role-based content; all values escaped.
-- Tests: integration `security-page.test.ts` (expired, other user, other project,
-  reader view, behind platform Access — extend `platform-access-protection.test.ts`).
-- Exit: page renders for each role with no data leak.
-- As built: `page-token.ts` already existed from M14. Route in `routes/security-page.ts`, mounted
-  in `index.ts` as `/security/projects` right after `/email` (no capability middleware, so a
-  platform with audits off still shows "Security audits are off on this platform." to a signed-in
-  member); data and HTML in `security/project-page.ts` (`loadSecurityPage` reuses
-  `projectSecurityStatus`, `listSecurityFindings`, `listSecurityScans`, `openPublicRequestView`,
-  so the page and the API cannot disagree on detail level). The cookie `void_security_page`
-  holds the same signed token (Path = the clean URL, HttpOnly, Lax, Secure on https, Max-Age =
-  the token's remaining life); redeeming answers 303. Each load re-reads the user (missing or
-  suspended) and the member role; any failure, an unknown slug, a token for another project or
-  no cookie gives the same landing page. A bad `?t=` is a 400 "This link no longer works".
-  Access protection is NOT relaxed for this route: behind platform Access the company
-  identity is still required (a link alone, or a service token, gets 403). The page is
-  read-only; findings and the open lists show at most 100 each, scans at most 10. Resolve and
-  budget commands use `F-1`/`--usd 100` examples; the budget line shows only for deploy-level
-  roles. CSS is an inline `<style>` in the content that widens the shared card to 860px.
-
-**M20 CLI `void project security`.**
-
-- Scope: parser, `project-security.ts` printers and `--json`, client methods with
-  `permission`, 404-without-JSON → "does not support", 409/422 copy, length checks,
-  `open` (TTY and not CI), terminal sanitizing. Help, hint, usage.
-- Tests (unit): `project-args.test.ts`, `project-security-command.test.ts`,
-  `cli-help.test.ts`, `project-lookup-client.test.ts` (404 split).
-- Exit: mock replies print the spec §13.3 copy.
-- As built: `project-security-args.ts` (parser, no regex), `project-security.ts` (printers and
-  runner), `security-api-types.ts`, client methods `*ProjectSecurity*` with `securityApiError`: a 404 with
-  no JSON body is "does not support security audits"; a 404 with JSON stays an API error; the
-  platform `message` replaces the generic text for 400/409/422/501/503. Resolve reads the finding
-  for its revision, then posts (one call per id; a failure on one id does not stop the rest, the
-  command then fails). The model flag `--accept-provider-notice` first sends version 0, which the
-  platform refuses with the current version and notice; the CLI prints the notice and resends.
-  `list` hides leads unless `--leads`. **Deviations:** (1) `GET /projects/:id/security` returned
-  `publicRequest: null` since M14; it now returns the open request (route change), so `status` can show
-  the `Public` line. (2) The M19 page said `void project security findings`; the command is
-  `list` (page text and its test fixed). (3) `status` cannot know the caller's role, so the
-  public request lines always name the next command; a caller without `settings` gets the 403 copy
-  when running it. (4) `--usd` is capped at 1,000,000 in the parser (the API limit, `MAX_CAP_CENTS`; was
-  10000 until the completeness review); a project ceiling
-  comes back as the platform's 422 copy.
-
-**M21 CLI `void project zero-trust` changes.**
-
-- Scope: `bypass --reason [--yes]`, `--json` everywhere, 202 held output (never "is
-  public"), status request block, error copy; project error JSON in `cli-main.ts`.
-- Tests: `project-zero-trust-command.test.ts` (old platform unchanged; 202; bypass
-  409s), `project-args.test.ts`.
-- Exit: old-platform replies print exactly as today.
-- As built: parser `parseZeroTrustArgs` in `project-args.ts` (`--json` on every action,
-  `--reason` and `--yes` only for `bypass`; reason checked locally, 1 to 4000 characters).
-  Every parsed zero-trust args object now carries `json`. A reply with an open
-  `publicRequest` (waiting_scan, held_*, needs_deploy) from `public` prints the platform
-  `message` (or the local copy), then "stays protected"; it is checked before the
-  `reconciling` branch, so the old-CLI stand-in `last_error` never prints. `--json` of a held
-  reply adds `held: true` and shows the stored state (`protected`, no `last_error`) instead
-  of the stand-in. `status` adds a `Public request:` block (and one best-effort security GET
-  for backlog and budget). `bypass` reads the request first (none → "has no public request to
-  bypass"; old platform with no field → the bypass route's 404 gives "does not support security
-  audits"), confirms unless `--yes` (no prompt in CI, non-TTY or `--json`: "Add --yes"),
-  and turns the 409 `security public request has urgent findings` body into the spec copy.
-  `held_findings` skips the prompt (nothing is skipped; the server refuses). `cli-main.ts`
-  prints `{error,message,status?}` on stderr for failed `project zero-trust|security --json`
-  runs. The `project` hint text lists `bypass`; `docs/reference/cli.md` row updated (full
-  docs wait for M24).
-
-**M22 CLI deploy notice and `project status` line.**
-
-- Scope: `deploy-security-notice.ts` called after `printDeploySuccess` in all three
-  managed paths; one GET with 5 s abort; any error prints nothing; never touches
-  `process.exitCode`; 5 rows + "… and N more"; counts only in CI/GitHub Actions or when
-  the server says `counts`; extra lines (spec §6.5); cliLog entry. `list.ts` Security line.
-  Deploy `--json` row is not built (R4).
-- Tests: `deploy-security-notice.test.ts`, `list-command.test.ts`, native regression
-  in `cloudflare-deploy.test.ts` (no `/security`, no `/containers/`, no AI binding).
-- Exit: 404, timeout, 500 → no output, same exit code.
-- As built: `deploy-security-notice.ts` exports `printDeploySecurityNotice` (called after
-  `printDeploySuccess` in `runStaticDeploy`, `runFrameworkDeploy` and `runFullDeploy`; the
-  full-to-static redirect reaches it through the static path, so it prints once). It skips only `preview-*`.
-  `published === false` means the deploy is committed live but routing was not published, so it
-  still gets the notice (spec §11.1 excludes only failed deploys; a failed deploy never reaches the
-  call). One shared quiet reader
-  (`readSecurityStatusQuietly`: 5 s abort signal passed through `PlatformClient.getProjectSecurity`,
-  plus a hard race 250 ms later) serves the deploy notice and `list.ts`; any error or an unusable
-  reply gives `null`, and the notice logs `security_notice` / `security_notice_skipped` to the
-  cliLog. Scan lines come from the same reply: they show only when `lastScan.deploymentId` is the
-  deploy just made (queued/running/pending_input, skipped budget or protected, `no_changes`),
-  so there is no extra request. The "did not finish" warning shows for a refused, timed-out or
-  failed earlier scan. Counts-only output when the server says `counts` or `CI` /
-  `GITHUB_ACTIONS` is set. Rows: the server's findings re-sorted critical first, then
-  oldest `firstSeenAt` first (a missing date keeps the server order), 5 at most, rest as
-  "… and N more". The queued case ends with `Check it:  void project security status`. The
-  last line is "A project admin or owner can resolve them", or, since the completeness review,
-  `Fixed?  void project security resolve F-12 --reason fixed --comment "…"` when the
-  `/security` reply says `canResolve: true` (`settings` on a user session; a deploy token
-  never). Older platforms send no `canResolve`, so the old line prints. `void project status` prints the `Security` line above the
-  deployment table, only for managed platforms (the direct Cloudflare listing has no security).
-  `cloudflare-deploy.test.ts` gained one regression: a native deploy makes no `/security` or
-  `/containers/` request, no `containers` Wrangler call and emits no `ai` binding.
-
-**M23 CLI operator group, installer flag, uninstall.**
-
-- Scope: `group:'security'` entries (status, probe, policy, models, limits with
-  `--scan-timeout`, budget, findings with `--urgent` moved to the query,
-  show/resolve/reopen/comment with comma F-ids, model, scans, rescan, cancel,
-  public-gate, public-requests, bypass, bypasses); paged list in `operator-args.ts` and
-  `help.ts`; `outputMutation` treats an open `publicRequest` as not completed.
-  `--security-audits` on install and upgrade (and repair, like `--custom-domains`),
-  plan merge step, resume command, runtime guard; token link adds containers +
-  cloudchamber when on. Uninstall deletes the scanner Worker + container app (R11).
-- Tests: `operator-cli.test.ts`, `platform-args.test.ts`, `platform-plan.test.ts`,
-  `platform-management-upgrade.test.ts`, `platform-setup.test.ts`,
-  `platform-teardown.test.ts`, `cli-help.test.ts`.
-- Exit: `void platform security --help` tree generated; old runtime refused.
-- As built: the group lives in `operator-security-args.ts` (table + `applySecurityArgs`) and the
-  runner in `operator-security.ts`; `operator-args.ts` spreads the table after `zero-trust`.
-  `OperatorCommand` gained `paged` (security lists take `--limit`/`--page`; `help.ts` reads it) and
-  `noConfirm` (the probe: one POST, no preview, no `--plan`/`--yes`, because its route has no dryRun and
-  a preview would run it). Projects are addressed by id (`<project-id>`), like every operator command;
-  `--project` filters take an id or a slug. `--default` is a value for `models` and a switch for
-  `model`: `booleanFlagsFor` treats a name as a switch only for the command that declares it as one.
-  Spec `--timeout MIN` is `--scan-timeout` (`--timeout` is the request deadline, as the plan says).
-  `budget` follows spec §13.4: no flags reads (GET), any cap flag writes (POST); `applySecurityArgs` picks the
-  method per call. Uninstall treats a 403 or 404 on the container application list as nothing to remove when the
-  controller does not exist; with a controller it still fails.
-  Policy-shaped writes (`policy`, `models`, `limits`, `public-gate`, platform `budget` with cap flags) preview, show
-  the preview without the stored policy, then apply at the previewed `expectedRevision`.
-  `--accept-provider-notice` reads the version from `GET /security/policy`. `--project-caps on` with no
-  amount applies the saved default (read from `GET /security/budget`); `--project-default-usd N` also turns
-  project caps on, since the route has one field for both. Finding commands take comma ids, read each
-  finding's revision, preview every id first, ask once, then write one by one; a failed write is reported
-  and the command exits with `partial_failure`. `rescan` prints the model, the reserve and whether the
-  live deployment was scanned before it asks (spec §13.4 text). A 501 `platform capability unavailable`
-  reads `Security audits are not installed. Run: void platform upgrade --security-audits`.
-  `outputMutation` prints no success line while `publicRequest.state` is open.
-  Installer: `--security-audits` on install, upgrade and repair (`platform-args.ts`); `createPlatformInstallPlan`
-  sets the capability and merges it onto a recorded manifest together with schema 7 (otherwise the drift
-  check would fail on the version); resume command, saved-plan guard and help text carry it; the runtime
-  guard `assertPlatformSecurityAuditsSupported` (`platform-security-audits.ts`) runs in the lifecycle, the
-  management upgrade and the installer, before anything changes. The runtime token link adds Containers +
-  Cloudchamber when Sandbox or security audits are on; the management token link adds them for security
-  audits too, because uninstall deletes the container application with the operator credential.
-  Uninstall (plain and `--purge-resources`): with the capability on, after traffic is disabled and before
-  any Worker is deleted, `deletePlatformSecurityScanner` removes the gate, the container application and
-  the controller, each found by its derived name and proven by the ownership marker. An object with
-  another installation's marker, or an application whose controller is gone or of another namespace, is
-  kept and named in a warning. Any other API error fails the uninstall (re-run it). With the capability off
-  it makes no call. The CLI cannot import the API's provisioning code (public packages never import
-  `platform/`), so `securityScannerNames` and the marker are re-derived there; a test pins the name rule.
-  Deviations: the plan did not name `platform-management.test.ts` / `platform-security-audits.test.ts`; the
-  uninstall and scanner-teardown tests live there. No full-run docs page yet (M24); the reference page
-  `docs/reference/cli/platform-security.md` and the `cli.md` row carry the commands (AGENTS.md CLI rule).
-
-**M24 Phase 1 docs.** See Docs below. Exit: `vp check`, docs links resolve.
-
-As built (M24): all Phase 1 rows of the Docs table are done. `platform-security.md`, the `cli.md` rows and
-the `--security-audits` row of `platform-installation.md` already existed from M20-M23 and were kept. New:
-`docs/guide/platform/administration/security-audits.md` (also linked from `platform-administration.md` and
-the sidebar). Deviations: scan data sits under `security-scans/` in the platform R2 bucket, so the uninstall
-page says it follows the bucket rule (`--purge-resources`), not `--purge-data` (R11). The `Security` status
-line is in `void project status`. The credentials row names Workers AI Read, the permission the probe copy asks for.
-
-### Phase 2
-
-**M25 Project rescan, admin backfill, scheduled sweeps.** `POST /projects/:id/security/scans`
-(`settings`; same rule as operator rescan, cost confirm), `void project security scan`,
-operator `security backfill --plan` (cost preview, queued as `trigger=backfill`), policy
-`sweeps: {on, everyDays}` run by the hourly job as `trigger=sweep` with the skill
-`standard` profile. Tests: `api-project-security.test.ts`, `security-sweeps.test.ts`,
-`project-security-command.test.ts`.
-
-As built (M25):
-
-```
-project admin ─ void project security scan ─► POST /projects/:id/security/scans (settings)
-operator ────── void platform security rescan ─► POST /operator/v1/projects/:id/security/scans
-                                    both ─► previewSecurityRescan / queueSecurityRescan
-operator ── security backfill ─► POST /operator/v1/security/backfill ─► trigger=backfill
-hourly job ── policy sweeps.on ─► queueSecuritySweeps ─────────────────► trigger=sweep
-backfill + sweeps: scan-candidates.ts (SQL list) ─► queueSecurityRescan per project
-```
-
-- Project rescan: same checks and the same `trigger=rescan` row as the operator rescan
-  (`security/operator.ts` gained `{ trigger, by }` options). `dryRun: true` is the cost
-  confirm (model, `worstCaseUsd`, budget). The busy refusal says "Wait for it to end." to a
-  project caller (only an operator can cancel). `OperatorError` from those checks is mapped
-  to the project error shape in `routes/project-security.ts`. CLI `void project security scan
-  [--yes]` prints the operator rescan question; `--json` and non-interactive shells need
-  `--yes`. Not recorded in `security_project_events`: that needs a new action value and a
-  migration; the scan row itself is the record.
-- Backfill (`security/sweeps.ts`): in-scope projects whose live deployment has no succeeded
-  scan and nothing waiting, owner not suspended, at most 50 per call (`remaining` says how many
-  wait; run it again). It uses the base rule (diff from the last good base; full only for a
-  first scan), not a forced full scan: an unscanned live deployment is what a deploy scan would
-  have covered. Policy Off refuses (409 `security_not_in_scope`). Audited as
-  `{installation, backfill: true}`.
-- Stored code (backfill and sweeps): the candidate SQL keeps only live deployments with
-  `bundle_stored` or a scan row whose `input_r2_key` is set (the SQL side of
-  `findLiveInput`; every snapshot writer records its key on a row). Without it a project
-  live since before audits were on is refused every run and, holding the head of the list,
-  blocks the batch. They are counted apart as `noStoredCode` (backfill preview and result,
-  printed by the CLI). The list reads 10 past the batch size and stops once the batch is
-  queued, so a refusal at queue time (R2 object lost under its row) does not take a slot.
-- Sweeps: policy `sweeps: {on, everyDays}` (7–90, default 30, off by default) in
-  `@void/platform/security-policy`. A row saved before M25 reads as off; the lenient reader
-  reads bad sweeps data as off, so it never starts paid scans. Set with
-  `void platform security sweeps <on|off> [--every-days N]` (a policy change with preview:
-  projects due now). A project is due when it has no `trigger=sweep` row (any end, so a
-  failed sweep waits for the next window, except one that never ran: `superseded` by a deploy
-  scan, or `canceled` by policy Off; an operator cancel counts) and no succeeded `tier=full`
-  scan within `everyDays`. The preview says "Turn on", "Turn off" or "Sweep interval: X → Y
-  days" for an interval-only change. The hourly job queues at most `min(10, 2 × concurrency − waiting)` a run,
-  never-swept first, only while the policy is not Off. Sweeps are `tier=full` with coverage
-  note `sweep` (label `full scan (sweep)`) and use the deployment stale-scan rule (only an
-  explicit rescan uses the started-after rule).
-- `standard` profile: the skill is still not vendored (R5), so it is our own runner profile.
-  `task.json` gets `profile: "standard"` for sweeps only. The runner runs one hunt session per
-  focus area (access, injection and bindings, exposure) over the whole app, at half the session
-  turn limit each, merges candidates by fingerprint keeping the strongest record (confirmed,
-  lead, rejected, then severity: one area's rejection never hides another's confirmation),
-  then the usual verify step (indexes stay unique: verify follows the hunts). Three hunts can
-  return more than one report holds (1000 records, 5 MB): a final list that does not fit
-  ends `incomplete` with only verified confirmed findings, instead of failing as
-  `bad_output` (the check is shared, a no-op for deploy-diff in practice). An unreadable hunt costs its area and ends `incomplete`; a
-  refusal or a cap stop in any hunt ends the scan as in deploy-diff. A runner that does not know
-  the profile runs deploy-diff; the published Engine A/C images keep doing that until they are
-  rebuilt with this runner.
-- Deviations: the plan named only three test files; also changed `phases.test.ts`,
-  `security-input-t2.test.ts`, `security-policy.test.ts` (platform package),
-  `operator-cli.test.ts` and `operator-audit.test.ts`. Docs: only the CLI reference rows and
-  pages (`cli.md`, `cli/project.md`, `cli/platform-security.md`, AGENTS.md CLI rule); the guide
-  pages stay for M36.
-
-**M26 Fallback, failure-streak emails, digest, webhooks.** Policy `fallbackToCf` (opt-in,
-never `@cf` → third party) → one `trigger=fallback` scan after refused / bad_output /
-timed_out; streak email to installation admins split by cause; weekly digest; webhook
-URL (signed body, ids and counts only). Tests: `security-fallback.test.ts`,
-`security-notifications.test.ts`.
-
-As built (M26):
-
-- Fallback: only third-party → `@cf` default (`securityCfDefaultModel`), one per failed
-  scan, never a fallback of a fallback or of a `local` scan. Eligible: `refused`,
-  `timed_out`, `failed` + `bad_output`, still the project's newest scan, its deployment
-  still live, ended < 24 h ago. It uses the base tier rule, except that a fallback of a
-  rescan or a sweep is that full scan again (a `rescan` / `sweep` coverage note set at
-  queue time, read by `chooseSecurityTier`; a sweep's also gets the `standard` profile).
-  Queued right after ingest and by the hourly backstop (covers reaper `timed_out`; the
-  cron runs it before the public gate backstop). A fallback of a gate scan carries the
-  open `public_request_id`, so it is still claimed under `public` and keeps the gate
-  rule that it is never `no changes` (edge #85). `security/fallback.ts`.
-- Streak emails are always on (no setting); the digest is opt-in (`policy.digest`,
-  default off). Both are queued hourly (`security/alerts.ts`).
-- Project-cause streak (≥ 3 ended scans in a row failed, newest < 48 h old) → owner +
-  project admins + installation admins (spec §12; the line above said installation
-  admins only). Skipped scans neither count nor break a streak (as the panel flag).
-  Once per streak: the key is the newest non-failure scan before it, and no row is
-  queued while the project has a `streak_project` row newer than its last good scan
-  ended (the key can move past the 50-scan window or after retention). Skipped at send
-  time if the streak already ended.
-- Installation-cause flag: ≥ 3 installation-cause failures (`failure_cause =
-  'installation'` or `skipped:backlog`) and > 20% of ended scans in the last 24 h →
-  installation admins, at most once per UTC day.
-- Digest: last full UTC week (Monday to Monday), counts only; an empty week sends nothing.
-- Webhook: its own `platform_settings` key `securityAudits.webhook` (kept out of the
-  policy) with a random secret, stored encrypted and shown once by `void platform
-  security webhook <https-url|off>` (`POST /security/webhook`). Each outbox event gets a
-  `webhook` twin row, sent even with no EMAIL binding. Body: ids and counts only;
-  `X-Void-Signature: t=<s>,v1=<HMAC-SHA256("<t>.<body>")>`, `t` taken at send time; no
-  redirects, 10 s timeout, outbox retries. After one failed POST the pass holds its other
-  webhook rows for the first backoff, so a dead endpoint costs one timeout per pass. Audit keeps only the host. The milestone map lists webhooks under
-  M31; they are built here as this section says.
-- CLI: `void platform security fallback <on|off>`, `digest <on|off>`, `webhook`.
-- Migration 0065 (unreleased) was edited in place for the new notification kinds; no 0066. Extra tests: `security-alerts.test.ts`. No admin panel change.
-
-**M27 Per-plan caps.** Stored in a separate settings key `plans:security-caps`
-(`{ <planId>: usdCents | null }`), not in `PlanLimits`, so the exact-key catalog parser
-and rollback stay safe (same reason as `plans:ai-logging` in 0094). Ceiling order:
-project ceiling → plan cap → policy default. Operator `config plans` gains
-`--security-cap`; admin Plans page shows it. Tests: `security-budget.test.ts`,
-`operator-plans.test.ts`, `admin-plans.test.ts`.
-
-As built (M27):
-
-```
-plans:security-caps = { pro: 5000, lab: null }      missing plan = inherit
-                         │
-ceiling(p) = project limit (cap_ceiling_cents) ─► plan cap (cents | none) ─► policy default (caps on) ─► none
-effective(p) = lower of ceiling(p) and the project's own cap
-readers: scheduler reserve · model proxy (each call) · status/budget view · cap emails · budget PUT
-         all via securityPlanCapSql(projects.user_id)  (security/plan-caps.ts)
-```
-
-- Three states per plan: whole cents, `null` = **no cap** (stored JSON null; overrides the
-  policy default, so a plan can be uncapped while project caps are on), missing =
-  **inherit** (the policy default while project caps are on). A numeric plan cap applies
-  with project caps off too: an admin set it for that plan on purpose. A per-project limit
-  still comes first. Nothing is published: every reader looks it up through one correlated
-  subquery (`->` gives SQL `NULL` only for a missing key), so a change applies to the next
-  scan start and the next model call.
-- Shared parser in `@void/platform/security-policy` (`PLAN_SECURITY_CAPS_SETTING`,
-  `readPlanSecurityCaps`, `parsePlanSecurityCapInput`, `planSecurityCap`,
-  `withPlanSecurityCap`, `formatPlanSecurityCap`), so the CLI and API read one shape.
-  Lenient on read: a bad entry (or a non-object row) reads as `inherit` and logs
-  `[security] plan caps: ignored invalid entries`; it never blocks plan edits or scans.
-- An account on a plan missing from the catalog has no entry, so it gets the policy
-  default (AI logging uses the signup default plan instead; caps keep the simpler rule).
-  `remove` drops the removed plan's entry (accounts move to the replacement and get its
-  cap); `add` copies the source plan's cap unless `securityCap` is given; `reset` keeps it.
-- Plan API: body field `securityCap` (USD number, `"none"`, `"inherit"`) on `add` / `set`
-  only, written under the plan lock in the same transaction as the catalog (fresh read
-  through a no-op `UPDATE`). Dry run and result carry `securityCaps: {caps, capsBefore}`;
-  `GET /config/plans` returns `securityCaps`, `GET /config/plans/:id` returns `securityCap`.
-  Audit keeps `securityCap`.
-- CLI: `void platform config plans add|set <id> --security-cap <usd|none|inherit>`, file
-  field `securityCap`, interactive picker entry, preview line `Security scan cap: X → Y`,
-  `show <id>` line. Refused before any request on a platform that does not send
-  `securityCaps`.
-- Admin: Plans list column and edit field (mode selector + USD text field, cents allowed)
-  shown only while the `securityAudits` capability is on; like the AI logging selector,
-  only a changed value (against `securityCapInitial`) is sent. The review table shows the
-  change.
-- Budget view gained `ceilingSource: 'project' | 'plan' | 'default' | null`; the admin
-  project section and `void project security budget` name where the limit comes from.
-  `capSource` is unchanged (old CLIs keep working).
-- Deviations: also changed `security-policy.test.ts` (platform package),
-  `platform-plans-config.test.ts` (CLI), and the scheduler / model proxy unit fixtures
-  (`planCap`). Docs: `cli/platform-config.md`, `cli/platform-security.md` and the
-  spending caps section of the security audits guide.
-- Review fixes: both budget writers read the plan cap in their `FOR UPDATE` select
-  (`securityProjectPlanCapSql`), never a plain read Hyperdrive may cache. A refusal from
-  a plan cap says "This project's plan limits it". The Off → on policy preview says only
-  plans with a scan cap have a money limit when one does (`counts.planCapped`). The plan
-  review table shows the scan cap row only while `securityAudits` is on.
-
-**M28 GitHub `Void Security Audit` check.** Hosted only; `createCheckRun` /
-`completeCheckRun` at ingest, conclusion always `neutral`, counts + landing link; PR
-comment (counts only); `check_run:rerequested` for this name queues a project rescan
-only for callers who could rescan, else no-op. Tests: `security-github-check.test.ts`.
-
-As built (M28):
-
-```
-ingest stored (control.ts result / input "nothing to send") ─ waitUntil ─► reportSecurityScanToGitHub
-  managedBuilds + securityAudits + GitHub App? ended scan (succeeded/incomplete/failed/refused/timed_out)?
-  deployment made by a platform build (container / GitHub Actions), full 40-hex commit_sha,
-  deployments.commit null or equal? connection passes installationCoversRepo?
-  ├► createCheckRun (in_progress) ─► completeCheckRun (neutral)      external_id = scan id
-  └► scoped token {pull_requests: write} ─► open PRs with head = commit ─► edit our comment / post one
-check_run:rerequested, name "Void Security Audit" (webhooks.ts) ─► handleSecurityCheckRerequest
-  scan (external_id) ─► connection matches installation + repo ─► sender GitHub id ─► Void user
-  (oauth_accounts) ─► settings on the project ─► checked deployment still live ─► queueSecurityRescan
-```
-
-- `security/github-check.ts`. Reuses `github/check-run.ts` (create, then complete); no new
-  column and no outbox kind: a lost check is not retried beyond the helpers' own retries
-  (best-effort, as the spec says). Counts are the project's open urgent findings at ingest.
-- Which deploys: only one a platform build made. A CLI deploy only claims its commit (GitHub may
-  not know it, and the code may differ), so it gets no check; a deploy whose claimed commit is
-  not the build's (or its OIDC `sha`) gets none either. `builds` keeps no repository, so a
-  build older than the project's connection row (a reconnect replaces it) gets none: a fork or
-  mirror could hold the same commit. A reconnect to the same repo loses checks until the next build.
-- Which scans: every ended scan that ran. Skipped, superseded and canceled scans send nothing.
-  An unfinished scan is never "clean": title `Security scan did not finish (refused)` (or
-  `timed out`, or a project-cause `failed` reason: `bad output`, `input missing`), and an
-  incomplete one says so in the summary. `credits` and `infrastructure` are the platform's,
-  not the user's code, so the title is a plain `Security scan did not finish`. Spec
-  §11.3 names only the two counts titles. A scan the reaper times out (no ingest) sends nothing.
-- Copy: the spec title and summary, plus the landing link (`/security/projects/<slug>`, also the
-  `details_url`). No title, file or line: public repos show check runs to anyone.
-- PR comment: open PRs whose head is the commit (at most 5), one comment per project, found
-  again by the marker `<!-- void-security-audit:<projectId> -->` on a comment our App wrote
-  (`performed_via_github_app` is `GITHUB_APP_ID`, or the `<GITHUB_APP_SLUG>[bot]` login; a
-  copied marker is not ours) and edited in place. A new comment only while something is urgent,
-  so clean scans add no noise, and only when the whole list was read: a failed read or more
-  than 3 pages of 100 skips that PR (logged) rather than risk a second comment. It needs the
-  App's Pull requests **write** permission (`operations.md` listed read): without it the scoped
-  token cannot be minted and only the check is sent.
-- Re-run: the clicker's GitHub account must be a Void sign-in with `settings` (owner or admin),
-  not suspended, on a connection the installation still covers, and the check must be about the
-  live deployment (a rescan scans the live one, so an old commit's Re-run would not match).
-  Then the project rescan rules apply (scope, one scan at a time, stored code; caps at start; no
-  cost confirm: the click is the request). Every refusal is a no-op that writes nothing to
-  GitHub; the webhook answer names the reason (`sender cannot rescan`, an `OperatorError`
-  code); a database error stays a 500. An accepted Re-run writes nothing either: the rescan's result is a new check run.
-  `check_suite:rerequested` (Re-run all) does not rescan; it stays a build rerun.
-- Deviations: also changed `routes/webhooks.ts`, `security/control.ts`,
-  `security-scan-control.test.ts` and `platform/meta/operations.md`. No user docs: hosted
-  GitHub checks have no user page yet (M36).
-
-**M29 Page forms and dashboard pages.** Page forms (resolve, comment, model, budget,
-bypass) with CSRF (`admin/middleware/csrf.ts` pattern) and the same server operations.
-Dashboard: `pages/projects/index.tsx`, `pages/projects/[slug]/security.tsx` (+ `.server.ts`)
-via typed `hc<ApiRoutes>`. Tests: `security-page.test.ts` (forms, CSRF),
-dashboard page tests in `platform/packages/dashboard/test`.
-
-As built (M29):
-
-```
-API page  /security/projects/:slug  (cookie path = page path, so posts below it carry it)
-  POST …/findings/:fid/resolve (settings) · …/findings/:fid/comment (configure)
-       …/model · …/budget (settings, capability on) · …/bypass (settings)
-  Origin, else Referer = our origin (admin CSRF rule) ─► cookie + member re-check
-  ─► requireProjectCapability(cap) ─► the API route's server operation
-  ─► 303 ?done=<key> (fixed copy)  |  refusal: page again with the reason + its status
-Dashboard /projects ─► /projects/:slug/security  named actions ?resolve ?comment ?model ?budget ?bypass
-  Origin = dashboard origin ─► API call with the session token ─► 303 ?done=  |  page again with the API reason
-```
-
-- API page: `routes/security-page.ts` (posts), forms rendered by `security/project-page.ts`.
-  Comment is open to collaborators (`configure`, as `POST …/comments`); resolve, model, budget
-  and bypass need `settings`. Resolve re-checks an open public request like the API route; the
-  bypass flow pokes the scheduler itself. Model and budget answer 501 with the capability off.
-  CSRF refusal (403) comes before the cookie is read; no cookie, an old one or another project's
-  gives "This link no longer works" (403). The CLI commands stay on the page under "Or from the CLI".
-- Model picker: `securityProjectModelChoices(policy)` (`project-settings.ts`) lists only what the
-  model PUT accepts (priced, not blocked, third-party only with its host probed ready), with each
-  provider's notice. A third-party pick needs the notice box ticked; the form sends the notice
-  version the page showed, so a changed notice is refused. `GET /projects/:id/security` now also
-  returns `modelChoices` (additive) for the dashboard.
-- Bypass form: shown under the same rule as the bypass command (no urgent finding, request in
-  `waiting_scan`, `held_no_result` or `needs_deploy`) and needs a confirm box.
-- Dashboard: `pages/projects/index.{tsx,server.ts}`, `pages/projects/[slug]/security.{tsx,server.ts}`,
-  `apiClient(context)` in `lib/api.ts` (an `hc<ApiRoutes>` client whose fetch is `fetchApi`:
-  token, Access headers, timeout, service binding). Native forms post to named actions, like the
-  account page. The slug is resolved through `GET /projects`; a project the user is not a
-  member of shows the same "does not exist" line. Readers get no scans request.
-- Deviations: (1) hc cannot type the bodies of the project security routes (their access check
-  returns a plain `Response`), so `api.ts` exports `ProjectSecurityBody`,
-  `ProjectSecurityFindingsBody` and `ProjectSecurityScansBody` (type-only) and the dashboard uses
-  hc for paths (`$url`) and these types for bodies. (2) Also changed `routes/project-security.ts`,
-  `api-project-security.test.ts`, the dashboard home page (Projects button), its README and
-  styles, and two doc lines that called the page read-only (`cli/project.md`, the security audits
-  guide). (3) Dashboard tests are unit tests with a stubbed API (`test/unit/project-security.test.ts`),
-  as the other dashboard tests are. (4) The page sends `Referrer-Policy: same-origin`, not the
-  `no-referrer` of spec §13.2 (M19). Under `no-referrer` a browser sends `Origin: null` on the
-  page's own form posts, so the origin check refused every form (as `oauth.ts` found). Other
-  sites still get no `Referer`, and the `?t=` token leaves the URL with the 303.
-- Review fixes: a bypass whose Access update fails after the bypass committed re-renders the page
-  with 502 and says the bypass is recorded, with the reconcile command (the API route's 502 line);
-  the dashboard says a bypass that timed out may still go through. The model picker selects the
-  saved choice (`modelChoices.saved`), so a project that named the default model keeps it on
-  save. A third-party default waiting for its notice shows that notice (`modelChoices.defaultNotice`),
-  so the box never asks to accept a notice the page did not show. The dashboard's "admin or owner
-  can resolve" line is for collaborators only. Form text is read by small parsers shared from
-  `@void/platform/security-policy` (`parseSecurityDigits`, `parseSecurityFindingLabel`,
-  `parseSecurityUsdText`), not regexes.
-
-**M30 Runtime checks on a throwaway copy.** Needs S13 pass. Per scan: copy bundle N into
-the dispatch namespace as `sec-copy-<scan>` with empty D1/KV/R2, migrations, fake
-secrets, stubbed AI/email/queue, outbound blocked by a dispatch outbound Worker,
-reachable only from the scan's controller (a second intercepted host
-`copy.void.internal`); deleted at scan end and by the reaper. Verdict source
-`confirmed (runtime)`; cost in the meter. Tests: unit
-`security-runtime-copy.test.ts` (mockCfApi), runner `verify-runtime.test.ts`;
-live only for the real copy.
-
-As built (M30):
-
-```
-prepare (input tar) ─► task.json runtime_copy: true   (Engine B, Worker app, manifest readable)
-controller begin(): runner started, input piped ─► control.copy(scan, attempt)   (bounded, never fails the scan)
-  SecurityScanControl.copy ─► fence ─► plan (manifest, secret names) ─► modules from the scan snapshot (R2)
-  ─► empty D1 / KV / R2 (parallel) ─► each copy D1 gets the live D1 schema (sqlite_master, no rows)
-  ─► PUT void-sec-copy-<h>-<scan>-a<n> into void-security-copies-<h>
-       guard module ─► entry module (/__void_copy/ready|d1|kv) ─► deployed modules unchanged
-  ─► charge the copy on the scan meter and both month rows
-container ─http://copy.void.internal/…─► CopyOutbound (props scan, attempt) ─► dispatch namespace script
-  copy fetch / DO fetch ─► guard ─► __VOID_COPY_EGRESS ─► copy sandbox (403)      WebSocket ─► throws
-  copy global fetch ─► outbound Worker = copy sandbox (403)
-runner verify (Engine B) ─► copy_request tool ─► proof_request "rN" ─► runner checks rN was dispatched
-  ─► verdict_source runtime + runtime_proof ─► ingest (static → runtime only, never back)
-result stored or requeued ─► delete this attempt's copy (script settings name its stores: script, then those stores)
-hourly maintenance ─► sweep by name prefix, then read running scans: every copy whose attempt is not running · uninstall ─► sweep + namespace + sandbox
-```
-
-- Files: `security/runtime-copy{,-names,-plan,-sources,-sweep}.ts`; changes in `control.ts`
-  (`copy()`, delete after `result()`), `maintenance.ts` (`runtime copies` step, `copiesReaped`),
-  `budget.ts` (`chargeSecurityScanCopy`), `input/{prepare,build}.ts`, `findings.ts`,
-  `ingest.ts`, `project-findings.ts` (`verdictSource`, `runtimeProof` in the full view),
-  `provisioning/security-scanner.ts`, `security-scanner-controller-runtime.ts`
-  (`CopyOutbound`, copy host intercept, `makeCopy`), the runner (`runtime/copy.ts`,
-  `phases.ts`, `prompts.ts`, `report.ts`, `validate-findings.ts`, `engines/{types,void-loop}.ts`),
-  and the CLI finding detail (`confirmed (runtime)` and the proof line).
-- Name: `void-sec-copy-<installation hash>-<scan id letters/digits>-a<attempt>`, not
-  `sec-copy-<scan>`: one copy per attempt (a retry gets a new, empty copy), and the prefix lets
-  the reaper find leftovers from Cloudflare's own lists. No database table for copies.
-- Namespace: a separate dispatch namespace `void-security-copies-<h>` and an account Worker
-  `void-security-copy-sandbox-<h>` (owner marker, source digest, no workers.dev), made by
-  `provisionSecurityScanner` before the controller upload. The controller gets a
-  `dispatch_namespace` binding whose outbound Worker is the sandbox. Not the users' namespace:
-  its outbound Worker cannot change per script and the gate lives there.
-- S13 kept: Durable Objects bypass the outbound Worker, so the entry imports a guard first that
-  sends `fetch` to the sandbox through a service binding and makes `WebSocket` connects throw.
-- Migrations: the copy D1 gets the live D1's schema read from `sqlite_master` (tables, views,
-  indexes, triggers; virtual-table shadow tables (the FTS3/4/5 and R*Tree suffixes only) left out; at most 500 statements), not the
-  project's migration files: the deployed migrations are not in the scan snapshot, and the
-  schema is what the code runs against. The live D1 is only read, and only `sqlite_master`.
-- Stubs: `__VOID_PROXY` (AI, email, revalidation) is the sandbox's `PlatformStub` (503 JSON);
-  queue producers are `QueueStub` (messages dropped); project secrets and secret-looking vars get
-  `void-copy-fake-…` values, and `__VOID_PROXY_TOKEN` too. Left out: hyperdrive, sandbox,
-  assets, cron triggers, queue consumers. Static apps get no copy.
-- Engines: Engine B only (`void_loop`, its own tool loop). Engines A and C keep static verdicts:
-  their SDK loops have no extra tool. The copy is made after the runner starts, so it never
-  delays the hunt; verify waits up to 90 s for `/__void_copy/ready`, then runs static-only.
-- Proof: the model names one `copy_request` id in `proof_request`; the runner keeps
-  `verdict_source: runtime` only when that request of the same session reached the copy
-  (`x-void-copy: dispatched`) and is not a `/__void_copy/` setup route (read as `fetch` reads the
-  path): seeding a row proves nothing. Model-set `verdict_source` and `runtime_proof` are dropped.
-  Hunt records never carry them. A finding stored as static and later proven gets the source and
-  `detail.runtime_proof` (jsonb merge); nothing takes them back.
-- Secrets (spec §7.3): the copy runs the raw bundle and its answers reach the model, so no copy is
-  made when a stored secret value (the redactor's four forms) is in a module, a kept var
-  (`secret_in_bundle`) or the live schema (`secret_in_schema`). Fakes replace secrets in `env` only.
-- Delete: the result path reads the copy script's settings (one 404 for scans with no copy), deletes
-  the script, then the D1/KV/R2 its bindings name, each name checked against the copy's prefix. A
-  copy finished after its attempt ended (charge refused) or whose charge threw is deleted at once.
-  The account-wide listing is for the hourly reaper and uninstall only; it reads the running scans
-  after listing, so a scan that starts during the listing keeps its copy.
-- Test data: the entry answers `POST /__void_copy/d1` (one statement on a copy D1 binding) and
-  `POST /__void_copy/kv` (one key), so verify can seed rows; the copy starts empty.
-- Cost: one script-hour of Workers for Platforms + D1 rows written + one R2 class A operation per
-  bucket, charged once when the copy is made (no cap check: the scan's reserve already passed).
-- Deviations: also changed `test/integration/helpers.ts` (`mockCfApi`: dispatch namespace
-  GET/POST/DELETE, copy scripts list, D1/KV/R2 lists), `api-security-provisioning.test.ts`,
-  `security-input-capture.test.ts`, `security-sweeps.test.ts`, `security-fallback.test.ts`,
-  `project-security-command.test.ts`, `security-ingest.test.ts` (runtime proof on a stored finding),
-  the new integration test `security-runtime-copy-prepare.test.ts` (secret skip, charge refused),
-  one paragraph of the security audits guide and the uninstall page. Not run
-  live: the real copy (S13 already measured the guard and the namespace on the VoidZero account).
-  `security-runtime-copy.test.ts` is a unit test with its own small fake Cloudflare API, not
-  `mockCfApi` (an integration helper); `mockCfApi` covers the provisioning side.
-
-**M31 Server secret findings, client asset deep scan, SARIF.** Redaction hits become
-server findings (`source=server`, category secret-in-output, no value stored);
-optional client asset pass; `void project security list --format sarif` and operator
-export. Tests: `security-redact.test.ts`, `security-sarif.test.ts`.
-
-As built (M31):
-
-```
-input build: read set ─► redact ─► text changed? ─► redactor.hitsIn(original) ─┐
-             every built module (searched only) ───────────────────────────────┤
-             text assets over 256 KB (prepare searches them, hits only) ───────┴─► one lead per
-             secret and side: secret_in_output { first file + line, forms, client, alsoIn, files }
-ingest: lead ─► confirmed server finding, key = server + project + "server:secret_in_output:<NAME>"
-        + side (client | worker), never the file; a re-seen row takes the latest file/line/title
-        client file (_assets/, _client/) ─► high, CWE-200 (urgent)    server code ─► medium, CWE-798
-rescan --client-assets ─► coverage note `client-assets` ─► scan start (full only) ─► source maps of
-        client bundles ─► `_client/<source>` after everything else, in what is left of the read limits
-list --format sarif / platform security findings --format sarif ─► SARIF 2.1.0 (CLI side)
-```
-
-- Secret findings: `redact.ts` gains `hitsIn(text)` (each secret once, forms seen, first line, a
-  form inside a longer match is not counted). `build.ts` checks every file it puts in the read
-  set (all scans, not just the focus: the check is free and the finding is about the deployed
-  output), at most 200 leads a scan. `ingest.ts` stores them with the reviewer-text leads in
-  `server-leads.json`; the lead type is a union in `phrase-check.ts`. Confirmed, so an
-  `incomplete` scan keeps them too (it keeps confirmed records only, so its reviewer-text leads
-  are still dropped). The detail has the secret's name, the forms, `client`, an evidence and a
-  fix line; no value is read back or stored. A model record cannot take one over (the key has
-  `server`). Review fixes: the key has the side, not the file (hashed bundle names changed
-  it every deploy, and an accepted risk did not carry over); the sink hash is `null` for the
-  same reason; built modules are searched too (a `define` value is not in `sourcesContent`),
-  and text assets over the read limit are searched in prepare (50 files, 8 MB each, 64 MB;
-  the rest noted `secret-check-unread N files` and left out of the asset index); a cap past
-  200 leads is noted `secret-leads-capped N`; `hitsIn` checks overlaps in linear time; the
-  client wording follows `public_at_enqueue` ("public file" only when public). Severity is the platform's call (it is confirmed by an exact match): a public file
-  is a leak (high), Worker code is a hard-coded secret (medium). A stored secret that is meant
-  to be public (a publishable key) is resolved as accepted risk.
-- Client asset pass: opt-in per rescan, not a policy item (`--client-assets` on `void project
-  security scan` and `void platform security rescan`; `clientAssets: true` on both
-  `POST …/security/scans` routes, echoed in the preview and the reply so a new CLI refuses the
-  flag on an old platform). A coverage note set at queue time carries it, like `rescan` /
-  `sweep`; the builder keeps the note, and a fallback of that rescan copies it. Maps: the
-  bundle's `sourceMappingURL` (file or inline), else `<bundle>.map` next to it (so bundles over
-  the 256 KB asset limit are covered too); 100 maps, 8 MB each, 24 MB in all; only
-  `sourcesContent` is kept, and only what the read set can still take after the bundle's
-  sources and the assets (the rest of the maps count as unread). Sources go under `_client/` with the §7.4 filters and the
-  third-party rule; they are extra input: one that does not fit is only noted
-  (`client-sources-left N files`), never backlogged, and never makes a scan partial. Notes:
-  `client-assets`, `client-sources N files`, `client-maps-unread N files`.
-- SARIF: built in the CLI (`packages/void/src/cli/security-sarif.ts`), not the API: both
-  commands read the existing list routes. Rule = category (readers' findings, with no category,
-  get `finding`), level from severity, `security-severity` per rule (highest of its results),
-  `partialFingerprints` = (project/) finding id, resolved → `suppressions`. The project list
-  keeps the 500 cap and the leads filter; notes go to stderr so stdout is the file. The
-  operator export reads every page (100 pages of 100 at most) and does not take
-  `--page`/`--limit` or `--json`; the operator findings list now also returns `cwe`, `lineEnd` and
-  `verdictSource`.
-- Webhooks were built in M26.
-- Deviations: no policy item, admin panel or dashboard control for the client asset pass
-  (per rescan only); no SARIF on the API. Also changed `fallback.ts`, `operator/audit.ts`
-  (`clientAssets` in the rescan audit), the help text, and the tests
-  `security-input-t2.test.ts`, `security-ingest-schema.test.ts`, `security-ingest.test.ts`,
-  `security-input-capture.test.ts`, `api-project-security.test.ts`, `operator-security.test.ts`,
-  `security-fallback.test.ts`, `project-security-command.test.ts`, `operator-cli.test.ts`.
-
-### Phase 3
-
-**M32 Local tree scan (`void project security check`).** CLI collects git-tracked
-files with the §7.4 filters and secret-file drop, shows the provider notice when the
-model is third-party, uploads through `POST /projects/:id/security/checks` (`deploy`,
-presigned R2 URLs), scan `trigger=local`, `deployment_id` null. Results are a separate,
-short-lived result: they never open, reopen, prove or hold anything (R13). CLI polls and
-prints. Tests: `security-local-check.test.ts`, `project-security-check-command.test.ts`.
-
-As built (M32):
-
-```
-CLI: git ls-files ─► securityInputFilter ─► tar (tree/) + gzip ─► POST checks {dryRun} ─► confirm
-     ─► POST checks (row: local, no deployment, pending_input; presigned PUT, md5 + length signed)
-     ─► PUT R2 scans/{scan}/local-tree.tar.gz ─► POST checks/:id/start (head ok ─► queued, poke)
-     ─► GET checks/:id every 5 s, up to 60 min
-API: claim as any scan ─► input/local.ts (walk tar, full scan, reason local) ─► runner
-     ─► ingest: R2 local-result.{attempt}.json ─► storeLocalOutcome (row + reserve only)
-     ─► tree deleted
-```
-
-- Shared code: the path filter moved to `packages/platform/src/security-local-check.ts`
-  (`@void/platform/security-local-check`, new subpath) with the limits (10,000 files,
-  32 MB code, 32 MB archive) and a small ustar writer. `input/filters.ts` re-exports the
-  filter, so the CLI and every scan drop the same files.
-- API: `security/local-check.ts` (parse, preview, create, start, read, hourly sweep),
-  `security/input/local.ts` (input), `security/input/project-data.ts` (secrets and
-  memory loaders moved out of `prepare.ts` so both inputs share them). Routes in
-  `routes/project-security.ts`, all `deploy`: `POST /checks` (`dryRun` preview: model,
-  provider notice lines, worst-case cost, budget), `POST /checks/:id/start`,
-  `GET /checks/:id`. The plan named one route; the upload needs a second step (start after
-  the PUT) and a read for polling.
-- Scope as a rescan: the policy must apply to the project (so `public` mode is kept), the owner
-  not suspended, a model must resolve. One queued or running local check per project (409
-  `security_check_in_progress`); a new check cancels one still waiting for its upload
-  (`upload_replaced`: it never ran and holds no reserve). Create re-reads the policy under
-  the project lock and the shared policy lock (same order as a deploy enqueue), so a
-  check never outlives a policy Off; start does the same and cancels (`policy_off`)
-  instead of queueing. Too large is 413 `security_check_too_large` (413 added to
-  `SecurityApiError`). Deploy tokens cannot call the routes (not on the allowlist).
-- Input: tier `full`, new full reason `local` (note `local-check`, label
-  `full scan (local check)`), no `no-commit` note, no base snapshot, backlog, scope file
-  or runtime copy. Order: files under `routes|server|api|middleware|functions` or
-  `*.server.*` first, then `securityRepoRank`. Past findings are read as memory only.
-  Server leads (secret values in the tree, reviewer text) go to `server-leads.json`.
-  Nothing readable ─► no model run, `succeeded`.
-- Result (R13): `storeLocalOutcome` ends the row and releases the reserve only: no finding,
-  event, ledger, email, backlog promote or fallback. `local-result.{attempt}.json` holds at
-  most 200 records (same store rules as a deploy scan: all when succeeded, confirmed when
-  incomplete), confirmed first by severity, and is written before the transaction that
-  ends the row (a failed write fails the ingest, which the controller retries), so an
-  ended check always has its result; per attempt, so a fenced-off attempt replaces
-  nothing. Secret findings say "your code (not deployed yet)". Kept with the raw output
-  (30-day sweep). The tree is deleted at ingest; the hourly `sweepSecurityLocalChecks`
-  cancels a check still waiting for its upload 35 min after create (upload URL 30 min +
-  margin, `upload_missing`) and deletes trees of checks that ended elsewhere (claim
-  refusal, policy Off, reaper).
-- Kept apart from deployment scans: a deploy no longer supersedes a waiting local check;
-  rescan busy checks, the stale `pending_input` re-poke, project streaks, the sweep
-  "recent full scan" rule, the retention "keep last succeeded" row, the policy preview
-  "never scanned" count, the `@cf` fallback's "newest scan" pick, and `status` last
-  scan / last successful scan all skip `trigger = 'local'` (or `deployment_id IS NULL`).
-  Retention ranks local checks and deployment scans apart (200 rows each).
-  `scans` history still lists it.
-  The installation failure rate and the digest count it like any scan.
-- CLI: `void project security check [<check-id>] [--yes] [--no-wait]` in
-  `project-security-check.ts` (collect, pack, upload with `uploadAssetsToR2`, poll, print).
-  Only `git ls-files --cached` paths under the folder, read from disk; symlinks, deleted
-  files and NUL-byte files are skipped; the size limit is checked from `lstat` before a
-  file is read. Always asks (it costs money and sends code); `--json` / non-interactive
-  need `--yes`, checked before any request. A 412 on the archive PUT (`If-None-Match: *`:
-  an earlier PUT landed, its reply was lost) counts as uploaded. `check <id>` on a
-  `pending_input` check calls start once. Exits non-zero when the check ends without a
-  result, including a succeeded check whose result is missing. A platform without the routes (plain 404) is named as
-  too old. Help, `docs/reference/cli/project.md`, `docs/reference/cli.md` and the
-  security guide are updated; the no-args hint lists groups, so it is unchanged.
-
-**M33 BYOK.** Encrypted provider keys in `platform_settings['securityAudits.providerKeys']`
-(`encryptPlatformCredential`); proxy adds the key server-side; probe check 5 per BYOK
-host; BYOK spend still metered and counted (R14). Operator
-`security models --provider anthropic --key-stdin`. Tests: `security-byok.test.ts`.
-
-As built (M33):
-
-```
-CLI: models --provider <host> --key-stdin ─► read stdin once ─► POST provider-keys {dryRun} ─► confirm
-     ─► POST provider-keys {host, key} ─► 1-token test call on the key ─ fail ─► 422, nothing saved
-                                                                       └ ok ──► encrypted, policy lock
-proxy (messages / responses): key saved? ─ no ─► REST /ai/v1/* + CF token (Unified Billing, as before)
-                                          └ yes ► env.AI.gateway(id).run({provider, endpoint, headers + key})
-probe check 5: same split per host; report.keyIds ─► stored under the policy lock, a host whose key
-               changed meanwhile keeps the value the key write stored (save: kept, removal: false)
-```
-
-- Storage: `security/provider-keys.ts`, `platform_settings['securityAudits.providerKeys']`,
-  one entry per host `{key: encryptPlatformCredential, keyId, setAt, setByUserId}`. The
-  credential id is `security-provider-key:<host>`, so one host's ciphertext never opens as
-  the other's. A malformed entry is a saved key that cannot be used, never "no key": the
-  proxy refuses the call (503), the probe shows `ownKeyUnreadable` (key id `malformed`), and
-  reads show `{setAt: null, unreadable: true}`; a save replaces it. Reads (`GET /security/policy`,
-  `status`) show `setAt` only.
-- Route (deviation): the plan said "proxy adds the key". The REST `/ai/v1/*` routes the proxy
-  uses only read keys stored in AI Gateway itself (Cloudflare docs: request keys count on
-  provider-native routes only). So a saved key goes to the provider-native route through the
-  AI binding's gateway `run` (`anthropic` `v1/messages` with `x-api-key`, `openai` `responses`
-  with a bearer key), which authenticates to the gateway itself: the runtime token needs no AI
-  Gateway Run permission. The same fixed `cf-aig-*` headers go along, plus
-  `cf-aig-no-wholesale: true`, so the gateway refuses instead of billing credits if it ever
-  does not read the key. The model is named the provider's way there
-  (`claude-opus-5-5`, `claude-sonnet-5-5`, `gpt-6.1-*`; table in `provider-keys.ts`). The
-  `access_programs` field is still added for `openai/*`; the save-time test call and the probe
-  send it, so an org that rejects it is caught there. Not run live yet (needs a real provider
-  key): the first live probe with a saved key is the check.
-- Proxy: `deps.providerKey(host)` is read per call before the policy read and the hold. A
-  removal clears the host's probe result in the key's transaction, so a policy read after the
-  key read sees it; the other order could pass the check and then find no key (Unified Billing). A saved key that cannot
-  be opened fails the call (503 `upstream_failed`, no hold, no Unified Billing fallback). Caps,
-  holds, settle and the ledger are unchanged, so BYOK spend is metered and counted (R14).
-- Operator route `POST /operator/v1/security/provider-keys` (`capability`; `{host, key}` or
-  `{host, key: null}`, `dryRun` preview). Save runs a 1-token test call first (the probe's
-  call); a non-2xx or unreachable gateway is 422 `security provider key rejected` and nothing
-  is stored. A save keeps the host's probe result (same image, key just checked); a host that
-  never passed still needs the probe (`probeNeeded`). Removing a saved key clears the host's
-  probe result (its scans go back to Unified Billing, unchecked); removing none changes
-  nothing. Audit target: `{installation, host, key: set|removed}`, never the key.
-- Probe: `runSecurityProbe(env, db, policy, deps?)` now takes the db and reads the key slots
-  once (`loadSecurityProviderKeySlots`). A host with a key shows `Own key     <host>/*` and its
-  own copy (refused key, failed call, unreadable key); no Unified Billing link. Key writes and
-  entitlement writes both take the policy lock; `recordSecurityEntitlement` and the turn-on
-  probe in `changeSecurityPolicy` compare the probe's `keyIds` with the saved ones under it. A
-  host whose key changed keeps its stored value (`entitlementForSavedKeys`): the key write set
-  it under the same lock, so a long probe on the old key never undoes a save reported as OK.
-- CLI: `void platform security models --provider <openai|anthropic> (--key-stdin | --remove-key)`,
-  its own action `provider-key`, not combinable with `--default/--block/--unblock`. The key is
-  read once from stdin (one line, no spaces) before any request, sent for the preview and the
-  change, and never printed. Non-interactive runs need `--yes` (stdin is the key). No admin
-  panel form: operator CLI only, as planned.
-
-**M34 Per-project policy override.** `project_security_settings.policy_override`
-(`inherit|always|never`, installation admin only); enqueue reads it; `never` never
-skips a gate scan (D46). Operator `security policy --project`, admin Project detail.
-Tests: `security-enqueue.test.ts`, `operator-security.test.ts`.
-
-As built (M34):
-
-```
-rule (project_security_settings.policy_override, no row = inherit), only while the mode is on:
-  inherit ─► the mode decides (as before)
-  always  ─► in scope like mode all: a protected project under public is scanned
-  never   ─► out of scope; gate scans and their fallback still run (D46)
-
-deploy go-live (enqueue, project lock) ─ open request? ─ yes ─► gate scan (any rule)
-                                         └ no ─ never ──────────────► skipped:project_policy (modules kept)
-                                                └ public+protected, not always ─► skipped:protected
-claim (project lock) ─ gate / gate fallback ─► runs
-                     └ never ─► skipped:project_policy · public+protected, not always ─► skipped:protected
-```
-
-- `security/project-policy.ts`: type, parser, reader, `securityProjectInScopeSql` (shared by the
-  sweep/backfill candidates and the policy preview counts) and the copy. The column was already in
-  migration 0065, so no schema change.
-- A `never` deploy writes a `skipped:project_policy` row instead of no row (plan said "enqueue reads
-  it"; the real code needed a row): like `skipped:protected` it supersedes the waiting scan and keeps
-  a copy of inline modules, so a later public request can still queue a gate scan of that deployment.
-  The gate's "newest scan" ignores both skip reasons; exposure catch-up leaves `never` projects out.
-- Rescan (project, operator, admin) and the local check refuse `never` with 409
-  `security_not_in_scope`, also while a public request is open (they are not gate scans); the
-  `@cf` fallback of a gate scan passes (`publicRequestId`). Sweeps and backfill use the same scope.
-- Write: `setProjectSecurityPolicyOverride` (`operator.ts`) under the project row lock, the lock
-  the enqueue and the claim read the rule under. It queues and cancels nothing: a waiting scan of a
-  `never` project is skipped at claim, a running one finishes. Recorded in `operator_events`
-  (target `{projectId, override}`), not as a project event (the event action list has no such
-  value and the operator audit already holds it).
-  Its preview says a waiting scan is skipped at claim, and, while a public request is open,
-  that the scan for that request still runs.
-- Routes: `POST /operator/v1/projects/:id/security/policy {override, dryRun}` (capability) and
-  the admin Project detail form (`/admin/projects/:id/security/policy`). Reads: the project
-  policy view gains `override` and its reason copy; `security status` lists
-  `projectOverrides` (≤ 100, by slug). The policy preview counts follow the rules.
-- CLI: `void platform security policy --project <project-id> <inherit|always|never>`
-  (action `project-policy`, preview then the same body). `void project security status` and the page say
-  `Not scanned: a platform admin turned scans off for this project.`
-
-**M35 Severity edits.** `POST …/findings/:fid/severity {severity, comment, expectedRevision}`
-(`settings`); `severity_override` sticky across scans; event `severity_edited`;
-lowering crit/high counts like a resolve for the gate (comment required, recorded,
-reopen rule uses the human value). CLI `void project security severity`. Tests:
-`security-findings-rules.test.ts`, `api-project-security.test.ts`.
-
-- As built:
-
-```
-POST /projects/:id/security/findings/:fid/severity {severity: level | null, comment, expectedRevision}
-  settings (re-checked under the project lock) ─ revision ─ confirmed? ─ open? ─► severity_override
-  null = back to the scan value · same value = 200 {changed:false}, no event, revision kept
-  change ─► revision + 1 · event severity_edited {severity_from, severity_to, comment}
-         └► after commit: public request re-check (as resolve)
-```
-
-- `editSecurityFindingSeverity` (`project-findings.ts`) uses the resolve locks and revision
-  check. A lead (no severity) or a resolved finding (reopen first) answers 409
-  `finding severity not editable`, an ad-hoc code like M34's `security_not_in_scope`. Open while
-  the capability is off, like resolve. The reply is `{id, severity, scanSeverity, severityEdited,
-  urgent, revision, changed, publicRequest?}`.
-- Sticky across scans (`findings.ts` `decideSeenFinding`, `severityOverride` on the stored
-  finding): a scan still raises the `severity` column (the "scans said" value) but under a human
-  value writes no `severity_changed` event, moves no revision and is not "new". The reopen rule
-  compares the human value, so a false-positive / accepted-risk finding resolved at it reopens on a
-  sink change only. Everything else already read `COALESCE(severity_override, severity)`.
-- **Deviation:** migration 0065 (not released) gains `security_finding_events.severity_from` /
-  `severity_to` (nullable, checked against the severity list) so the history shows the edit;
-  `db:generate` reports no drift. The plan said no schema change.
-- Views: full level adds `severityEdited` and `scanSeverity`; history events of
-  `severity_edited` add `severityFrom` / `severityTo`. Readers see the shown severity only.
-- Not emailed: a human edit queues no notification (raising into high/critical by a person is not
-  "new"; §9.4 news are scan events). No operator route, admin form or page form: the plan lists
-  the project route and the CLI only. Memory: the edit and its comment reach the next scan in
-  the finding's history file, like other events; the index shows the human severity.
-- CLI: `void project security severity <F-id> <critical|high|medium|low|informational|scan>
-  --comment "<text>"` (reads the revision first, like reopen; `scan` sends `null`). A 404 with no
-  JSON body says the platform cannot change severity yet. `show` prints
-  `Severity set by a person (scans said high).` and `severity_edited (high → low)` in the history.
-  Help and `docs/reference/cli/project.md` updated; the no-args hint lists the `security` group
-  already.
-
-**M36 Final docs and full verification.** Phase 2/3 docs; `vp run test --base origin/main`,
-`vp check`, then `vp test run` once.
-
-As built (M36):
-
-```
-docs table "Phase 2/3" row
-  project.md · platform-security.md · platform-config.md · dashboard README ─► already done per milestone (M25–M35)
-  plans.md ─────────────────► new "Security Scan Cap" section (dashboard field + --security-cap)
-  security-audits.md guide ─► cap-first step · "Scan live apps again" (rescan, backfill, sweeps, fallback)
-                              · "GitHub checks" (M28) · dashboard page · streak / platform / digest emails
-                              · webhook pointer · local check sends no email
-  SKILL.md ─────────────────► project.md routing row · rule: no scan, check or severity edit unless asked
-  this file ────────────────► status implemented · Scanner invariants · Live check status (below)
-```
-
-- Verification (2026-11-20, worktree at `fdee96c7b` + these doc edits): `vp check` clean
-  (3230 files formatted, 2675 linted and typechecked). `vp run test --base origin/main` picked the
-  full selection (the Phase 0 spike scripts, since removed, had no ownership rule), rebuilt the
-  public packages and ran 896 files passed, 2 skipped (898), 19309 tests passed, 38 skipped, 225 s.
-  `vp test run`: the same counts, 228 s. No failing file in either run. The 2 skipped files are
-  opt-in by env (for example the Docker recorded run, `VOID_SCANNER_E2E=1`). The docs build passes
-  (VitePress fails on dead links).
-- Deviations: the Docs table named `plans.md` only as "security cap"; it is the admin guide
-  (`docs/guide/platform/administration/plans.md`). `cli/project.md`, `cli/platform-security.md`,
-  `cli/platform-config.md` and the dashboard README were already written by M25–M35, so M36 only
-  checked them. The test strategy's `security-capability-off.test.ts` and
-  `platform/scripts/security-smoke-test.ts` were never written: capability-off cases live in
-  `security-enqueue.test.ts`, `api-project-security.test.ts` and `admin-security.test.ts`, and the smoke script is still open (listed below). No code change in M36.
-
-### Completeness review (2026-11-20)
-
-Gaps a review of the branch against the PRD found, closed in one commit:
-
-```
-PRD / spec                       as built
-§5.4 Off: running scans, no email   ingest queues no findings email while the mode is Off
-§10.6, §16 gateway cost             hourly `gateway-cost.ts`: ended scans 1 h – 7 d old,
-                                    `sum { cost }` by the scan's signed `securityScan` tag
-§8.1 low-confirmation warning       Settings banner while < half of the model findings of
-                                    30 days are confirmed (or none yet)
-§10.3 protection-change flag        `protection_on/off` project events, Scans page flag
-§7.3 third party by lockfile        T1 repo lockfile; CLI `securityPackages` (see M10)
-§16 "high refusal" badge            pickers: > 30% refused over ≥ 10 ended scans in 30 days
-platform cap banner at 100%         "used up" once the next default-model scan's reserve
-                                    no longer fits (holds keep spend under the cap)
-§12.4 backlog, no input             `needs_deploy` (`no_input`)
-§13.2 budget "any amount"           `--usd` up to 1,000,000
-§11.1 `Fixed?` line                 server `canResolve`, CLI prints it
-```
-
-- The admin bypass with the capability off: the route is outside the capability guard, so it
-  answers the request's real state, not 501. With the capability off the gate reads off, so the
-  request no longer holds and the bypass is refused as "already canceled"; asking to go public
-  again goes straight through. The earlier comment said the bypass lets such a request out;
-  comment and test are corrected.
-- Gateway cost needs `CF_API_TOKEN` with Analytics read (the usage query already needs it). A
-  failed query stops that hour's run and the rows stay unknown; after 7 days they stay `NULL`.
-  BYOK calls are counted as the gateway reports them.
-- Not done here: admin finding detail and resolve forms (M18 (1), spec §13.1 only), the
-  release smoke script and the live S1 / S10 checks (release items, listed below).
-
-### Live check status
+Main edits outside these files: capability parsing and worker config in `packages/platform`;
+the deploy pipeline (`deploy/*`, `deployment-execution.ts`, rollback in `routes/projects.ts`);
+the Zero Trust write paths (`zero-trust/*`, `routes/project-zero-trust.ts`,
+`operator/zero-trust-routes.ts`, admin Zero Trust views); `email.ts`; the admin shell
+(`Layout`, `renderAdminPage`, fate renders); `api.ts` typed routes; the CLI managed deploy
+paths, `list.ts`, the operator and installer arguments; `platform-ci.yml`.
+
+## Data model
+
+Migration `0065_security_audits.sql`, 11 tables in `security/schema.ts`:
+
+| Table                                                | Holds                                                                                                                           |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `project_security_settings`                          | per project: model pick, notice version, own cap, admin ceiling (`cap_ceiling_cents`), `policy_override`, `next_finding_number` |
+| `security_scans`                                     | one row per scan: trigger, status/reason/error class/cause, attempt, lease, model, engine, tier, coverage, input keys, counts   |
+| `security_findings`                                  | F-number, fingerprint key, state, severity + `severity_override`, verdict + `verdict_source`, revision, resolve columns         |
+| `security_finding_events`                            | finding history (actions, comments, `severity_from/to`)                                                                         |
+| `security_project_events`                            | cap changes, `protection_on/off`                                                                                                |
+| `security_public_requests`, `security_scan_bypasses` | gate requests (one open per project) and recorded bypasses                                                                      |
+| `security_project_spend`, `security_platform_spend`  | month rows: spent, scans, holds                                                                                                 |
+| `security_memory_rejected`                           | rejected records, kept so they are never fed back (PK `(project_id, fingerprint_key)`)                                          |
+| `security_notifications`                             | outbox: kind, dedupe key, attempts, `next_attempt_at` (email and webhook twins)                                                 |
+
+- Project FKs cascade; no FK to deployments; `actor_user_id` has no FK. The bypass → request
+  FK is `NO ACTION`, so retention cannot delete a request a bypass points to.
+- Partial uniques: one running scan per project, one open request per project. The urgent
+  index uses `COALESCE(severity_override, severity)`.
+- Money is in whole units: spend, holds and costs in nano-dollars (`*_nano_usd`, `bigint`),
+  caps in cents (`*_cents`, 0–100,000,000). `month` is a `date` with a first-of-month check.
+- Status, trigger, state and kind lists are `CHECK`s built from TS lists; the migration test
+  checks them against `@void/platform` (`SECURITY_MODES`, engines, max cap).
+- Settings keys (`platform_settings`): `securityAudits.policy` (with `revision`),
+  `securityAudits.providerKeys` (encrypted, M33), `securityAudits.webhook` (M26),
+  `plans:security-caps` (M27), `security.bypasses-seen.<userId>` (admin badge).
+- R2 (platform bucket): `security-scans/{project}/{deployment}/` head snapshot
+  (`modules/`, `modules.json`, `sources.json`, `assets.json`, `packages.json`,
+  `never-sent.json`), `security-scans/{project}/backlog.json`, and per scan
+  `…/scans/{scan}/` (`backlog.json`, `server-leads.json`, `scope.json`, `status.json`,
+  `findings.json`, `local-result.{attempt}.json`; raw output swept after 30 days).
+
+## Flows
+
+### Capability and policy
+
+- `securityAudits` capability: optional in every parser (missing = false). The manifest
+  writes schema 7 when it is on, so an old CLI refuses instead of dropping it (R17). The DO
+  binding and the `security-audits-v1` migration tag follow the runtime manifest, not the
+  capability; `ai` binding only when on. A rollback to a runtime without the class is
+  refused (roll forward, R2).
+- Policy in `security/policy.ts`: the strict parser guards writes; `readSecurityPolicy` is
+  lenient (unknown blocked ids dropped, a bad default becomes the first priced `@cf` model,
+  limits clamped; bad data reads as Off and keeps its revision). Every writer takes the
+  advisory lock `void:platform:security-policy` and checks `expectedRevision` (409).
+- Turning on from `disabled` first checks the whole proposal, then provisions and runs the
+  probe outside the transaction; a failing check stores the result and answers 409 with each
+  check's copy. Off cancels `pending_input` and `queued` scans (`policy_off`) and turns the
+  gate off.
+- Probe checks 1–6 (`probe.ts`): capability, container (provisioning), egress and self-test,
+  `@cf` call, per third-party host credits + image + engine self-test (check 5), gateway. A
+  daily re-probe runs while the mode is on.
+
+### Deploy → scan row (outbox)
+
+- `enqueueSecurityScanInTx` runs in a savepoint inside `commitCutoverLive`,
+  `promoteProtectedDeployment` (`trigger=recovery`) and compensation's post-routing recovery
+  (own short tx, R8). A failed statement is logged and the deploy commits with no row (D45).
+- Lock order: project row, then the policy lock in shared mode, so an Off write cancels the
+  new row instead of missing it.
+- Skips (spec §6.1): `preview-*`, owner suspended, project deleting → no row; protected
+  under `public` → `skipped:protected`; project rule `never` → `skipped:project_policy`.
+  Both skip rows keep a copy of inline modules so a later public request can still scan
+  that deployment. An open public request → `trigger=gate`.
+- Coalescing supersedes waiting (`pending_input`, `queued`) rows and keeps `first_queued_at`.
+- After commit (`finishSecurityScanEnqueue`): inline modules go to the head snapshot
+  (≤ 50 MB / 30 s, `modules.json` last), then a compare-and-set moves the row to `queued`
+  and pokes the scheduler. A staged deploy input is held (`input_prefix`) until the scan
+  copies it.
+
+### Scheduler, queue and hourly jobs
+
+- `SecurityScanScheduler` DO, one instance. A pass claims queued rows round-robin by owner,
+  oldest first, under the installation concurrency and one running scan per project.
+- The claim (project lock + shared policy lock) resolves the model (`models.ts`: project
+  pick, else default; unknown/blocked/unpriced → default; third-party without check 5, the
+  installation notice or the project notice → first priced `@cf` model), bumps `attempt`,
+  sets the lease (2× wall clock + 5 min) and re-checks deleting, suspended, 24 h backlog,
+  protected under `public`, and the project rule.
+- Then reserve the worst case on both month rows (`skipped:budget` on refusal), then start
+  through the gate. A failed start is retried once after 60 s, then `failed
+  (infrastructure, start_failed)`.
+- `@cf` token bucket (10/min/model) and per-session call counts live in DO storage
+  (`call-ledger.ts`); a Workers AI 429 puts the bucket into debt.
+- Cancel writes the rows first (that is the fence), then cancels at the controller.
+  `teardownProject` cancels before the cascade.
+- Hourly (`maintenance.ts`, hourly tier only, R18): re-poke stale `pending_input`, reaper
+  (`timed_out`, reserve back), 24 h backlog skip, raw output sweep, scan and request
+  retention, daily probe, gateway cost, fallback, streak and digest alerts, sweeps, public
+  gate backstop, exposure catch-up, runtime copy sweep, local check sweep. Policy Off stops
+  the jobs that start work; cleanup jobs still run.
+
+### Controller and container
+
+- Names: `void-security-scanner[-gate]-<12 hex of sha256(installation id)>`; engine apps
+  `void-security-scanner-engine-{a,c}-<suffix>`. Ownership marker on every object.
+- One DO per attempt (`scan:<id>:<attempt>`) or probe; a start is accepted once. The alarm
+  checks the fence, sets the egress lock (model host intercept, then deny all HTTP and
+  HTTPS), starts with `enableInternet: false, env: {}`, creates the `scanner` user and
+  `/scan` (0700), then runs the runner as `scanner` with the input tar on stdin.
+- Engine B uses the managed `cloudflare/debian-trixie` image with the runner streamed in;
+  Engines A/C use digest-pinned images copied into the operator registry by the probe (R1).
+- Every 10 s: fence, read `/scan/out/status.json` then `findings.json` (≤ 5 MiB) with
+  `O_NOFOLLOW`, hand both to `result`, destroy. Wall clock: `SIGTERM`, 60 s grace,
+  `timed_out (wall_clock)`; hard cap: `timed_out (hard_cap)`.
+- The runner (dependency-free `runner.mjs`): safe tar extract (regular files only), hunt →
+  verify (≤ 10) → one repair turn → `findings.json` then `status.json` renamed into place.
+  Tools read only `/scan/input` and `/scan/memory`; `grep` is plain text.
+
+### Input
+
+- Tier at scan start: rescan, sweep, local → full (T3); no base → `first-scan`; base
+  snapshot gone → `no-usable-base`; else T1 when possible, else T2.
+- T2: changed Worker modules by sha256 plus their source maps' `sourcesContent`; modules
+  with no map as built code; changed text assets (≤ 256 KB). T1 (hosted, `managedBuilds`):
+  GitHub compare of base and head commits plus the T2 changes, from one scoped
+  `contents: read` token; truncated, force-pushed or mismatched commits fall back to T2 with a
+  note.
+- Filters (§7.4), secret-like files dropped, third-party code by lockfile identity (else
+  kept, ranked last, `third-party-unverified`), caps 400 files / 2 MB focus, 32 MB read set.
+  What does not fit goes to the backlog (`partial`); a project file the runner cannot read
+  (bad path, oversize, binary) holds a public request (`held_no_result`).
+- Redaction replaces stored secret values (4 forms) in every file, memory included. The
+  phrase check (plain whole-word match) turns reviewer text into server leads. Redaction
+  hits become `secret_in_output` server findings (M31).
+- Memory: index (64 KB, 200 records) plus history files; rejected records are never fed.
+- An empty diff scan is stored `succeeded` with no model call (`no_changes`, #14).
+
+### Model proxy and budget
+
+- `SecurityScanControl.model()` → `model-proxy.ts`. One route per host:
+  `/v1/chat/completions` (`@cf`, `env.AI.run`), `/v1/messages` (`anthropic/*`),
+  `/v1/responses` (`openai/*`). The model must equal `scan.model_used`.
+- Checks per call: fence and lease, policy on, host passed check 5, notices, session (40)
+  and scan call caps, token caps, provider-run tools refused (`tool_not_allowed`).
+- Money: the call's worst case is held on both month rows in one `UPDATE … WHERE spent +
+  worst ≤ cap RETURNING`, always scan → project → platform row. After the answer the hold
+  becomes tokens × list price; an unreadable or lost answer keeps the worst case (the meter
+  errs high). Stops answer 429 (402 for credits) with `x-void-scan-stop`.
+- Headers are built from nothing: `cf-aig-gateway-id`, signed `cf-aig-metadata
+  {"securityScan":tag}`, payload logging off, cache skipped; `access_programs` for `openai/*`.
+- Caps (§16.2): ceiling = project ceiling → plan cap (`plans:security-caps`) → policy
+  default; effective = lower of the ceiling and the project's own cap. 80/100 % alerts are
+  queued after a settle and on `skipped:budget`.
+- BYOK (M33): a saved provider key sends that host's calls through the AI binding's gateway
+  `run` on the provider-native route with `cf-aig-no-wholesale: true`. Keys are tested with a
+  1-token call before saving and are metered like any call.
+
+### Ingest and findings
+
+- `result()` → `ingest.ts`. `status.json` goes through a small parser and `findings.json`
+  through the runner's own validator (`schema_version: 1`). Outcome table: `succeeded`
+  stores all; `incomplete` stores confirmed only; the rest store none (I10). The first
+  `failed (infrastructure)` attempt is requeued.
+- One transaction: lock the project row, then the scan row, re-check the fence, write
+  findings and events, end the scan, release the reserve.
+- Key = sha256(source, project, skill fingerprint, sink path or file). Severity only rises;
+  a confirmed finding is never demoted; a human severity is sticky (I5). 50 + 50 new keys
+  per scan (`findings-capped`). Reopen and stale-scan rules per spec §9.3.
+- After commit: promote the scan's backlog (only on `succeeded`), store raw output, forget
+  the call ledger, queue notifications, re-check the public request, queue a fallback, send
+  the GitHub check, poke.
+
+### Notifications
+
+- Outbox rows are queued in the same transaction as the change (findings at ingest, human
+  reopen of an urgent finding, caps, public request states, bypass, streaks, digest). The
+  scheduler alarm sends them: dedupe key, 30-min findings cooldown, retries at 1 and 5 min,
+  third failure `failed`. `EMAIL` unbound marks rows `skipped`.
+- Recipients are worked out at send time (`recipients.ts`); one email per person.
+- The findings email rebuilds the new ids from the scan's events. A raise to critical counts
+  as new even when it was already high. **Decision:** kept; the event stores no old severity
+  and a schema change is not worth it.
+- Webhook (M26): its own settings key and secret; every outbox event gets a `webhook` twin
+  row. Body has ids and counts only, signed `X-Void-Signature: t=…,v1=HMAC-SHA256`.
+
+### Scan before public (gate)
+
+- Turning `publicGate` on holds the Zero Trust lock (shared) and re-reads Zero Trust.
+  While on, disable and public-only are refused (409 `security public gate on`, 503 when the
+  policy cannot be read).
+- Asking to go public goes through `checkpointProjectReconciliation` with `gate: ask`. The
+  pure judge (`public-gate-judge.ts`) reads the live deployment's newest scan and the open
+  findings: pass → flip; else hold (`waiting_scan`, `held_findings`, `held_no_result`,
+  `needs_deploy`). The project route answers 202 with an old-CLI-safe `state:'reconciling'`.
+- Re-checks: ingest, resolve/reopen/severity edit, after a cutover commit, rollback, bypass,
+  and the hourly backstop (shares the cron's routing budget).
+- Bypass (D50): under the project lock, only while no urgent finding is open and the
+  request waits for a scan or has no result. Installation admins get an email.
+- Lock order: project row, Zero Trust shared, policy shared.
+- Exposure catch-up (`exposure.ts`) scans a project that went public while out of scope.
+
+### Surfaces
+
+- Project API (`routes/project-security.ts`): status, findings list/show, comments
+  (`configure`), resolve/reopen/severity (`settings`, `expectedRevision`), scans history,
+  model and budget PUTs, page link, rescan, local checks. Role filter: `full` for a user
+  session with `deploy`; `counts` for readers and deploy tokens (only `GET …/security` is on
+  the deploy-token allowlist). Capability off: model, budget, scans and rescan answer 501;
+  reads, comments, resolve and the bypass stay open.
+- Operator API (`operator/security-routes.ts`, logic in `security/operator.ts`): policy,
+  status, probe, budget, lists (page/limit, R16), cancel, rescan, backfill, sweeps, fallback,
+  digest, webhook, provider keys, per-project model/ceiling/policy/finding writes, bypass.
+  Every write takes `dryRun`; previews of finding, model and ceiling writes run the real
+  write and roll back. Audit targets hold ids and known values only.
+- Admin panel (`admin/security-data.ts`, `admin/routes/security.ts`): Settings, Findings,
+  Scans, Public requests, Project detail section, Zero Trust page; banner and unseen-bypass
+  badge through `renderAdminPage`. Writes call the operator functions inside
+  `executeAuditedMutation`; policy and budget post twice (preview, apply).
+- Signed page (`/security/projects/:slug`): 15-min HMAC token (`page-token.ts`) → HttpOnly
+  path cookie → 303. Access is re-checked on every load; platform Access is not relaxed.
+  Forms (resolve, comment, model, budget, bypass) check Origin/Referer, then call the same
+  operations. `Referrer-Policy: same-origin` (not `no-referrer`: that sends `Origin: null`
+  on the page's own posts).
+- Dashboard: `/projects` and `/projects/:slug/security` through `apiClient` (`hc` for paths,
+  `ProjectSecurity*Body` types from `api.ts` for bodies).
+- CLI: `void project security …` (status, list, show, resolve, reopen, comment, severity,
+  model, budget, scans, scan, check, open, `--format sarif`), `void project zero-trust
+  bypass`, the deploy notice (one GET, 5 s, prints nothing on any error), the `Security`
+  line in `void project status`, `void platform security …`, and `--security-audits` on
+  install, upgrade and repair. Uninstall deletes the scanner (R11).
+
+### Phase 2 and 3 additions
+
+- Rescan, backfill, sweeps (M25): rescan is a full `trigger=rescan` scan after a cost
+  preview; backfill queues up to 50 in-scope projects whose live deployment has no succeeded
+  scan; sweeps (`sweeps: {on, everyDays}`, off by default) queue `standard`-profile full scans
+  hourly. Candidates need stored code.
+- Fallback (M26): opt-in `fallbackToCf`, one `@cf` scan after a third-party scan ended
+  `refused`, `timed_out` or `failed (bad_output)`; never `@cf` → third party, never a
+  fallback of a fallback or of a local check.
+- GitHub check (M28, hosted): `Void Security Audit` check run, always `neutral`, counts and
+  the page link only; a PR comment only while something is urgent; Re-run queues a rescan
+  only for a sender who could rescan.
+- Runtime copy (M30, Engine B): a copy of the live bundle in a separate dispatch namespace
+  with empty stores, the live D1 schema, fake secrets and stubbed services, reachable only as
+  `copy.void.internal`. A guard module blocks `fetch` and `WebSocket` from Durable Objects
+  (S13). `confirmed (runtime)` only when the named request reached the copy. No copy when a
+  secret value is in the bundle or schema. Deleted after the result and by the hourly sweep.
+- Client assets and SARIF (M31): opt-in `--client-assets` rescan reads client source maps
+  under `_client/`; SARIF 2.1.0 is built in the CLI from the list routes.
+- Local check (M32): the CLI uploads git-tracked files (filtered) to a presigned R2 URL;
+  `trigger=local`, no deployment, full scan; `storeLocalOutcome` writes a short-lived result
+  file and ends the row only (I12).
+- Per-project policy (M34): `inherit | always | never`; `never` never skips a gate scan (D46).
+- Severity edits (M35): `severity_override`, event `severity_edited`, revision check; the
+  reopen rule uses the human value.
+
+## Milestone index
+
+| M      | What                                             | Main code                                                           |
+| ------ | ------------------------------------------------ | ------------------------------------------------------------------- |
+| M1     | capability, scheduler DO class, config           | `packages/platform` manifest / worker config, `scheduler.ts`        |
+| M2     | shared model list and policy types               | `security-models.ts`, `security-policy.ts`                          |
+| M3     | schema and migration 0065                        | `security/schema.ts`                                                |
+| M4     | policy store and operator policy routes          | `policy.ts`, `operator/security-routes.ts`                          |
+| M5     | scanner runner (Engine B)                        | `security-scanner/src/runner`                                       |
+| M6     | controller Worker, provisioning, probe           | `security-scanner-controller-runtime.ts`, `probe.ts`                |
+| M7     | model proxy and budget                           | `model-proxy.ts`, `budget.ts`, `call-ledger.ts`                     |
+| M8     | outbox enqueue and input hold                    | `enqueue.ts`                                                        |
+| M9     | scheduler and hourly jobs                        | `scheduler.ts`, `queue.ts`, `maintenance.ts`, `models.ts`           |
+| M10    | input builder (T2, T3, filters, memory)          | `security/input/*`                                                  |
+| M11    | T1 source diff                                   | `input/{t1,t1-github,source-tar}.ts`                                |
+| M12    | ingest and findings                              | `ingest.ts`, `findings.ts`, `fence.ts`                              |
+| M13    | Engines A and C, images, drift test              | `engines/{claude,codex}.ts`, `image/`                               |
+| M13b   | engine images in the operator account, dispatch  | `provisioning/security-scanner-images.ts`, `scanner-images.json`    |
+| M14    | project API routes                               | `routes/project-security.ts`, `project-{view,findings,settings}.ts` |
+| M15    | notifications                                    | `notifications.ts`, `recipients.ts`, `email.ts`                     |
+| M16    | scan before public (gate)                        | `public-gate*.ts`, `exposure.ts`, Zero Trust paths                  |
+| M17    | operator security routes                         | `operator/security-routes.ts`, `security/operator.ts`               |
+| M18    | admin panel                                      | `admin/security-data.ts`, `admin/routes/security.ts`                |
+| M19    | signed project page                              | `routes/security-page.ts`, `project-page.ts`                        |
+| M20–23 | CLI project, zero-trust, deploy notice, operator | `packages/void/src/cli/*security*`                                  |
+| M24    | Phase 1 docs                                     | `docs/`                                                             |
+| M25    | rescan, backfill, sweeps                         | `sweeps.ts`, `scan-candidates.ts`                                   |
+| M26    | fallback, streak emails, digest, webhooks        | `fallback.ts`, `alerts.ts`, `webhook.ts`                            |
+| M27    | per-plan caps                                    | `plan-caps.ts`, plans routes                                        |
+| M28    | GitHub check                                     | `github-check.ts`, `routes/webhooks.ts`                             |
+| M29    | page forms and dashboard pages                   | `routes/security-page.ts`, `platform/packages/dashboard`            |
+| M30    | runtime checks on a throwaway copy               | `runtime-copy*.ts`                                                  |
+| M31    | secret findings, client assets, SARIF            | `input/redact.ts`, `security-sarif.ts`                              |
+| M32    | local check                                      | `local-check.ts`, `input/local.ts`                                  |
+| M33    | BYOK                                             | `provider-keys.ts`                                                  |
+| M34    | per-project policy override                      | `project-policy.ts`                                                 |
+| M35    | severity edits                                   | `project-findings.ts`                                               |
+| M36    | final docs and full verification                 | `docs/`                                                             |
+
+## Decisions and known gaps that still matter
+
+- Admin bypass with the capability off: the route is outside the capability guard. Held
+  requests are no longer re-checked while off, so the bypass is how an admin releases one.
+- A rollback to a deployment with no past scan queues a gate scan when its code is kept,
+  else `needs_deploy` (safer than spec §12.4).
+- Rescan is always a full scan, also for a live deployment with no succeeded scan
+  (spec §13.3 says diff).
+- Gateway cost needs `CF_API_TOKEN` with Analytics read; a failed query leaves the rows
+  unknown, and after 7 days they stay `NULL`.
+- A crash between an email send and the row update sends it twice on retry. Accepted.
+- Not built: admin finding detail and resolve forms (spec §13.1; use the CLI or operator API),
+  deploy `--json` `security` field (R4), the release smoke script.
+- Codex `bio policy`, `misalignment policy violation`, `invalid prompt` and `content_filter`
+  end `failed (infrastructure)` and are retried (product call; none of them opens the gate).
+
+## Live check status
 
 | Check                                    | Status                                                                                                                                                                        |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2201,7 +475,7 @@ platform cap banner at 100%         "used up" once the next default-model scan's
 | S6 engine parity                         | Not run (needs Engines A / C live)                                                                                                                                            |
 | S7 inputs, S9 refusals, S11 red team     | PASS locally after fixes (S7 26/26, S9 24/24, S11 160/160); S9 live refusal rates not run                                                                                     |
 | S10 gateway                              | PASS for no bodies and no cache on REST; binding path and meter vs gateway not run (0094 check A pending)                                                                     |
-| S12 legal                                | Open for the user (checklist above)                                                                                                                                           |
+| S12 legal                                | Open for the user (checklist below)                                                                                                                                           |
 | S13 runtime copy                         | PASS (guard added); the M30 copy code itself is not run live                                                                                                                  |
 | BYOK (M33)                               | Not run live; needs a real provider key. The first live probe with a saved key is the check                                                                                   |
 | Engine A / C images                      | Digests stay `null` until the images are published at release (ghcr, then copied by the probe); until then probe check 5 keeps `openai/*` and `anthropic/*` unpickable        |
@@ -2234,18 +508,15 @@ keeps only what they settled. "Live check status" above lists what is still open
 
 ### Engines A and C (S2, S3)
 
-They ran in local Docker with no route out. A local model proxy added the token and
-called the gateway's `/ai/v1/messages` and `/ai/v1/responses`.
-
 - The engines cannot reach `gateway.ai.cloudflare.com`, `api.cloudflare.com` or
   `1.1.1.1`. The token is in no process env and in no file of the container.
 - Model names route as planned (`claude-sonnet-5.5` → `anthropic/…`, `gpt-6.1-terra` →
   `openai/…`). `@cf` models do not work on `/ai/v1/*`, so there is no free stand-in for
   a quality run.
-- Engine A on a 402 returns `subtype: "success"` with `is_error: true`, so M13 maps by
+- Engine A on a 402 returns `subtype: "success"` with `is_error: true`, so it is mapped by
   `is_error` and the status, not by `subtype`. On a 401 it retries until the wall clock
   stops it, so the proxy never passes a 401 through.
-- Engine C retries a 402 or 401 five times. M13 sets `request_max_retries = 0` and
+- Engine C retries a 402 or 401 five times; `request_max_retries = 0` and
   `stream_max_retries = 0`, and the proxy answers repeats after a credits stop itself.
 
 ### Gateway (S10)
@@ -2268,29 +539,20 @@ T2 input, 5 seeded and 3 clean apps, 8 scans per model, runner at the final code
 | Cost per scan at list price        | median $0.74, max $1.34 | median $0.18, max $0.29            |
 | Wall time (bar p95 < 20 min)       | p95 19.2 min            | p95 15.7 min                       |
 
-- The first run (glm 2/10, deepseek 8/10) led to these runner changes: one unreadable
-  verify session keeps that candidate as a lead and ends the scan `incomplete` instead
-  of dropping it; Engine B repairs harmless output slips before the strict check
-  (`coerce.ts`) and gets one retry for a bad report; the controller's `PATH` includes
-  `/usr/sbin:/sbin` (`useradd` failed without it).
+- One unreadable verify session keeps that candidate as a lead and ends the scan
+  `incomplete`; Engine B repairs harmless output slips (`coerce.ts`) and gets one retry for
+  a bad report.
 - glm-5.3 still fails the hunt session in half of its scans. It stays in the list and
   can be picked.
-- S5: two "false" confirmed were in decoy files and are debatable (no idempotency key; an
-  HMAC key of `"undefined"` when the secret is unset).
 - `sink_path` is sometimes an expression (`fetch(url)`), not a file path, so ingest and
   the UI do not treat it as one.
 
 ### Scan input (S7)
 
-Real builds of the React, Vue, Svelte and Solid playgrounds:
-
 - Every map entry has `sourcesContent`, and 100% of first-party server files are
   readable. Modules with no map go in as built code.
 - Workspace packages count as first-party. Registry code matches the installed package
-  byte for byte.
-- With no lockfile all registry code is sent (input about 2× larger). With one, registry
-  files are dropped and 1–5 files an app stay `unverified`, because `parsePnpmLock`
-  reads only direct deps.
+  byte for byte. With no lockfile all registry code is sent (input about 2× larger).
 - A snapshot is 67–106 R2 objects per deployment, plus 3 per scan.
 - GitHub compare lists at most 300 files. At that limit the scan falls back to T2.
 - Go-live paths: cutover, protected promotion and post-routing recovery all enqueue a
@@ -2298,31 +560,19 @@ Real builds of the React, Vue, Svelte and Solid playgrounds:
 
 ### Refusals (S9)
 
-Recorded fixtures for the 3 engines, run through the real scanner, proxy and API
-mapping. The first run (15/20) found these, all fixed:
-
-- Codex prints `cyber policy: <msg>` with no code. `classifyCodexRun` compares letters and
+- Codex prints `cyber policy: <msg>` with no code; `classifyCodexRun` compares letters and
   digits only, so every spelling ends `refused`.
-- The proxy hid the provider's `cyber_policy` 400 as "the model call failed". It now
-  passes the policy code on and records a refusal. A 402 stays a credits stop.
-- Engine A takes the refusal category from the assistant message when the result has
-  none. A refused turn with no report ends `refused`, and fallback to another model is
-  off.
-- A session that read no code cannot clear the scan (`bad_output (nothing_read)`), so an
-  empty report no longer passes the public gate. Only reads that returned non-blank code
-  under `/scan/input` count.
-
-Remaining risk: a model that reads one file and then declines still looks clean.
-Handed back as a product call: Codex `bio policy`, `misalignment policy violation`,
-`invalid prompt` and `content_filter` end `failed (infrastructure)` and are retried.
-Spec §8.4 names only the two cyber codes. None of them opens the gate.
+- The proxy passes the provider's `cyber_policy` 400 on and records a refusal. A 402 stays
+  a credits stop.
+- A refused turn with no report ends `refused`, and fallback to another model is off.
+- A session that read no code cannot clear the scan (`bad_output (nothing_read)`). Only
+  reads that returned non-blank code under `/scan/input` count.
+- Remaining risk: a model that reads one file and then declines still looks clean.
 
 ### Red team (S11)
 
 160 checks with a hostile fake model: tool paths, tar input, MCP, engines, output,
-reviewer phrases, egress, caps and ingest. The one gap found (Engine A's Glob `pattern`
-and untrimmed Glob/Grep `path` could list names outside the scan folders) is fixed.
-Known risks, recorded and accepted:
+reviewer phrases, egress, caps and ingest. Known risks, recorded and accepted:
 
 - The reviewer-text check misses split, spaced, homoglyph and zero-width forms.
 - A hard link in `/scan/input` would be readable, but the tar input refuses links.
@@ -2333,21 +583,13 @@ Known risks, recorded and accepted:
 
 ### Runtime copy (S13)
 
-A Workers for Platforms namespace with a sandbox outbound Worker, per copy: the built
-app unchanged, new empty stores, migrations applied, fake secrets, stubbed AI / email /
-queue, no triggers.
-
-- 17/17 route checks pass. Ready in about 9 s (cold or warm), deleted in 2–4 s, cost
-  about $0.00001 per copy. The copy is not reachable from the internet.
-- Durable Objects bypass the outbound Worker. M30 adds a copy guard loaded before the
-  app's entry that replaces `fetch` and `WebSocket`. It stops the app's own calls; it is
-  not a boundary against code written to escape it, so the outbound Worker stays as the
-  second layer.
-- Runtime checks work on a copy: the planted SQL injection and IDOR returned another
-  owner's rows. A real outbound call carried the fake key, never the real one.
-- Notes for M30: assets upload again for every copy (about 4 s); KV written through the
-  API shows up in the copy after ~10 s; a fresh Durable Object can fail its first call
-  (one retry works).
+- 17/17 route checks pass. Ready in about 9 s, deleted in 2–4 s, about $0.00001 per copy.
+  The copy is not reachable from the internet.
+- Durable Objects bypass the outbound Worker, so the copy guard replaces `fetch` and
+  `WebSocket`. It is not a boundary against code written to escape it; the outbound Worker
+  stays as the second layer.
+- The planted SQL injection and IDOR returned another owner's rows on a copy. A real
+  outbound call carried the fake key, never the real one.
 
 The release smoke check still needs one scratch account with Workers Paid, Containers,
 Workers AI or AI Gateway credits, Unified Billing, and a token with Containers,
@@ -2382,106 +624,54 @@ Not decided here. Each needs a written answer before MVP.
 
 ## Test strategy
 
-Fakes:
+| Fake                                                                                                       | Where                                                          |
+| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Fake model server (scripted SSE for Messages, Responses, chat; records requests)                           | `platform/packages/security-scanner/test/fake-model/server.ts` |
+| Fake container (`ctx.container` with `start`, `exec`, `interceptOutboundHttp`, `interceptAllOutboundHttp`) | `platform/packages/api/test/__mocks__/container.ts`            |
+| Fake scanner controller binding (canned `findings.json`, status, delays, late results)                     | `test/integration/helpers.ts` (`createFakeSecurityScanner`)    |
+| Fake AI (`fetch` for `/ai/v1/*`, `env.AI.run`) and `mockCfApi` containers / scanner state                  | `test/integration/helpers.ts`                                  |
 
-| Fake                                                                                                         | Where                                                          | Used by                                                      |
-| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------------ |
-| Fake model server (scripted SSE for Messages, Responses, chat; records requests)                             | `platform/packages/security-scanner/test/fake-model/server.ts` | runner unit tests, e2e recorded runs, S2/S3 local parts      |
-| Fake container (`ctx.container` with `start`, `exec`, `interceptOutboundHttp`, `interceptAllOutboundHttp`)   | `platform/packages/api/test/__mocks__/container.ts`            | controller runtime unit tests                                |
-| Fake scanner controller binding (canned `findings.json` per scan, configurable status, delays, late results) | `test/integration/helpers.ts` (`createFakeSecurityScanner`)    | enqueue → ingest → gate integration tests without containers |
-| Fake AI (mock `fetch` for `/ai/v1/*`, mock `env.AI.run`)                                                     | helpers                                                        | model proxy, probe                                           |
-| `mockCfApi` containers/scanner state                                                                         | extend `test/integration/helpers.ts`                           | provisioning, probe, uninstall                               |
-
-Keeping tests fast:
-
-- Business rules are pure functions with unit tests: tier choice, filters, redaction,
-  memory, fingerprint, reopen, "new", budget math, gate judge. Integration tests cover
-  only transactions, locks and route contracts.
-- Integration tests reuse the PGlite template (it rebuilds once for 0065). No new PGlite
-  unit file except the migration test.
-- The real SDKs are not workspace dependencies (about 800 MB of native binaries, and
-  `catalogMode: strict`). The runner imports an engine interface; SDKs install only in
-  `image/` from their own lockfile. Docker e2e runs only with `VOID_SCANNER_E2E=1` and in
-  the CI image job.
-- No live Cloudflare call in `vp test run`. Live checks are one release smoke script, `platform/scripts/security-smoke-test.ts` (probe, one scan on a
-  seeded app, one gate request, cleanup), run by hand before release.
-- Watch the scheduled and zero-trust suites: they are already the slowest; new cases go
-  in new files so the forks runner spreads them.
-
-Native and Workers Free regression (AGENTS.md rule):
-
-- `packages/void/test/unit/cloudflare-deploy.test.ts`: a native deploy of an app with no
-  AI makes no `/security` request, no `/containers/` request, emits no AI binding.
-- `packages/void/test/unit/cf-version-runner.test.ts`: `body.containers` stays undefined.
-- `packages/platform/test/unit/worker-config.test.ts`: capability off → only the DO binding
-  and tag are new; capability on → only `ai` added on the API Worker; no scanner Worker in
-  `workerConfigs`.
-- `security-enqueue.test.ts`, `api-project-security.test.ts`, `admin-security.test.ts`
-  (API integration): capability off → no scan row on deploy, write routes 501.
-- `packages/void/test/unit/project-zero-trust-command.test.ts`: `project security` and
-  `zero-trust bypass` on a `cloudflare` target throw before any network call.
-
-Test size: the PR keeps its new tests under 10k lines (cut on 2026-11-25 from about
-41k). Each invariant above keeps one strong test; wording, email text, display and
-repeated validation cases were dropped. The milestone `Tests:` lines above name the files
-as first written; several were merged into the files in the invariants table or removed.
-
-Verification per AGENTS.md: exact file first (`-t` for a case), `vp run test --list`,
-`vp run test` per milestone batch, `vp check` per batch, `vp test run` once at M36.
+- Business rules are pure functions with unit tests (tier, filters, redaction, memory,
+  fingerprint, reopen, budget math, gate judge). Integration tests cover transactions, locks
+  and route contracts, on the shared PGlite template.
+- The real SDKs are not workspace dependencies (about 800 MB of native binaries); they
+  install only in `image/`. The Docker recorded run is opt-in (`VOID_SCANNER_E2E=1`, CI image
+  job).
+- No live Cloudflare call in `vp test run`.
+- Native and Workers Free regression: `cloudflare-deploy.test.ts` (no `/security`, no
+  `/containers/` request, no AI binding), `cf-version-runner.test.ts` (`body.containers`
+  undefined), `worker-config.test.ts` (capability off adds only the DO binding and tag),
+  `project-zero-trust-command.test.ts` (`project security` and `zero-trust bypass` on a
+  `cloudflare` target throw before any network call).
+- The PR keeps its new tests under 10k lines. Each invariant keeps one strong test.
 
 ## Risks and items for the user
 
-Items that need a user call are marked **(user)**. The rest are decided here and can
-be pushed back on.
+Items that need a user call are marked **(user)**.
 
-| #   | Item                                                                                                                                                                                                                                                                                                    | Plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1  | **(user)** Image source. A container app with the `durable_object` scheduling policy (the Sandbox pattern) only runs `registry.cloudflare.com/<operator account>/…` images. "An image Void publishes at a pinned digest" cannot be used as is, and PRD §5.1 forbids building on the operator's machine. | Engine B (default `@cf` model) uses the managed `cloudflare/debian-trixie` image plus the runner streamed in at start (like `sandbox-shim.ts`): nothing to publish. Engines A/C: the API copies a digest-pinned Void image into the operator registry (option A), or the app uses the `default` policy (option B). **Status:** S1b tested option A only with a ~2 MB busybox image (Worker copy by digest with short-lived registry credentials, then `image-preparations`); its numbers were not written down. A full-size engine image has not been copied live with the M13b code, so copy time per probe window is unmeasured. M13b builds option A with public images at `ghcr.io/voidzero-dev/void-security-scanner-engine-{a,c}` and both pins `null`. **Still open for the user:** OK on option A and on that publish location before the first push. |
-| R2  | One PR vs spec "DO migration one release before the feature". **Decided: single PR.**                                                                                                                                                                                                                   | The `SecurityScanScheduler` class and its `security-audits-v1` migration tag ship in the same release as the feature. The feature is off by default (capability off, policy Off), so the class stays idle. A Worker rollback cannot cross that release (Cloudflare does not roll back past a DO migration): after it, a bad release is fixed by rolling forward. Release notes and the M24 docs say so.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| R3  | **(user)** All three phases in one PR.                                                                                                                                                                                                                                                                  | Very large review. Phase 2 M30 depends on S13 and Phase 3 M32 is a new privacy promise (code leaves the developer machine). If S13 fails, M30 is dropped and noted. Suggest a stacked PR per phase if review load is too high.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| R4  | Deploy `--json` does not exist today, so spec "deploy result gains `security` in `--json`" has nothing to attach to.                                                                                                                                                                                    | Not built; noted in docs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| R5  | **(user)** Skill upstream repo URL for "security-audit-skill @ c1c8a8c" is not in the spec or repo.                                                                                                                                                                                                     | Needed before M13 vendoring. M5 ships the Void companion + profile with a stub skill.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| R6  | **(user)** Sonnet 5.5 price is missing; the meter needs a price for every model.                                                                                                                                                                                                                        | Ship Sonnet in the list but not pickable (treated as blocked) until a price is filled in.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| R7  | **(user)** Legal (S12): Agent SDK native binary in a Void-published image; OpenAI terms.                                                                                                                                                                                                                | M13 code lands; A/C models stay unpickable until S12 is OK. Fallback per PRD: ship `@cf` + Engine B first.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| R8  | "No live deploy is missed" is weaker on one path: compensate `post_routing_recovery` writes `live` outside any transaction with errors swallowed.                                                                                                                                                       | Enqueue there in its own short tx, logged on failure. The gap is accepted and listed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| R9  | Codex SDK cannot pass the lockdown flags. Spec pins 0.167.1; latest is 0.170.0.                                                                                                                                                                                                                         | Wrapper script via `codexPathOverride`, covered by the drift test. Pin the version current at M13.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| R10 | REST `/ai/v1/*` needs an AI permission on the runtime token and the `cf-aig-gateway-id` header. Binding calls may ignore the payload-off header (0094 live check A still pending).                                                                                                                      | `@cf` on the binding (no new permission); third party on REST; probe check 5 names a missing permission; S10 can move `@cf` to REST. `credentials.md` gains the row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| R11 | Uninstall keeps platform Workers unless `--purge-resources`; the PRD says uninstall removes the scanner.                                                                                                                                                                                                | Follow the PRD: uninstall always deletes the scanner Worker and container app (they hold no data; R2 data follows the bucket rule). Found by name + ownership marker, since the installer record does not list API-created resources.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| R12 | Input build runs in the API Worker (redaction needs secrets). Large T3 inputs may hit Worker CPU limits.                                                                                                                                                                                                | S7/S8 measure; if too slow, build in the scheduler DO alarm in chunks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| R13 | Phase 3 local checks: findings would break reopen and gate rules that assume a deployment.                                                                                                                                                                                                              | Separate short-lived result; never touches project findings or the gate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| R14 | Phase 3 BYOK: does BYOK spend count toward caps?                                                                                                                                                                                                                                                        | Yes, metered and counted (installation still pays compute; one rule).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| R15 | Per-plan caps: catalog parser needs the exact key set; two-release rule cannot fit one PR.                                                                                                                                                                                                              | Separate settings key `plans:security-caps` (0094 precedent). No `PlanLimits` change.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| R16 | Paging: spec asks for cursors; operator API uses page/limit.                                                                                                                                                                                                                                            | Operator routes keep page/limit (CLI consistency); project routes use a `before` cursor on `number`/`created_at`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| R17 | Old CLI on `void platform upgrade` drops the flag.                                                                                                                                                                                                                                                      | Manifest v7 when on (old CLIs refuse).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| R18 | Cron: fast tier is missing on some self-hosted installs and returns early.                                                                                                                                                                                                                              | All security jobs in the hourly tier only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| R19 | Admin shell has no banner or badge slot.                                                                                                                                                                                                                                                                | New props through `renderAdminPage` and fate renders (M18).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| R20 | Model ids and prices are for models that may change before release.                                                                                                                                                                                                                                     | One list in `@void/platform/security-models`, updated per release; S10 checks prices.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| #   | Item                                                                                                                            | Plan                                                                                                                                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | **(user)** Image source. A `durable_object` container app only runs `registry.cloudflare.com/<operator account>/…` images.      | Engine B uses the managed image plus the streamed runner. Engines A/C: the probe copies a digest-pinned public image from `ghcr.io/voidzero-dev/void-security-scanner-engine-{a,c}` (option A). Pins stay `null` until the user agrees. |
+| R2  | One PR vs spec "DO migration one release before the feature". **Decided: single PR.**                                           | The class and its `security-audits-v1` tag ship with the feature, idle while off. A Worker rollback cannot cross that release; roll forward.                                                                                            |
+| R3  | **(user)** All three phases in one PR.                                                                                          | Very large review; the user chose one PR.                                                                                                                                                                                               |
+| R4  | Deploy `--json` does not exist, so spec "deploy result gains `security`" has nothing to attach to.                              | Not built.                                                                                                                                                                                                                              |
+| R5  | **(user)** Skill upstream repo URL for "security-audit-skill @ c1c8a8c" is not in the spec or repo.                             | Prompts and report schema are Void's own until the skill is vendored.                                                                                                                                                                   |
+| R6  | **(user)** Sonnet 5.5 price is missing; the meter needs a price for every model.                                                | Listed but not pickable (`price: null`) until a price is filled in.                                                                                                                                                                     |
+| R7  | **(user)** Legal (S12).                                                                                                         | A/C models stay unpickable until S12 is OK; `@cf` + Engine B ship first.                                                                                                                                                                |
+| R8  | Compensate `post_routing_recovery` writes `live` outside any transaction.                                                       | Enqueue there in its own short tx, logged on failure. Gap accepted.                                                                                                                                                                     |
+| R9  | Codex SDK cannot pass the lockdown flags.                                                                                       | Wrapper script via `codexPathOverride`, version checked by the drift test.                                                                                                                                                              |
+| R10 | REST `/ai/v1/*` needs an AI permission and `cf-aig-gateway-id`; binding calls may ignore the payload-off header (0094 check A). | `@cf` on the binding, third party on REST; probe check 5 names a missing permission; `credentials.md` has the row.                                                                                                                      |
+| R11 | Uninstall keeps platform Workers unless `--purge-resources`; the PRD says uninstall removes the scanner.                        | Uninstall always deletes the scanner Worker, gate, apps and copied images, found by name and ownership marker. R2 data follows the bucket rule.                                                                                         |
+| R12 | Input build runs in the API Worker; large T3 inputs may hit CPU limits.                                                         | Modules are read one at a time; S7/S8 stayed in limits.                                                                                                                                                                                 |
+| R13 | Local check findings would break reopen and gate rules.                                                                         | Separate short-lived result (I12).                                                                                                                                                                                                      |
+| R14 | Does BYOK spend count toward caps?                                                                                              | Yes, metered and counted.                                                                                                                                                                                                               |
+| R15 | Per-plan caps in `PlanLimits` need the exact key set; the two-release rule cannot fit one PR.                                   | Separate settings key `plans:security-caps` (0094 precedent).                                                                                                                                                                           |
+| R16 | Paging: spec asks for cursors; operator API uses page/limit.                                                                    | Operator routes keep page/limit; project routes use a cursor.                                                                                                                                                                           |
+| R17 | Old CLI on `void platform upgrade` drops the flag.                                                                              | Manifest v7 when on (old CLIs refuse).                                                                                                                                                                                                  |
+| R18 | Cron fast tier is missing on some self-hosted installs.                                                                         | All security jobs in the hourly tier.                                                                                                                                                                                                   |
+| R19 | Admin shell has no banner or badge slot.                                                                                        | New shared page data through `renderAdminPage` and fate renders.                                                                                                                                                                        |
+| R20 | Model ids and prices may change before release.                                                                                 | One list in `@void/platform/security-models`, updated per release.                                                                                                                                                                      |
 
-Hard or impossible as written in the PRD (flagged, not silently changed): R1 (image),
-R2 (release order), R4 (deploy `--json`), R8 (one go-live path outside a transaction),
-R15 (per-plan caps in `PlanLimits`), and the `/internal/security-scans/*` HTTP routes
-(replaced by RPC with the same promise: not on the public hostname).
-
-## Docs to update
-
-| File                                                                                                                                                                                                | Change                                                                                            | Milestone |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------- |
-| `docs/guide/platform/administration/security-audits.md` (new) + sidebar in `docs/.vitepress/config.ts`                                                                                              | enable, probe, policy, models and notice, outcomes, caps, emails, scan before public, bypass      | M24       |
-| `docs/guide/platform/administration/zero-trust.md`                                                                                                                                                  | gate effects; disable and public-only refused while on                                            | M24       |
-| `docs/reference/cli.md`                                                                                                                                                                             | rows for `void project security`, `void project zero-trust bypass`, `void platform security`      | M24       |
-| `docs/reference/cli/project.md`                                                                                                                                                                     | new security section; zero-trust held output, status lines, `bypass`, `protect` cancels, `--json` | M24       |
-| `docs/reference/cli/deploy.md`                                                                                                                                                                      | short paragraph on the deploy notice (user session vs CI)                                         | M24       |
-| `docs/reference/cli/platform-security.md` (new) + `platform.md` link and paging list + sidebar                                                                                                      | operator commands                                                                                 | M24       |
-| `docs/reference/cli/platform-zero-trust.md`                                                                                                                                                         | `project-public` goes through the gate; refusals                                                  | M24       |
-| `docs/reference/cli/platform-installation.md`                                                                                                                                                       | `--security-audits` on install and upgrade                                                        | M24       |
-| `docs/guide/self-hosted-platform.md`                                                                                                                                                                | feature row: Workers Paid + Containers + AI credits                                               | M24       |
-| `docs/guide/platform/installation/credentials.md`                                                                                                                                                   | AI permission for third-party models (R10)                                                        | M24       |
-| `docs/guide/platform/installation/uninstall.md`                                                                                                                                                     | scanner Worker, container app, `security-scans/` data                                             | M24       |
-| `packages/void/skills/void/SKILL.md`                                                                                                                                                                | routing rows + one working-rule bullet (no copied instructions)                                   | M24       |
-| `platform/meta/design-docs/README.md`                                                                                                                                                               | index row (Administration and AI)                                                                 | M24       |
-| this file                                                                                                                                                                                           | status → implemented, live check results, scanner invariants                                      | M36       |
-| Phase 2/3: `project.md` (`scan`, `check`, `severity`, `--format sarif`), `platform-security.md` (backfill, sweeps, fallback, keys, `--project` policy), `plans.md` (security cap), dashboard README | –                                                                                                 | M36       |
-| `packages/void/AGENTS_TEMPLATE.md`, root `README.md`                                                                                                                                                | no change                                                                                         | –         |
-
-CLI help, the `void project` hint (`cli-main.ts`) and the `void platform` hint (from
-`operatorGroups`) change with M20–M23, as the AGENTS.md CLI rule requires.
+Hard or impossible as written in the PRD (flagged, not silently changed): R1, R2, R4, R8,
+R15, and the `/internal/security-scans/*` HTTP routes (replaced by RPC with the same
+promise: not on the public hostname).

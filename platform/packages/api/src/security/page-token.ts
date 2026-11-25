@@ -1,23 +1,19 @@
 /**
  * The signed link to the project security page (spec §13.2, §13.5): 15 minutes, one
- * user, one project. The HMAC covers a purpose label, so a token for another feature
- * (or a login JWT) never verifies here, and this token never verifies there.
- *
- * Wire form: base64url(JSON(payload)) + '.' + base64url(HMAC-SHA256(label + body)).
- * M14 mints the link (`POST /projects/:id/security/page-link`); the page route
- * that redeems it (M19) calls `verifySecurityPageToken`.
+ * user, one project, `base64url(JSON) . HMAC(purpose . body)`. The purpose label keeps
+ * other tokens (a login JWT) from verifying here.
  */
+import { isRecord } from '@void/deploy-core';
 import { constantTimeEqual, hmacSignState } from '../auth/hmac.ts';
 
 export const SECURITY_PAGE_TOKEN_TTL_SECONDS = 15 * 60;
 
 const PURPOSE = 'void:security-page:v1';
 
+/** `uid`: the user the link was minted for; `pid`: the project it opens. */
 export type SecurityPageTokenPayload = Readonly<{
   v: 1;
-  /** User the link was minted for. */
   uid: string;
-  /** Project the link opens. */
   pid: string;
   iat: number;
   exp: number;
@@ -90,10 +86,10 @@ export async function verifySecurityPageToken(
   } catch {
     return null;
   }
-  if (!payload || typeof payload !== 'object') {
+  if (!isRecord(payload)) {
     return null;
   }
-  const record = payload as Record<string, unknown>;
+  const record = payload;
   const seconds = Math.floor(now / 1000);
   if (
     record.v !== 1 ||

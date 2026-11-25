@@ -7,6 +7,7 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { securityScannerNames, securityScannerTarget } from '../provisioning/security-scanner.ts';
 import type { StartResult, StartScanRequest } from '../security-scanner-controller-runtime.ts';
+import { errorMessage } from '../zero-trust/errors.ts';
 import { reserveSecurityScanBudget, securityScanReserveNano, securitySpendCaps } from './budget.ts';
 import type { SecurityReserveResult } from './budget.ts';
 import {
@@ -24,6 +25,7 @@ import type {
   CallLedgerStorage,
   ModelCallFailure,
 } from './call-ledger.ts';
+import { securityBestEffort as bestEffort, securityScheduler } from './enqueue.ts';
 import { resolveSecurityScanModel } from './models.ts';
 import type { SecurityScanModel } from './models.ts';
 import { enqueueSecurityCapRefused, runSecurityNotifications } from './notifications.ts';
@@ -51,18 +53,13 @@ import type {
 /** A poke arms the alarm this far ahead, like `BuildScheduler`. */
 const POKE_DELAY_MS = 50;
 /** While queued work remains the alarm runs again this far ahead. */
-export const SECURITY_SCHEDULER_RESCAN_MS = 30_000;
+const RESCAN_MS = 30_000;
 /** While the platform is disabled or staged, the alarm looks again this often. */
-export const SECURITY_SCHEDULER_PAUSED_RECHECK_MS = 10 * 60_000;
+const PAUSED_RECHECK_MS = 10 * 60_000;
 /** A scan whose start failed waits this long before its one retry. */
-export const SECURITY_SCAN_RETRY_BACKOFF_MS = 60_000;
-/** Model calls per minute one Engine B scan makes when it does not wait. */
-export const SECURITY_CF_SCAN_CALLS_PER_MINUTE = 10;
-/** `floor(10 / perScanRPM)` running scans per `@cf` model, at least one (spec §6.2). */
-export const SECURITY_CF_RUNNING_PER_MODEL = Math.max(
-  1,
-  Math.floor(SECURITY_CF_CALLS_PER_MINUTE / SECURITY_CF_SCAN_CALLS_PER_MINUTE),
-);
+const RETRY_BACKOFF_MS = 60_000;
+/** Running scans per `@cf` model: the rate over the 10 calls a minute one Engine B scan makes (spec §6.2). */
+const CF_RUNNING_PER_MODEL = Math.max(1, Math.floor(SECURITY_CF_CALLS_PER_MINUTE / 10));
 const CONTROL_TIMEOUT_MS = 30_000;
 const OWNERS_KEY = 'queue:owners';
 const RETRY_PREFIX = 'queue:retry:';
@@ -80,7 +77,7 @@ export type SecurityScanController = Readonly<{
 }>;
 
 /** The Postgres side of one scheduler pass; tests replace it. */
-export type SecurityScanQueueStore = Readonly<{
+type SecurityScanQueueStore = Readonly<{
   read(): Promise<SecurityScanQueueView>;
   claim(input: Parameters<typeof claimSecurityScan>[1]): Promise<SecurityClaimOutcome>;
   reserve(input: Parameters<typeof reserveSecurityScanBudget>[1]): Promise<SecurityReserveResult>;
@@ -103,12 +100,6 @@ export type SecurityScanQueueDeps = Readonly<{
   ): Promise<void>;
 }>;
 
-export type SecurityScanQueueRun = Readonly<{
-  started: ReadonlyArray<string>;
-  /** When the alarm runs next; `null` when nothing is left to start. */
-  nextAlarm: number | null;
-}>;
-
 export function securityScanQueueStore(db: Db): SecurityScanQueueStore {
   return {
     read: () => readSecurityScanQueue(db),
@@ -121,22 +112,14 @@ export function securityScanQueueStore(db: Db): SecurityScanQueueStore {
   };
 }
 
-/**
- * The store, with a hook after a scan the scheduler itself ended (a refused start,
- * a used-up budget): the public gate judges the project again (`public-gate-flow.ts`).
- */
-export function endNotifyingStore(
+/** After a scan the scheduler itself ended, the public gate judges the project again. */
+function endNotifyingStore(
   store: SecurityScanQueueStore,
   onEnded: (scanId: string) => Promise<void>,
 ): SecurityScanQueueStore {
   const after = async (scanId: string, ended: boolean): Promise<boolean> => {
     if (ended) {
-      await onEnded(scanId).catch((error: unknown) =>
-        console.warn('[security-scan] public gate re-check failed', {
-          scanId,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
+      await bestEffort('public gate re-check', scanId, () => onEnded(scanId));
     }
     return ended;
   };
@@ -179,11 +162,10 @@ export function securityScanControllerClient(env: ApiEnv['Bindings']): SecurityS
 }
 
 /**
- * Round-robin by owner (spec §6.2): owners served longest ago (or never) first, then
- * by their oldest scan; one scan per owner per round, oldest first inside each owner.
- * One owner with many projects cannot push the others into `skipped:backlog`.
+ * Round-robin by owner (spec §6.2): owners served longest ago first, one scan per owner
+ * per round, oldest first, so one owner cannot push the others into `skipped:backlog`.
  */
-export function orderSecurityScansByOwner<T extends Pick<SecurityScanCandidate, 'ownerId'>>(
+function orderSecurityScansByOwner<T extends Pick<SecurityScanCandidate, 'ownerId'>>(
   candidates: ReadonlyArray<T>,
   servedAt: Readonly<Record<string, number>>,
 ): Array<T> {
@@ -239,41 +221,19 @@ async function startSafely(
   try {
     return await controller.start(request);
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    return { ok: false, reason: errorMessage(error) };
   }
 }
 
-const NO_MODEL: SecurityScanEnd = {
-  status: 'failed',
-  reason: 'infrastructure',
-  errorClass: 'no_model',
-  failureCause: 'installation',
-};
-
-const START_FAILED: SecurityScanEnd = {
-  status: 'failed',
-  reason: 'infrastructure',
-  errorClass: 'start_failed',
-  failureCause: 'installation',
-};
-
-const SCHEDULER_ERROR: SecurityScanEnd = {
-  status: 'failed',
-  reason: 'infrastructure',
-  errorClass: 'scheduler_error',
-  failureCause: 'installation',
-};
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function infrastructureEnd(errorClass: string): SecurityScanEnd {
+  return { status: 'failed', reason: 'infrastructure', errorClass, failureCause: 'installation' };
 }
 
 /**
- * Arms the alarm at `at` unless an earlier one is already set: a `/poke` that came in
- * during the pass (now + 50 ms) is kept, not pushed back. An alarm at or before
- * `passStart` is the one running now, so it is replaced.
+ * Arms the alarm at `at` unless an earlier one is set (a `/poke` during the pass is kept).
+ * An alarm at or before `passStart` is the one running now, so it is replaced.
  */
-export async function armSecurityScheduler(
+async function armSecurityScheduler(
   storage: Pick<SchedulerStorage, 'getAlarm' | 'setAlarm'>,
   at: number,
   passStart: number,
@@ -293,16 +253,12 @@ export async function armSecurityScheduler(
  *     claim (attempt + 1, lease) ─► reserve budget (else skipped:budget)
  *     ─► controller start ─► running; a failed start retries once, then failed (infrastructure)
  *
- * Installation concurrency comes from the policy; one running scan per project; at
- * most `SECURITY_CF_RUNNING_PER_MODEL` running scans per `@cf` model. Re-arms while
- * queued work remains. The first failed start ends the pass and the next one waits for
- * the retry back-off: a controller outage costs one scan its retry, not the whole
- * queue, and a pass never waits on one timeout after another. An error on one
- * candidate (a database blip) ends only that candidate.
+ * One running scan per project. The first failed start ends the pass and the next waits
+ * for the retry back-off, so a controller outage costs one scan its retry, not the queue.
  */
 export async function runSecurityScanQueue(
   deps: SecurityScanQueueDeps,
-): Promise<SecurityScanQueueRun> {
+): Promise<Readonly<{ started: ReadonlyArray<string>; nextAlarm: number | null }>> {
   const now = deps.now();
   const policy = await deps.readPolicy();
   if (policy.mode === 'disabled') {
@@ -340,13 +296,19 @@ export async function runSecurityScanQueue(
     let outcome: SecurityClaimOutcome;
     try {
       if (!model) {
-        if (await deps.store.endQueued(candidate.scanId, candidate.attempt, NO_MODEL)) {
+        if (
+          await deps.store.endQueued(
+            candidate.scanId,
+            candidate.attempt,
+            infrastructureEnd('no_model'),
+          )
+        ) {
           settled++;
         }
         continue;
       }
       if (isWorkersAi(model.used)) {
-        if ((cfRunning.get(model.used) ?? 0) >= SECURITY_CF_RUNNING_PER_MODEL) {
+        if ((cfRunning.get(model.used) ?? 0) >= CF_RUNNING_PER_MODEL) {
           continue;
         }
         const wait = await modelRateWaitMs(deps.storage, model.used, now);
@@ -367,7 +329,7 @@ export async function runSecurityScanQueue(
       // Nothing claimed: the row stays queued for the next pass.
       console.error('[security-scan] scheduler candidate failed', {
         scanId: candidate.scanId,
-        error: errorText(error),
+        error: errorMessage(error),
       });
       continue;
     }
@@ -405,13 +367,13 @@ export async function runSecurityScanQueue(
     }
   }
   const remaining = view.queued - settled;
-  let nextAlarm: number | null = remaining > 0 ? now + SECURITY_SCHEDULER_RESCAN_MS : null;
+  let nextAlarm: number | null = remaining > 0 ? now + RESCAN_MS : null;
   if (Number.isFinite(wakeAt)) {
     nextAlarm = nextAlarm === null ? wakeAt : Math.min(nextAlarm, wakeAt);
   }
   if (startFailed) {
     // The controller just failed: nothing starts before the retry is due.
-    nextAlarm = now + SECURITY_SCAN_RETRY_BACKOFF_MS;
+    nextAlarm = now + RETRY_BACKOFF_MS;
   }
   if (nextAlarm !== null) {
     await armSecurityScheduler(deps.storage, nextAlarm, now);
@@ -501,16 +463,16 @@ async function startClaimed(
     // The start may have landed anyway: this attempt is fenced off from here on.
     await stopAttempt(deps, scanId, attempt);
     if (attempt < SECURITY_SCAN_MAX_ATTEMPTS && (await deps.store.requeue(scanId, attempt))) {
-      await deps.storage.put(`${RETRY_PREFIX}${scanId}`, now + SECURITY_SCAN_RETRY_BACKOFF_MS);
+      await deps.storage.put(`${RETRY_PREFIX}${scanId}`, now + RETRY_BACKOFF_MS);
       return 'retry';
     }
-    await deps.store.end(scanId, attempt, START_FAILED);
+    await deps.store.end(scanId, attempt, infrastructureEnd('start_failed'));
     return 'start_failed';
   } catch (error) {
     console.error('[security-scan] scheduler start failed', {
       scanId,
       attempt,
-      error: errorText(error),
+      error: errorMessage(error),
     });
     if (startedOk) {
       // The container runs; its result or the reaper ends the attempt.
@@ -518,23 +480,16 @@ async function startClaimed(
     }
     await stopAttempt(deps, scanId, attempt);
     // Best effort: if this write fails too, the reaper ends the row at its lease.
-    await deps.store.end(scanId, attempt, SCHEDULER_ERROR).catch((endError: unknown) =>
-      console.error('[security-scan] could not end the attempt', {
-        scanId,
-        attempt,
-        error: errorText(endError),
-      }),
-    );
+    await deps.store
+      .end(scanId, attempt, infrastructureEnd('scheduler_error'))
+      .catch((endError: unknown) =>
+        console.error('[security-scan] could not end the attempt', {
+          scanId,
+          attempt,
+          error: errorMessage(endError),
+        }),
+      );
     return 'ended';
-  }
-}
-
-/** Runs `run`, logging instead of throwing, also when it throws before its promise. */
-async function bestEffort<Result>(what: string, scanId: string, run: () => Promise<Result>) {
-  try {
-    await run();
-  } catch (error) {
-    console.warn(`[security-scan] ${what} failed`, { scanId, error: errorText(error) });
   }
 }
 
@@ -548,19 +503,17 @@ async function stopAttempt(
   await bestEffort('ledger forget', scanId, () => forgetModelCalls(deps.storage, scanId, attempt));
 }
 
-export type SecurityScanCancelDeps = Readonly<{
+type SecurityScanCancelDeps = Readonly<{
   db: Db;
   controller: SecurityScanController;
   forget(scanId: string, attempt: number): Promise<number>;
 }>;
 
 /**
- * Cancels scans (project teardown, operator cancel): the rows first, so every later
- * call of a running attempt is fenced off, then the controller stops the container
- * and the call ledger forgets the attempt. The last two are best effort: the fence
- * and the controller's own hard cap stop a container that missed the cancel.
+ * Cancels scans: the rows first, so later calls of a running attempt are fenced off,
+ * then best effort the controller stop and ledger forget (the hard cap backs them up).
  */
-export async function cancelSecurityScans(
+async function cancelSecurityScans(
   deps: SecurityScanCancelDeps,
   filter: Parameters<typeof cancelSecurityScanRows>[1],
   reason: string,
@@ -579,10 +532,6 @@ export async function cancelSecurityScans(
   return canceled;
 }
 
-function schedulerStub(env: Pick<ApiEnv['Bindings'], 'SECURITY_SCAN_SCHEDULER'>) {
-  return env.SECURITY_SCAN_SCHEDULER.get(env.SECURITY_SCAN_SCHEDULER.idFromName('global'));
-}
-
 /** `teardownProject`: cancel the project's scans before the rows cascade (edge #26). */
 export async function cancelProjectSecurityScans(
   env: ApiEnv['Bindings'],
@@ -593,7 +542,7 @@ export async function cancelProjectSecurityScans(
     {
       db,
       controller: securityScanControllerClient(env),
-      forget: (scanId, attempt) => schedulerStub(env).forgetModelCalls(scanId, attempt),
+      forget: (scanId, attempt) => securityScheduler(env).forgetModelCalls(scanId, attempt),
     },
     { projectId },
     'project_deleted',
@@ -601,14 +550,9 @@ export async function cancelProjectSecurityScans(
 }
 
 /**
- * Singleton DO (`idFromName('global')`) that runs the security scan queue
- * (`runSecurityScanQueue`) and keeps the model proxy's per-attempt call state
- * (`call-ledger.ts`): session counts, the `@cf` rate guard and the last refused call.
- *
- * The class and its `security-audits-v1` migration ship on every install, with or
- * without the `securityAudits` capability, so turning the feature on never needs a
- * new migration and turning it off never needs `deleted_classes`. With the
- * capability off the alarm does nothing.
+ * Singleton DO that runs the scan queue and keeps the model proxy's per-attempt call
+ * state (`call-ledger.ts`). It ships on every install, so the capability can be turned
+ * on or off with no DO migration; with it off the alarm does nothing.
  */
 export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
   async fetch(request: Request): Promise<Response> {
@@ -627,11 +571,7 @@ export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
     const passStart = Date.now();
     // A disabled or staged platform starts no scan. Queued work waits until it is enabled.
     if (await securityWorkPaused(this.env)) {
-      await armSecurityScheduler(
-        this.ctx.storage,
-        passStart + SECURITY_SCHEDULER_PAUSED_RECHECK_MS,
-        passStart,
-      );
+      await armSecurityScheduler(this.ctx.storage, passStart + PAUSED_RECHECK_MS, passStart);
       return;
     }
     const db = createDb(this.env.HYPERDRIVE.connectionString);
@@ -654,11 +594,7 @@ export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
       });
     } catch (error) {
       console.error('[security-scan] scheduler pass failed', error);
-      await armSecurityScheduler(
-        this.ctx.storage,
-        Date.now() + SECURITY_SCHEDULER_RESCAN_MS,
-        passStart,
-      );
+      await armSecurityScheduler(this.ctx.storage, Date.now() + RESCAN_MS, passStart);
     }
     await this.sendNotifications(db, passStart);
   }
@@ -676,11 +612,7 @@ export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
       }
     } catch (error) {
       console.error('[security-notify] outbox pass failed', error);
-      await armSecurityScheduler(
-        this.ctx.storage,
-        Date.now() + SECURITY_SCHEDULER_RESCAN_MS,
-        passStart,
-      );
+      await armSecurityScheduler(this.ctx.storage, Date.now() + RESCAN_MS, passStart);
     }
   }
 

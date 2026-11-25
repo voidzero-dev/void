@@ -1,22 +1,11 @@
-import { SECURITY_LOCAL_CHECK_LIMITS } from '@void/platform/security-local-check';
 /**
- * Local checks (`void project security check`, design doc 0095 M32): a scan of a
- * working tree before it is deployed. The CLI packs the project's git-tracked files
- * (`@void/platform/security-local-check`) and talks to these steps:
- *
- *   POST …/security/checks {dryRun: true, files, bytes, size, md5} ─► model, notice, cost
- *   POST …/security/checks {files, bytes, size, md5} ─► row (trigger local, no deployment,
- *        pending_input) + one presigned R2 PUT for the archive (30 min)
- *   PUT  archive ─► R2 security-scans/{project}/scans/{scan}/local-tree.tar.gz
- *   POST …/security/checks/:id/start ─► archive there, size matches ─► queued, poke
- *   GET  …/security/checks/:id ─► the row, and once it ended, local-result.{attempt}.json
- *
- * It waits in the scan queue like any scan, and the monthly caps apply. Its result is
- * separate and short-lived (R13): it never opens, reopens, proves or holds a finding,
- * moves no base or backlog, sends no email and never decides a public request. The
- * tree is deleted when the check ends; the result goes with the scan's raw output
- * (30 days). A deploy never replaces a waiting check.
+ * Local checks (`void project security check`, design doc 0095 M32): a scan of a working
+ * tree before deploy. POST checks (preview or create + one presigned archive PUT), POST
+ * start (queued), GET (row and result). Its result is separate and short-lived (R13): it
+ * never touches findings, base, backlog, email or public requests.
  */
+import { isRecord } from '@void/deploy-core';
+import { SECURITY_LOCAL_CHECK_LIMITS } from '@void/platform/security-local-check';
 import {
   securityModelThirdPartyHost,
   securityProviderNotice,
@@ -44,10 +33,7 @@ import type { SecuritySeverity } from './schema.ts';
 
 /** The presigned upload works this long. */
 export const SECURITY_LOCAL_UPLOAD_TTL_SECONDS = 30 * 60;
-/**
- * A check still waiting for its upload after this is canceled (`upload_missing`): the
- * upload URL is dead by then, plus a margin for a PUT still in flight.
- */
+/** A check still waiting for its upload after this (URL dead, plus a margin) is canceled. */
 export const SECURITY_LOCAL_UPLOAD_STALE_MS = (SECURITY_LOCAL_UPLOAD_TTL_SECONDS + 5 * 60) * 1000;
 /** Findings one local result lists, at most. */
 export const SECURITY_LOCAL_RESULT_MAX_FINDINGS = 200;
@@ -55,10 +41,7 @@ export const SECURITY_LOCAL_RESULT_MAX_FINDINGS = 200;
 const TREE_SWEEP_LIMIT = 100;
 
 const WAITING_OR_RUNNING = ['pending_input', 'queued', 'running'] as const;
-/**
- * A check that blocks a new one. One still waiting for its upload does not: it never
- * ran and holds no reserve, so a new check replaces it (`upload_replaced`).
- */
+/** A check that blocks a new one; one waiting for its upload is replaced instead. */
 const BUSY = ['queued', 'running'] as const;
 
 function scanPrefix(projectId: string, scanId: string): string {
@@ -70,10 +53,7 @@ export function securityLocalTreeKey(projectId: string, scanId: string): string 
   return `${scanPrefix(projectId, scanId)}local-tree.tar.gz`;
 }
 
-/**
- * The result the CLI reads, written by ingest before the row ends. Per attempt: a
- * fenced-off attempt that writes late never replaces the result of the one that ended it.
- */
+/** The result the CLI reads, per attempt so a late fenced-off write never replaces it. */
 export function securityLocalResultKey(projectId: string, scanId: string, attempt: number): string {
   return `${scanPrefix(projectId, scanId)}local-result.${attempt}.json`;
 }
@@ -101,91 +81,69 @@ export type SecurityLocalCheckResult = Readonly<{
   capped: boolean;
 }>;
 
-// ---------------------------------------------------------------------------
-// Request
-// ---------------------------------------------------------------------------
-
+/** `size` and `md5` (32 lowercase hex) are signed into the upload; R2 checks the body. */
 export type SecurityLocalCheckRequest = Readonly<{
   dryRun: boolean;
-  /** Files in the archive. */
   files: number;
-  /** Their bytes, uncompressed. */
   bytes: number;
-  /** The gzip archive's size, signed into the upload. */
   size: number;
-  /** Its MD5, 32 hex characters, signed into the upload: R2 checks the body. */
   md5: string;
 }>;
 
-// oxlint-disable-next-line quality/no-unknown-returns -- Each caller validates the field it reads.
-function field(body: unknown, name: string): unknown {
-  return body && typeof body === 'object' && !Array.isArray(body)
-    ? (body as Record<string, unknown>)[name]
-    : undefined;
-}
-
-function count(body: unknown, name: string, min: number): number {
-  const value = field(body, name);
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
-    throw SecurityApiError.invalid(`${name} must be a whole number of at least ${min}.`);
-  }
-  return value;
-}
+const MB = 1024 * 1024;
 
 function isLowerHex(value: string): boolean {
   for (const char of value) {
-    if (!((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f'))) {
+    if (!'0123456789abcdef'.includes(char)) {
       return false;
     }
   }
   return true;
 }
 
-const MB = 1024 * 1024;
-
 export function parseSecurityLocalCheckRequest(body: unknown): SecurityLocalCheckRequest {
-  const dryRun = field(body, 'dryRun');
+  const input = isRecord(body) ? body : {};
+  const count = (name: string, min: number): number => {
+    const value = input[name];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min) {
+      throw SecurityApiError.invalid(`${name} must be a whole number of at least ${min}.`);
+    }
+    return value;
+  };
+  const { dryRun, md5 } = input;
   if (dryRun !== undefined && typeof dryRun !== 'boolean') {
     throw SecurityApiError.invalid('dryRun must be true or false.');
   }
-  const files = count(body, 'files', 1);
-  const bytes = count(body, 'bytes', 0);
-  const size = count(body, 'size', 1);
-  const md5 = field(body, 'md5');
+  const files = count('files', 1);
+  const bytes = count('bytes', 0);
+  const size = count('size', 1);
   if (typeof md5 !== 'string' || md5.length !== 32 || !isLowerHex(md5)) {
     throw SecurityApiError.invalid('md5 must be 32 lowercase hex characters.');
   }
   const limits = SECURITY_LOCAL_CHECK_LIMITS;
-  if (files > limits.maxFiles) {
-    throw new SecurityApiError(
+  const tooLarge = (what: string) =>
+    new SecurityApiError(
       413,
       'security_check_too_large',
-      `A local check sends at most ${limits.maxFiles.toLocaleString('en-US')} files; this tree has ${files.toLocaleString('en-US')}. Run it from the app's folder.`,
+      `A local check sends at most ${what}. Run it from the app's folder.`,
       { limits },
+    );
+  if (files > limits.maxFiles) {
+    throw tooLarge(
+      `${limits.maxFiles.toLocaleString('en-US')} files; this tree has ${files.toLocaleString('en-US')}`,
     );
   }
   if (bytes > limits.maxBytes || size > limits.maxArchiveBytes) {
-    throw new SecurityApiError(
-      413,
-      'security_check_too_large',
-      `A local check sends at most ${limits.maxBytes / MB} MB of code; this tree has ${(bytes / MB).toFixed(1)} MB. Run it from the app's folder.`,
-      { limits },
+    throw tooLarge(
+      `${limits.maxBytes / MB} MB of code; this tree has ${(bytes / MB).toFixed(1)} MB`,
     );
   }
   return { dryRun: dryRun === true, files, bytes, size, md5 };
 }
 
-// ---------------------------------------------------------------------------
-// Preview, create, start, read
-// ---------------------------------------------------------------------------
-
 type CheckProject = Readonly<{ id: string; slug: string }>;
 
-/**
- * Everything a local check needs before code leaves the machine, and what it would run
- * on. Reads only. Same scope rules as a rescan: the policy must apply to the project,
- * so an admin's `public` mode is not worked around.
- */
+/** What a local check would run on, read before code leaves the machine (rescan scope). */
 export async function previewSecurityLocalCheck(db: Db, project: CheckProject) {
   const [row] = await db
     .select({ status: projects.status, suspended: users.suspended_reason })
@@ -277,9 +235,8 @@ export type SecurityLocalUploadEnv = Pick<
 >;
 
 /**
- * Stores the check (`pending_input`, no deployment) and signs the one archive upload:
- * its size and MD5 are in the signature, and the key cannot be written twice. An
- * earlier check of the project still waiting for its upload is canceled.
+ * Stores the check (`pending_input`) and signs the one archive upload (write-once key);
+ * an earlier check still waiting for its upload is canceled.
  */
 export async function createSecurityLocalCheck(
   env: SecurityLocalUploadEnv,
@@ -371,10 +328,7 @@ async function readLocalRow(db: DbOrTx, projectId: string, checkId: string) {
   return row;
 }
 
-/**
- * The archive is uploaded: the check joins the queue. Checks it is there (its size and
- * MD5 were signed into the upload). Safe to call again: a later call reads the state.
- */
+/** The archive is uploaded: the check joins the queue. A later call reads the state. */
 export async function startSecurityLocalCheck(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2' | 'SECURITY_SCAN_SCHEDULER'>,
   db: Db,
@@ -458,10 +412,6 @@ export async function readSecurityLocalCheck(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Cleanup
-// ---------------------------------------------------------------------------
-
 /** Deletes a check's uploaded tree and forgets its key. Best effort for the caller. */
 export async function deleteSecurityLocalTree(
   db: DbOrTx,
@@ -476,11 +426,7 @@ export async function deleteSecurityLocalTree(
     .where(and(eq(securityScans.id, checkId), eq(securityScans.trigger, 'local')));
 }
 
-/**
- * Hourly: a check whose upload never came is canceled (`upload_missing`), and every
- * ended check still holding its tree loses it (a check ended at claim, by policy Off,
- * or by the reaper never reached ingest).
- */
+/** Hourly: cancels checks whose upload never came and deletes every ended check's tree. */
 export async function sweepSecurityLocalChecks(db: Db, r2: R2Bucket, now: number): Promise<number> {
   await db
     .update(securityScans)

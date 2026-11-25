@@ -2,8 +2,8 @@
  * Release step for security audits Engines A and C (design doc 0095 M13b): build the two
  * scanner images for linux/amd64, push them to ghcr.io, and pin their digests in
  * `platform/packages/api/src/security/scanner-images.json`. The API copies each image by
- * that digest into the operator's own Cloudflare registry (spike S1b option A); a release
- * with `digest: null` keeps that engine's models off.
+ * that digest into the operator's own Cloudflare registry; a release with `digest: null`
+ * keeps that engine's models off.
  *
  *   vp pack ─► docker buildx build --platform linux/amd64 --provenance=false --sbom=false
  *                 --label org.opencontainers.image.revision=<full git sha>
@@ -16,8 +16,7 @@
  *   node platform/scripts/publish-security-scanner-images.ts            # build only, writes nothing
  *   docker login ghcr.io && node platform/scripts/publish-security-scanner-images.ts --push
  * The ghcr.io packages must be public: the API Worker pulls them without credentials.
- * Push only from a commit that will be released, after the images built in CI. `--push`
- * refuses a working tree with changes: the revision label must name the code it built.
+ * `--push` refuses a working tree with changes: the revision label must name the code it built.
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -29,6 +28,7 @@ import { parseArgs } from 'node:util';
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const SCANNER = join(REPO, 'platform/packages/security-scanner');
 const PINS = join(REPO, 'platform/packages/api/src/security/scanner-images.json');
+const REVISION_LABEL = 'org.opencontainers.image.revision';
 
 const ENGINES = [
   { engine: 'agent_sdk', dockerfile: 'Dockerfile.claude' },
@@ -40,9 +40,9 @@ type Pins = Record<
   { repository: string; digest: string | null }
 >;
 
-function run(command: string, args: Array<string>, options: { cwd?: string } = {}): string {
+function run(command: string, args: Array<string>, cwd = REPO): string {
   const result = spawnSync(command, args, {
-    cwd: options.cwd ?? REPO,
+    cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'inherit'],
     maxBuffer: 64 * 1024 * 1024,
@@ -54,41 +54,31 @@ function run(command: string, args: Array<string>, options: { cwd?: string } = {
 }
 
 function isDigest(value: unknown): value is string {
-  if (typeof value !== 'string' || !value.startsWith('sha256:') || value.length !== 71) {
-    return false;
-  }
-  for (const char of value.slice(7)) {
-    if (!((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f'))) {
-      return false;
-    }
-  }
-  return true;
+  return (
+    typeof value === 'string' &&
+    value.startsWith('sha256:') &&
+    value.length === 71 &&
+    Array.from(value.slice(7)).every((char) => '0123456789abcdef'.includes(char))
+  );
 }
 
-const REVISION_LABEL = 'org.opencontainers.image.revision';
-
-/**
- * The pushed reference must be one linux/amd64 manifest (the API copy refuses an index)
- * built from `revision`.
- */
+/** The pushed reference must be one linux/amd64 manifest (the API copy refuses an index) built from `revision`. */
 function checkPushed(reference: string, revision: string): void {
-  const raw = JSON.parse(
-    run('docker', ['buildx', 'imagetools', 'inspect', '--raw', reference]),
-  ) as {
-    mediaType?: string;
-    manifests?: unknown;
-    config?: { digest?: string };
-  };
+  const inspect = (...args: Array<string>) =>
+    JSON.parse(run('docker', ['buildx', 'imagetools', 'inspect', ...args, reference])) as unknown;
+  const raw = inspect('--raw') as { mediaType?: string; manifests?: unknown };
   if (Array.isArray(raw.manifests) || raw.mediaType?.includes('index')) {
     throw new Error(`${reference} is an image index; build with --provenance=false --sbom=false.`);
   }
-  const config = JSON.parse(
-    run('docker', ['buildx', 'imagetools', 'inspect', '--format', '{{json .Image}}', reference]),
-  ) as { os?: string; architecture?: string; config?: { Labels?: Record<string, string> } };
-  if (config.os !== 'linux' || config.architecture !== 'amd64') {
-    throw new Error(`${reference} is ${config.os}/${config.architecture}, not linux/amd64.`);
+  const image = inspect('--format', '{{json .Image}}') as {
+    os?: string;
+    architecture?: string;
+    config?: { Labels?: Record<string, string> };
+  };
+  if (image.os !== 'linux' || image.architecture !== 'amd64') {
+    throw new Error(`${reference} is ${image.os}/${image.architecture}, not linux/amd64.`);
   }
-  const label = config.config?.Labels?.[REVISION_LABEL];
+  const label = image.config?.Labels?.[REVISION_LABEL];
   if (label !== revision) {
     throw new Error(`${reference} has ${REVISION_LABEL}=${label ?? '(none)'}, not ${revision}.`);
   }
@@ -96,10 +86,7 @@ function checkPushed(reference: string, revision: string): void {
 
 function main(): void {
   const { values } = parseArgs({
-    options: {
-      push: { type: 'boolean', default: false },
-      tag: { type: 'string' },
-    },
+    options: { push: { type: 'boolean', default: false }, tag: { type: 'string' } },
     strict: true,
   });
   const pins = JSON.parse(readFileSync(PINS, 'utf8')) as Pins;
@@ -108,7 +95,7 @@ function main(): void {
     throw new Error('The working tree has changes; push only from a clean checkout of a commit.');
   }
   const tag = values.tag ?? revision.slice(0, 12);
-  run(join(SCANNER, 'node_modules/.bin/vp'), ['pack'], { cwd: SCANNER });
+  run(join(SCANNER, 'node_modules/.bin/vp'), ['pack'], SCANNER);
 
   const work = mkdtempSync(join(tmpdir(), 'void-scanner-images-'));
   const next: Pins = structuredClone(pins);

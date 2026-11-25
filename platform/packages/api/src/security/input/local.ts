@@ -1,34 +1,23 @@
 /**
- * The input of a local check (`void project security check`, design doc 0095 M32).
- * The CLI uploaded the project's git-tracked files as one gzip tar
- * (`@void/platform/security-local-check`); this reads it once the scan runs:
- *
- *   fence (running, this attempt, trigger local)
- *   local-tree.tar.gz ─► walk (file and byte limits) ─► source files, priority order
- *     └ missing or broken ─► failed (input_missing)
- *   build: a full scan (no base, no backlog, no runtime copy), secrets redacted,
- *   memory of past findings as read-only context
- *   row update ─► tar stream for the container
- *
- * Nothing here touches the project's findings, backlog or base snapshot: a local
- * check is a separate result (R13). The uploaded tree stays until the check ends, so
- * a retry can read it again; `local-check.ts` deletes it then.
+ * The input of a local check (M32): the git-tracked files the CLI uploaded as one gzip
+ * tar, read once the scan runs and built as a full scan (no base, backlog or runtime
+ * copy). Missing or broken: failed (input_missing). Nothing touches the project's
+ * findings, backlog or base (R13); `local-check.ts` deletes the tree when the check ends.
  */
 import { SECURITY_LOCAL_CHECK_LIMITS } from '@void/platform/security-local-check';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Db } from '../../db.ts';
-import { pokeSecurityScanScheduler } from '../enqueue.ts';
 import { securityLocalTreeKey } from '../local-check.ts';
 import { securityRawOutputPrefix } from '../maintenance.ts';
-import { endSecurityScanAttempt } from '../queue.ts';
 import { securityScans } from '../schema.ts';
 import { buildSecurityScanInput } from './build.ts';
 import type { SecurityBuiltInput } from './build.ts';
+import { endSecurityInputMissing, recordSecurityBuiltInput, versionOneJson } from './prepare.ts';
 import type { SecurityInputEnv, SecurityPreparedInput } from './prepare.ts';
 import { loadSecurityMemory, loadSecuritySecrets } from './project-data.ts';
 import { SourceTarballError, walkSourceTarball } from './source-tar.ts';
 import { securityRepoRank } from './t1.ts';
-import { sha256Hex } from './t2.ts';
+import { compareText, sha256Hex } from './t2.ts';
 import type { SecuritySourceFile } from './t2.ts';
 import { assertTarEntries } from './tar.ts';
 import { chooseSecurityTier } from './tier.ts';
@@ -37,7 +26,7 @@ import { chooseSecurityTier } from './tier.ts';
 const SERVER_SEGMENTS = new Set(['routes', 'server', 'api', 'middleware', 'functions']);
 
 /** Priority of a working-tree file: server code, then config, other code, tests and docs. */
-export function securityLocalRank(path: string): number {
+function securityLocalRank(path: string): number {
   const lower = path.toLowerCase();
   const segments = lower.split('/');
   const name = segments.at(-1) ?? '';
@@ -53,13 +42,9 @@ export function securityLocalRank(path: string): number {
 }
 
 /** Files read from the archive, in priority order (then by path, so the order is stable). */
-export function orderLocalSources(
-  files: ReadonlyArray<SecuritySourceFile>,
-): Array<SecuritySourceFile> {
+function orderLocalSources(files: ReadonlyArray<SecuritySourceFile>): Array<SecuritySourceFile> {
   return [...files].sort(
-    (a, b) =>
-      securityLocalRank(a.path) - securityLocalRank(b.path) ||
-      (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
+    (a, b) => securityLocalRank(a.path) - securityLocalRank(b.path) || compareText(a.path, b.path),
   );
 }
 
@@ -154,10 +139,8 @@ async function readLocalTree(r2: R2Bucket, key: string): Promise<Array<SecurityS
 }
 
 /**
- * Builds and records the input of one running local check attempt. `null` when the
- * attempt is not the running one, or the tree is missing (the row then ends
- * `failed (input_missing)`). A tree with no file left to read is an empty focus: no
- * model runs and the check succeeds with nothing to report.
+ * Builds and records the input of one running local check attempt; `null` when it is not
+ * the running one or the tree is missing. No readable file: an empty focus, no model run.
  */
 export async function prepareLocalCheckInputFiles(
   env: SecurityInputEnv,
@@ -172,16 +155,7 @@ export async function prepareLocalCheckInputFiles(
   const r2 = env.STATIC_ASSETS_R2;
   const sources = await readLocalTree(r2, securityLocalTreeKey(scan.projectId, scan.id));
   if (sources === null) {
-    const ended = await endSecurityScanAttempt(db, scanId, attempt, {
-      status: 'failed',
-      reason: 'input_missing',
-      errorClass: 'input_missing',
-      failureCause: 'project',
-    });
-    if (ended) {
-      await pokeSecurityScanScheduler(env);
-    }
-    return null;
+    return endSecurityInputMissing(env, db, scanId, attempt);
   }
   const memory = await loadSecurityMemory(db, scan.projectId);
   const secrets = await loadSecuritySecrets(env, db, scan.projectId);
@@ -211,34 +185,11 @@ export async function prepareLocalCheckInputFiles(
     },
   });
   assertTarEntries(built.entries);
-  // What ingest reads back: the server's own leads (secret values found in the tree,
-  // text aimed at reviewers). No backlog or scope file: nothing moves for the project.
-  await r2.put(
-    `${securityRawOutputPrefix(scan.projectId, scan.id)}server-leads.json`,
-    JSON.stringify({ version: 1, leads: built.serverLeads }),
-  );
-  const recorded = await db
-    .update(securityScans)
-    .set({
-      tier: built.tier,
-      coverage: built.coverage,
-      coverage_notes: [...built.notes],
-      // A local check leaves no backlog: files it could not read are only counted.
-      backlog_files: 0,
-      dropped_files: built.droppedFiles,
-      dropped_bytes: built.droppedBytes,
-      files_scanned: built.filesScanned,
-      input_bytes: built.inputBytes,
-    })
-    .where(
-      and(
-        eq(securityScans.id, scan.id),
-        eq(securityScans.status, 'running'),
-        eq(securityScans.attempt, scan.attempt),
-      ),
-    )
-    .returning({ id: securityScans.id });
-  if (recorded.length === 0) {
+  // Ingest reads back only the server's leads: no backlog or scope moves for the project.
+  const leadsKey = `${securityRawOutputPrefix(scan.projectId, scan.id)}server-leads.json`;
+  await r2.put(leadsKey, versionOneJson('leads', built.serverLeads));
+  // A local check leaves no backlog: files it could not read are only counted.
+  if (!(await recordSecurityBuiltInput(db, scan.id, scan.attempt, built, { backlog_files: 0 }))) {
     return null;
   }
   return {

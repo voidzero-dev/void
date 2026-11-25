@@ -10,72 +10,41 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@astryxdesign/core/Table';
+import type { ReactNode } from 'react';
+import type { loadProjectSecurity } from '../../security-data.ts';
 import { formatDateTime } from './format.ts';
 import { FormCheckbox, FormSelector, FormTextInput } from './FormControls.tsx';
 import { SectionStack } from './SectionStack.tsx';
 
-type ProjectSecurity = Readonly<{
-  policy: Readonly<{
-    applies: boolean;
-    reason: string;
-    publicGate: boolean;
-    override: 'inherit' | 'always' | 'never';
-  }>;
-  urgent: Readonly<{ count: number; oldestFirstSeenAt: string | null; ids: ReadonlyArray<string> }>;
-  counts: Readonly<{ urgent: number; leads: number; resolved: number }>;
-  model: Readonly<{
-    id: string | null;
-    requested: string;
-    source: string | null;
-    thirdParty: boolean;
-    noticeAccepted: boolean;
-  }>;
-  models: ReadonlyArray<
-    Readonly<{
-      id: string;
-      badges: ReadonlyArray<string>;
-      pickable: boolean;
-      thirdParty: boolean;
-      notice: ReadonlyArray<string> | null;
-    }>
-  >;
-  budget: Readonly<{
-    capUsd: number | null;
-    capSource: string;
-    ceilingUsd: number | null;
-    ceilingSource: 'project' | 'plan' | 'default' | null;
-    spentUsd: number;
-  }> | null;
-  backlogFiles: number;
-  scans: ReadonlyArray<
-    Readonly<{
-      id: string;
-      status: string;
-      statusReason: string | null;
-      failureCause: string | null;
-      coverageLabel: string | null;
-      model: string | null;
-      meteredUsd: number | null;
-      createdAt: string;
-    }>
-  >;
-  bypasses: ReadonlyArray<
-    Readonly<{
-      id: string;
-      actorKind: string;
-      actorRole: string | null;
-      reason: string;
-      requestState: string;
-      createdAt: string | null;
-      deploymentId: string;
-    }>
-  >;
-}>;
-
+type ProjectSecurity = NonNullable<Awaited<ReturnType<typeof loadProjectSecurity>>>;
 type Gate = Readonly<{ request: Readonly<{ state: string }> | null; copy: string | null }>;
 
-function usd(value: number | null): string {
-  return value === null ? 'none' : `$${value.toFixed(2)}`;
+export function usd(value: number | null | undefined, none = '-'): string {
+  return value === null || value === undefined ? none : `$${value.toFixed(2)}`;
+}
+
+export function TableHead({ labels }: { labels: ReadonlyArray<string> }) {
+  return (
+    <TableHeader>
+      <TableRow>
+        {labels.map((label) => (
+          <TableHeaderCell key={label}>{label}</TableHeaderCell>
+        ))}
+      </TableRow>
+    </TableHeader>
+  );
+}
+
+export function scanStatusText(
+  scan: Readonly<{ statusReason: string | null; failureCause: string | null }>,
+): string {
+  return `${scan.statusReason ? ` ${scan.statusReason.split('_').join(' ')}` : ''}${scan.failureCause ? ` (${scan.failureCause})` : ''}`;
+}
+
+export function bypassActor(bypass: Readonly<{ actorKind: string; actorRole: string | null }>) {
+  return bypass.actorKind === 'installation_admin'
+    ? 'installation admin'
+    : (bypass.actorRole ?? 'member');
 }
 
 /** Where the per-project limit comes from (M27). */
@@ -84,6 +53,27 @@ const CEILING_SOURCES: Readonly<Record<'project' | 'plan' | 'default', string>> 
   plan: "this owner's plan",
   default: 'default for every project',
 };
+
+function ProjectForm({
+  projectId,
+  path,
+  children,
+}: {
+  projectId: string;
+  path: string;
+  children: ReactNode;
+}) {
+  return (
+    <SectionStack
+      as="form"
+      method="post"
+      action={`/admin/projects/${projectId}/security/${path}`}
+      className="void-admin-security-form"
+    >
+      {children}
+    </SectionStack>
+  );
+}
 
 export function ProjectSecuritySection({
   projectId,
@@ -118,12 +108,7 @@ export function ProjectSecuritySection({
       </p>
       {gate.request && <p>Public request: {gate.copy ?? gate.request.state}</p>}
 
-      <SectionStack
-        as="form"
-        method="post"
-        action={`/admin/projects/${projectId}/security/policy`}
-        className="void-admin-security-form"
-      >
+      <ProjectForm projectId={projectId} path="policy">
         <FormSelector
           label="Scan rule for this project"
           name="override"
@@ -136,14 +121,9 @@ export function ProjectSecuritySection({
           ]}
         />
         <Button type="submit" label="Set scan rule" variant="secondary" />
-      </SectionStack>
+      </ProjectForm>
 
-      <SectionStack
-        as="form"
-        method="post"
-        action={`/admin/projects/${projectId}/security/model`}
-        className="void-admin-security-form"
-      >
+      <ProjectForm projectId={projectId} path="model">
         <p>
           Model: {model.id ?? 'none available'}
           {model.source ? ` (${model.source})` : ''}
@@ -185,20 +165,15 @@ export function ProjectSecuritySection({
           initialValue={model.noticeAccepted}
         />
         <Button type="submit" label="Set model" variant="secondary" />
-      </SectionStack>
+      </ProjectForm>
 
       {budget && (
-        <SectionStack
-          as="form"
-          method="post"
-          action={`/admin/projects/${projectId}/security/budget`}
-          className="void-admin-security-form"
-        >
+        <ProjectForm projectId={projectId} path="budget">
           <p>
-            Cap now: {usd(budget.capUsd)} ({budget.capSource}). Limit projects may not exceed:{' '}
-            {usd(budget.ceilingUsd)}
+            Cap now: {usd(budget.capUsd, 'none')} ({budget.capSource}). Limit projects may not
+            exceed: {usd(budget.ceilingUsd, 'none')}
             {budget.ceilingSource ? ` (${CEILING_SOURCES[budget.ceilingSource]})` : ''}. Spent this
-            month: {usd(budget.spentUsd)}.
+            month: {usd(budget.spentUsd, 'none')}.
           </p>
           <FormTextInput
             label="Limit for this project (USD per month, empty to clear)"
@@ -207,7 +182,7 @@ export function ProjectSecuritySection({
             width={320}
           />
           <Button type="submit" label="Set limit" variant="secondary" />
-        </SectionStack>
+        </ProjectForm>
       )}
 
       <h3>Last scans</h3>
@@ -215,28 +190,17 @@ export function ProjectSecuritySection({
         <p>No scans yet.</p>
       ) : (
         <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Coverage</TableHeaderCell>
-              <TableHeaderCell>Model</TableHeaderCell>
-              <TableHeaderCell>Metered</TableHeaderCell>
-              <TableHeaderCell>When</TableHeaderCell>
-            </TableRow>
-          </TableHeader>
+          <TableHead labels={['Status', 'Coverage', 'Model', 'Metered', 'When']} />
           <TableBody>
             {security.scans.map((scan) => (
               <TableRow key={scan.id}>
                 <TableCell>
                   {scan.status}
-                  {scan.statusReason ? ` ${scan.statusReason.split('_').join(' ')}` : ''}
-                  {scan.failureCause ? ` (${scan.failureCause})` : ''}
+                  {scanStatusText(scan)}
                 </TableCell>
                 <TableCell>{scan.coverageLabel ?? '-'}</TableCell>
                 <TableCell>{scan.model ?? '-'}</TableCell>
-                <TableCell>
-                  {scan.meteredUsd === null ? '-' : `$${scan.meteredUsd.toFixed(2)}`}
-                </TableCell>
+                <TableCell>{usd(scan.meteredUsd)}</TableCell>
                 <TableCell>{formatDateTime(scan.createdAt, tz)}</TableCell>
               </TableRow>
             ))}
@@ -256,23 +220,11 @@ export function ProjectSecuritySection({
         <p>No bypasses.</p>
       ) : (
         <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHeaderCell>Who</TableHeaderCell>
-              <TableHeaderCell>When</TableHeaderCell>
-              <TableHeaderCell>Reason</TableHeaderCell>
-              <TableHeaderCell>Request then</TableHeaderCell>
-              <TableHeaderCell>Deployment</TableHeaderCell>
-            </TableRow>
-          </TableHeader>
+          <TableHead labels={['Who', 'When', 'Reason', 'Request then', 'Deployment']} />
           <TableBody>
             {security.bypasses.map((bypass) => (
               <TableRow key={bypass.id}>
-                <TableCell>
-                  {bypass.actorKind === 'installation_admin'
-                    ? 'installation admin'
-                    : (bypass.actorRole ?? 'member')}
-                </TableCell>
+                <TableCell>{bypassActor(bypass)}</TableCell>
                 <TableCell>
                   {bypass.createdAt ? formatDateTime(bypass.createdAt, tz) : '-'}
                 </TableCell>

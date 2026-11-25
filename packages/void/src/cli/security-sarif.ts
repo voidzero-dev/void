@@ -1,19 +1,10 @@
 /**
- * SARIF 2.1.0 export of security audit findings (design doc 0095, M31), for
- * `void project security list --format sarif` and `void platform security findings
- * --format sarif`. Code scanning tools (GitHub, editors) read it.
- *
- *   finding ─► result: rule = category, level from severity, file and lines,
- *              fingerprint = project + finding id, resolved ─► suppression
- *   categories ─► rules, with the highest `security-severity` of their results
- *
- * Paths are as the scan saw them: source paths from the repository or the source maps,
- * `_assets/…` for deployed static files, `_client/…` for client bundle sources and
- * `_worker/…` for built code with no source map.
+ * SARIF 2.1.0 export of security audit findings (design doc 0095, M31). Paths are as the
+ * scan saw them.
  */
-import { stripVTControlCharacters } from 'node:util';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 import { getOwnVersion } from './agents.ts';
+import { cleanLine } from './output.ts';
 
 /** The CLI version for the SARIF tool entry; `null` when it cannot be read. */
 export function sarifToolVersion(): string | null {
@@ -23,16 +14,6 @@ export function sarifToolVersion(): string | null {
   } catch {
     return null;
   }
-}
-
-/** Text from a model or a user: no escape sequences, one line. */
-function cleanLine(value: unknown): string {
-  let out = '';
-  for (const char of stripVTControlCharacters(String(value ?? ''))) {
-    const code = char.codePointAt(0) ?? 0;
-    out += code < 0x20 || (code >= 0x7f && code <= 0x9f) ? ' ' : char;
-  }
-  return out;
 }
 
 /** The fields of a finding the export reads; readers see only some of them. */

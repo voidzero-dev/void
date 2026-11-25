@@ -1,25 +1,18 @@
 /**
- * Scan before public (design doc 0095 M16, spec §5.5): the transaction-level building
- * blocks of the public gate. Every function here runs inside a transaction that holds
- * `withProjectZeroTrustLock` (the project row and the shared Zero Trust lock), taken by
- * `checkpointProjectReconciliation` (`zero-trust/project.ts`), or by a policy write
- * that holds the policy lock. The drivers that run Zero Trust reconciliation afterwards
- * live in `public-gate-flow.ts`.
+ * Scan before public (M16, spec §5.5): the in-transaction steps of the public gate. Each
+ * runs under `withProjectZeroTrustLock` or the policy lock; `public-gate-flow.ts` drives
+ * Zero Trust afterwards.
  *
- *   ask (a person turns protection off)   gate off ─► open: normal path
- *                                         gate on  ─► request stored or returned, judged
- *   flip (ingest, resolve, cutover, ...)  the open request is judged again
- *   bypass                                items 1–2 + no urgent finding, then recorded
- *   cancel (protect, gate off, policy off)
+ *   ask     gate off ─► open; gate on ─► request stored or returned, judged
+ *   flip    the open request is judged again (ingest, resolve, cutover, ...)
+ *   bypass  items 1–2 + no urgent finding, then recorded
+ *   cancel  protect, gate off, policy off
  *
- * A judgement that passes does not write anything: the checkpoint writes
- * `desired_protected = false` and then calls `complete`, so the request closes in the
- * same transaction as the row. A hold changes only the request.
+ * A pass writes nothing: the checkpoint writes the row, then calls `complete`.
  */
 import type { SecurityMode } from '@void/platform/security-policy';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { getPlatformCapabilities } from '../capabilities.ts';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
@@ -37,7 +30,7 @@ import {
 } from '../zero-trust/configuration.ts';
 import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
 import { projectZeroTrustAvailable } from '../zero-trust/state.ts';
-import { securityScanHoldsInputSql, securityScanInputPrefix } from './enqueue.ts';
+import { securityAuditsOn, securityScanHoldsInputSql, securityScanInputPrefix } from './enqueue.ts';
 import { SecurityApiError } from './errors.ts';
 import { SECURITY_FINDINGS_CAPPED_NOTE } from './findings.ts';
 import { securityNotesLeftFilesUnread } from './input/build.ts';
@@ -82,29 +75,19 @@ const SYSTEM: GateActor = { kind: 'system', userId: null, role: null };
 
 export type GateRequestedVia = 'project' | 'admin' | 'operator';
 
-// ---------------------------------------------------------------------------
-// Gate state
-// ---------------------------------------------------------------------------
+// --- Gate state ---
 
 export type GateState = Readonly<{ on: boolean; mode: SecurityMode }>;
 
 /**
- * Whether the gate applies now: the capability is on and the policy has the gate on.
- * Bad policy data throws `SecurityPolicyUnreadableError` (503, fail closed). Takes the
- * policy lock shared, so a policy write that turns the gate off (and cancels the open
- * requests) waits for this transaction and never misses its request.
+ * Whether the gate applies now (capability and policy on). Bad policy data throws (503).
+ * The shared policy lock makes a gate-off write wait, so it never misses a request.
  */
 export async function readGateState(
   tx: DbOrTx,
   env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>,
 ): Promise<GateState> {
-  let capability: boolean;
-  try {
-    capability = getPlatformCapabilities(env).securityAudits;
-  } catch {
-    capability = false;
-  }
-  if (!capability) {
+  if (!securityAuditsOn(env)) {
     return { on: false, mode: 'disabled' };
   }
   await lockSecurityPolicyShared(tx);
@@ -120,10 +103,7 @@ export async function publicGateIsOn(
   return (await readGateState(db, env)).on;
 }
 
-/**
- * The installation-wide Zero Trust disable and the switch to public-only mode are
- * refused while the gate is on (spec §5.5). Bad policy data refuses them too (503).
- */
+/** Zero Trust off or public-only mode is refused while the gate is on (spec §5.5). */
 export async function assertPublicGateOff(
   tx: DbOrTx,
   env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>,
@@ -136,43 +116,26 @@ export async function assertPublicGateOff(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Reading
-// ---------------------------------------------------------------------------
+// --- Reading ---
 
-export async function readOpenPublicRequest(
-  db: DbOrTx,
-  projectId: string,
-): Promise<PublicRequestRow | null> {
+const openState = () =>
+  inArray(securityPublicRequests.state, [...SECURITY_PUBLIC_REQUEST_OPEN_STATES]);
+
+async function readRequest(db: DbOrTx, projectId: string, where: SQL) {
   const [row] = await db
     .select()
     .from(securityPublicRequests)
-    .where(
-      and(
-        eq(securityPublicRequests.project_id, projectId),
-        inArray(securityPublicRequests.state, [...SECURITY_PUBLIC_REQUEST_OPEN_STATES]),
-      ),
-    )
+    .where(and(eq(securityPublicRequests.project_id, projectId), where))
     .limit(1);
   return row ?? null;
 }
 
-export async function readPublicRequestById(
-  db: DbOrTx,
-  projectId: string,
-  requestId: string,
-): Promise<PublicRequestRow | null> {
-  const [row] = await db
-    .select()
-    .from(securityPublicRequests)
-    .where(
-      and(
-        eq(securityPublicRequests.project_id, projectId),
-        eq(securityPublicRequests.id, requestId),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
+export async function readOpenPublicRequest(db: DbOrTx, projectId: string) {
+  return readRequest(db, projectId, openState());
+}
+
+export async function readPublicRequestById(db: DbOrTx, projectId: string, requestId: string) {
+  return readRequest(db, projectId, eq(securityPublicRequests.id, requestId));
 }
 
 const urgentCondition = sql`${securityFindings.verdict} = 'confirmed' AND ${securityFindings.state} = 'open' AND COALESCE(${securityFindings.severity_override}, ${securityFindings.severity}) IN ('critical', 'high')`;
@@ -191,9 +154,8 @@ export async function openUrgentFindingLabels(
 }
 
 /**
- * `fixed` critical/high claims not proven in the live code (spec §4, gate blocker): no
- * clean scan has checked them, or the live deployment was admitted before the resolve
- * (for example after a rollback).
+ * `fixed` critical/high claims not proven in the live code (spec §4): no clean scan checked
+ * them, or the live deployment was admitted before the resolve (a rollback).
  */
 export async function unprovenFixLabels(
   db: DbOrTx,
@@ -244,26 +206,20 @@ async function newestScan(
     )
     .orderBy(desc(securityScans.created_at), desc(securityScans.id))
     .limit(1);
-  return row
-    ? {
-        id: row.id,
-        status: row.status,
-        statusReason: row.statusReason,
-        failureCause: row.failureCause,
-        backlogFiles: row.backlogFiles,
-        capped: row.notes.includes(SECURITY_FINDINGS_CAPPED_NOTE),
-        unreadFiles: securityNotesLeftFilesUnread(row.notes),
-      }
-    : null;
+  if (!row) {
+    return null;
+  }
+  const { notes, ...facts } = row;
+  const capped = notes.includes(SECURITY_FINDINGS_CAPPED_NOTE);
+  return { ...facts, capped, unreadFiles: securityNotesLeftFilesUnread(notes) };
 }
 
 /** Where a new scan reads the code: a snapshot, the held staged deploy input, or the bundle. */
 type LiveInput = Readonly<{ r2Key: string | null; inputPrefix: string | null }>;
 
 /**
- * Whether a scan of the deployment can read its code: a snapshot in R2 (the
- * `skipped:protected` copy, a base kept for the next diff), the staged deploy input an
- * ended gate scan still holds (`securityScanHoldsInputSql`), or the stored Worker bundle.
+ * Whether a scan of the deployment can read its code: an R2 snapshot, the staged deploy
+ * input an ended gate scan still holds, or the stored Worker bundle.
  */
 export async function findLiveInput(
   env: Pick<ApiEnv['Bindings'], 'STATIC_ASSETS_R2'>,
@@ -324,9 +280,7 @@ export async function findLiveInput(
   return deployment?.stored ? { r2Key: null, inputPrefix: null } : null;
 }
 
-// ---------------------------------------------------------------------------
-// Judging
-// ---------------------------------------------------------------------------
+// --- Judging ---
 
 type Judged = Readonly<{
   verdict: GateVerdict;
@@ -411,52 +365,39 @@ export async function judgeRequest(
   return { verdict: judgeGate(judgeInput), activeDeploymentId: active, input };
 }
 
-// ---------------------------------------------------------------------------
-// Writing
-// ---------------------------------------------------------------------------
+// --- Writing ---
 
 async function writeEvent(
   tx: DbOrTx,
-  input: Readonly<{
-    projectId: string;
-    action: SecurityProjectEventAction;
-    actor: GateActor;
-    requestId: string;
-    state: SecurityPublicRequestState;
-  }>,
+  projectId: string,
+  action: SecurityProjectEventAction,
+  actor: GateActor,
+  request?: Readonly<{ id: string; state: SecurityPublicRequestState }>,
 ): Promise<void> {
   await tx.insert(securityProjectEvents).values({
     id: generateId('spe'),
-    project_id: input.projectId,
-    actor_kind: input.actor.kind,
-    actor_user_id: input.actor.userId,
-    actor_role: input.actor.role,
-    action: input.action,
-    request_id: input.requestId,
-    request_state: input.state,
+    project_id: projectId,
+    actor_kind: actor.kind,
+    actor_user_id: actor.userId,
+    actor_role: actor.role,
+    action,
+    request_id: request?.id,
+    request_state: request?.state,
   });
 }
 
 type Insert = typeof securityPublicRequests.$inferInsert;
 
 /**
- * A change of the project's wanted Zero Trust protection, in the transaction that writes
- * it. The admin panel flags 2+ of these in 7 days while urgent findings are open (spec
- * §11.4, edge #39): with the gate off, a protect → deploy → unprotect skips the scan.
+ * A change of the project's wanted Zero Trust protection; the admin panel flags 2+ in 7 days
+ * while urgent findings are open (spec §11.4, edge #39).
  */
 export async function recordProtectionChange(
   tx: DbOrTx,
   input: Readonly<{ projectId: string; protectedNow: boolean; actor: GateActor | null }>,
 ): Promise<void> {
-  const actor = input.actor ?? SYSTEM;
-  await tx.insert(securityProjectEvents).values({
-    id: generateId('spe'),
-    project_id: input.projectId,
-    actor_kind: actor.kind,
-    actor_user_id: actor.userId,
-    actor_role: actor.role,
-    action: input.protectedNow ? 'protection_on' : 'protection_off',
-  });
+  const action = input.protectedNow ? 'protection_on' : 'protection_off';
+  await writeEvent(tx, input.projectId, action, input.actor ?? SYSTEM);
 }
 
 async function insertRequest(tx: DbOrTx, values: Insert): Promise<PublicRequestRow> {
@@ -510,9 +451,8 @@ async function queueGateScan(
 export type GateEffects = { poke: boolean };
 
 /**
- * Applies a `hold` verdict to the request: state, reason, blockers, the gate scan (a new
- * one when the verdict asks for it and `queue` allows), and the held event and email once
- * per state per gate scan.
+ * Applies a `hold` verdict: state, reason, blockers, a new gate scan when asked for, and
+ * the held event and email once per state per gate scan.
  */
 async function applyHold(
   tx: DbOrTx,
@@ -565,13 +505,7 @@ async function applyHold(
     (state === 'held_findings' || state === 'held_no_result' || state === 'needs_deploy') &&
     (options.created === true || request.state !== state || request.gate_scan_id !== scanId)
   ) {
-    await writeEvent(tx, {
-      projectId: request.project_id,
-      action: 'public_held',
-      actor: SYSTEM,
-      requestId: request.id,
-      state,
-    });
+    await writeEvent(tx, request.project_id, 'public_held', SYSTEM, { id: request.id, state });
     if (
       await enqueueSecurityNotification(tx, {
         kind: 'public_held',
@@ -608,9 +542,24 @@ async function closeRequest(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Steps the checkpoint takes
-// ---------------------------------------------------------------------------
+/** Cancels the request with its event, and with `notify` its email. */
+async function cancelRequest(
+  tx: DbOrTx,
+  request: PublicRequestRow,
+  cause: 'protect' | 'gate_off' | 'policy_off',
+  actor: GateActor,
+  notify: boolean,
+): Promise<PublicRequestRow> {
+  const { id, project_id: projectId } = request;
+  const closed = await closeRequest(tx, request, 'canceled', { cause, userId: actor.userId });
+  await writeEvent(tx, projectId, 'public_canceled', actor, { id, state: 'canceled' });
+  if (notify) {
+    await enqueueSecurityNotification(tx, { kind: 'public_canceled', projectId, requestId: id });
+  }
+  return closed;
+}
+
+// --- Steps the checkpoint takes ---
 
 /**
  * What the gate decided for one checkpoint:
@@ -653,21 +602,11 @@ function goPassed(
     kind: 'go',
     request,
     async complete(tx) {
+      const { id, project_id: projectId } = request;
       const closed = await closeRequest(tx, request, 'passed', { scanId });
-      await writeEvent(tx, {
-        projectId: request.project_id,
-        action: 'public_passed',
-        actor: SYSTEM,
-        requestId: request.id,
-        state: 'passed',
-      });
-      if (
-        await enqueueSecurityNotification(tx, {
-          kind: 'public_now_public',
-          projectId: request.project_id,
-          requestId: request.id,
-        })
-      ) {
+      await writeEvent(tx, projectId, 'public_passed', SYSTEM, { id, state: 'passed' });
+      const notice = { kind: 'public_now_public', projectId, requestId: id } as const;
+      if (await enqueueSecurityNotification(tx, notice)) {
         effects.poke = true;
       }
       return closed;
@@ -676,10 +615,9 @@ function goPassed(
 }
 
 /**
- * A person asks to turn Zero Trust off for a protected project. Gate off (or a
- * `preview-*` project): `open`. Gate on: the open request is returned (judged again; on
- * `held_no_result` one new gate scan is queued) or one is stored and judged. A pass
- * returns `go`: the same call flips the project, and no request stays open.
+ * A person asks to turn Zero Trust off. Gate off (or `preview-*`): `open`. Gate on: the open
+ * request is judged again (asking again on `held_no_result` queues a scan) or one is stored
+ * and judged; a pass returns `go`.
  */
 export async function gateAsk(
   tx: DbOrTx,
@@ -715,13 +653,7 @@ export async function gateAsk(
     }));
   const created = existing === null;
   if (created) {
-    await writeEvent(tx, {
-      projectId: project.id,
-      action: 'public_requested',
-      actor,
-      requestId: request.id,
-      state: request.state,
-    });
+    await writeEvent(tx, project.id, 'public_requested', actor, request);
   }
   const judged = await judgeRequest(tx, env, request, active);
   if (judged.verdict.kind === 'pass') {
@@ -737,10 +669,7 @@ export async function gateAsk(
   return { kind: 'held', request };
 }
 
-/**
- * The gate's own flip: the open request `requestId` is judged again. Returns `open`
- * when that request is no longer open (the checkpoint then does nothing for it).
- */
+/** The gate's own flip: the open request `requestId` is judged again (`closed` if it is not open). */
 export async function gateFlip(
   tx: DbOrTx,
   env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES' | 'STATIC_ASSETS_R2'>,
@@ -754,20 +683,7 @@ export async function gateFlip(
   if (!gate.on) {
     // The policy write that turned the gate off cancels the requests in its own
     // transaction; a request seen open here is a missed one, never a pass.
-    const canceled = await closeRequest(tx, request, 'canceled', { cause: 'gate_off' });
-    await writeEvent(tx, {
-      projectId: input.projectId,
-      action: 'public_canceled',
-      actor: SYSTEM,
-      requestId: request.id,
-      state: 'canceled',
-    });
-    await enqueueSecurityNotification(tx, {
-      kind: 'public_canceled',
-      projectId: input.projectId,
-      requestId: request.id,
-    });
-    return { kind: 'held', request: canceled };
+    return { kind: 'held', request: await cancelRequest(tx, request, 'gate_off', SYSTEM, true) };
   }
   const active = await activeDeploymentOf(tx, input.projectId);
   const judged = await judgeRequest(tx, env, request, active);
@@ -804,10 +720,7 @@ export function parseBypassReason(value: unknown): string {
   return text;
 }
 
-/**
- * The refusal rules of a bypass, run before it changes anything. The real bypass and
- * the operator dry run both call this, so a preview cannot succeed where the call fails.
- */
+/** The refusal rules of a bypass; the operator dry run calls them too. */
 export async function checkBypassable(
   tx: DbOrTx,
   env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>,
@@ -856,11 +769,7 @@ export async function checkBypassable(
   return { open, state, unproven };
 }
 
-/**
- * Bypass (spec §5.5), under the project lock and the Zero Trust lock. Checks items 1–2
- * and that no urgent finding is open; skips the scan and the proof of `fixed` claims.
- * The caller has already refused a Zero Trust installation that is not ready.
- */
+/** Bypass (spec §5.5): items 1–2 and no urgent finding; skips the scan and `fixed` proofs. */
 export async function gateBypass(
   tx: DbOrTx,
   env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>,
@@ -890,16 +799,11 @@ export async function gateBypass(
         blocker_ids: unproven,
       });
       const closed = await closeRequest(complete, open, 'bypassed', { userId: actor.userId });
-      await writeEvent(complete, {
-        projectId: input.projectId,
-        action: 'scan_bypassed',
-        actor,
-        requestId: open.id,
+      await writeEvent(complete, input.projectId, 'scan_bypassed', actor, {
+        id: open.id,
         state: 'bypassed',
       });
-      // Ids only: the audit row outlives the project and carries no reason text. An
-      // installation admin's bypass is audited by the operator API or the admin panel
-      // around this call, so it writes no second row.
+      // Ids only (the row outlives the project). An admin's bypass is audited by its caller.
       if (actor.kind !== 'installation_admin') {
         await complete.insert(operatorEvents).values({
           id: crypto.randomUUID(),
@@ -935,9 +839,7 @@ export async function gateBypass(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Cancel
-// ---------------------------------------------------------------------------
+// --- Cancel ---
 
 /** `protect` with an open request: it only cancels. Quiet: no email (edge #80). */
 export async function cancelOpenRequestForProtect(
@@ -949,25 +851,10 @@ export async function cancelOpenRequestForProtect(
   if (!open) {
     return null;
   }
-  const closed = await closeRequest(tx, open, 'canceled', {
-    cause: 'protect',
-    userId: actor.userId,
-  });
-  await writeEvent(tx, {
-    projectId,
-    action: 'public_canceled',
-    actor,
-    requestId: open.id,
-    state: 'canceled',
-  });
-  return closed;
+  return cancelRequest(tx, open, 'protect', actor, false);
 }
 
-/**
- * The gate (or the whole policy) was turned off: every open request is canceled, the
- * projects stay protected, and requester + owner + admins are told (queued here, in the
- * policy transaction). Returns the canceled requests.
- */
+/** The gate or policy was turned off: every open request is canceled and told; projects stay protected. */
 export async function cancelAllOpenRequests(
   tx: DbOrTx,
   cause: 'gate_off' | 'policy_off',
@@ -976,24 +863,11 @@ export async function cancelAllOpenRequests(
   const rows = await tx
     .select()
     .from(securityPublicRequests)
-    .where(inArray(securityPublicRequests.state, [...SECURITY_PUBLIC_REQUEST_OPEN_STATES]))
+    .where(openState())
     .orderBy(securityPublicRequests.created_at);
   const closed: Array<PublicRequestRow> = [];
   for (const row of rows) {
-    const next = await closeRequest(tx, row, 'canceled', { cause, userId: actor.userId });
-    await writeEvent(tx, {
-      projectId: row.project_id,
-      action: 'public_canceled',
-      actor,
-      requestId: row.id,
-      state: 'canceled',
-    });
-    await enqueueSecurityNotification(tx, {
-      kind: 'public_canceled',
-      projectId: row.project_id,
-      requestId: row.id,
-    });
-    closed.push(next);
+    closed.push(await cancelRequest(tx, row, cause, actor, true));
   }
   return closed;
 }
@@ -1004,7 +878,7 @@ export async function listOpenRequestSlugs(db: DbOrTx): Promise<Array<string>> {
     .select({ slug: projects.slug })
     .from(securityPublicRequests)
     .innerJoin(projects, eq(projects.id, securityPublicRequests.project_id))
-    .where(inArray(securityPublicRequests.state, [...SECURITY_PUBLIC_REQUEST_OPEN_STATES]))
+    .where(openState())
     .orderBy(projects.slug);
   return rows.map((row) => row.slug);
 }
@@ -1025,15 +899,13 @@ export async function retargetOpenPublicRequest(
     .where(
       and(
         eq(securityPublicRequests.project_id, projectId),
-        inArray(securityPublicRequests.state, [...SECURITY_PUBLIC_REQUEST_OPEN_STATES]),
+        openState(),
         ne(securityPublicRequests.target_deployment_id, deploymentId),
       ),
     );
 }
 
-// ---------------------------------------------------------------------------
-// View
-// ---------------------------------------------------------------------------
+// --- View ---
 
 export type PublicRequestView = Readonly<{
   id: string;
@@ -1056,16 +928,13 @@ export async function publicRequestView(
   db: DbOrTx,
   request: PublicRequestRow,
 ): Promise<PublicRequestView> {
-  let requestedByRole: string | null = null;
-  if (request.requested_via !== 'project') {
-    requestedByRole = 'installation_admin';
-  } else if (request.requested_by_user_id !== null) {
-    requestedByRole = await projectRoleForUser(
-      db,
-      request.project_id,
-      request.requested_by_user_id,
-    );
-  }
+  const userId = request.requested_by_user_id;
+  const requestedByRole =
+    request.requested_via !== 'project'
+      ? 'installation_admin'
+      : userId === null
+        ? null
+        : await projectRoleForUser(db, request.project_id, userId);
   return {
     id: request.id,
     state: request.state,

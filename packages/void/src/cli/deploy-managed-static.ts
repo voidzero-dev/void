@@ -174,11 +174,5 @@ export async function runStaticDeploy(
 
   warnUnpublishedRouting(result);
   printDeploySuccess(result.published !== false);
-  await printDeploySecurityNotice({
-    client,
-    projectId: config.projectId,
-    slug: config.slug,
-    deploymentId: result.deployment,
-    cliLog,
-  });
+  await printDeploySecurityNotice({ client, ...config, deploymentId: result.deployment, cliLog });
 }

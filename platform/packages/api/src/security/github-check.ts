@@ -1,25 +1,8 @@
 /**
- * The `Void Security Audit` GitHub check (design doc 0095 M28, spec §11.3). Hosted
- * only: GitHub needs the `managedBuilds` capability.
- *
- *   scan ingest (control.ts, after commit)
- *     └► reportSecurityScanToGitHub
- *          deployment built by a platform build (container / GitHub Actions)?
- *          connection still covered by an active installation?
- *          ├► check run on the build's commit: created, then completed `neutral`
- *          │    title + summary: urgent counts and the landing link only
- *          └► open PRs whose head is that commit: one comment per project, edited
- *               in place (counts only; new only while something is urgent)
- *
- *   check_run:rerequested for this name (webhooks.ts)
- *     └► handleSecurityCheckRerequest
- *          sender's GitHub account → Void user with `settings` on the project
- *          the check's deployment is still live ─► project rescan, else no-op
- *
- * Everything here is best-effort: it never fails, delays or changes a deploy, a
- * build or a scan (D45). The conclusion is always `neutral`: "no findings" is not
- * "safe", and an informational check must never pass or fail branch protection on
- * its own.
+ * The `Void Security Audit` GitHub check (design doc 0095 M28, spec §11.3), hosted only.
+ * An ended scan of a platform build gets a `neutral` check run on its commit and one
+ * edited-in-place comment per open PR (counts and the landing link only); Re-run asks for
+ * a project rescan. All best-effort: never fails, delays or changes a deploy (D45).
  */
 import { and, count, eq, sql } from 'drizzle-orm';
 import { getPlatformCapabilities } from '../capabilities.ts';
@@ -58,13 +41,9 @@ import type { SecurityScanStatus } from './schema.ts';
 export const VOID_SECURITY_AUDIT_CHECK_RUN_NAME = 'Void Security Audit';
 
 /** Ended scans that report. Skipped, superseded and canceled scans ran nothing. */
-const REPORTED_STATUSES: ReadonlySet<SecurityScanStatus> = new Set<SecurityScanStatus>([
-  'succeeded',
-  'incomplete',
-  'failed',
-  'refused',
-  'timed_out',
-]);
+const REPORTED_STATUSES: ReadonlySet<string> = new Set(
+  'succeeded incomplete failed refused timed_out'.split(' '),
+);
 
 /** At most this many open pull requests get a comment for one commit. */
 export const SECURITY_PR_COMMENT_MAX_PULLS = 5;
@@ -87,25 +66,17 @@ function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
 
-function severityParts(counts: SecurityUrgentCounts): string {
-  const parts: Array<string> = [];
-  if (counts.critical > 0) {
-    parts.push(`${counts.critical} critical`);
-  }
-  if (counts.high > 0) {
-    parts.push(`${counts.high} high`);
-  }
-  return parts.join(', ');
+function severityParts({ critical, high }: SecurityUrgentCounts): string {
+  const parts = [critical > 0 ? `${critical} critical` : '', high > 0 ? `${high} high` : ''];
+  return parts.filter(Boolean).join(', ');
 }
 
 /** `failed` reasons about the project's own code or input; the rest are the platform's. */
 const PROJECT_FAILURE_REASONS: ReadonlySet<string> = new Set(['bad_output', 'input_missing']);
 
 /**
- * Why a scan did not finish, or `''` when no public reason is given, or `null` when it
- * did finish. `refused`, `timed out`, or a project-cause `failed` reason (`bad output`,
- * `input missing`). A platform-side reason (`credits`, `infrastructure`) is not about
- * the user's code and check runs on a public repository are public, so it is left out.
+ * Why a scan did not finish (`''`: no public reason), or `null` when it did. Platform-side
+ * reasons are left out: check runs on a public repository are public.
  */
 function unfinishedWhy(status: SecurityScanStatus, reason: string | null): string | null {
   if (status === 'refused' || status === 'timed_out') {
@@ -128,15 +99,8 @@ function urgentSentence(slug: string, counts: SecurityUrgentCounts): string {
   return `${urgent} urgent security ${plural(urgent, 'finding is', 'findings are')} open in ${slug} (${severityParts(counts)}).`;
 }
 
-/**
- * The check run's title and summary (spec §11.3). Counts and the landing link only:
- * check runs on a public repository are public.
- */
-type SecurityGitHubCheckText = Readonly<{ title: string; summary: string }>;
-
-export function securityGitHubCheckCopy(
-  input: SecurityGitHubCheckCopyInput,
-): SecurityGitHubCheckText {
+/** The check run's title and summary (spec §11.3): counts and the landing link only. */
+export function securityGitHubCheckCopy(input: SecurityGitHubCheckCopyInput) {
   const urgent = input.counts.critical + input.counts.high;
   const why = unfinishedWhy(input.status, input.statusReason);
   const because = why ? ` (${why})` : '';
@@ -187,12 +151,11 @@ export function securityPullRequestComment(
 }
 
 function isFullCommitSha(value: string | null): value is string {
-  if (value === null || value.length !== 40) {
+  if (value?.length !== 40) {
     return false;
   }
   for (const char of value) {
-    const isHex = (char >= '0' && char <= '9') || (char >= 'a' && char <= 'f');
-    if (!isHex && !(char >= 'A' && char <= 'F')) {
+    if (!'0123456789abcdefABCDEF'.includes(char)) {
       return false;
     }
   }
@@ -241,10 +204,8 @@ type CheckTarget = Readonly<{
 }>;
 
 /**
- * Where the check goes: the commit a platform build built, in the project's connected
- * repository. A deploy with no platform build (a CLI deploy from a laptop) only claims
- * its commit, so it gets no check: GitHub may not know the commit, and the code that
- * went live may not be it.
+ * The commit a platform build built, in the connected repository. A deploy with no
+ * platform build (a CLI deploy) only claims its commit, so it gets no check.
  */
 async function securityCheckTarget(
   db: Db,
@@ -322,10 +283,7 @@ export type SecurityGitHubReport =
   | Readonly<{ reported: false; reason: string }>
   | Readonly<{ reported: true; checkRunId: string | null; comments: number }>;
 
-/**
- * Reports an ended scan on GitHub. Never throws; `reported: false` says why nothing
- * was sent. Called once per stored result (the attempt fence makes ingest happen once).
- */
+/** Reports an ended scan on GitHub. Never throws; `reported: false` says why not. */
 export async function reportSecurityScanToGitHub(
   env: ApiEnv['Bindings'],
   db: Db,
@@ -370,21 +328,18 @@ export async function reportSecurityScanToGitHub(
       statusReason: scan.statusReason,
       landingUrl: link,
     });
+    const text = { ...(link ? { detailsUrl: link } : {}), ...copy };
     const checkRunId = await createCheckRun(env, target.installationId, target.repoFullName, {
       name: VOID_SECURITY_AUDIT_CHECK_RUN_NAME,
       headSha: target.headSha,
       // What `check_run:rerequested` reads back to find the project.
       externalId: scanId,
-      ...(link ? { detailsUrl: link } : {}),
-      title: copy.title,
-      summary: copy.summary,
+      ...text,
     });
     if (checkRunId !== null) {
       await completeCheckRun(env, target.installationId, target.repoFullName, checkRunId, {
         conclusion: 'neutral',
-        ...(link ? { detailsUrl: link } : {}),
-        title: copy.title,
-        summary: copy.summary,
+        ...text,
       });
     }
     const comments = await updatePullRequestComments(env, target, {
@@ -438,11 +393,7 @@ type CommentSummary = Readonly<{
   performed_via_github_app?: Readonly<{ id?: unknown; client_id?: unknown }> | null;
 }>;
 
-/**
- * A comment our App wrote. The marker alone is not enough: it shows in our comment on
- * a public repository, so another App or a workflow bot can copy it, and editing that
- * comment would be refused.
- */
+/** A comment our App wrote: the public marker alone can be copied by another bot. */
 function isOurAppComment(env: ApiEnv['Bindings'], comment: CommentSummary): boolean {
   const app = comment.performed_via_github_app;
   // `GITHUB_APP_ID` is the App's numeric id or (as a JWT issuer) its client id.
@@ -503,10 +454,8 @@ async function findOurComment(
 }
 
 /**
- * The PR comment (counts only). One per project and PR, edited in place; a new one is
- * posted only while something is urgent, so a clean scan never adds noise. Needs the
- * App's `Pull requests: write` permission: without it the scoped token cannot be
- * minted and nothing is sent. Returns how many comments were written.
+ * One comment per project and PR, edited in place; a new one only while something is
+ * urgent. Needs `Pull requests: write`. Returns how many comments were written.
  */
 async function updatePullRequestComments(
   env: ApiEnv['Bindings'],
@@ -559,16 +508,14 @@ async function updatePullRequestComments(
       if (existing === 'none' && !comment.urgent) {
         continue;
       }
-      const sent =
+      const issues = `/repos/${target.repoFullName}/issues`;
+      const sent = await github(
+        token,
         existing === 'none'
-          ? await github(token, `/repos/${target.repoFullName}/issues/${pull.number}/comments`, {
-              method: 'POST',
-              body: { body: comment.body },
-            })
-          : await github(token, `/repos/${target.repoFullName}/issues/comments/${existing}`, {
-              method: 'PATCH',
-              body: { body: comment.body },
-            });
+          ? `${issues}/${pull.number}/comments`
+          : `${issues}/comments/${existing}`,
+        { method: existing === 'none' ? 'POST' : 'PATCH', body: { body: comment.body } },
+      );
       await sent.body?.cancel();
       if (sent.ok) {
         written++;
@@ -607,12 +554,8 @@ function idText(value: unknown): string | null {
 const ignored = (reason: string): SecurityCheckRerequestResult => ({ ok: true, ignored: reason });
 
 /**
- * GitHub's Re-run button on a `Void Security Audit` check: a project rescan of the live
- * deployment, only when the clicker could ask for one in Void (a linked GitHub sign-in
- * with `settings` on the project) and the check is about the live deployment.
- * Everything else is a no-op that writes nothing to GitHub. Rescan rules (policy
- * scope, one scan at a time, stored code, monthly caps at start) are the project
- * rescan's.
+ * GitHub's Re-run: a project rescan of the live deployment when the clicker has a linked
+ * GitHub sign-in with `settings` on the project; anything else is a no-op.
  */
 export async function handleSecurityCheckRerequest(
   env: ApiEnv['Bindings'],

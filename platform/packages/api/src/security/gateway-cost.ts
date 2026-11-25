@@ -1,16 +1,7 @@
 /**
  * Gateway cost of ended scans (spec §16, PRD §10.6): what AI Gateway says each scan cost,
- * next to the metered spend, so the Scans screen can check the meter. The caps never use
- * it: gateway cost data arrives late.
- *
- *   hourly job ─► ended scans, finished 1 h – 7 d ago, cost unknown (25 a run)
- *                   no model call ──► cost 0, no query
- *                   else ──► GraphQL `aiGatewayRequestsAdaptiveGroups`, filtered on the
- *                            scan's signed `securityScan` tag, `sum { cost }`
- *                 a failed query stops the run; the rows stay unknown and are tried again
- *
- * The tag is signed under JWT_SECRET (`deriveSecurityScanTag`), the same rule as project
- * AI usage: anyone who knows the gateway URL can write log rows, never a valid tag.
+ * filtered on its signed `securityScan` tag, shown next to the metered spend. The caps
+ * never use it (it arrives late). A failed query stops the hourly run; rows stay unknown.
  */
 import { and, asc, eq, gte, isNull, lte, notInArray } from 'drizzle-orm';
 import type { Db } from '../db.ts';
@@ -45,6 +36,10 @@ type CostResponse = Readonly<{
   } | null;
   errors?: unknown;
 }>;
+
+function fail(what: string): Error {
+  return new Error(`AI Gateway cost query ${what}`);
+}
 
 /** One strict GraphQL query: any error throws, so a bad answer is never stored as a cost. */
 export async function queryAiGatewayTagCost(
@@ -82,37 +77,32 @@ export async function queryAiGatewayTagCost(
   const result = await response.json<CostResponse | null>();
   if (result?.errors !== undefined && result.errors !== null) {
     if (!Array.isArray(result.errors)) {
-      throw new Error('AI Gateway cost query returned invalid GraphQL errors');
+      throw fail('returned invalid GraphQL errors');
     }
     if (result.errors.length > 0) {
-      throw new Error(
-        `AI Gateway cost query failed: ${aiUsageGraphqlErrors(result.errors, input.apiToken)}`,
-      );
+      throw fail(`failed: ${aiUsageGraphqlErrors(result.errors, input.apiToken)}`);
     }
   }
   const accounts = result?.data?.viewer?.accounts;
   if (!Array.isArray(accounts) || accounts.length !== 1) {
-    throw new Error('AI Gateway cost query returned no account data');
+    throw fail('returned no account data');
   }
   const requests = (accounts as ReadonlyArray<CostAccount>)[0]?.requests;
   if (!Array.isArray(requests) || requests.length > 1) {
-    throw new Error('AI Gateway cost query returned invalid request data');
+    throw fail('returned invalid request data');
   }
   if (requests.length === 0) {
     return 0;
   }
   const cost = (requests as ReadonlyArray<CostRequest>)[0]?.sum?.cost;
   if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
-    throw new Error('AI Gateway cost query returned invalid cost data');
+    throw fail('returned invalid cost data');
   }
   return cost;
 }
 
 function stamp(value: string | null): number | null {
-  if (value === null) {
-    return null;
-  }
-  const ms = Date.parse(value);
+  const ms = value === null ? Number.NaN : Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
 }
 

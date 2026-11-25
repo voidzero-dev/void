@@ -20,14 +20,9 @@ import {
 import { OperatorClient, OperatorClientError } from './operator-client.ts';
 import { dim, printSuccess, sanitizeTerminalText } from './output.ts';
 import { MINIMAL_RUNTIME_LOGS_NOTE } from './platform-runtime-logs.ts';
+import { OPEN_PUBLIC_REQUEST_STATES } from './security-api-types.ts';
 
 const MAX_RUNTIME_FOLLOW_ROWS = 10_000;
-const OPEN_PUBLIC_REQUEST_STATES = new Set([
-  'waiting_scan',
-  'held_findings',
-  'held_no_result',
-  'needs_deploy',
-]);
 export const BUILD_LOG_DRAIN_TIMEOUT_MS: number = 2 * 60_000;
 
 function printable(value: unknown): string {
@@ -690,20 +685,21 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
     return runAuth(origin, args);
   }
   const client = new OperatorClient(origin, readOperatorToken(origin));
+  // Fail before contacting the server when unattended mutation authorization is missing.
+  // The security probe is a check, not a change, so it needs no confirmation.
+  if (
+    args.method === 'POST' &&
+    !(args.group === 'security' && args.action === 'probe') &&
+    !args.plan &&
+    !args.yes &&
+    (!process.stdin.isTTY || !process.stderr.isTTY)
+  ) {
+    throw new OperatorClientError(
+      'Mutations in non-interactive mode require --yes or --plan.',
+      'confirmation_required',
+    );
+  }
   if (args.group === 'security') {
-    // The probe is a check, not a change, so it needs no confirmation.
-    if (
-      args.method === 'POST' &&
-      args.action !== 'probe' &&
-      !args.plan &&
-      !args.yes &&
-      (!process.stdin.isTTY || !process.stderr.isTTY)
-    ) {
-      throw new OperatorClientError(
-        'Mutations in non-interactive mode require --yes or --plan.',
-        'confirmation_required',
-      );
-    }
     const { runSecurityOperatorCommand } = await import('./operator-security.ts');
     return runSecurityOperatorCommand(client, origin, args, {
       output,
@@ -712,13 +708,6 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
     });
   }
   if (args.method === 'POST') {
-    // Fail before contacting the server when unattended mutation authorization is missing.
-    if (!args.plan && !args.yes && (!process.stdin.isTTY || !process.stderr.isTTY)) {
-      throw new OperatorClientError(
-        'Mutations in non-interactive mode require --yes or --plan.',
-        'confirmation_required',
-      );
-    }
     if (args.group === 'deployment' && args.action === 'migrate-assets') {
       return migrateDeploymentAssets(client, origin, args);
     }
