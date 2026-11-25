@@ -34,6 +34,8 @@ export interface SendEmailOptions {
   /** Custom headers. Reserved names such as `From`, `Date` and the threading headers are ignored. */
   headers?: Record<string, string>;
   attachments?: Array<Attachment>;
+  /** An iCalendar invitation or cancellation with a matching METHOD property. */
+  calendar?: { method: 'REQUEST' | 'CANCEL'; content: string };
   /**
    * Threads this email under an earlier message, such as a reply sent from a
    * queue job after the inbound handler returned. `inReplyTo` is the parent's
@@ -146,6 +148,7 @@ export interface NormalizedEmail {
   html?: string;
   headers: Record<string, string>;
   attachments: Array<NormalizedAttachment>;
+  calendar?: SendEmailOptions['calendar'];
   /**
    * `In-Reply-To` / `References` after the ids were checked, from the
    * `threading` option or `replyEmail`. User-supplied `headers` with these

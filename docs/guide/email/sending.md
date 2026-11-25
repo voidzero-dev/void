@@ -158,6 +158,23 @@ await sendEmail({
 
 Void infers `contentType` from the filename if you omit it. An explicit value must be a valid media type. `contentId` names the image referenced by `cid:<id>` in HTML; use an ID such as `logo` or `logo@acme.dev`. The encoded message is limited to 5 MiB and custom headers to 16 KiB. Invalid attachment fields or oversized messages return `MIME_ERROR`.
 
+## Calendar invitations
+
+Pass iCalendar text in `calendar.content` to include a calendar invitation in an email. Set `calendar.method` to `REQUEST` for an invitation or update, or to `CANCEL` for a cancellation. Use the same `METHOD` in the iCalendar text and include a `text` or `html` message for recipients whose mail client does not render invitations.
+
+```ts
+import { sendEmail } from 'void/email';
+
+function sendInvite(to: string, icsText: string) {
+  return sendEmail({
+    to,
+    subject: 'Project kickoff',
+    text: 'Please join the project kickoff. See the invite for the time.',
+    calendar: { method: 'REQUEST', content: icsText },
+  });
+}
+```
+
 ## Result and errors {#result-and-errors}
 
 `sendEmail` returns a result instead of throwing. A successful result means the provider accepted the send; it does not confirm delivery to the recipient's mailbox.

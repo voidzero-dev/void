@@ -1396,6 +1396,55 @@ describe('buildMime', () => {
     expect(text).toContain('<p>html</p>');
   });
 
+  it.each(['REQUEST', 'CANCEL'] as const)(
+    'includes a calendar %s in the message alternatives',
+    async (method) => {
+      const content = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'METHOD:' + method,
+        'BEGIN:VEVENT',
+        'UID:demo@example.com',
+        'DTSTAMP:20270101T120000Z',
+        'DTSTART:20270102T120000Z',
+        'SUMMARY:Demo',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n');
+      const opts = {
+        from: 'a@x.dev',
+        to: 'b@y.dev',
+        subject: 'Demo',
+        text: 'Demo on January 2',
+        html: '<p>Demo on January 2</p>',
+        calendar: { method, content },
+        attachments: [{ filename: 'agenda.txt', content: 'Agenda' }],
+      };
+
+      const { text } = await build(opts);
+      expect(text).toMatch(
+        /Content-Type: multipart\/mixed;[\s\S]*Content-Type: multipart\/alternative;/,
+      );
+      expect(text).toContain('Content-Type: text/plain; charset=UTF-8');
+      expect(text).toContain('Content-Type: text/html; charset=UTF-8');
+      expect(text).toContain('Content-Type: text/calendar; method=' + method + '; charset=UTF-8');
+      expect(text).toContain(content);
+      expect(text).toContain('Content-Disposition: attachment; filename="agenda.txt"');
+    },
+  );
+
+  it('rejects malformed calendar options', async () => {
+    const opts = {
+      from: 'a@x.dev',
+      to: 'b@y.dev',
+      subject: 'Demo',
+      text: 'Demo on January 2',
+      calendar: { method: 'REQUEST' as const, content: ' ' },
+    };
+
+    await expect(build(opts)).rejects.toMatchObject({ code: 'MIME_ERROR' });
+  });
+
   it('encodes non-ASCII display names as RFC 2047 encoded-words', async () => {
     const { text } = await build({
       from: { email: 'j@x.dev', name: 'Jürgen Müller' },
