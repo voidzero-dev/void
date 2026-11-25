@@ -38,7 +38,7 @@ describe.each([2, 3])('SvelteKit %i compatibility', (major) => {
         );
         const pkg = JSON.parse(readFileSync(join(pg, 'package.json'), 'utf8'));
         pkg.dependencies['@sveltejs/kit'] = '2.62.0';
-        pkg.dependencies['@sveltejs/adapter-cloudflare'] = '7.2.9';
+        pkg.dependencies['@sveltejs/adapter-cloudflare'] = '7.2.10';
         writeFileSync(join(pg, 'package.json'), JSON.stringify(pkg));
         const viteConfig = readFileSync(join(pg, 'vite.config.ts'), 'utf8');
         writeFileSync(

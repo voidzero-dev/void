@@ -40,7 +40,7 @@
     "typecheck": "tsrs --noEmit --rootDir ../.."
   },
   "dependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.3.1"
+    "@sveltejs/vite-plugin-svelte": "^7.3.2"
   },
   "devDependencies": {
     "@types/node": "catalog:",
