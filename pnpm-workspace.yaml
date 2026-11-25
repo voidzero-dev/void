@@ -83,7 +83,8 @@ catalog:
   '@angular/platform-browser': ^22.2.6
   '@angular/platform-server': ^22.2.6
   '@angular/router': ^22.2.6
-  '@electric-sql/pglite': 0.5.16
+  # PostgreSQL 19 in PGlite 0.6 removes the legacy string mode tested by auth migrations.
+  '@electric-sql/pglite': 0.5.17
   # Adapter 9 changes the build output layout used by Void's SvelteKit preset.
   '@sveltejs/adapter-cloudflare': ^8.0.4
   '@sveltejs/kit': ^3.4.0
