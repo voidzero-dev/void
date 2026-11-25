@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { createPlatformDeploymentManifest } from '@void/platform';
 import { CANCEL_SYMBOL, intro } from '@voidzero-dev/vite-plus-prompts';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pc } from '../../src/cli/output.ts';
 import { parsePlatformArgs } from '../../src/cli/platform-args.ts';
 import { PlatformCloudflareClient } from '../../src/cli/platform-cloudflare.ts';
@@ -12,12 +12,14 @@ import { loadPlatformRuntime } from '../../src/cli/platform-installer.ts';
 import { runPlatformLifecycleCommand } from '../../src/cli/platform-lifecycle.ts';
 import { listSavedPlatformInstallPlans } from '../../src/cli/platform-saved-plans.ts';
 
+type Prompts = typeof import('@voidzero-dev/vite-plus-prompts');
+
 const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   multiselect: vi.fn(),
   note: vi.fn(),
   select: vi.fn(),
-  text: vi.fn(),
+  text: vi.fn<Prompts['text']>(),
   plan: vi.fn(),
 }));
 
@@ -518,6 +520,7 @@ describe('interactive platform installation prompts', () => {
     const prompt = mocks.text.mock.calls[0][0];
     expect(prompt).toMatchObject({ message: 'Installation name:', placeholder: 'company' });
     expect(prompt).not.toHaveProperty('initialValue');
+    assert(typeof prompt.validate === 'function');
     expect(prompt.validate('')).toBe('A value is required.');
     expect(prompt.validate('My Team')).toBeUndefined();
     expect(mocks.plan).toHaveBeenCalledWith(
@@ -544,6 +547,7 @@ describe('interactive platform installation prompts', () => {
     const domainPrompt = mocks.text.mock.calls.find(
       ([input]) => input.message === 'Application base domain:',
     )![0];
+    assert(typeof domainPrompt.validate === 'function');
     expect(domainPrompt.validate('')).toBe('A value is required.');
     expect(domainPrompt).not.toHaveProperty('defaultValue');
     for (const [message, suggestion] of [
@@ -553,6 +557,7 @@ describe('interactive platform installation prompts', () => {
       const prompt = mocks.text.mock.calls.find(([input]) => input.message === message)![0];
       expect(prompt).toMatchObject({ placeholder: suggestion, defaultValue: suggestion });
       expect(prompt).not.toHaveProperty('initialValue');
+      assert(typeof prompt.validate === 'function');
       expect(prompt.validate('')).toBeUndefined();
     }
     const apiPrompt = mocks.text.mock.calls.find(([input]) =>
@@ -565,6 +570,7 @@ describe('interactive platform installation prompts', () => {
     });
     expect(apiPrompt).not.toHaveProperty('initialValue');
     expect(apiPrompt).not.toHaveProperty('defaultValue');
+    assert(typeof apiPrompt.validate === 'function');
     expect(apiPrompt.validate('')).toBeUndefined();
     expect(mocks.plan).toHaveBeenCalledWith(
       expect.anything(),
