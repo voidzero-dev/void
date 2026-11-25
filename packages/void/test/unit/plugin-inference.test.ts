@@ -378,6 +378,24 @@ describe('inferProjectBindings', () => {
     });
   });
 
+  it('infers resources used only by Workflow modules and their helpers', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'workflows', 'order'), { recursive: true });
+    writeFileSync(
+      join(root, 'workflows', '_storage.ts'),
+      `import { createStorage } from 'void/storage';
+      export const files = (env) => createStorage(env.STORAGE);`,
+    );
+    writeFileSync(
+      join(root, 'workflows', 'order', 'summary.ts'),
+      `import { createAi } from 'void/ai';
+      export const ai = (env) => createAi(env);`,
+    );
+    expect(inferProjectBindings(root)).toMatchObject({ needsAI: true, needsR2: true });
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir: 'src' }));
+    expect(inferProjectBindings(root)).toMatchObject({ needsAI: true, needsR2: true });
+  });
+
   it('detects live from a stream module outside the default directories only when scanned', () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'routes'), { recursive: true });

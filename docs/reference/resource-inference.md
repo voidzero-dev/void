@@ -71,7 +71,7 @@ Regardless of mode, these are always checked:
 - **SSR entry** such as `src/main.ssr.ts`, for SSR apps that access bindings during rendering
 - **Application source** in `src/` or your configured `sourceDir`, including resource and auth imports
 - **`durable-objects/`**, which is scanned for typed Durable Object state modules in native Void apps
-- **`workflows/`**, which is scanned for Workflow modules in native Void apps
+- **`workflows/`**, which is scanned for Workflow modules and the resources they use in native Void apps
 
 ## Custom Scan Directories
 
