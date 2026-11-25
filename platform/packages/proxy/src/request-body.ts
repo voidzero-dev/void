@@ -1,3 +1,6 @@
+import { isRecord } from '@void/deploy-core';
+import type { ProxyBody } from './types.ts';
+
 const REQUEST_BODY_DEADLINE_MS = 5000;
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
@@ -51,7 +54,7 @@ async function beforeDeadline<T>(deadline: number, run: () => Promise<T>): Promi
 }
 
 /** Bound public request bodies before JSON parsing or authentication. */
-export async function readRequestJson(request: Request, maxBytes: number): Promise<unknown> {
+export async function readRequestJson(request: Request, maxBytes: number): Promise<ProxyBody> {
   const declaredLength = request.headers.get('content-length');
   if (
     declaredLength !== null &&
@@ -101,5 +104,9 @@ export async function readRequestJson(request: Request, maxBytes: number): Promi
   if (size === 0 || (expectedLength !== null && size !== expectedLength)) {
     throw new RequestBodyError('invalid request body length', 400);
   }
-  return JSON.parse(decoder.decode(bytes.subarray(0, size)));
+  const body: unknown = JSON.parse(decoder.decode(bytes.subarray(0, size)));
+  if (!isRecord(body)) {
+    throw new RequestBodyError('invalid JSON body', 400);
+  }
+  return body;
 }

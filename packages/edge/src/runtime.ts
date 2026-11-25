@@ -1,3 +1,4 @@
+import { isRecord } from '@void/deploy-core';
 import type { AssetConfig, HeaderRule, RedirectRule } from '@void/deploy-core';
 import { applyHeaderRules } from './headers.ts';
 import { redirectToHttps } from './https.ts';
@@ -44,11 +45,10 @@ export function createStaticEdgeHandler(config: StaticEdgeConfig): StaticEdgeHan
         if (!config.versionMetadataBinding) {
           return Response.json({ ready: true });
         }
-        const metadata = (env as Record<string, { id?: unknown } | undefined>)[
-          config.versionMetadataBinding
-        ];
+        const bindings: Record<string, unknown> = env;
+        const metadata = bindings[config.versionMetadataBinding];
         return Response.json(
-          { ready: true, versionId: metadata?.id },
+          { ready: true, versionId: isRecord(metadata) ? metadata.id : undefined },
           { headers: { 'cache-control': 'no-store' } },
         );
       }

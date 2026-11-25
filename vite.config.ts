@@ -425,6 +425,9 @@ const config = defineConfig({
           'packages/void/src/{codegen,router}/**/*',
           'packages/void/src/plugin-*.ts',
           'platform/packages/dispatch/**/*',
+          'platform/packages/proxy/src/**/*',
+          'platform/packages/api/src/{assets,concurrency}.ts',
+          'platform/packages/api/src/zero-trust/**/*',
         ],
         rules: { 'quality/no-unknown-returns': 'error' },
       },
@@ -438,7 +441,7 @@ const config = defineConfig({
       },
       {
         files: [
-          'packages/{deploy-core,isr}/src/**/*',
+          'packages/{create-void,deploy-core,edge,isr}/src/**/*',
           'packages/platform/src/{email-protocol,plans}.ts',
         ],
         rules: { 'typescript/no-unsafe-type-assertion': 'error' },

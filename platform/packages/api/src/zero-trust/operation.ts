@@ -267,11 +267,11 @@ async function skipFailedProject(
 }
 
 /** Run one project's work inside an installation batch; only operation-wide failures escape. */
-async function runOperationProjectStep(
+async function runOperationProjectStep<Result>(
   db: Db,
   configuration: ZeroTrustConfiguration,
   projectId: string,
-  step: () => Promise<unknown>,
+  step: () => Promise<Result>,
 ): Promise<void> {
   try {
     await step();

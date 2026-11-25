@@ -1,4 +1,3 @@
-import { isRecord } from '@void/deploy-core';
 import { usageLimitResponse } from '@void/edge';
 import { verifyEmailReceipt } from '@void/platform/email-protocol';
 import { isProjectId } from '@voidcloud/api/id';
@@ -74,16 +73,12 @@ app.all('/*', async (context, next) => {
 // The tenant calls this over its internal service binding. EMAIL_SIGNING_SECRET never
 // enters the tenant, so a project token cannot mint a gateway receipt.
 app.post('/email/verify-receipt', async (context) => {
-  let body: unknown;
+  let input: ProxyBody;
   try {
-    body = await readRequestJson(context.req.raw, 2 * 1024);
+    input = await readRequestJson(context.req.raw, 2 * 1024);
   } catch {
     return context.json({ valid: false }, 400);
   }
-  if (!body || typeof body !== 'object') {
-    return context.json({ valid: false }, 400);
-  }
-  const input = body as Record<string, unknown>;
   if (
     typeof input.projectId !== 'string' ||
     input.projectId.length > 128 ||
@@ -160,11 +155,7 @@ app.post('/*', async (context, next) => {
     // Five MiB of MIME expands to about seven MiB of base64, plus JSON metadata.
     const maxBytes =
       path === '/email' || path.startsWith('/email/') ? 8 * 1024 * 1024 : requestBodyMaxBytes(path);
-    const json = await readRequestJson(context.req.raw, maxBytes);
-    if (!isRecord(json)) {
-      return context.json({ error: 'invalid JSON body' }, 400);
-    }
-    body = json;
+    body = await readRequestJson(context.req.raw, maxBytes);
   } catch (error) {
     if (path !== '/email' && !path.startsWith('/email/') && error instanceof RequestBodyError) {
       return context.json({ error: error.message }, error.status);
