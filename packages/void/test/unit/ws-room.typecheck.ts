@@ -76,6 +76,6 @@ void room.actions.revokeSession(1, 4001);
 // @ts-expect-error Action arguments are required.
 void room.actions.revokeSession('session_1');
 // @ts-expect-error Only declared actions exist.
-room.actions.missing();
+void room.actions.missing;
 // @ts-expect-error defineWebSocket() routes expose no actions.
 getRoom('/feed');

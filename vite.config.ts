@@ -299,11 +299,6 @@ const config = defineConfig({
         },
       },
       {
-        // TypeScript checks these compile-only fixtures, including deliberate invalid calls.
-        files: ['**/*.typecheck.ts'],
-        rules: { 'typescript/no-unsafe-call': 'off' },
-      },
-      {
         // Guard explicit any in TypeScript tests as well as production.
         files: ['**/*.{ts,tsx,mts,cts}'],
         rules: { 'typescript/no-explicit-any': 'error' },

@@ -35,13 +35,13 @@ describe('typed fetch client', () => {
       // @ts-expect-error - 'missing' does not exist on { ok: boolean }
       void hello.missing;
       // @ts-expect-error - ok is boolean, toUpperCase exists only on string
-      void hello.ok.toUpperCase();
+      void hello.ok.toUpperCase;
 
       const users = await typedFetch('/api/users');
       // array methods are available
       void users.map;
       // @ts-expect-error - toFixed does not exist on array
-      void users.toFixed();
+      void users.toFixed;
 
       const user = await typedFetch('/api/users/:id', { params: { id: '1' } });
       // @ts-expect-error - 'email' does not exist on { id: string; name: string }
