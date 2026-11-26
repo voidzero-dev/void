@@ -43,10 +43,17 @@ export function useLinkStatus(
 ): LinkStatus {
   const router = useContext(RouterContext);
   const navigation = useContext(NavigationContext);
-  return useMemo(
-    () => getLinkStatus(router, navigation, href, { method, data, activeMatch }),
-    [activeMatch, data, href, method, navigation, router],
+  return useStableLinkStatus(
+    useMemo(
+      () => getLinkStatus(router, navigation, href, { method, data, activeMatch }),
+      [activeMatch, data, href, method, navigation, router],
+    ),
   );
+}
+
+/** Keeps one object per status value so memoized children and effects skip unchanged updates. */
+function useStableLinkStatus({ current, active, pending }: LinkStatus): LinkStatus {
+  return useMemo(() => ({ current, active, pending }), [active, current, pending]);
 }
 
 export function Link({
@@ -89,9 +96,11 @@ export function Link({
     () => linkPrefetchStrategies({ prefetch, reloadDocument }, { isGet }, defaultStrategy),
     [defaultStrategy, isGet, prefetch, reloadDocument],
   );
-  const status = useMemo(
-    () => resolvedLinkStatus(router, navigation, link, activeMatch),
-    [activeMatch, link, navigation, router],
+  const status = useStableLinkStatus(
+    useMemo(
+      () => resolvedLinkStatus(router, navigation, link, activeMatch),
+      [activeMatch, link, navigation, router],
+    ),
   );
   const attributes = linkStatusAttributes(status);
   const hoverDelay = router?._hoverDelay ?? 75;

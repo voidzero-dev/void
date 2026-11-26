@@ -390,6 +390,18 @@ describe('public link status', () => {
     });
   });
 
+  it('reports nothing without a router', () => {
+    expect(getLinkStatus(null, navigation, '/café/posts?page=2#top')).toEqual({
+      current: false,
+      active: false,
+      pending: false,
+    });
+    expect(isLinkActive(null, '/', { activeMatch: 'prefix' })).toBe(false);
+    expect(isLinkActive(undefined, '/café/posts')).toBe(false);
+    expect(isLinkPending(null, navigation, '/café/posts?page=2#top')).toBe(false);
+    expect(isLinkPending(router, null, '/café/posts?page=2#top')).toBe(false);
+  });
+
   it('reports a pending submission for a matching non-GET link', () => {
     const submission = { ...navigation, state: 'submitting', method: 'POST' } as const;
     expect(getLinkStatus(router, submission, '/café/posts?page=2#top', { method: 'post' })).toEqual(

@@ -1,6 +1,7 @@
 import {
   handleLinkClick,
   linkStatusAttributes,
+  linkStatusEquals,
   resolvedLinkStatus,
   linkPrefetchStrategies,
   observeLinkVisible,
@@ -97,9 +98,11 @@ const LinkComponent = defineComponent({
     const strategies = computed(() =>
       linkPrefetchStrategies(props, link.value, router?._prefetchDefaultStrategy),
     );
-    const status = computed(() =>
-      resolvedLinkStatus(router, navigation, link.value, props.activeMatch),
-    );
+    // Keep the previous object for an equal status so the render skips unchanged updates.
+    const status = computed<LinkStatus>((previous) => {
+      const next = resolvedLinkStatus(router, navigation, link.value, props.activeMatch);
+      return previous && linkStatusEquals(previous, next) ? previous : next;
+    });
 
     function doPrefetch() {
       prefetchLink(router, link.value.href, props.cacheFor);
