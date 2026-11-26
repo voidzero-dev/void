@@ -271,8 +271,7 @@ describe('origin-scoped self-hosted Access login', () => {
     spawnSyncMock.mockImplementation((_command, args: Array<string>) =>
       args[1] === 'login' ? { status: 0, stdout: '' } : { status: 0, stdout: fresh },
     );
-    // stdout may be piped, as in `void db execute --remote --json | jq`: the sign-in uses stdin
-    // and stderr.
+    // With stdout piped, the sign-in writes to stderr.
     await withTerminals({ stdin: true, stdout: false, stderr: true }, async () => {
       const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
       ensurePlatformAccessToken('https://api.example.com', true);
@@ -281,7 +280,6 @@ describe('origin-scoped self-hosted Access login', () => {
       ['access', 'login', '--quiet', 'https://api.example.com'],
       ['access', 'token', '-app=https://api.example.com'],
     ]);
-    // The browser login keeps the JWT and its messages off stdout.
     expect(spawnSyncMock.mock.calls[0]?.[2]).toMatchObject({ stdio: ['inherit', 2, 'inherit'] });
     expect(cfAccessHeaders(process.env, 'https://api.example.com')).toEqual({
       'cf-access-token': fresh,
@@ -289,27 +287,74 @@ describe('origin-scoped self-hosted Access login', () => {
     expect(keyring.write).toHaveBeenCalledWith('dev.void.cli.access', expect.any(String), fresh);
   });
 
-  it('signs in only with a terminal on stdin and stderr', async () => {
-    keyring.read.mockReturnValue(jwt(Math.floor(Date.now() / 1000) + 600));
-    for (const terminals of [
-      { stdin: true, stdout: true, stderr: false },
-      { stdin: false, stdout: true, stderr: true },
-    ]) {
-      spawnSyncMock.mockReset();
-      await withTerminals(terminals, async () => {
-        vi.resetModules();
-        const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
-        expect(() => ensurePlatformAccessToken('https://api.example.com', true)).toThrow(
-          'Re-run this command in an interactive terminal to renew it.',
+  it('signs in on stdout, or on stderr while stdout is redirected or kept for results', async () => {
+    const fresh = jwt(Math.floor(Date.now() / 1000) + 900);
+    const cases: Array<{
+      terminals: Record<'stdin' | 'stdout' | 'stderr', boolean>;
+      reserved: boolean;
+      output: 1 | 2 | undefined;
+    }> = [
+      // An interactive command with its messages in a file (`void db execute ... 2>log`).
+      { terminals: { stdin: true, stdout: true, stderr: false }, reserved: false, output: 1 },
+      { terminals: { stdin: true, stdout: true, stderr: true }, reserved: false, output: 1 },
+      { terminals: { stdin: true, stdout: false, stderr: true }, reserved: false, output: 2 },
+      // `void db execute --remote --json` in a terminal keeps stdout for its results.
+      { terminals: { stdin: true, stdout: true, stderr: true }, reserved: true, output: 2 },
+      {
+        terminals: { stdin: true, stdout: true, stderr: false },
+        reserved: true,
+        output: undefined,
+      },
+      {
+        terminals: { stdin: false, stdout: true, stderr: true },
+        reserved: false,
+        output: undefined,
+      },
+      {
+        terminals: { stdin: true, stdout: false, stderr: false },
+        reserved: false,
+        output: undefined,
+      },
+    ];
+    const write = process.stdout.write;
+    for (const { terminals, reserved, output } of cases) {
+      keyring.read.mockReturnValue(jwt(Math.floor(Date.now() / 1000) + 600));
+      spawnSyncMock
+        .mockReset()
+        .mockImplementation((_command, args: Array<string>) =>
+          args[1] === 'login' ? { status: 0, stdout: '' } : { status: 0, stdout: fresh },
         );
-      });
-      expect(spawnSyncMock).not.toHaveBeenCalled();
+      vi.resetModules();
+      if (reserved) {
+        const { reserveStdoutForResults } = await import('../../src/cli/stdout-results.ts');
+        reserveStdoutForResults();
+      }
+      try {
+        await withTerminals(terminals, async () => {
+          const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
+          const renew = () => ensurePlatformAccessToken('https://api.example.com', true);
+          if (output === undefined) {
+            expect(renew).toThrow('Re-run this command in an interactive terminal to renew it.');
+          } else {
+            renew();
+          }
+        });
+      } finally {
+        process.stdout.write = write;
+      }
+      if (output === undefined) {
+        expect(spawnSyncMock).not.toHaveBeenCalled();
+      } else {
+        expect(spawnSyncMock.mock.calls[0]?.[2]).toMatchObject({
+          stdio: ['inherit', output, 'inherit'],
+        });
+      }
     }
 
-    // Nor does an expired credential start one.
+    // Nor does an expired credential start a sign-in without a terminal to write to.
     keyring.read.mockReturnValue(jwt(1));
     spawnSyncMock.mockReset().mockReturnValue({ status: 0, stdout: '' });
-    await withTerminals({ stdin: true, stdout: true, stderr: false }, async () => {
+    await withTerminals({ stdin: true, stdout: false, stderr: false }, async () => {
       vi.resetModules();
       const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
       expect(() => ensurePlatformAccessToken('https://api.example.com')).toThrow(

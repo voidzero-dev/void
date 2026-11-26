@@ -71,6 +71,7 @@ import { formatTimestamp } from './gen.ts';
 import { Buffer } from './node-buffer.ts';
 import { printSuccess, dim, formatCount, formatUrl, getErrorMessage, pc } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
+import { reserveStdoutForResults } from './stdout-results.ts';
 import { drizzleKitBin } from './yarn-pnp.ts';
 
 const DEFAULT_SEED_FILES = [
@@ -203,8 +204,11 @@ function validatePendingMigrations(
 
 export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
   if (args.action === 'execute' && args.json) {
-    // Before the config loads, which may write to stdout.
-    const printResults = reserveStdoutForResults();
+    // Before the config loads, which may write to stdout or start a process that does.
+    const writeResults = reserveStdoutForResults();
+    const printResults: PrintResults = (results) => {
+      writeResults(`${formatStatementResults(results)}\n`);
+    };
     await runExecute(root, args, getDatabaseDialect(readConfig(root)), printResults);
     return;
   }
@@ -1031,32 +1035,6 @@ function mySqlJsonUri(dbUrl: string): string {
 
 /** How `void db execute --json` prints its results. */
 type PrintResults = (results: Array<StatementResult>) => void;
-
-/** stdout's own write, and what takes its place while stdout is kept for results. */
-let reservedStdout:
-  | { write: (text: string) => void; redirect: typeof process.stdout.write }
-  | undefined;
-
-/**
- * Keep stdout for `void db execute --json` results, and return the function that prints them.
- * Anything else written to stdout from then on goes to stderr until the process exits: a
- * console.log in void.config.ts runs each time the command loads the config, and a timer the
- * config starts may still write after the results. A second command in the same process keeps
- * the first one's place, unless stdout's write has changed since.
- */
-function reserveStdoutForResults(): PrintResults {
-  const { stdout, stderr } = process;
-  if (reservedStdout?.redirect !== stdout.write) {
-    const redirect = ((...args: Parameters<typeof stderr.write>) =>
-      stderr.write(...args)) as typeof stdout.write;
-    reservedStdout = { write: stdout.write.bind(stdout), redirect };
-    stdout.write = redirect;
-  }
-  const { write } = reservedStdout;
-  return (results) => {
-    write(`${formatStatementResults(results)}\n`);
-  };
-}
 
 /**
  * Prompt the user to confirm a destructive remote query when running in a TTY.

@@ -71,7 +71,7 @@ For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a 
 
 ### JSON output {#void-db-execute-json}
 
-Pass `--json` to read results from a script. stdout receives only a JSON array with one entry per statement, including statements in SQL with several statements. Prompts, warnings, errors and any other output, such as messages that `void.config.ts` prints, go to stderr, and a failure exits with a non-zero status.
+Pass `--json` to read results from a script. stdout receives only a JSON array with one entry per statement, including statements in SQL with several statements. Prompts, warnings, errors and any other output, such as messages that `void.config.ts` or a process it starts prints, go to stderr, and a failure exits with a non-zero status.
 
 ```sh
 void db execute --json "select count(*) as total from users; select id from users limit 1"

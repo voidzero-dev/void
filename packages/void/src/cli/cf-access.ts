@@ -3,6 +3,7 @@ import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
 import { Buffer } from './node-buffer.ts';
 import { normalizePlatformApiUrl, platformCredentialAccount } from './platform-registry.ts';
+import { isStdoutReservedForResults } from './stdout-results.ts';
 
 const ACCESS_KEYRING_SERVICE = 'dev.void.cli.access';
 const keyringTokens = new Map<string, string | null>();
@@ -136,29 +137,40 @@ export function ensurePlatformAccessToken(
 }
 
 /**
- * Whether a browser sign-in can run: it needs a terminal on stdin and stderr, where it writes.
- * stdout may be redirected, as it is for a command's result (`void db execute --json | jq`).
+ * The terminal a browser sign-in writes to: stdout, or stderr while stdout is redirected or kept
+ * for a command's result (`void db execute --json | jq`). Undefined when neither is a terminal
+ * it may use, or stdin is not one, so no sign-in can run.
  */
-function canSignIn(): boolean {
-  return Boolean(process.stdin.isTTY && process.stderr.isTTY);
+function signInOutput(): 1 | 2 | undefined {
+  if (!process.stdin.isTTY) {
+    return undefined;
+  }
+  if (process.stdout.isTTY && !isStdoutReservedForResults()) {
+    return 1;
+  }
+  return process.stderr.isTTY ? 2 : undefined;
 }
 
-/**
- * Sign in through the browser. `--quiet` keeps the JWT off the terminal, and cloudflared's
- * output goes to stderr, since stdout may carry a command's result (`void db execute --json`).
- */
+function canSignIn(): boolean {
+  return signInOutput() !== undefined;
+}
+
+/** Sign in through the browser. `--quiet` keeps the JWT off the terminal. */
 function runCloudflaredLogin(origin: string): void {
-  runCloudflared(['access', 'login', '--quiet', origin], { inherit: true, timeoutMs: 120_000 });
+  runCloudflared(['access', 'login', '--quiet', origin], {
+    output: signInOutput(),
+    timeoutMs: 120_000,
+  });
 }
 
 function runCloudflared(
   args: Array<string>,
-  opts?: { inherit?: boolean; timeoutMs?: number },
+  opts?: { output?: 1 | 2; timeoutMs?: number },
 ): string | null {
   try {
     const result = spawnSync('cloudflared', args, {
       encoding: 'utf8',
-      stdio: opts?.inherit ? ['inherit', 2, 'inherit'] : ['ignore', 'pipe', 'pipe'],
+      stdio: opts?.output ? ['inherit', opts.output, 'inherit'] : ['ignore', 'pipe', 'pipe'],
       timeout: opts?.timeoutMs ?? 5000,
     });
     if (result.error || result.status !== 0) {
