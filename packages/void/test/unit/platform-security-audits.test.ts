@@ -38,6 +38,9 @@ function fakeClient(reads: Record<string, unknown>, missing = (_path: string) =>
       }
       throw new PlatformCloudflareApiError('missing', missing(path), path);
     },
+    async emptyR2Bucket(_account: string, bucket: string): Promise<void> {
+      calls.push(`EMPTY ${bucket}`);
+    },
   };
   return { client, calls };
 }
@@ -56,7 +59,7 @@ describe('security scanner uninstall', () => {
     ]);
   });
 
-  it('removes the copy namespace, leftover copy stores and the sandbox after the controller', async () => {
+  it('removes the copy namespace, leftover copy stores (buckets emptied first) and the sandbox after the controller', async () => {
     const controller = `${ACCOUNT}/workers/scripts/${names.worker}`;
     const { client, calls } = fakeClient({
       [`${controller}/settings`]: owner(MARKER),
@@ -89,9 +92,10 @@ describe('security scanner uninstall', () => {
     });
 
     expect(result).toEqual({ deleted: ['controller', 'runtime copies'], kept: [] });
-    expect(calls.filter((call) => call.startsWith('DELETE'))).toEqual([
+    expect(calls.filter((call) => !call.startsWith('POST'))).toEqual([
       `DELETE ${controller}`,
       `DELETE ${namespace}`,
+      `EMPTY ${prefix}scan1-a1-r0`,
       `DELETE ${ACCOUNT}/d1/database/d1-copy`,
       `DELETE ${ACCOUNT}/storage/kv/namespaces/kv-copy`,
       `DELETE ${ACCOUNT}/r2/buckets/${prefix}scan1-a1-r0`,

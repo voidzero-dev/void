@@ -25,7 +25,7 @@ export function assertPlatformSecurityAuditsSupported(
 const OWNER_BINDING = '__VOID_SECURITY_SCANNER_OWNER';
 const PROTOCOL = 1;
 
-type ScannerClient = Pick<PlatformCloudflareClient, 'request'>;
+type ScannerClient = Pick<PlatformCloudflareClient, 'request' | 'emptyR2Bucket'>;
 
 type Binding = { type: string; name: string; text?: string; namespace_id?: string };
 
@@ -215,19 +215,20 @@ const COPY_PAGE = 100;
 
 /**
  * The copy namespace (Cloudflare deletes any copy still in it), the stores a failed scan
- * left (the API's hourly sweep stops with the platform), then the copy sandbox, the
+ * left (the API's hourly sweep stops with the platform; a copy bucket may hold what the
+ * scanned app wrote, and only an empty bucket can be deleted), then the copy sandbox, the
  * namespace's outbound Worker. Run after the controller, the only Worker that binds them.
  * The sandbox carries the ownership marker; the rest is named per installation, like the images.
  */
 async function deleteRuntimeCopies(
   client: ScannerClient,
-  account: string,
+  accountId: string,
   names: SecurityScannerNames,
   marker: string,
   controllerExists: boolean,
   kept: Array<string>,
 ): Promise<boolean> {
-  const base = `/accounts/${account}`;
+  const base = `/accounts/${encodeURIComponent(accountId)}`;
   // As for the images: with no controller, a token without the right is not a failure.
   const read = <T>(path: string) => optional(() => client.request<T>(path), !controllerExists);
   const sandboxPath = `${base}/workers/scripts/${names.copySandbox}`;
@@ -252,6 +253,13 @@ async function deleteRuntimeCopies(
   const namespacePath = `${base}/workers/dispatch/namespaces/${names.copyNamespace}`;
   const namespace = await read<unknown>(namespacePath);
   const prefix = encodeURIComponent(names.copyPrefix);
+  const buckets = (
+    (
+      await read<{ buckets?: Array<{ name?: unknown }> }>(
+        `${base}/r2/buckets?name_contains=${prefix}&per_page=1000`,
+      )
+    )?.buckets ?? []
+  ).flatMap((bucket) => (mine(bucket.name) ? [bucket.name] : []));
   const stores = [
     ...(await pages<{ uuid?: unknown; name?: unknown }>(
       `${base}/d1/database?name=${prefix}&`,
@@ -261,16 +269,13 @@ async function deleteRuntimeCopies(
     ...(await pages<{ id?: unknown; title?: unknown }>(`${base}/storage/kv/namespaces?`, (row) =>
       mine(row.title) && typeof row.id === 'string' ? `storage/kv/namespaces/${row.id}` : undefined,
     )),
-    ...(
-      (
-        await read<{ buckets?: Array<{ name?: unknown }> }>(
-          `${base}/r2/buckets?name_contains=${prefix}&per_page=1000`,
-        )
-      )?.buckets ?? []
-    ).flatMap((bucket) => (mine(bucket.name) ? [`r2/buckets/${bucket.name}`] : [])),
+    ...buckets.map((bucket) => `r2/buckets/${bucket}`),
   ];
   if (namespace !== undefined) {
     await deleteIfPresent(client, namespacePath);
+  }
+  for (const bucket of buckets) {
+    await client.emptyR2Bucket(accountId, bucket);
   }
   for (const store of stores) {
     await deleteIfPresent(client, `${base}/${store}`);
@@ -352,7 +357,7 @@ export async function deletePlatformSecurityScanner(
     for (const application of found) {
       kept.push(`security scanner container application ${application.name}`);
     }
-    if (await deleteRuntimeCopies(client, account, names, marker, false, kept)) {
+    if (await deleteRuntimeCopies(client, manifest.account.id, names, marker, false, kept)) {
       deleted.push('runtime copies');
     }
     if (
@@ -390,7 +395,7 @@ export async function deletePlatformSecurityScanner(
   }
   await deleteIfPresent(client, workerPath);
   deleted.push('controller');
-  if (await deleteRuntimeCopies(client, account, names, marker, true, kept)) {
+  if (await deleteRuntimeCopies(client, manifest.account.id, names, marker, true, kept)) {
     deleted.push('runtime copies');
   }
   if (await deleteScannerImages(client, registryFetch, manifest.account.id, repositories, true)) {
