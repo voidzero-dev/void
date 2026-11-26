@@ -2535,6 +2535,7 @@ describe('isScaffoldableEmptyProject', () => {
       );
       expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
       expect(pkg.packageManager).toBeUndefined();
+      expect(pkg.devEngines.packageManager).toEqual({ name: 'pnpm' });
       expectPnpmAllowBuilds(root);
       expect(detectProjectState(root).packageManager).toBe('pnpm');
       expect(installCalls()[0][0]).toBe('vp');
@@ -2595,6 +2596,7 @@ describe('isScaffoldableEmptyProject', () => {
         expect(installCalls()[0][0]).toBe('vp');
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
         expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
+        expect(pkg.devEngines.packageManager).toEqual({ name: packageManager.split('@')[0] });
         if (packageManager.startsWith('npm@')) {
           expect(pkg.overrides.vite).toBe('$vite');
         } else if (packageManager.startsWith('bun@')) {
@@ -4848,6 +4850,9 @@ export default config;
         expect(readFileSync(join(wsroot, 'pnpm-workspace.yaml'), 'utf8')).toContain(
           '"vite@*": "npm:@voidzero-dev/vite-plus-core@1.6.0"',
         );
+        expect(
+          JSON.parse(readFileSync(join(member, 'package.json'), 'utf8')).devEngines,
+        ).toBeUndefined();
         expect(installCalls()).toHaveLength(0);
       } finally {
         rmSync(wsroot, { recursive: true, force: true });

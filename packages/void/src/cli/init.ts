@@ -1992,6 +1992,7 @@ function scaffoldPagesApp(
   starterMode: ScaffoldStarterMode,
   toolchain: ScaffoldToolchain,
   report: InitReport,
+  writeDevEnginesPackageManager: boolean,
 ): boolean {
   const packageJsonPath = join(root, 'package.json');
   const packageJsonExisted = existsSync(packageJsonPath);
@@ -2100,6 +2101,13 @@ function scaffoldPagesApp(
       packageManager,
       pkg,
     );
+  }
+
+  if (writeDevEnginesPackageManager) {
+    const devEngines = asRecord(pkg.devEngines) ?? {};
+    const existingPackageManager = asRecord(devEngines.packageManager) ?? {};
+    devEngines.packageManager = { ...existingPackageManager, name: packageManager };
+    pkg.devEngines = devEngines;
   }
 
   writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');
@@ -2637,6 +2645,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       starterMode,
       scaffoldToolchain,
       report,
+      scaffoldStarter && scaffoldToolchain === 'vite-plus' && !workspaceSubpackage,
     );
     report.setStarter(describeStarter(scaffoldedPagesFramework, starterMode, subfolder));
 
