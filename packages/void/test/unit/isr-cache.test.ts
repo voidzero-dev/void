@@ -1086,9 +1086,28 @@ describe('handleIsr', () => {
   });
 
   it.each([
-    ['keeps', 'the reload response for a client from another build', 'build-2', true],
-    ['evicts', 'an ordinary answer that opts out of sharing', null, false],
-  ])('%s cached HTML on %s', async (_, __, answeredBuild, kept) => {
+    [
+      'keeps',
+      'the reload response for a client from another build',
+      'build-2',
+      'text/plain; charset=utf-8',
+      true,
+    ],
+    [
+      'evicts',
+      'an ordinary answer that opts out of sharing',
+      null,
+      'text/plain; charset=utf-8',
+      false,
+    ],
+    [
+      'evicts',
+      'a rendered page from another build that opts out of sharing',
+      'build-2',
+      'text/html',
+      false,
+    ],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, contentType, kept) => {
     const { store, kv } = createKvMock();
     store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0].seed());
     const env = makeEnv(kv);
@@ -1099,6 +1118,7 @@ describe('handleIsr', () => {
         new Response(null, {
           headers: {
             'Cache-Control': 'no-store',
+            'Content-Type': contentType,
             ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
           },
         }),

@@ -12,7 +12,11 @@ import module from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { buildHeaders, isStaleBuild } from '../../../edge/src/pages-protocol.ts';
+import {
+  buildHeaders,
+  isStaleBuild,
+  isStaleBuildReload,
+} from '../../../edge/src/pages-protocol.ts';
 import { computePagesBuildId, endPagesBuild } from '../../src/pages/build-id-source.ts';
 import { pagesBuildId } from '../../src/pages/build-id.ts';
 import { createPagesPlugin } from '../../src/pages/plugin.ts';
@@ -64,6 +68,39 @@ describe('buildHeaders', () => {
   it('carries the build only when one is known', () => {
     expect(buildHeaders('')).toEqual({});
     expect(buildHeaders('build-2')).toEqual({ 'X-VoidPages-Build': 'build-2' });
+  });
+});
+
+describe('isStaleBuildReload', () => {
+  const request = new Request('https://app.test/next', {
+    headers: { 'X-VoidPages': 'true', 'X-VoidPages-Build': 'build-1' },
+  });
+  const answer = (headers: Record<string, string>) => new Response(null, { headers });
+
+  it.each([
+    [
+      'the reload answer',
+      { 'Content-Type': 'text/plain; charset=utf-8', 'X-VoidPages-Build': 'build-2' },
+      true,
+    ],
+    [
+      'page data',
+      { 'Content-Type': 'application/json', 'X-VoidPages': 'true', 'X-VoidPages-Build': 'build-2' },
+      false,
+    ],
+    [
+      'rendered HTML from another build',
+      { 'Content-Type': 'text/html', 'X-VoidPages-Build': 'build-2' },
+      false,
+    ],
+    [
+      'an answer from the same build',
+      { 'Content-Type': 'text/plain', 'X-VoidPages-Build': 'build-1' },
+      false,
+    ],
+    ['an answer that names no build', { 'Content-Type': 'text/plain' }, false],
+  ])('%s', (_, headers, expected) => {
+    expect(isStaleBuildReload(request, answer(headers))).toBe(expected);
   });
 });
 

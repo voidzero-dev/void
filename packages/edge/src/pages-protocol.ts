@@ -37,15 +37,19 @@ export function pagesPayloadFitsBuild(
 
 /**
  * Whether `response` is the app's reload answer to a Pages client from another
- * build: no page data, and a build that differs from the one the client sent.
- * It says nothing about cached copies of the page, which other tabs still use.
+ * build: an empty plain-text answer without page data, naming a build other than
+ * the one the client sent. A rendered page, such as an island route's HTML, is
+ * not one even when it names another build. The reload answer says nothing about
+ * cached copies of the page, which other tabs still use.
  */
 export function isStaleBuildReload(request: Request, response: Response): boolean {
   const sent = request.headers.get(PAGES_BUILD_HEADER);
   const answered = response.headers.get(PAGES_BUILD_HEADER);
+  const type = (response.headers.get('Content-Type') ?? '').split(';', 1)[0]?.trim();
   return (
     request.headers.has('X-VoidPages') &&
     !response.headers.has('X-VoidPages') &&
+    type === 'text/plain' &&
     sent !== null &&
     answered !== null &&
     sent !== answered

@@ -3508,9 +3508,28 @@ describe('ISR JSON edge cache (pages protocol)', () => {
   });
 
   it.each([
-    ['keeps', 'the reload response for a client from another build', 'build-2', true],
-    ['evicts', 'an ordinary answer that opts out of sharing', null, false],
-  ])('%s cached HTML on %s', async (_, __, answeredBuild, kept) => {
+    [
+      'keeps',
+      'the reload response for a client from another build',
+      'build-2',
+      'text/plain; charset=utf-8',
+      true,
+    ],
+    [
+      'evicts',
+      'an ordinary answer that opts out of sharing',
+      null,
+      'text/plain; charset=utf-8',
+      false,
+    ],
+    [
+      'evicts',
+      'a rendered page from another build that opts out of sharing',
+      'build-2',
+      'text/html',
+      false,
+    ],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, contentType, kept) => {
     const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
     edgeCacheStore.set(
       htmlKey,
@@ -3524,6 +3543,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
       workerResponse: new Response(null, {
         headers: {
           'Cache-Control': 'no-store',
+          'Content-Type': contentType,
           ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
         },
       }),

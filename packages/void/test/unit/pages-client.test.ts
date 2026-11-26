@@ -287,6 +287,23 @@ describe('Pages build recovery', () => {
     expect(window.location.href).toBeUndefined();
   });
 
+  it('shows the recovery page inside a Capacitor app when the retry is stale too', async () => {
+    stubClientGlobals('capacitor://localhost');
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+
+    await router.visit('/next');
+    (window.location as unknown as { href?: string }).href = 'capacitor://localhost/';
+    await router.visit('/next');
+
+    expect(document.body.replaceChildren).toHaveBeenCalled();
+  });
+
   it('reloads a back/forward visit to an entry with a fragment answered by another build', async () => {
     stubClientGlobals();
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
