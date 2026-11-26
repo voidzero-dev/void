@@ -211,6 +211,7 @@ const EMPTY_PROJECT_ALLOWED_PACKAGES = new Set([
   'hono',
   'vite',
   'vite-plus',
+  '@cloudflare/oxlint-config',
   'typescript',
   '@rolldown/plugin-babel',
   '@vitejs/plugin-react',

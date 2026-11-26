@@ -12,7 +12,9 @@ cd my-app
 npm run dev
 ```
 
-Choose Vite+ or Vite, then React, Vue, Svelte, or Solid. Pick a D1, PostgreSQL, MySQL, or Static Pages starter. The wizard installs dependencies and sets up TypeScript and coding agents; choose Cloudflare to deploy to your account, or connect to a team platform.
+Choose Vite+ (recommended) or Vite, then React, Vue, Svelte, or Solid. Pick a D1, PostgreSQL, MySQL, or Static Pages starter. The wizard installs dependencies and sets up TypeScript and coding agents; choose Cloudflare to deploy to your account, or connect to a team platform.
+
+Vite+ starters include the Cloudflare Oxlint config. Run `vp lint` to check your code.
 
 When you're ready to deploy:
 
