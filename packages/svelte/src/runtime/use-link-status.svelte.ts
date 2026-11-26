@@ -17,15 +17,20 @@ export function useLinkStatus(
       typeof options === 'function' ? options() : options,
     ),
   );
+  // getLinkStatus() returns a fresh object, so derive each field to notify
+  // readers only when that boolean changes.
+  const current = $derived(status.current);
+  const active = $derived(status.active);
+  const pending = $derived(status.pending);
   return {
     get current() {
-      return status.current;
+      return current;
     },
     get active() {
-      return status.active;
+      return active;
     },
     get pending() {
-      return status.pending;
+      return pending;
     },
   };
 }

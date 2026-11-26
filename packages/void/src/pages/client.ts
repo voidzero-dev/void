@@ -34,6 +34,7 @@ export {
   linkPendingAttributes,
   linkPrefetchStrategies,
   linkStatusAttributes,
+  linkStatusEquals,
   observeLinkVisible,
   prefetchLink,
   resolveLink,

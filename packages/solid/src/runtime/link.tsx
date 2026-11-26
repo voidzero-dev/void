@@ -4,6 +4,7 @@ import {
   handleLinkClick,
   getLinkStatus,
   linkStatusAttributes,
+  linkStatusEquals,
   resolvedLinkStatus,
   linkPrefetchStrategies,
   observeLinkVisible,
@@ -48,13 +49,16 @@ export function useLinkStatus(
 ): Accessor<LinkStatus> {
   const router = useContext(RouterContext);
   const navigation = useContext(NavigationContext);
-  return createMemo(() =>
-    getLinkStatus(
-      router,
-      navigation?.(),
-      typeof href === 'function' ? href() : href,
-      typeof options === 'function' ? options() : options,
-    ),
+  return createMemo(
+    () =>
+      getLinkStatus(
+        router,
+        navigation?.(),
+        typeof href === 'function' ? href() : href,
+        typeof options === 'function' ? options() : options,
+      ),
+    undefined,
+    { equals: linkStatusEquals },
   );
 }
 
@@ -89,8 +93,10 @@ export function Link(props: LinkProps): JSX.Element {
     linkPrefetchStrategies(local, link(), router?._prefetchDefaultStrategy),
   );
   const resolvedStyle = createMemo(() => mergeStyle(local.style));
-  const status = createMemo(() =>
-    resolvedLinkStatus(router, navigation?.(), link(), local.activeMatch),
+  const status = createMemo(
+    () => resolvedLinkStatus(router, navigation?.(), link(), local.activeMatch),
+    undefined,
+    { equals: linkStatusEquals },
   );
   const attributes = createMemo(() => linkStatusAttributes(status()));
   function content() {

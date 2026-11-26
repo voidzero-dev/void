@@ -189,6 +189,11 @@ export function resolvedLinkStatus(
   };
 }
 
+/** Compares statuses by value so fine-grained adapters skip unchanged notifications. */
+export function linkStatusEquals(a: LinkStatus, b: LinkStatus): boolean {
+  return a.current === b.current && a.active === b.active && a.pending === b.pending;
+}
+
 /** Returns true for the current page and, with prefix matching, its parent paths. */
 export function isLinkActive(
   router: VoidRouter | null | undefined,

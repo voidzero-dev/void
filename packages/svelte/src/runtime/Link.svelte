@@ -118,7 +118,13 @@
       router?._prefetchDefaultStrategy,
     ),
   );
-  const status = $derived(resolvedLinkStatus(router, navigation?.value, link, activeMatch));
+  const resolvedStatus = $derived(resolvedLinkStatus(router, navigation?.value, link, activeMatch));
+  // Rebuild the status object only when a field changes, so snippet children and
+  // status attributes skip unrelated navigation updates.
+  const current = $derived(resolvedStatus.current);
+  const active = $derived(resolvedStatus.active);
+  const pending = $derived(resolvedStatus.pending);
+  const status = $derived({ current, active, pending });
   const attributes = $derived(linkStatusAttributes(status));
   const resolvedStyle = $derived(
     style ? `touch-action: manipulation; ${style}` : "touch-action: manipulation",
