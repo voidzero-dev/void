@@ -279,7 +279,7 @@ function loadDocument(url: string): void {
   const { origin, pathname, search, hash } = window.location;
   const target = new URL(url, `${origin}${pathname}${search}`);
   const sameDocument =
-    target.origin === origin && target.pathname === pathname && target.search === search;
+    isSameOrigin(target, origin) && target.pathname === pathname && target.search === search;
   if (!sameDocument || target.hash === '') {
     window.location.href = url;
     return;

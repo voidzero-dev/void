@@ -268,6 +268,25 @@ describe('Pages build recovery', () => {
     expect(window.location.href).toBeUndefined();
   });
 
+  it('reloads a refresh with a fragment inside a Capacitor app', async () => {
+    stubClientGlobals('capacitor://localhost');
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const reload = vi.fn();
+    Object.assign(window.location, { pathname: '/docs', hash: '#install', reload });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+
+    await router.refresh();
+
+    // A custom scheme has an opaque URL origin, so the current page must still match.
+    expect(reload).toHaveBeenCalledOnce();
+    expect(window.location.href).toBeUndefined();
+  });
+
   it('reloads a back/forward visit to an entry with a fragment answered by another build', async () => {
     stubClientGlobals();
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');

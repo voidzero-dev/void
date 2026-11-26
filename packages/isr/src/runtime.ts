@@ -596,18 +596,17 @@ async function handleIsrInternal(
     }
     if (jsonCached && hasCurrentSharedCachePolicy(jsonCached)) {
       // A cached payload from another build would hand this client page props it
-      // has no components for. Let the app answer, which reloads a stale tab.
+      // has no components for. Let the app answer below, which reloads a stale
+      // tab, and keep the entry: it is still right for clients of its own build.
       if (
-        !pagesPayloadFitsBuild(
+        pagesPayloadFitsBuild(
           jsonCached.headers.get(PAGES_BUILD_HEADER),
           request.headers.get(PAGES_BUILD_HEADER),
         )
       ) {
-        return render(request);
+        return clientRevalidateResponse(jsonCached);
       }
-      return clientRevalidateResponse(jsonCached);
-    }
-    if (jsonCached) {
+    } else if (jsonCached) {
       await safeCacheDelete(cache, jsonKey);
     }
     const response = await render(request);

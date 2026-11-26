@@ -1003,6 +1003,49 @@ describe('handleIsr', () => {
     expect(live!.headers.get('X-VoidPages-Build')).toBe('build-2');
   });
 
+  it('still evicts shared copies when the app answers a bypassed entry with no-store', async () => {
+    const { kv } = createKvMock();
+    const env = makeEnv(kv);
+    const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
+    const jsonKey = jsonEdgeKey(HOST, '/blog/post', DPL);
+    edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));
+    edge.store.set(
+      jsonKey,
+      currentSharedCacheResponse(
+        new Response('{"component":"Blog","props":{}}', {
+          headers: { 'content-type': 'application/json', 'X-VoidPages-Build': 'build-1' },
+        }),
+      ),
+    );
+    // The app now answers this page privately, with page data for this client.
+    const { render } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"me":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'Cache-Control': 'private, no-store',
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+
+    await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-2',
+      }),
+      env,
+      ctx,
+      OPTS,
+      render,
+    );
+    await flush();
+
+    expect(edge.store.has(htmlKey)).toBe(false);
+  });
+
   it('leaves an entry with no build id to the app when the client names one', async () => {
     // An entry from before ids existed cannot answer a client that has one.
     await populateJsonEdgeCache(
