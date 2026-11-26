@@ -41,6 +41,7 @@ describe('writeDrizzleConfig', () => {
     expect(config.schema).toBe('./db/schema.ts');
     expect(config.out).toBe('./db/migrations');
     expect(config.dbCredentials.url).toBe('/tmp/test.sqlite');
+    expect(config.tablesFilter).toEqual(['!_void_migrations', '!_migrations']);
     expect(config.migrations).toEqual({ prefix: 'timestamp' });
     expect(config).not.toHaveProperty('casing');
   });
@@ -58,6 +59,7 @@ describe('writeDrizzleConfig', () => {
     expect(config.schema).toBe('./db/schema.ts');
     expect(config.out).toBe('./db/migrations');
     expect(config.dbCredentials.url).toBe('postgresql://localhost/test');
+    expect(config.tablesFilter).toEqual(['!_void_migrations']);
   });
 
   it('generates MySQL config', () => {
@@ -66,6 +68,7 @@ describe('writeDrizzleConfig', () => {
     expect(config.dialect).toBe('mysql');
     expect(config.schema).toBe('./db/schema.ts');
     expect(config.dbCredentials.url).toBe('mysql://localhost/test');
+    expect(config.tablesFilter).toEqual(['!_void_migrations', '!_void_migration_lock']);
   });
 
   it('includes generated schemas alongside the application schema', () => {

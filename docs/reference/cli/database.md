@@ -7,7 +7,9 @@ outline: deep
 
 ## `void db push` {#void-db-push}
 
-Apply your Drizzle schema directly to the development database without creating migration files. D1 updates the local database; PostgreSQL and MySQL use `DATABASE_URL` from `.env`.
+Apply your Drizzle schema directly to the development database without creating migration files. D1 updates the local database. PostgreSQL and MySQL use `DATABASE_URL` from `.env`.
+
+Schema changes that need confirmation require an interactive terminal. Selecting `No, abort` exits with a nonzero status.
 
 Use this for quick schema iteration while prototyping. Before deploying, generate and review migration files with `void db generate`.
 
@@ -16,6 +18,8 @@ Use this for quick schema iteration while prototyping. Before deploying, generat
 Generate SQL migration files from schema changes.
 
 Compares your schema with the last Drizzle snapshot and writes migrations under `db/migrations/`. It includes Void-managed auth tables and configured auth plugins, even without an application schema. Review and commit the generated files before deploying.
+
+Rename prompts require an interactive terminal. The command exits with a nonzero status if a prompt cannot open or is cancelled.
 
 For SQLite, Void checks that the migration history applies to a fresh database. If generation fails this check, the previous SQL, snapshots, and journal are restored. If an existing migration fails, repair that unapplied migration first: rerunning generation compares snapshots and does not repair existing SQL. This check does not verify that a migration preserves existing data; review table rebuilds and foreign-key actions carefully.
 

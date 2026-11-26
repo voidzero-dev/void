@@ -13,8 +13,10 @@ import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vite-plus/test';
 import type { MockInstance } from 'vite-plus/test';
 
-const mockExecFileSync = vi.hoisted(() =>
-  vi.fn<(...args: Array<unknown>) => string | Buffer | undefined>(),
+const mockSpawnSync = vi.hoisted(() =>
+  vi.fn<(file: string, args: Array<string>, options: unknown) => { status: number }>(() => ({
+    status: 0,
+  })),
 );
 const mockPgQuery = vi.hoisted(() =>
   vi.fn(async (_sql: string) => ({ rows: [] as Array<Record<string, unknown>> })),
@@ -30,7 +32,7 @@ const mockRunMigrations = vi.fn<typeof import('../../src/migrations/runner.ts').
 const mockWriteJournal = vi.fn<typeof import('../../src/migrations/collect.ts').writeJournal>();
 
 vi.mock('node:child_process', () => ({
-  execFileSync: (...args: Parameters<typeof mockExecFileSync>) => mockExecFileSync(...args),
+  spawnSync: (...args: Parameters<typeof mockSpawnSync>) => mockSpawnSync(...args),
 }));
 
 vi.mock('pg', async (importOriginal) => {
@@ -254,7 +256,7 @@ describe('void db drizzle-kit subprocesses', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    mockExecFileSync.mockReset();
+    mockSpawnSync.mockReset();
     mockGetMiniflareDatabasePath.mockReset();
     for (const root of rootsToClean.splice(0, rootsToClean.length)) {
       rmSync(root, { recursive: true, force: true });
@@ -266,10 +268,10 @@ describe('void db drizzle-kit subprocesses', () => {
 
     await runDbCommand(root, { action: 'generate' });
 
-    expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-    const [command, args, options] = mockExecFileSync.mock.calls[0];
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1);
+    const [command, args, options] = mockSpawnSync.mock.calls[0];
     expect(command).toBe(process.execPath);
-    expect(args).toEqual([
+    expect(args.slice(-4)).toEqual([
       expect.stringContaining(toSlash(join('drizzle-kit', 'bin.cjs'))),
       'generate',
       '--config',
@@ -299,14 +301,18 @@ describe('void db drizzle-kit subprocesses', () => {
   it('rejects invalid generated SQLite SQL and restores migration artifacts', async () => {
     const root = createDrizzleProjectRoot();
     const migrations = join(root, 'db', 'migrations');
-    mockExecFileSync.mockImplementation(() => {
+    mockSpawnSync.mockImplementationOnce(() => {
       mkdirSync(join(migrations, 'meta'), { recursive: true });
       writeFileSync(join(migrations, '0000.sql'), 'THIS IS NOT SQL;');
       writeFileSync(join(migrations, 'meta', '_journal.json'), '{}');
+      return { status: 0 };
     });
 
     await expect(runDbCommand(root, { action: 'generate' })).rejects.toThrow('process.exit:1');
     expect(mockLog.error).toHaveBeenCalledWith(expect.stringContaining('0000.sql'));
+    expect(mockLog.error).toHaveBeenCalledWith(
+      expect.stringContaining('Review the schema change before retrying.'),
+    );
     expect(existsSync(migrations)).toBe(false);
   });
 
@@ -322,7 +328,7 @@ describe('void db drizzle-kit subprocesses', () => {
 
     const config = JSON.parse(readFileSync(join(root, '.void', 'drizzle.config.json'), 'utf8'));
     expect(config.schema).toBe('./.void/better-auth-schema.ts');
-    expect(mockExecFileSync).toHaveBeenCalledOnce();
+    expect(mockSpawnSync).toHaveBeenCalledOnce();
   });
 
   it('resolves function-based Better Auth schemas with local env values', async () => {

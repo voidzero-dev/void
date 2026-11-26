@@ -14,6 +14,12 @@ export const PLACEHOLDER_DB_URL: Record<DrizzleDialect, string> = {
   mysql: 'mysql://dummy',
 };
 
+const PUSH_TABLES_FILTER: Record<DrizzleDialect, Array<string>> = {
+  sqlite: ['!_void_migrations', '!_migrations'],
+  postgresql: ['!_void_migrations'],
+  mysql: ['!_void_migrations', '!_void_migration_lock'],
+};
+
 /**
  * Write a temporary drizzle-kit config, by default to `.void/drizzle.config.json`.
  * Schema and migration paths are relative to the project root: drizzle-kit
@@ -54,6 +60,7 @@ export function writeDrizzleConfig(
     ...(casing ? { casing } : {}),
     schema: schemaPaths.length === 1 ? schemaPaths[0] : schemaPaths,
     out: `./${relative(root, paths.migrationsDir)}`,
+    tablesFilter: PUSH_TABLES_FILTER[dialect],
     migrations: { prefix: 'timestamp' },
     dbCredentials: { url: dbPath },
   };

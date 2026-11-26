@@ -88,8 +88,10 @@ export async function generateValidatedSqliteMigrations(
 
   const existed = existsSync(migrationsDir);
   const previous = snapshotFiles(migrationsDir);
+  let generated = false;
   try {
     generate();
+    generated = true;
     (await openMigrationValidationDatabase(collectMigrations(migrationsDir))).close();
   } catch (cause) {
     if (!existed) {
@@ -105,9 +107,12 @@ export async function generateValidatedSqliteMigrations(
         writeFileSync(path, contents);
       }
     }
+    const advice = generated
+      ? ' Review the schema change before retrying. For additive changes, use an additive migration rather than rebuilding existing tables.'
+      : '';
     throw new Error(
       `${cause instanceof Error ? cause.message : String(cause)}\n` +
-        'Migration generation failed; previous SQL, snapshots and journal were restored. Review the schema change before retrying. For additive changes, use an additive migration rather than rebuilding existing tables.',
+        `Migration generation failed. The previous SQL, snapshots and journal were restored.${advice}`,
       { cause },
     );
   }
