@@ -219,8 +219,10 @@ export function generateRouteTypes(
     '  type RouteQueryValueOf<T> = unknown extends T',
     '    ? RouteQueryValue | ReadonlyArray<RouteQueryValue>',
     '    : T extends ReadonlyArray<infer E> ? ReadonlyArray<RouteQueryItemOf<E>> : RouteQueryItemOf<T>;',
+    // Map each branch of a union input on its own, so a branch keeps its own keys.
+    '  type RouteQueryFieldsOf<I> = I extends unknown ? { [K in keyof I]: RouteQueryValueOf<I[K]> } : never;',
     '  type PageQueryInputOf<S> = S extends StandardSchemaV1',
-    '    ? { [K in keyof StandardSchemaV1.InferInput<S>]: RouteQueryValueOf<StandardSchemaV1.InferInput<S>[K]> }',
+    '    ? RouteQueryFieldsOf<StandardSchemaV1.InferInput<S>>',
     '    : never;',
     '  type PageQueryOutputOf<S> = S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : never;',
     // A page publishes its validated query only when it sets the flag, so the

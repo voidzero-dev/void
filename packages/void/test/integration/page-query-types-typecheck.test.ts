@@ -355,3 +355,18 @@ it('keeps a .dev + .prod side without a loader untyped', () => {
   );
   expectClean(result, result);
 });
+
+it('keeps each branch of a union schema input', () => {
+  const union = "{ kind: 'id'; id: string } | { kind: 'slug'; slug: string }";
+  const result = typecheck([page('/item', 'item.server.ts')], {
+    'pages/item.server.ts': pageWithSchema(union, union),
+    'check.ts': [
+      "import { routeUrl } from 'void/routes';",
+      "routeUrl('/item', { query: { kind: 'id', id: '1' } });",
+      "routeUrl('/item', { query: { kind: 'slug', slug: 'hello' } });",
+      '// @ts-expect-error the id branch needs its id',
+      "routeUrl('/item', { query: { kind: 'id' } });",
+    ].join('\n'),
+  });
+  expectClean(result, result);
+});
