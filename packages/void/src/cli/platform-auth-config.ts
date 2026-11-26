@@ -1,12 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stripVTControlCharacters } from 'node:util';
-import {
-  parsePlatformLoginConfiguration,
-  type PlatformLoginConfiguration,
-  type PlatformLoginKind,
-  parsePlatformAdmissionPolicy,
-  type PlatformAdmissionPolicy,
+import { parsePlatformLoginConfiguration, parsePlatformAdmissionPolicy } from '@void/platform';
+import type {
+  PlatformLoginConfiguration,
+  PlatformLoginKind,
+  PlatformAdmissionPolicy,
 } from '@void/platform';
 import { confirm, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { openBrowser } from './auth.ts';
@@ -151,6 +150,7 @@ async function configurationInput(
         'platform: Supply the client secret with --client-secret-env, not in the configuration file.',
       );
     }
+    // oxlint-disable-next-line quality/no-known-value-widening -- A config file may supply arbitrary fields before the login parser validates them.
     input = { ...input, ...file };
   }
   const kind = (existing?.configuration.kind ?? args.target) as PlatformLoginKind;
@@ -260,7 +260,7 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
   }
   const origin = resolveOperatorOrigin(args.connection);
   const client = new OperatorClient(origin, readOperatorToken(origin));
-  const listing = (await client.request('/config/auth')) as unknown as Listing;
+  const listing = (await client.request('/config/auth')) as Listing;
   if (!args.action) {
     if (!process.stdin.isTTY || args.json) {
       print(listing, args.json);
@@ -315,7 +315,10 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
       );
       return runPlatformAuthConfig({ ...args, action: 'add', target: kind });
     }
-    const method = listing.methods.find((method) => method.id === chosen)!;
+    const method = listing.methods.find((method) => method.id === chosen);
+    if (!method) {
+      throw new Error('platform: The selected login method is unavailable.');
+    }
     const action = platformPromptAnswer(
       await select({
         message: stripVTControlCharacters(method.label),
@@ -344,9 +347,9 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
     throw new Error('platform: Run void platform config auth initialize, then sign in again.');
   }
   if (args.action === 'admission') {
-    let admission: unknown;
+    let admission: PlatformAdmissionPolicy;
     if (args.file) {
-      admission = JSON.parse(await readFile(args.file, 'utf8'));
+      admission = parsePlatformAdmissionPolicy(JSON.parse(await readFile(args.file, 'utf8')));
     } else {
       if (!process.stdin.isTTY || args.json) {
         throw new Error('platform: Supply --file with the signup policy in non-interactive mode.');
@@ -395,16 +398,16 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
               }),
             )
           : [];
-        admission = { mode, access, connections };
+        admission = parsePlatformAdmissionPolicy({ mode, access, connections });
       } else {
-        admission = { mode };
+        admission = parsePlatformAdmissionPolicy({ mode });
       }
     }
     printApplied(
       await apply(
         client,
         '/config/auth/admission',
-        { revision: listing.revision, admission: parsePlatformAdmissionPolicy(admission) },
+        { revision: listing.revision, admission },
         args,
       ),
       args,
@@ -435,7 +438,7 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
     const result = await apply(
       client,
       `/config/auth/connections/${encodeURIComponent(input.configuration.id)}/configure`,
-      { ...input, revision: args.action === 'add' ? null : method!.revision },
+      { ...input, revision: args.action === 'add' ? null : method?.revision },
       args,
     );
     printApplied(result, args);
@@ -445,6 +448,9 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
       );
     }
     return;
+  }
+  if (!method) {
+    throw new Error('platform: Login method not found. Run void platform config auth list.');
   }
   let testId = args.testId;
   if ((args.action === 'enable' || args.action === 'link') && !testId) {
@@ -469,7 +475,7 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
       await apply(
         client,
         `/config/auth/connections/${encodeURIComponent(args.target)}/link`,
-        { revision: method!.revision, testId },
+        { revision: method.revision, testId },
         args,
       );
     }
@@ -478,7 +484,7 @@ export async function runPlatformAuthConfig(args: PlatformConfigArgs): Promise<v
     await apply(
       client,
       `/config/auth/connections/${encodeURIComponent(args.target)}/${args.action}`,
-      { revision: method!.revision, ...(testId ? { testId } : {}) },
+      { revision: method.revision, ...(testId ? { testId } : {}) },
       args,
     ),
     args,

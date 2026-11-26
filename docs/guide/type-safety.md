@@ -391,7 +391,7 @@ import { routeUrl } from 'void/routes';
 
 :::
 
-Links also accept same-page queries and hashes (`?page=2`, `#comments`), and `http://`, `https://`, `mailto:`, and `tel:` URLs. Use absolute paths within your app; relative paths such as `../settings` are rejected. Static path segments accept raw text such as `/café menu` or uppercase percent encoding such as `/caf%C3%A9%20menu`.
+Links also accept same-page queries and hashes (`?page=2`, `#comments`), and `http://`, `https://`, `mailto:`, and `tel:` URLs. A `routeUrl()` result takes the same query or hash suffix, so `` `${routeUrl('/users/[id]', { params: { id } })}?tab=activity` `` is checked too. Use absolute paths within your app; relative paths such as `../settings` are rejected. Static path segments accept raw text such as `/café menu` or uppercase percent encoding such as `/caf%C3%A9%20menu`.
 
 With `routing.typedRoutes`, URLs handled only by root dynamic routes (`/[slug]`, `/[...slug]`, or `/[...]`) require `routeUrl()`, for example `routeUrl('/[...slug]', { params: { slug: 'dashboard' } })`. Other declared routes still accept checked URL strings. For a custom 404 page, use [`_not-found`](./pages-routing/errors.md#missing-pages).
 

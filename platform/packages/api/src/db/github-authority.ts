@@ -1,6 +1,6 @@
 import { and, eq, or, sql } from 'drizzle-orm';
 import { projects, projectMembers, githubConnections, githubInstallations } from '../schema.ts';
-import { type Db } from './client.ts';
+import type { Db } from './client.ts';
 
 /** The connection's recorded authorizer is still the project owner or an admin. */
 export function githubConnectionAuthorityClause() {

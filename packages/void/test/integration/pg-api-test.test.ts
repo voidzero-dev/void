@@ -1,4 +1,5 @@
-import { execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -11,9 +12,8 @@ import {
   killChild,
   spawnFixtureServer,
   startServer,
-  type IsolatedPlayground,
-  type StartedServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground, StartedServer } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const USERS = [

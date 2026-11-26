@@ -17,15 +17,15 @@ export function operationFixture<
     options?: unknown,
   ) => CloudflareCommandResult | Promise<CloudflareCommandResult>) {
   const mock = vi.fn(callback);
+  const invoke = mock as (...args: Parameters<T>) => ReturnType<T>;
   const runner = ((operation: CloudflareOperation, ...rest: Array<unknown>) => {
-    const result = Reflect.apply(mock, undefined, [
+    const argv =
       operation === undefined
         ? []
         : Array.isArray(operation)
           ? operation
-          : operationFixtureArgs(operation),
-      ...rest,
-    ]) as CloudflareCommandResult | Promise<CloudflareCommandResult>;
+          : operationFixtureArgs(operation);
+    const result = invoke(...([argv, ...rest] as Parameters<T>));
     const decode = (value: CloudflareCommandResult) => {
       const decoded = operationFixtureResult(value);
       if (
@@ -71,6 +71,7 @@ export function operationFixture<
   ] as const) {
     Object.defineProperty(runner, key, {
       value: (...args: Array<unknown>) => {
+        // oxlint-disable-next-line quality/no-reflect-apply -- Forward each Vitest method with its own arguments and mock receiver.
         const value: unknown = Reflect.apply(mock[key], mock, args);
         return value === mock ? runner : value;
       },
@@ -336,21 +337,25 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
       return { type: 'secret.list', ...target };
     }
     if (args[1] === 'put') {
-      return { type: 'secret.put', name: args[2]!, ...target };
+      return { type: 'secret.put', name: args[2], ...target };
     }
   }
-  if (args[0] === 'd1' && args[1] === 'migrations') {
+  if (args[0] === 'd1' && (args[1] === 'migrations' || args[1] === 'time-travel')) {
+    const configPath = value('-c');
+    if (configPath === undefined) {
+      throw new Error('Expected a D1 command configuration path.');
+    }
+    if (args[1] === 'time-travel') {
+      return { type: 'd1.time-travel.bookmark', database: args[3], configPath };
+    }
     return {
       type: args[2] === 'apply' ? 'd1.migrations.apply' : 'd1.migrations.list',
-      database: args[3]!,
-      configPath: value('-c')!,
+      database: args[3],
+      configPath,
     };
   }
-  if (args[0] === 'd1' && args[1] === 'time-travel') {
-    return { type: 'd1.time-travel.bookmark', database: args[3]!, configPath: value('-c')! };
-  }
   if (args[0] === 'queues' && args[1] === 'info') {
-    return { type: 'queues.info', name: args[2]!, configPath: value('-c') };
+    return { type: 'queues.info', name: args[2], configPath: value('-c') };
   }
   if (args[0] === 'containers') {
     return { type: 'containers.list', configPath: value('-c') };
@@ -363,7 +368,7 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
       return { type: 'versions.list', ...target };
     }
     if (args[1] === 'view') {
-      return { type: 'versions.view', versionId: args[2]!, ...target };
+      return { type: 'versions.view', versionId: args[2], ...target };
     }
     if (args[1] === 'upload') {
       return {
@@ -380,13 +385,13 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
         type: 'versions.deploy',
         ...target,
         message: value('--message'),
-        versions: args
-          .slice(2)
-          .filter((value) => /^[^@]+@\d+(?:\.\d+)?$/.test(value))
-          .map((value) => {
-            const [versionId, percentage] = value.split('@');
-            return { versionId: versionId!, percentage: Number(percentage) };
-          }),
+        versions: args.slice(2).flatMap((value) => {
+          if (!/^[^@]+@\d+(?:\.\d+)?$/.test(value)) {
+            return [];
+          }
+          const [versionId, percentage] = value.split('@');
+          return [{ versionId, percentage: Number(percentage) }];
+        }),
       };
     }
   }
@@ -405,8 +410,8 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
   if (args[0] === 'queues' && args[1] === 'consumer') {
     return {
       type: 'queues.consumer.remove',
-      queueName: args[3]!,
-      workerName: args[4]!,
+      queueName: args[3],
+      workerName: args[4],
       configPath: value('-c'),
     };
   }

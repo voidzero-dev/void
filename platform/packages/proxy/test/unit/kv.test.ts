@@ -11,7 +11,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signAiToken(projectId: string, secret: string): Promise<string> {
@@ -352,7 +352,7 @@ describe('KV proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { keys: Array<{ name: string }>; list_complete: boolean };
+      const data = await res.json<{ keys: Array<{ name: string }>; list_complete: boolean }>();
       expect(data.keys).toEqual([{ name: 'key1' }, { name: 'key2' }]);
       expect(data.list_complete).toBe(true);
     });
@@ -378,7 +378,7 @@ describe('KV proxy endpoints', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { list_complete: boolean; cursor: string };
+      const data = await res.json<{ list_complete: boolean; cursor: string }>();
       expect(data.list_complete).toBe(false);
       expect(data.cursor).toBe('next-cursor');
 

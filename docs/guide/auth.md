@@ -139,23 +139,9 @@ Calls such as `signUpEmail` sign the current browser in as the new user. To crea
 
 ## Querying Authentication Tables
 
-To query users or reference them from your own tables, import Void's generated authentication schema. It exports `userTable`, `sessionTable`, `accountTable`, `verificationTable`, and any tables added by your Better Auth plugins.
+To query users or reference them from your own tables, import Void's generated authentication schema from `@auth-schema`. It exports `userTable`, `sessionTable`, `accountTable`, `verificationTable`, and any tables added by your Better Auth plugins. Like `@schema`, it needs no setup when your root `tsconfig.json` extends `.void/tsconfig.json`.
 
-Add an alias to your root `tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@auth-schema": ["./.void/better-auth-schema.ts"]
-    }
-  }
-}
-```
-
-Keep your other path aliases, including any you use from `.void/tsconfig.json`, such as `@schema`.
-
-You can now query users with Drizzle:
+Query users with Drizzle:
 
 ```ts
 import { userTable } from '@auth-schema';

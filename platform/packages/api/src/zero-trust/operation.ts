@@ -9,6 +9,7 @@ import { getProject } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { setPlatformSetting } from '../platform-settings.ts';
 import { projectZeroTrust } from '../schema.ts';
+import { assertPublicGateOff } from '../security/public-gate.ts';
 import {
   PLATFORM_APPLICATION_SETTING,
   resolveZeroTrustApplicationEnvironment,
@@ -23,28 +24,24 @@ import {
   skippedOperationKey,
   skippedProjectIds,
 } from './candidates.ts';
+import type { ZeroTrustCloudflareClient } from './cloudflare.ts';
 import {
-  ZeroTrustCloudflareClient,
   ZeroTrustCloudflareError,
   reusablePolicyReferences,
   publicAppManagementApplication,
 } from './cloudflare.ts';
 import {
-  type ZeroTrustConfiguration,
-  type ZeroTrustOperation,
   readZeroTrustConfigurationStrict,
   replaceZeroTrustConfiguration,
   writeZeroTrustConfiguration,
   zeroTrustWildcardDestinations,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration, ZeroTrustOperation } from './configuration.ts';
 import { errorMessage, ZeroTrustUnavailableError } from './errors.ts';
 import { lockZeroTrustConfiguration, withProjectZeroTrustLock } from './lock.ts';
 import { reconcileProjectZeroTrust, reconcilePublicProjectForOperation } from './project.ts';
-import {
-  MAX_ROUTING_KEYS_PER_RUN,
-  publishProjectZeroTrustRoutingLocked,
-  type RoutingBudget,
-} from './routing.ts';
+import { MAX_ROUTING_KEYS_PER_RUN, publishProjectZeroTrustRoutingLocked } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   applicationName,
   clientForConfiguration,
@@ -55,8 +52,25 @@ import {
   updateProjectState,
 } from './state.ts';
 
-const OPERATION_LEASE_MS = 15 * 60 * 1000;
+// A live runner renews the lease after every project. A lease left by a
+// cancelled request or a killed invocation frees within this time, and the
+// two-minute cron then resumes the operation. Revision checks keep a slow
+// runner that lost it from writing over the next one.
+const OPERATION_LEASE_MS = 5 * 60 * 1000;
 const MAX_PROJECTS_PER_RUN = 100;
+// One request or cron run stops taking new projects after this long and
+// releases the operation, well inside the CLI timeout and the cron wall limit.
+const OPERATION_STEP_MS = 60_000;
+
+/**
+ * True when this run should release the operation for the next one. A run
+ * always finishes at least one project, so every run makes progress.
+ */
+function stepLimit(projectsProcessed: number, stepEndsAt: number): boolean {
+  return (
+    projectsProcessed >= MAX_PROJECTS_PER_RUN || (projectsProcessed > 0 && Date.now() >= stepEndsAt)
+  );
+}
 
 async function setInitialProjectProtection(
   db: Db,
@@ -95,7 +109,7 @@ export async function operationStartedAt(db: DbOrTx): Promise<string> {
   const result = await db.execute<{ startedAt: string }>(
     sql`SELECT now()::timestamp::text AS "startedAt"`,
   );
-  return result.rows[0]!.startedAt;
+  return result.rows[0].startedAt;
 }
 
 /**
@@ -109,12 +123,23 @@ export async function claimConfiguration(
     owner: string,
     startedAt: string,
   ) => ZeroTrustConfiguration | Promise<ZeroTrustConfiguration>,
+  options?: Readonly<{
+    /**
+     * A new disable or public-only operation is refused while "Scan before a project
+     * goes public" is on (spec §5.5). The policy is read under the exclusive lock, so
+     * this claim and a gate turn-on, which holds the lock shared, run one at a time.
+     */
+    refuseWhileGateOn?: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>;
+  }>,
 ): Promise<ZeroTrustConfiguration> {
   return db.transaction(async (tx) => {
     await lockZeroTrustConfiguration(tx, 'exclusive');
     const current = await readZeroTrustConfigurationStrict(tx);
     if (current?.operation && leaseActive(current.operation)) {
       throw new ZeroTrustUnavailableError('Another Zero Trust operation is already running.');
+    }
+    if (options?.refuseWhileGateOn && current?.operation?.kind !== 'disable') {
+      await assertPublicGateOff(tx, options.refuseWhileGateOn);
     }
     const configuration = await claim(current, crypto.randomUUID(), await operationStartedAt(tx));
     await writeZeroTrustConfiguration(tx, configuration);
@@ -271,11 +296,11 @@ async function skipFailedProject(
 }
 
 /** Run one project's work inside an installation batch; only operation-wide failures escape. */
-async function runOperationProjectStep(
+async function runOperationProjectStep<Result>(
   db: Db,
   configuration: ZeroTrustConfiguration,
   projectId: string,
-  step: () => Promise<unknown>,
+  step: () => Promise<Result>,
 ): Promise<void> {
   try {
     await step();
@@ -368,6 +393,7 @@ export async function runConfigureOperation(
 ): Promise<ZeroTrustConfiguration> {
   let configuration = initial;
   let projectsProcessed = 0;
+  const stepEndsAt = Date.now() + OPERATION_STEP_MS;
   const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   try {
     env = await resolveZeroTrustApplicationEnvironment(env, db, configuration);
@@ -405,9 +431,12 @@ export async function runConfigureOperation(
             );
             projectsProcessed += 1;
             configuration = await heartbeatConfiguration(db, configuration);
+            if (stepLimit(projectsProcessed, stepEndsAt)) {
+              break;
+            }
           }
-          if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-            return releaseOperation(db, configuration);
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
+            return await releaseOperation(db, configuration);
           }
         }
         const missing = await seedCandidates(
@@ -425,9 +454,12 @@ export async function runConfigureOperation(
           );
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
+            break;
+          }
         }
-        if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+        if (stepLimit(projectsProcessed, stepEndsAt)) {
+          return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(
           db,
@@ -460,11 +492,14 @@ export async function runConfigureOperation(
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
           if (routingBudget.exhausted || routingBudget.remaining === 0) {
-            return releaseOperation(db, configuration);
+            return await releaseOperation(db, configuration);
+          }
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
+            break;
           }
         }
-        if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+        if (stepLimit(projectsProcessed, stepEndsAt)) {
+          return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(db, configuration, 'wildcard');
         continue;
@@ -493,9 +528,13 @@ export async function runConfigureOperation(
                   configuration.healthApplication,
                 )
               : configuration.healthApplication;
+          const guardDestination = configuration.publicAccessGuardDestination;
+          if (configuration.publicAccess && !guardDestination) {
+            throw new ZeroTrustUnavailableError('Public app management destination is missing.');
+          }
           const wildcard = await client.ensureApplication(
-            configuration.publicAccess
-              ? publicAppManagementApplication(name, configuration.publicAccessGuardDestination!)
+            configuration.publicAccess && guardDestination
+              ? publicAppManagementApplication(name, guardDestination)
               : {
                   name,
                   destinations: zeroTrustWildcardDestinations(readPlatformApplication(env)),
@@ -545,12 +584,12 @@ export async function runConfigureOperation(
           }
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
-          if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
             break;
           }
         }
-        if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+        if (stoppedForRoutingBudget || stepLimit(projectsProcessed, stepEndsAt)) {
+          return await releaseOperation(db, configuration);
         }
         continue;
       }
@@ -656,6 +695,7 @@ export async function runDisableOperation(
 ): Promise<ZeroTrustConfiguration> {
   let configuration = initial;
   let projectsProcessed = 0;
+  const stepEndsAt = Date.now() + OPERATION_STEP_MS;
   const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   try {
     const client = await clientForConfiguration(env, configuration);
@@ -686,12 +726,12 @@ export async function runDisableOperation(
           );
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
-          if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
             break;
           }
         }
-        if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+        if (stoppedForRoutingBudget || stepLimit(projectsProcessed, stepEndsAt)) {
+          return await releaseOperation(db, configuration);
         }
         continue;
       }
@@ -741,9 +781,12 @@ export async function runDisableOperation(
           );
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
+            break;
+          }
         }
-        if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
-          return releaseOperation(db, configuration);
+        if (stepLimit(projectsProcessed, stepEndsAt)) {
+          return await releaseOperation(db, configuration);
         }
         configuration = await withZeroTrustOperationLock(db, configuration, async (lockedDb) => {
           // Recheck late project work under the lock used by project mutations

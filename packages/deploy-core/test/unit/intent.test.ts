@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { createDeployIntent, type DeployManifest } from '../../src/index.ts';
+import { createDeployIntent } from '../../src/index.ts';
+import type { DeployManifest } from '../../src/index.ts';
 
 describe('createDeployIntent', () => {
   it('interprets a full worker manifest without provider details', () => {

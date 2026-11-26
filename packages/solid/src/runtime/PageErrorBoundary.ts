@@ -1,18 +1,7 @@
-import {
-  createComponent,
-  createEffect,
-  ErrorBoundary,
-  lazy,
-  Suspense,
-  type Component,
-  type JSX,
-} from 'solid-js';
-import {
-  clientPageError,
-  showTerminalPageError,
-  type ClientPageBoundary,
-  type ErrorPageProps,
-} from 'void/pages-client';
+import { createComponent, createEffect, ErrorBoundary, lazy, Suspense } from 'solid-js';
+import type { Component, JSX } from 'solid-js';
+import { clientPageError, showTerminalPageError } from 'void/pages-client';
+import type { ClientPageBoundary, ErrorPageProps } from 'void/pages-client';
 
 type Props = {
   boundaries?: Array<ClientPageBoundary>;
@@ -20,13 +9,15 @@ type Props = {
   url?: string;
   server?: boolean;
   generation: number;
-  onFailure(): void;
+  onFailure: () => void;
   dev?: boolean;
   children?: JSX.Element;
 };
+function noop(): void {}
+
 export function PageErrorBoundary(props: Props): JSX.Element {
   let previous = props.generation;
-  let resetBoundary = () => {};
+  let resetBoundary = noop;
   createEffect(() => {
     if (previous !== props.generation) {
       previous = props.generation;

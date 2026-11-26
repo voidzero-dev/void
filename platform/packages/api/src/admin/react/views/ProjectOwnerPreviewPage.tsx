@@ -77,15 +77,16 @@ export function ProjectOwnerPreviewPage({
           <p>
             This project is already owned by the target. This is a convergence-only operation:
             applying it repairs membership, usage-counter, routing, and account metadata without
-            changing ownership. The owner's stored project role is{' '}
+            changing ownership. The owner&apos;s stored project role is{' '}
             <strong>{result.targetPreviousRole ?? 'none'}</strong>. Usage transfer is{' '}
             {result.usageTransfer}.
           </p>
         ) : (
           <p>
-            The former owner will become a <strong>{result.formerOwnerRole}</strong>. The target's
-            current project role is <strong>{result.targetPreviousRole ?? 'none'}</strong>. Usage
-            transfer is {result.usageTransfer}.
+            The former owner will become a <strong>{result.formerOwnerRole}</strong>. The
+            target&apos;s current project role is{' '}
+            <strong>{result.targetPreviousRole ?? 'none'}</strong>. Usage transfer is{' '}
+            {result.usageTransfer}.
           </p>
         )}
       </SectionStack>

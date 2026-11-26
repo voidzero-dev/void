@@ -1,11 +1,6 @@
 import { sql as drizzleSql } from 'drizzle-orm';
-import {
-  getDomain,
-  getProject,
-  type Db,
-  updateDomainStatus,
-  updateDomainVerificationData,
-} from '../db.ts';
+import { getDomain, getProject, updateDomainStatus, updateDomainVerificationData } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { projectRouteKey } from '../routing.ts';
 import type { DomainVerificationData } from '../schema.ts';
@@ -16,11 +11,8 @@ import {
   resolveProjectZeroTrustRoutingForPublication,
   withProjectZeroTrustRouting,
 } from '../zero-trust/routing.ts';
-import {
-  type CustomHostnameInfo,
-  getCustomHostname,
-  patchCustomHostname,
-} from './cloudflare-api.ts';
+import { getCustomHostname, patchCustomHostname } from './cloudflare-api.ts';
+import type { CustomHostnameInfo } from './cloudflare-api.ts';
 
 export type ActivateDomainResult = Readonly<{
   cf: CustomHostnameInfo;
@@ -173,7 +165,7 @@ export async function tryActivateDomain(
   // Fully isolated — a PATCH failure must never throw or affect the result.
   if (options?.retriggerDcv && wasPending && !gateOk && cf.ssl.method === 'http') {
     await patchCustomHostname(env.CF_ZONE_ID, env.CF_API_TOKEN, domain.cf_hostname_id).catch(
-      (err) =>
+      (err: unknown) =>
         console.error(
           `[activate-domain] failed to re-trigger HTTP DCV for ${domain.hostname}:`,
           err,

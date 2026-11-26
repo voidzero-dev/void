@@ -53,8 +53,8 @@ import {
   recordingBuildManager,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // The callback mints an installation token (which would otherwise require a
 // real RS256 PKCS#8 key via createAppJwt). Stub it so the test only exercises
@@ -72,9 +72,9 @@ vi.mock('../../src/github/installation-token.ts', () => ({
     if (!res.ok) {
       return null;
     }
-    const data = (await res.json()) as {
+    const data = await res.json<{
       account?: { id?: number | string; login?: string; type?: string };
-    };
+    }>();
     const account = data.account;
     if (!account || (typeof account.id !== 'number' && typeof account.id !== 'string')) {
       return null;
@@ -609,13 +609,13 @@ describe('POST /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(200);
-    const connection = (await res.json()) as {
+    const connection = await res.json<{
       project_id: string;
       installation_id: string;
       repo_full_name: string;
       branch: string;
       build_executor: string;
-    };
+    }>();
     expect(connection.project_id).toBe(project.id);
     expect(connection.installation_id).toBe('111');
     expect(connection.repo_full_name).toBe('acme/app');
@@ -682,7 +682,7 @@ describe('POST /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid branch');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid branch');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -712,7 +712,7 @@ describe('POST /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(200);
-    const connection = (await res.json()) as { workflow_path: string };
+    const connection = await res.json<{ workflow_path: string }>();
     expect(connection.workflow_path).toBe('.github/workflows/deploy.yaml');
     const persisted = await getGitHubConnection(env.db, project.id);
     expect(persisted?.workflow_path).toBe('.github/workflows/deploy.yaml');
@@ -772,7 +772,7 @@ describe('POST /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid workflowPath');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid workflowPath');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -802,7 +802,7 @@ describe('POST /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid workflowPath');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid workflowPath');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -836,7 +836,7 @@ describe('POST /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('installation is not active');
+    expect((await res.json<{ error: string }>()).error).toBe('installation is not active');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -862,7 +862,7 @@ describe('POST /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(200);
-    const connection = (await res.json()) as { branch: string; build_executor: string };
+    const connection = await res.json<{ branch: string; build_executor: string }>();
     expect(connection.branch).toBe('main');
     expect(connection.build_executor).toBe('container');
   });
@@ -1213,7 +1213,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { error: string }).error).toBe('installation not found');
+    expect((await res.json<{ error: string }>()).error).toBe('installation not found');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1239,7 +1239,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
       env, // App user OAuth OMITTED — the kill switch is off.
     );
     expect(existing.status).toBe(404);
-    expect(((await existing.json()) as { error: string }).error).toBe('installation not found');
+    expect((await existing.json<{ error: string }>()).error).toBe('installation not found');
 
     // Nonexistent install, SAME unset-OAuth env → identical opaque 404, so the
     // response leaks nothing about install existence.
@@ -1252,7 +1252,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
       env,
     );
     expect(nonexistent.status).toBe(404);
-    expect(((await nonexistent.json()) as { error: string }).error).toBe('installation not found');
+    expect((await nonexistent.json<{ error: string }>()).error).toBe('installation not found');
 
     // Neither probe created a connection.
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
@@ -1272,7 +1272,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('connect_authorization_required');
+    expect((await res.json<{ error: string }>()).error).toBe('connect_authorization_required');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1293,7 +1293,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('connect_authorization_required');
+    expect((await res.json<{ error: string }>()).error).toBe('connect_authorization_required');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1313,7 +1313,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3004',
       repoFullName: 'org/app',
-      repositoryId: 424242,
+      repositoryId: 424_242,
       githubAccountId: '5551234',
     });
 
@@ -1327,13 +1327,13 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(200);
-    const connection = (await res.json()) as {
+    const connection = await res.json<{
       project_id: string;
       repo_full_name: string;
       repository_id: string;
       branch: string;
       build_executor: string;
-    };
+    }>();
     expect(connection.project_id).toBe(project.id);
     expect(connection.repo_full_name).toBe('org/app');
     // The GRANT's id wins — not the cache's 111, and no live lookup happened.
@@ -1361,7 +1361,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3009',
       repoFullName: 'org/app',
-      repositoryId: 424242,
+      repositoryId: 424_242,
       githubAccountId: '5551234',
     });
 
@@ -1373,7 +1373,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { error: string }).error).toBe('installation not found');
+    expect((await res.json<{ error: string }>()).error).toBe('installation not found');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1457,7 +1457,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1481,7 +1481,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1506,7 +1506,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1534,7 +1534,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1559,7 +1559,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1585,7 +1585,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1610,7 +1610,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1635,7 +1635,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1661,7 +1661,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('installation is not active');
+    expect((await res.json<{ error: string }>()).error).toBe('installation is not active');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1687,7 +1687,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { error: string }).error).toBe('installation not found');
+    expect((await res.json<{ error: string }>()).error).toBe('installation not found');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1718,7 +1718,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1733,7 +1733,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3016',
       repoFullName: 'org/app',
-      repositoryId: 987654,
+      repositoryId: 987_654,
       githubAccountId: '5551234',
       iat: Date.now() + 60_000, // fresh proof, after the tombstone
     });
@@ -1746,7 +1746,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(200);
-    const connection = (await res.json()) as { repository_id: string };
+    const connection = await res.json<{ repository_id: string }>();
     expect(connection.repository_id).toBe('987654');
     expect((await getGitHubConnection(env.db, project.id))?.repository_id).toBe('987654');
   });
@@ -1828,7 +1828,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1942,7 +1942,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
       codeVerifier: CONNECT_VERIFIER,
     });
     expect(connectRes.status).toBe(403);
-    expect(((await connectRes.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await connectRes.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1979,7 +1979,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     });
 
     expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid connect grant');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid connect grant');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -1993,7 +1993,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '3017',
       repoFullName: 'org/app',
-      repositoryId: 555111,
+      repositoryId: 555_111,
       githubAccountId: '5551234',
     });
 
@@ -2111,7 +2111,7 @@ describe('POST /projects/:id/github — non-owner member connect grant', () => {
     const grant = await mintConnectGrant({
       installationId: '7200',
       repoFullName: 'org/app',
-      repositoryId: 777001,
+      repositoryId: 777_001,
       githubAccountId: '5551234',
     });
 
@@ -2205,7 +2205,7 @@ describe('POST /projects/:id/github — locked-row ownership re-derivation', () 
     );
 
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { error: string }).error).toBe('installation not found');
+    expect((await res.json<{ error: string }>()).error).toBe('installation not found');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -2259,7 +2259,7 @@ describe('POST /projects/:id/github — locked-row ownership re-derivation', () 
     );
 
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { error: string }).error).toBe('installation not found');
+    expect((await res.json<{ error: string }>()).error).toBe('installation not found');
     // The stale-owner connect must NOT have planted a connection.
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
     // The live repo id was actually resolved, so the owner path really ran.
@@ -2328,7 +2328,7 @@ describe('POST /projects/:id/github — post-lock status + coverage re-check', (
     );
 
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe('installation is not active');
+    expect((await res.json<{ error: string }>()).error).toBe('installation is not active');
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
   });
 
@@ -2382,7 +2382,7 @@ describe('POST /projects/:id/github — post-lock status + coverage re-check', (
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe(
+    expect((await res.json<{ error: string }>()).error).toBe(
       'repository not accessible by installation',
     );
     expect(await getGitHubConnection(env.db, project.id)).toBeNull();
@@ -2407,7 +2407,7 @@ describe('POST /projects/:id/github — post-lock status + coverage re-check', (
     const grant = await mintConnectGrant({
       installationId: '4003',
       repoFullName: 'org/app',
-      repositoryId: 909090,
+      repositoryId: 909_090,
       githubAccountId: '5551234',
     });
 
@@ -2450,7 +2450,7 @@ describe('GET /projects/:id/github', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const connection = (await res.json()) as Record<string, unknown>;
+    const connection = await res.json<Record<string, unknown>>();
     expect(connection.repo_full_name).toBe('acme/app');
     expect(connection).not.toHaveProperty('requires_reconnect');
   });
@@ -2510,7 +2510,7 @@ describe('PATCH /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(200);
-    const updated = (await res.json()) as { branch: string; build_executor: string };
+    const updated = await res.json<{ branch: string; build_executor: string }>();
     expect(updated.branch).toBe('develop');
     expect(updated.build_executor).toBe('github_actions');
   });
@@ -2545,7 +2545,7 @@ describe('PATCH /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { workflow_path: string }).workflow_path).toBe(
+    expect((await res.json<{ workflow_path: string }>()).workflow_path).toBe(
       '.github/workflows/ci.yml',
     );
     const persisted = await getGitHubConnection(env.db, project.id);
@@ -2582,7 +2582,7 @@ describe('PATCH /projects/:id/github', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('invalid workflowPath');
+    expect((await res.json<{ error: string }>()).error).toBe('invalid workflowPath');
     // The connection's workflow_path is unchanged (still the default).
     const persisted = await getGitHubConnection(env.db, project.id);
     expect(persisted?.workflow_path).toBe('.github/workflows/void-deploy.yml');
@@ -2651,7 +2651,7 @@ describe('PATCH /projects/:id/github', () => {
       { ...env, BUILD_MANAGER: namespace },
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { branch: string }).branch).toBe('develop');
+    expect((await res.json<{ branch: string }>()).branch).toBe('develop');
 
     // The OLD-branch (main) build is cancelled; the develop build is untouched.
     expect((await getBuild(env.db, mainBuild.id))!.status).toBe('cancelled');
@@ -2770,7 +2770,7 @@ describe('PATCH /projects/:id/github', () => {
       { ...env, BUILD_MANAGER: namespace },
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { workflow_path: string }).workflow_path).toBe(
+    expect((await res.json<{ workflow_path: string }>()).workflow_path).toBe(
       '.github/workflows/ci.yml',
     );
 
@@ -2898,7 +2898,7 @@ describe('PATCH /projects/:id/github', () => {
       { ...env, BUILD_MANAGER: namespace },
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { branch: string }).branch).toBe('develop');
+    expect((await res.json<{ branch: string }>()).branch).toBe('develop');
 
     // Terminated the LOCKED-current branch (`release`); the stale `main` build is
     // untouched — termination keyed off `current.branch`, not the snapshot.
@@ -3162,9 +3162,9 @@ describe('GET /github/installations', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const installations = (await res.json()) as Array<{ installation_id: string }>;
+    const installations = await res.json<Array<{ installation_id: string }>>();
     expect(installations).toHaveLength(1);
-    expect(installations[0]!.installation_id).toBe('901');
+    expect(installations[0].installation_id).toBe('901');
   });
 
   // (a) A member of a shared org installation sees it via the
@@ -3191,9 +3191,9 @@ describe('GET /github/installations', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const installations = (await res.json()) as Array<{ installation_id: string }>;
+    const installations = await res.json<Array<{ installation_id: string }>>();
     expect(installations).toHaveLength(1);
-    expect(installations[0]!.installation_id).toBe('910');
+    expect(installations[0].installation_id).toBe('910');
   });
 
   // (b) A non-member (no membership row) does NOT see the installation.
@@ -3213,7 +3213,7 @@ describe('GET /github/installations', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const installations = (await res.json()) as Array<{ installation_id: string }>;
+    const installations = await res.json<Array<{ installation_id: string }>>();
     expect(installations).toHaveLength(0);
   });
 
@@ -3241,7 +3241,7 @@ describe('GET /github/installations', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const installations = (await res.json()) as Array<{ installation_id: string }>;
+    const installations = await res.json<Array<{ installation_id: string }>>();
     expect(installations).toHaveLength(0);
   });
 
@@ -3285,7 +3285,7 @@ describe('GET /github/installations', () => {
       env,
     );
     expect(ownerRes.status).toBe(200);
-    const ownerRows = (await ownerRes.json()) as Array<Row>;
+    const ownerRows = await ownerRes.json<Array<Row>>();
     expect(ownerRows.find((r) => r.installation_id === '920')).toBeUndefined();
 
     await upsertGitHubInstallationMember(env.db, {
@@ -3298,7 +3298,7 @@ describe('GET /github/installations', () => {
       new Request('http://localhost/github/installations', authed(owner.jwt)),
       env,
     );
-    const provenOwnerRows = (await provenOwnerRes.json()) as Array<Row>;
+    const provenOwnerRows = await provenOwnerRes.json<Array<Row>>();
     expect(provenOwnerRows.find((r) => r.installation_id === '920')?.repositories).toEqual([]);
 
     // Member sees the same install (visibility preserved) but repositories is [].
@@ -3307,7 +3307,7 @@ describe('GET /github/installations', () => {
       env,
     );
     expect(memberRes.status).toBe(200);
-    const memberRows = (await memberRes.json()) as Array<Row>;
+    const memberRows = await memberRes.json<Array<Row>>();
     const memberRow = memberRows.find((r) => r.installation_id === '920');
     expect(memberRow).toBeDefined();
     expect(memberRow!.repositories).toEqual([]);
@@ -3328,7 +3328,7 @@ describe('GET /github/installations', () => {
       new Request('http://localhost/github/installations', authed(owner.jwt)),
       env,
     );
-    const personalRows = (await personalRes.json()) as Array<Row>;
+    const personalRows = await personalRes.json<Array<Row>>();
     expect(personalRows.find((r) => r.installation_id === '921')?.repositories).toEqual(
       personalRepos,
     );
@@ -3357,7 +3357,7 @@ describe('GET /github/install-url', () => {
       { ...env, GITHUB_APP_SLUG: 'void-deploy' },
     );
     expect(res.status).toBe(200);
-    const { url } = (await res.json()) as { url: string };
+    const { url } = await res.json<{ url: string }>();
     expect(url.startsWith('https://github.com/apps/void-deploy/installations/new?state=')).toBe(
       true,
     );

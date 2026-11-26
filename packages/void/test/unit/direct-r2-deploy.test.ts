@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import type { DeployManifest } from '../../src/cli/types.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
@@ -136,7 +137,7 @@ function installPlatformMocks(opts?: {
   };
 
   fetchMock.mockImplementation(async (input: RequestInfo, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : (input as Request).url;
+    const url = typeof input === 'string' ? input : input.url;
     const reqInit = init ?? {};
     const method = reqInit.method ?? 'GET';
 
@@ -377,7 +378,7 @@ describe('direct-to-R2 deploy flow', () => {
     await deploy({ client, cliLog });
 
     await cliLog.close();
-    const lines = readFileSync(logPath as string, 'utf-8')
+    const lines = readFileSync(logPath as string, 'utf8')
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { msg: string; before?: number; after?: number });
@@ -397,7 +398,7 @@ describe('direct-to-R2 deploy flow', () => {
     await deploy({ client, cliLog });
 
     await cliLog.close();
-    const lines = readFileSync(logPath as string, 'utf-8')
+    const lines = readFileSync(logPath as string, 'utf8')
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { msg: string });
@@ -501,6 +502,22 @@ describe('direct-to-R2 deploy flow', () => {
     await expect(deploy()).rejects.toThrow(/R2 PUT failed.+SignatureMismatch/);
   });
 
+  it('names the platform R2 credentials when R2 rejects the upload signature', async () => {
+    const state = installPlatformMocks({
+      r2PutBehavior() {
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code><Message>x</Message></Error>',
+          { status: 403 },
+        );
+      },
+    });
+
+    await expect(deploy()).rejects.toThrow(
+      /R2 rejected the upload signature \(SignatureDoesNotMatch\).+VOID_PLATFORM_R2_ACCESS_KEY_ID.+void platform repair/,
+    );
+    expect(state.finalizeCalls).toHaveLength(0);
+  });
+
   it('writes presign + r2_put + finalize events to the JSONL log', async () => {
     installPlatformMocks();
     const cliLog = openDeployLog();
@@ -512,7 +529,7 @@ describe('direct-to-R2 deploy flow', () => {
     await deploy({ client, cliLog });
 
     await cliLog.close();
-    const lines = readFileSync(capturedLogPath as string, 'utf-8')
+    const lines = readFileSync(capturedLogPath as string, 'utf8')
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { msg: string });
@@ -771,5 +788,5 @@ describe('D1 read replication', () => {
 });
 
 function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }

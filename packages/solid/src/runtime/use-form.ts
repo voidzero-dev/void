@@ -1,18 +1,23 @@
 import { createSignal, createMemo, useContext } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import {
-  VoidActionError,
+  changedFormErrorKeys,
   cloneFormValue,
+  formErrorKeysWithin,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
   isCallSiteActionError,
   isEqualFormValue,
+  omitFormErrors,
   parseFormResetArgs,
   submitAction,
-  type FormResetOptions,
-  type FormState,
-  type FormSubmitOptions,
+} from 'void/pages-client';
+import type {
+  FormResetOptions,
+  FormState,
+  FormSubmitOptions,
+  VoidActionError,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext, ErrorsContext } from './context.ts';
@@ -88,8 +93,18 @@ export function useForm(
   });
 
   function setData(field: string, value: unknown) {
+    // The store can merge the new value into the existing object. Snapshot that field
+    // before the write and compare against what the store actually kept.
+    const previous = { ...data };
+    if (Object.hasOwn(previous, field)) {
+      previous[field] = cloneFormValue(previous[field]);
+    }
     setDataStore(field, value);
-    clearErrors(field);
+    const current = errors();
+    const affected = changedFormErrorKeys(current, previous, data);
+    if (affected.length > 0) {
+      replaceErrors(omitFormErrors(current, affected));
+    }
   }
 
   function reset(...args: ReadonlyArray<string | FormResetOptions>) {
@@ -105,15 +120,12 @@ export function useForm(
   }
 
   function clearErrors(...fields: ReadonlyArray<string>) {
-    if (fields.length === 0) {
-      replaceErrors({});
-    } else {
-      const next = { ...errors() };
-      for (const field of fields) {
-        delete next[field];
-      }
-      replaceErrors(next);
-    }
+    const current = errors();
+    replaceErrors(
+      fields.length === 0
+        ? {}
+        : omitFormErrors(current, formErrorKeysWithin(current, fields, data)),
+    );
   }
 
   function setFieldError(field: string, message: string) {

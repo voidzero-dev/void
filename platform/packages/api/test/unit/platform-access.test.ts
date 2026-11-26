@@ -36,7 +36,7 @@ function fixture() {
     expect(options?.redirect).toBe('manual');
     return Response.json({ keys: [jwk] });
   });
-  return { verifier: new PlatformAccessVerifier(request as typeof fetch), request };
+  return { verifier: new PlatformAccessVerifier(request), request };
 }
 describe('Cloudflare Access assertions', () => {
   it('verifies human identity and caches signing keys', async () => {
@@ -70,7 +70,7 @@ describe('Cloudflare Access assertions', () => {
     { exp: undefined },
     { sub: '' },
     { email: undefined },
-    { iat: 9999999999 },
+    { iat: 9_999_999_999 },
     { common_name: 'machine', sub: 'employee' },
   ])('rejects invalid or ambiguous claims %j', async (claims) => {
     await expect(

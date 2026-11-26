@@ -4,12 +4,12 @@ import {
   resolvePageTtl,
   resolveRevalidateTtl,
   SHARED_CACHE_POLICY_VERSION,
-  type IsrCacheMetadata,
 } from '@void/isr/core';
+import type { IsrCacheMetadata } from '@void/isr/core';
 import { platformProjectHostname, readPlatformApplication } from '@void/platform';
 import { sql as drizzleSql } from 'drizzle-orm';
-import { type Context } from 'hono';
-import { type AssetManifestEntry } from '../assets.ts';
+import type { Context } from 'hono';
+import type { AssetManifestEntry } from '../assets.ts';
 import { deleteDispatchScript } from '../cf-api.ts';
 import { uploadPool } from '../concurrency.ts';
 import { clearCronScheduler, syncCronScheduler } from '../cron-scheduler-client.ts';
@@ -21,12 +21,12 @@ import {
   markDeploymentRetained,
   getRetainedDeploymentsExcluding,
   getProjectResources,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { createIsrStore } from '../isr-store.ts';
 import { getProjectQueueName } from '../naming.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import { resolvePlanLimits } from '../plans.ts';
 import { addQueueConsumer, removeQueueConsumer } from '../provisioning/cloudflare-api.ts';
 import {
@@ -35,30 +35,28 @@ import {
   perDeployContainerApplicationName,
 } from '../provisioning/containers.ts';
 import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.ts';
-import { provisionBindings } from '../provisioning/provision.ts';
+import type { provisionBindings } from '../provisioning/provision.ts';
 import { deleteSandboxController, isManagedSandbox } from '../provisioning/sandbox-controller.ts';
 import { projectRouteKey } from '../routing.ts';
 import { buildRoutingJson, computeDispatchLimits } from '../routing.ts';
+import { finishSecurityScanEnqueue } from '../security/enqueue.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
 import { REASON_REQUESTS_EXCEEDED } from '../suspension.ts';
 import type { PlanLimits } from '../tiers.ts';
-import {
-  type DeployManifest,
-  type DeployEvent,
-  type Deployment,
-  type Project,
-  type DeploymentStatus,
+import type {
+  DeployManifest,
+  DeployEvent,
+  Deployment,
+  Project,
+  DeploymentStatus,
 } from '../types.ts';
 import type { WorkerModule } from '../worker-upload.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import { clearIsrCache, serializePrerenderHeaders, packIsrValue } from './cache.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
-import {
-  commitCutoverLive,
-  requireActiveDeployAccess,
-  cutoverIntentKey,
-  cutoverReadyKey,
-  type CutoverMarker,
-} from './recovery.ts';
+import type { PreviousDeployManifest } from './persisted-manifest.ts';
+import { commitCutoverLive, cutoverIntentKey, cutoverReadyKey } from './recovery.ts';
+import type { CutoverMarker, requireActiveDeployAccess } from './recovery.ts';
 import { projectPublicUrls } from './shared.ts';
 
 export async function publishWorkerDeployment(input: {
@@ -84,7 +82,7 @@ export async function publishWorkerDeployment(input: {
   readonly snapshotTrackedQueueConsumer: (queueId: string, scriptName: string) => Promise<void>;
   readonly putTrackedRouting: (key: string, value: string) => Promise<void>;
   readonly workerName: string;
-  readonly previousManifest: DeployManifest | null;
+  readonly previousManifest: Pick<PreviousDeployManifest, 'queues'> | null;
   readonly deleteTrackedRouting: (key: string) => Promise<void>;
   logger: DeployLogger;
   readonly project: Project;
@@ -151,7 +149,7 @@ export async function publishWorkerDeployment(input: {
 
   input.currentStep = 'cutover_intent';
   const cutoverMarker: CutoverMarker = {
-    projectId: projectId,
+    projectId,
     ownerId: cutoverOwnerId,
     buildId: deployBuild ?? null,
   };
@@ -198,13 +196,18 @@ export async function publishWorkerDeployment(input: {
           queueBinding.queue_id,
           dispatchWorkerName,
           {
-            ...(q.maxBatchSize != null && { batch_size: q.maxBatchSize }),
-            ...(q.maxBatchTimeout != null && {
-              max_wait_time_ms: q.maxBatchTimeout * 1000,
-            }),
-            ...(q.maxRetries != null && { max_retries: q.maxRetries }),
-            ...(q.maxConcurrency != null && { max_concurrency: q.maxConcurrency }),
-            ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
+            ...(q.maxBatchSize !== null &&
+              q.maxBatchSize !== undefined && { batch_size: q.maxBatchSize }),
+            ...(q.maxBatchTimeout !== null &&
+              q.maxBatchTimeout !== undefined && {
+                max_wait_time_ms: q.maxBatchTimeout * 1000,
+              }),
+            ...(q.maxRetries !== null &&
+              q.maxRetries !== undefined && { max_retries: q.maxRetries }),
+            ...(q.maxConcurrency !== null &&
+              q.maxConcurrency !== undefined && { max_concurrency: q.maxConcurrency }),
+            ...(q.retryDelay !== null &&
+              q.retryDelay !== undefined && { retry_delay: q.retryDelay }),
           },
         );
         if (consumerResult.status === 'conflict') {
@@ -218,9 +221,12 @@ export async function publishWorkerDeployment(input: {
         return { q, queueBinding, status: consumerResult.status };
       }),
     );
-    const consumerErrors = settledConsumerOutcomes
-      .filter((outcome) => outcome.status === 'rejected')
-      .map((outcome) => outcome.reason);
+    const consumerErrors: Array<unknown> = [];
+    for (const outcome of settledConsumerOutcomes) {
+      if (outcome.status === 'rejected') {
+        consumerErrors.push(outcome.reason);
+      }
+    }
     if (consumerErrors.length > 0) {
       throw new AggregateError(consumerErrors, 'one or more queue consumers failed to sync');
     }
@@ -241,8 +247,8 @@ export async function publishWorkerDeployment(input: {
       await putTrackedRouting(
         queueKey,
         JSON.stringify({
-          workerName: workerName,
-          projectId: projectId,
+          workerName,
+          projectId,
           queueName: outcome.q.name,
           proxyToken,
         }),
@@ -269,7 +275,8 @@ export async function publishWorkerDeployment(input: {
   });
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 
-  const hasCrons = manifest.schedules && manifest.schedules.length > 0;
+  const { schedules } = manifest;
+  const hasCrons = schedules && schedules.length > 0;
 
   await clearIsrCache(
     createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
@@ -368,14 +375,16 @@ export async function publishWorkerDeployment(input: {
       manifest.limits,
     );
     const existingRouting = await context.env.ROUTING.get(projectRouteKey(project));
-    const existingEntry = existingRouting ? JSON.parse(existingRouting) : null;
+    const existingEntry = existingRouting
+      ? (JSON.parse(existingRouting) as { suspended?: string })
+      : null;
     const zeroTrust = await resolveProjectZeroTrustRouting(txDb, projectId);
     const routingJson = buildRoutingJson({
       privatePreview: Boolean(project.preview_client_id),
-      workerName: workerName,
-      projectId: projectId,
+      workerName,
+      projectId,
       userId: project.user_id,
-      manifest: manifest,
+      manifest,
       deploymentId: deployment.id,
       dispatchLimits,
       suspended:
@@ -415,8 +424,8 @@ export async function publishWorkerDeployment(input: {
     input.cronSchedulerWriteAttempted = true;
     if (hasCrons) {
       await syncCronScheduler(context.env, projectId, {
-        workerName: workerName,
-        schedules: manifest.schedules!,
+        workerName,
+        schedules,
         proxyToken,
       });
     } else {
@@ -432,13 +441,14 @@ export async function publishWorkerDeployment(input: {
     to: 'live',
     reason: 'wfp_deploy',
   });
-  await commitCutoverLive(context.get('db'), context.env.ROUTING, {
+  const securityScan = await commitCutoverLive(context.get('db'), context.env.ROUTING, {
     projectId,
     actorId: actor.id,
     deploymentId: deployment.id,
     cutoverOwnerId,
     deployBuild,
     projectType: manifest.type ?? (manifest.framework ? 'framework' : 'void'),
+    env: context.env,
   });
   input.cutoverCommitted = true;
   input.currentStatus = 'live';
@@ -536,7 +546,7 @@ export async function publishWorkerDeployment(input: {
           context.env.CF_API_TOKEN,
           dispatchNamespace,
           oldWorkerName,
-        ).catch((e) => {
+        ).catch((e: unknown) => {
           input.logger.warn('retention_cleanup', 'evicted_dispatch_script_delete_failed', {
             evictedDeploymentId: old.id,
             err: e instanceof Error ? e.message : String(e),
@@ -549,13 +559,19 @@ export async function publishWorkerDeployment(input: {
               { hash: string }
             >;
             const evictedHashes = Object.values(evictedManifest).map((e) => e.hash);
-            await deleteAssetHashesWithProjectFence(retainedHashes, evictedHashes).catch((e) => {
-              input.logger.warn('retention_cleanup', 'evicted_unreferenced_assets_delete_failed', {
-                evictedDeploymentId: old.id,
-                err: e instanceof Error ? e.message : String(e),
-              });
-            });
-            await context.env.ROUTING.delete(`manifest:${old.id}`).catch((e) => {
+            await deleteAssetHashesWithProjectFence(retainedHashes, evictedHashes).catch(
+              (e: unknown) => {
+                input.logger.warn(
+                  'retention_cleanup',
+                  'evicted_unreferenced_assets_delete_failed',
+                  {
+                    evictedDeploymentId: old.id,
+                    err: e instanceof Error ? e.message : String(e),
+                  },
+                );
+              },
+            );
+            await context.env.ROUTING.delete(`manifest:${old.id}`).catch((e: unknown) => {
               input.logger.warn('retention_cleanup', 'evicted_routing_manifest_delete_failed', {
                 evictedDeploymentId: old.id,
                 err: e instanceof Error ? e.message : String(e),
@@ -621,7 +637,7 @@ export async function publishWorkerDeployment(input: {
           createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
           projectId,
           old.id,
-        ).catch((e) =>
+        ).catch((e: unknown) =>
           input.logger.error('retention_cleanup', 'evicted_isr_cache_clear_failed', e, {
             evictedDeploymentId: old.id,
           }),
@@ -658,11 +674,15 @@ export async function publishWorkerDeployment(input: {
   emit({
     event: 'done',
     deployment: deployment.id,
-    url: urls[0]!,
+    url: urls[0],
     urls,
     assets: deployedAssetCount,
     workers: workerFiles.length,
     ...(migrationsApplied > 0 && { migrations: migrationsApplied }),
   });
+  // After `done`, so the copy of inline modules (≤ 30 s) never delays the deploy
+  // result. Before the pipeline releases a CLI upload, which these modules read.
+  await finishSecurityScanEnqueue(context.env, context.get('db'), securityScan, workerFiles);
+  await recheckPublicRequestBestEffort(context.env, context.get('db'), project.id, 'a deploy');
   await finishOrphanSweep();
 }

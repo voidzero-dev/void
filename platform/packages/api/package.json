@@ -5,9 +5,11 @@
   "exports": {
     "./tiers": "./src/tiers.ts",
     "./id": "./src/id.ts",
+    "./email-admission": "./src/email/admission.ts",
     "./api": "./src/api.ts",
     "./reserved-slugs": "./src/reserved-slugs.ts",
     "./routing": "./src/routing.ts",
+    "./routing-records": "./src/routing-records.ts",
     "./isr-store": "./src/isr-store.ts",
     "./usage-auth": "./src/usage-auth.ts",
     "./proxy-token": "./src/proxy-token.ts"

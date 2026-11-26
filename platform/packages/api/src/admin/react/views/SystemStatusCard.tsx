@@ -7,7 +7,11 @@ import { useFateClient, useView } from 'react-fate';
 import { HealthView, healthRequest } from '../../fate/views.ts';
 import { LastCheckedTime, StatusCard } from './StatusCard.tsx';
 
-const serviceLabels: Record<string, string> = {
+interface ServiceLabels {
+  [key: string]: string | undefined;
+}
+
+const serviceLabels: ServiceLabels = {
   api: 'API',
   proxy: 'Proxy',
   dashboard: 'Dashboard',

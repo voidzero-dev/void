@@ -1,0 +1,14 @@
+{
+  "name": "@voidcloud/security-scanner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp pack",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

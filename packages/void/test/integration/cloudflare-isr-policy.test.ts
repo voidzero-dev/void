@@ -38,7 +38,7 @@ describe('explicit ISR policy in real builds', () => {
       expect(entry).not.toContain('handleIsr');
       const generated = JSON.parse(
         readFileSync(join(playground.root, 'dist/ssr/wrangler.json'), 'utf8'),
-      );
+      ) as { kv_namespaces?: Array<{ binding: string }> };
       expect(
         (generated.kv_namespaces ?? []).some(
           (binding: { binding: string }) => binding.binding === 'ISR_CACHE',

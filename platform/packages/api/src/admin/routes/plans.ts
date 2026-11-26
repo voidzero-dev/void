@@ -1,12 +1,11 @@
-import {
-  PLAN_EDITABLE_LIMIT_KEYS,
-  parsePlatformPlanId,
-  type PlatformPlanCatalog,
-} from '@void/platform/plans';
-import { Hono, type Context } from 'hono';
+import { PLAN_EDITABLE_LIMIT_KEYS, parsePlatformPlanId } from '@void/platform/plans';
+import type { PlatformPlanCatalog } from '@void/platform/plans';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { PlanAiLoggingPublishProgress } from '../../ai-logging-plans.ts';
 import { isAiLoggingMode } from '../../ai-logging-policy.ts';
+import { securityAuditsEnabled } from '../../capabilities.ts';
 import type { ApiEnv } from '../../env.ts';
 import { executeAuditedMutation, operatorAuditIntent } from '../../operator/audit.ts';
 import { OperatorError, readBody } from '../../operator/common.ts';
@@ -14,8 +13,8 @@ import {
   getOperatorPlanCatalog,
   mutateOperatorPlanCatalog,
   syncOperatorPlanCatalog,
-  type PlanCatalogAction,
 } from '../../operator/plans.ts';
+import type { PlanCatalogAction } from '../../operator/plans.ts';
 import { getPlatformDisplayName } from '../../platform-identity.ts';
 import { renderFateListPage } from '../fate/render.ts';
 import type { AdminPlanPreview, AdminPlanProgress } from '../plans.ts';
@@ -46,9 +45,9 @@ app.onError((error, context) => {
   throw error;
 });
 
-const actions: Array<PlanCatalogAction> = ['add', 'set', 'archive', 'remove', 'default', 'reset'];
+const actions = new Set<PlanCatalogAction>(['add', 'set', 'archive', 'remove', 'default', 'reset']);
 function action(value: unknown): PlanCatalogAction {
-  if (typeof value !== 'string' || !actions.includes(value as PlanCatalogAction)) {
+  if (typeof value !== 'string' || !actions.has(value as PlanCatalogAction)) {
     throw new OperatorError(400, 'Choose a supported plan action.');
   }
   return value as PlanCatalogAction;
@@ -76,6 +75,42 @@ function progress(result: {
     cursor: `${result.catalog.reconciliation?.cursor ?? ''}|${aiLoggingPublish.remaining}`,
     error: reconciliation.error?.message ?? aiLoggingPublish.error ?? null,
   };
+}
+
+type PlanForm = Record<string, string | File | Array<string | File>>;
+
+/**
+ * The plan's scan cap from the edit form: `securityCapMode` is `inherit`, `none` or
+ * `amount`. The form may come from a cached read, so only a value changed against
+ * `securityCapInitial` is sent; `undefined` = unchanged or not shown.
+ */
+function formSecurityCap(form: PlanForm): number | 'none' | 'inherit' | undefined {
+  const mode = form.securityCapMode;
+  if (mode === undefined) {
+    return undefined;
+  }
+  let cap: number | 'none' | 'inherit';
+  if (mode === 'inherit' || mode === 'none') {
+    cap = mode;
+  } else if (mode === 'amount') {
+    const raw = typeof form.securityCapUsd === 'string' ? form.securityCapUsd.trim() : '';
+    const usd = Number(raw);
+    if (raw === '' || !Number.isFinite(usd) || usd < 0) {
+      throw new OperatorError(400, 'Enter the security scan cap as a dollar amount of 0 or more.');
+    }
+    cap = usd;
+  } else {
+    throw new OperatorError(400, 'Choose a supported security scan cap setting.');
+  }
+  const initial = typeof form.securityCapInitial === 'string' ? form.securityCapInitial : '';
+  // An amount with more than two decimals is always sent, so the API refuses it.
+  const current =
+    typeof cap !== 'number'
+      ? cap
+      : Math.round(cap * 100) / 100 === cap
+        ? String(Math.round(cap * 100))
+        : '';
+  return current === initial ? undefined : cap;
 }
 
 const HOME = '/admin/config/plans';
@@ -111,7 +146,23 @@ app.post('/preview', async (context) => {
   const form = await context.req.parseBody();
   const selectedAction = action(form.action);
   const target = planId(form.id);
-  const body: Record<string, unknown> = { expectedRevision: Number(form.revision) };
+  const body: Record<'expectedRevision', number> &
+    Partial<
+      Record<
+        | 'id'
+        | 'copyFrom'
+        | 'name'
+        | 'buildInstanceType'
+        | 'allowShortSlugs'
+        | 'aiLogging'
+        | 'securityCap'
+        | 'limits'
+        | 'archived'
+        | 'replacementPlanId'
+        | 'planId',
+        unknown
+      >
+    > = { expectedRevision: Number(form.revision) };
   if (selectedAction === 'add') {
     body.id = target;
     body.copyFrom = planId(form.copyFrom);
@@ -129,6 +180,10 @@ app.post('/preview', async (context) => {
       if (form.aiLogging !== form.aiLoggingInitial) {
         body.aiLogging = form.aiLogging;
       }
+    }
+    const securityCap = formSecurityCap(form);
+    if (securityCap !== undefined) {
+      body.securityCap = securityCap;
     }
     body.limits = Object.fromEntries(
       PLAN_EDITABLE_LIMIT_KEYS.map((key) => {
@@ -170,6 +225,10 @@ app.post('/preview', async (context) => {
     // The dry run reads the saved defaults under the catalog lock, so this matches what apply replaces.
     aiLoggingBefore: result.aiLogging.modesBefore,
     aiLoggingAfter: result.aiLogging.modes,
+    securityCapsBefore: result.securityCaps.capsBefore,
+    securityCapsAfter: result.securityCaps.caps,
+    // The scan cap row shows only while security audits are on, as on the Plans page.
+    securityAudits: securityAuditsEnabled(context.env),
     affectedAccounts: result.affectedAccounts,
     warnings: result.warnings,
     overLimitAccounts: result.overLimitAccounts,
@@ -192,6 +251,7 @@ app.post('/apply', async (context) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error();
     }
+    // oxlint-disable-next-line quality/no-known-value-widening -- Forward the reviewed JSON to the operator mutation for schema validation.
     body = { ...value, expectedRevision: Number(form.revision), dryRun: false };
   } catch {
     throw new OperatorError(400, 'The plan review is invalid. Preview the change again.');

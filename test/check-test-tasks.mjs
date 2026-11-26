@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** @type {Record<string, { projects: string[], prefix: string } | undefined>} */
 const groups = {
   unit: { projects: ['unit', 'unit-pglite', 'cli-unit'], prefix: 'test:unit:' },
   platform: {
@@ -32,14 +33,17 @@ const run = (args) =>
     shell: process.platform === 'win32',
   });
 
+/** @type {{ tasks: Record<string, { package: string, name: string, command: string }> }} */
+const plan = JSON.parse(run(['run', '--json']));
 // A task's command ends with the test files it runs.
-const commands = Object.values(JSON.parse(run(['run', '--json'])).tasks)
+const commands = Object.values(plan.tasks)
   .filter((task) => task.package === '.' && task.name.startsWith(group.prefix))
   .map((task) => task.command);
 const covered = new Set(
   commands.flatMap((command) => command.split(' ').filter((word) => word.endsWith('.test.ts'))),
 );
-const collected = JSON.parse(
+/** @type {Array<{ file: string }>} */
+const testFiles = JSON.parse(
   run([
     'test',
     'list',
@@ -47,7 +51,8 @@ const collected = JSON.parse(
     '--filesOnly',
     '--json',
   ]),
-).map((entry) => relative(root, entry.file).replaceAll('\\', '/'));
+);
+const collected = testFiles.map((entry) => relative(root, entry.file).replaceAll('\\', '/'));
 
 const missing = collected.filter((file) => !covered.has(file));
 if (collected.length === 0 || missing.length > 0) {

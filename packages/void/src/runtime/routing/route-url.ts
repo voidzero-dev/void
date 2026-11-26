@@ -32,7 +32,7 @@ export function interpolateRouteParams(
   const pathname = suffixIndex === -1 ? path : path.slice(0, suffixIndex);
   const suffix = suffixIndex === -1 ? '' : path.slice(suffixIndex);
   let leadingName: string | undefined;
-  const replaced = pathname.replace(
+  const replaced = pathname.replaceAll(
     /(^|\/)(?::([^/{}]+)(\{\.\+\})?|\[(\.\.\.)?([^/[\]]*)\]|\*)(?=\/|$)/g,
     (
       token: string,
@@ -117,13 +117,16 @@ type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePat
 // Use a structural marker so package and generated declarations agree when a
 // helper-built URL crosses into a navigation, form, or stream client.
 type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };
+// Suffix a shared base so a helper-built URL keeps the same query and hash forms
+// as a route path, including when it is typed as `RouteUrl`.
+type RouteUrlBase = BuiltRouteUrl | RoutePathUrl;
 
 /** Whether `routing.typedRoutes` is on in the generated route types. */
 export type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;
 
 /** The URL of one of the app's routes. A plain string unless `routing.typedRoutes` is on. */
 export type RouteUrl = TypedRoutes extends true
-  ? BuiltRouteUrl | RoutePathUrl | `${RoutePathUrl}${'?' | '#'}${string}`
+  ? RouteUrlBase | `${RouteUrlBase}${'?' | '#'}${string}`
   : string;
 
 /** Anything a link can point to: a route URL, a same-page query or hash, or an external URL. */
@@ -150,7 +153,7 @@ export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQue
 type RouteQueryOptions<P> = P extends keyof PageQueryMap
   ? [PageQueryMap[P]['input']] extends [never]
     ? { query?: RouteQuery }
-    : {} extends PageQueryMap[P]['input']
+    : Record<never, never> extends PageQueryMap[P]['input']
       ? { query?: PageQueryMap[P]['input'] }
       : { query: PageQueryMap[P]['input'] }
   : { query?: RouteQuery };
@@ -167,7 +170,9 @@ export type RouteOptions<P extends RoutePath> = {
  * or the page's query schema has a required key.
  */
 export type RouteUrlArgs<P extends RoutePath> =
-  {} extends RouteOptions<P> ? [options?: RouteOptions<P>] : [options: RouteOptions<P>];
+  Record<never, never> extends RouteOptions<P>
+    ? [options?: RouteOptions<P>]
+    : [options: RouteOptions<P>];
 
 export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath
   ? { pathname: P } & RouteOptions<P>
@@ -183,7 +188,7 @@ type UrlOptions = {
 
 /** Build a relative URL from a known route pattern. */
 export function routeUrl<P extends RoutePath>(path: P, ...args: RouteUrlArgs<P>): RouteUrl {
-  return buildRouteUrl(path, args[0]) as RouteUrl;
+  return buildRouteUrl(path, args[0]);
 }
 
 /** @internal Convert navigation inputs to URL strings without requiring an origin. */
@@ -200,7 +205,7 @@ export function toUrlString(value: string | URL | ({ pathname: string } & UrlOpt
   return buildRouteUrl(value.pathname, value);
 }
 
-function buildRouteUrl(path: string, options?: UrlOptions): string {
+function buildRouteUrl(path: string, options?: UrlOptions): BuiltRouteUrl {
   const params = Object.fromEntries(
     Object.entries(options?.params ?? {}).map(([name, value]) => {
       if (typeof value !== 'string' && typeof value !== 'number') {
@@ -226,5 +231,5 @@ function buildRouteUrl(path: string, options?: UrlOptions): string {
   if (options?.hash) {
     url.hash = options.hash;
   }
-  return url.pathname + url.search + url.hash;
+  return (url.pathname + url.search + url.hash) as BuiltRouteUrl;
 }

@@ -100,7 +100,10 @@ beforeEach(() => {
         const url = new URL(input instanceof Request ? input.url : input);
         const method = init?.method ?? 'GET';
         const authorization = new Headers(init?.headers).get('Authorization');
-        requests.push({ origin: url.origin, path: url.pathname, method, authorization });
+        // The best-effort security read after a deploy is not part of the deploy flow.
+        if (!url.pathname.endsWith('/security')) {
+          requests.push({ origin: url.origin, path: url.pathname, method, authorization });
+        }
         expect([originalOrigin, alternateOrigin]).toContain(url.origin);
         const id = url.origin === originalOrigin ? 'project-original' : 'project-alternate';
         const project = { id, slug: 'my-app', role: 'owner' };

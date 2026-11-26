@@ -50,11 +50,25 @@ export type SubcommandResult = {
   extraArgs?: Array<string>;
 };
 
-const isUpKey = (key: string) => key === '\x1B[A' || key === '\x1BOA';
-const isDownKey = (key: string) => key === '\x1B[B' || key === '\x1BOB';
+const isUpKey = (key: string) => key === '\u001B[A' || key === '\u001BOA';
+const isDownKey = (key: string) => key === '\u001B[B' || key === '\u001BOB';
 const isEnterKey = (key: string) => key === '\r' || key === '\n';
-const isBackspaceKey = (key: string) => key === '\x7F' || key === '\b';
+const isBackspaceKey = (key: string) => key === '\u007F' || key === '\b';
 const isPrintableKey = (key: string) => key.length === 1 && key >= ' ';
+
+function checkboxMarker(selected: boolean, focused: boolean): string {
+  const checkbox = selected
+    ? pc.blue(S_CHECKBOX_SELECTED)
+    : focused
+      ? pc.blue(S_CHECKBOX_INACTIVE)
+      : pc.dim(S_CHECKBOX_INACTIVE);
+  const pointer = focused ? pc.blue(S_RADIO_ACTIVE) : S_RADIO_INACTIVE;
+  return pointer + ' ' + checkbox;
+}
+
+function guidePrefix(): string {
+  return getGuide() ? pc.gray(S_BAR) + ' ' : '  ';
+}
 
 export function promptSubcommand(
   command: string,
@@ -81,7 +95,7 @@ export function promptSubcommand(
     const wasRaw = stdin.isRaw;
     stdin.setRawMode(true);
     stdin.resume();
-    stdout.write('\x1B[?25l'); // hide cursor
+    stdout.write('\u001B[?25l'); // hide cursor
 
     function clear() {
       if (previousFrame) {
@@ -89,7 +103,7 @@ export function promptSubcommand(
           hard: true,
           trim: false,
         }).split('\n').length;
-        stdout.write(`\x1B[${rows}A\r\x1B[0J`);
+        stdout.write(`\u001B[${rows}A\r\u001B[0J`);
         previousFrame = '';
       }
     }
@@ -111,10 +125,6 @@ export function promptSubcommand(
       return `${lines[0]}…`;
     }
 
-    function guidePrefix(): string {
-      return getGuide() ? pc.gray(S_BAR) + ' ' : '  ';
-    }
-
     function renderOption(marker: string, label: string, focused: boolean, suffix = ''): string {
       return (
         guidePrefix() +
@@ -126,16 +136,6 @@ export function promptSubcommand(
           suffix,
         )
       );
-    }
-
-    function checkboxMarker(selected: boolean, focused: boolean): string {
-      const checkbox = selected
-        ? pc.blue(S_CHECKBOX_SELECTED)
-        : focused
-          ? pc.blue(S_CHECKBOX_INACTIVE)
-          : pc.dim(S_CHECKBOX_INACTIVE);
-      const pointer = focused ? pc.blue(S_RADIO_ACTIVE) : S_RADIO_INACTIVE;
-      return pointer + ' ' + checkbox;
     }
 
     function instructions(items: Array<string>): Array<string> {
@@ -179,10 +179,17 @@ export function promptSubcommand(
 
     const title = command ? `void ${command}` : 'void';
 
+    function selectedSubcommand(): SubcommandDef {
+      if (!selectedSub) {
+        throw new Error('No subcommand selected.');
+      }
+      return selectedSub;
+    }
+
     function headerLine(): string {
       const argPart = selectedArg ? ` ${selectedArg}` : '';
       return promptTitle(
-        `${pc.blue(title)} ${pc.dim('·')} ${selectedSub!.name}${argPart}`,
+        `${pc.blue(title)} ${pc.dim('·')} ${selectedSubcommand().name}${argPart}`,
         'active',
         { output: stdout },
       );
@@ -231,7 +238,10 @@ export function promptSubcommand(
     }
 
     function renderFlags() {
-      const flags = selectedSub!.flags!;
+      const { flags } = selectedSubcommand();
+      if (!flags?.length) {
+        throw new Error('The selected subcommand has no flags.');
+      }
       const focused = flags[cursor];
       const lines: Array<string> = [];
 
@@ -265,7 +275,10 @@ export function promptSubcommand(
     }
 
     function renderMultiSelect() {
-      const followUp = selectedSub!.followUp as Extract<FollowUpDef, { type: 'multi-select' }>;
+      const { followUp } = selectedSubcommand();
+      if (followUp?.type !== 'multi-select') {
+        throw new Error('The selected subcommand has no multi-select options.');
+      }
       const options = followUp.options;
       const lines: Array<string> = [];
 
@@ -281,7 +294,10 @@ export function promptSubcommand(
     }
 
     function renderRepeatInput() {
-      const followUp = selectedSub!.followUp as Extract<FollowUpDef, { type: 'repeat-input' }>;
+      const { followUp } = selectedSubcommand();
+      if (followUp?.type !== 'repeat-input') {
+        throw new Error('The selected subcommand has no repeat input.');
+      }
       const lines: Array<string> = [];
 
       for (const entry of repeatEntries) {
@@ -310,7 +326,7 @@ export function promptSubcommand(
       stdin.removeListener('data', onData);
       stdout.removeListener('resize', render);
       process.removeListener('exit', onExit);
-      stdout.write('\x1B[?25h');
+      stdout.write('\u001B[?25h');
     }
 
     function submit(result: SubcommandResult | null) {
@@ -348,7 +364,7 @@ export function promptSubcommand(
 
     function finalize() {
       const result: SubcommandResult = {
-        subcommand: selectedSub!.name,
+        subcommand: selectedSubcommand().name,
         arg: selectedArg,
       };
 
@@ -364,18 +380,18 @@ export function promptSubcommand(
     }
 
     function advancePhase() {
+      const { flags, followUp } = selectedSubcommand();
       // After choosing a command, try flags first.
-      if (phase === 'select' && selectedSub!.flags && selectedSub!.flags.length > 0) {
+      if (phase === 'select' && flags?.length) {
         phase = 'flags';
         cursor = 0;
-        flagStates = selectedSub!.flags!.map(() => ({ enabled: false, value: '' }));
+        flagStates = flags.map(() => ({ enabled: false, value: '' }));
         render();
         return;
       }
 
       // Then try any follow-up input phase.
-      if ((phase === 'select' || phase === 'flags') && selectedSub!.followUp) {
-        const followUp = selectedSub!.followUp;
+      if ((phase === 'select' || phase === 'flags') && followUp) {
         if (followUp.type === 'multi-select') {
           phase = 'multi-select';
           cursor = 0;
@@ -442,7 +458,10 @@ export function promptSubcommand(
     }
 
     function handleFlagKey(key: string) {
-      const flags = selectedSub!.flags!;
+      const { flags } = selectedSubcommand();
+      if (!flags?.length) {
+        throw new Error('The selected subcommand has no flags.');
+      }
       const focused = flags[cursor];
       const state = flagStates[cursor];
 
@@ -493,7 +512,10 @@ export function promptSubcommand(
     }
 
     function handleMultiSelectKey(key: string) {
-      const followUp = selectedSub!.followUp as Extract<FollowUpDef, { type: 'multi-select' }>;
+      const { followUp } = selectedSubcommand();
+      if (followUp?.type !== 'multi-select') {
+        throw new Error('The selected subcommand has no multi-select options.');
+      }
       const options = followUp.options;
 
       if (moveCursor(key, options.length)) {
@@ -568,23 +590,23 @@ export function promptSubcommand(
       const key = data.toString();
 
       // Ctrl+C
-      if (key === '\x03') {
+      if (key === '\u0003') {
         submit(null);
         return;
       }
       // Escape
-      if (key === '\x1B' && data.length === 1) {
+      if (key === '\u001B' && data.length === 1) {
         submit(null);
         return;
       }
       // Arrow keys and other escape sequences need to stay grouped.
-      if (key.startsWith('\x1B')) {
+      if (key.startsWith('\u001B')) {
         handleKey(key);
         return;
       }
 
       for (const char of key) {
-        if (char === '\x03') {
+        if (char === '\u0003') {
           submit(null);
           return;
         }
@@ -598,7 +620,7 @@ export function promptSubcommand(
     // Safety cleanup on exit
     function onExit() {
       if (!resolved) {
-        stdout.write('\x1B[?25h');
+        stdout.write('\u001B[?25h');
       }
     }
     process.on('exit', onExit);

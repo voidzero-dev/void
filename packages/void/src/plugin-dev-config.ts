@@ -102,7 +102,7 @@ export function getOrCreateDevTriggerToken(root: string): string {
   const tokenPath = join(root, '.void', 'dev-trigger-token');
   const readExisting = (): string | undefined => {
     try {
-      const existing = readFileSync(tokenPath, 'utf-8').trim();
+      const existing = readFileSync(tokenPath, 'utf8').trim();
       return existing.length > 0 ? existing : undefined;
     } catch {
       return undefined;
@@ -235,7 +235,7 @@ export function warnIfPackageJsonIsNotEsm(root: string): void {
   }
   let pkg: { type?: unknown };
   try {
-    pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { type?: unknown };
   } catch {
     return;
   }

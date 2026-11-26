@@ -26,6 +26,7 @@ import {
   invitationsRequest,
   projectDetailRequest,
   projectsPageRequest,
+  securityRequest,
   signupRequest,
   userDetailRequest,
   usersPageRequest,
@@ -73,6 +74,7 @@ export async function renderFateListPage(
     | 'authNew'
     | 'authEdit'
     | 'email'
+    | 'security'
     | 'zeroTrust',
 ): Promise<Response> {
   const title = {
@@ -88,6 +90,7 @@ export async function renderFateListPage(
     authNew: 'Add login method',
     authEdit: 'Edit login method',
     email: 'Email',
+    security: 'Security',
     zeroTrust: 'Zero Trust',
   }[page];
   const { pathname, search } = new URL(context.req.url);
@@ -123,11 +126,14 @@ export async function renderFateListPage(
       await client.request(authNewRequest(path));
     } else if (page === 'authEdit') {
       await client.request(authEditRequest(path));
+    } else if (page === 'security') {
+      await client.request(securityRequest(path));
     } else if (page === 'zeroTrust') {
       await client.request(zeroTrustRequest(path));
     } else {
       await client.request(emailSettingsRequest(path));
     }
+    // oxlint-disable-next-line typescript/return-await -- Only classify failures from loading the Fate snapshot in this catch.
     return renderAdminPage(context, page, title, props, { fateSnapshot: client.dehydrate() });
   } catch (error) {
     if (error instanceof FateRequestError && error.status >= 400 && error.status < 500) {
@@ -213,6 +219,7 @@ export async function renderFateDetailPage(
       const { data } = await client.readView(EmailProjectView, emailProject);
       detailTitle = `Email - ${data.project.slug}`;
     }
+    // oxlint-disable-next-line typescript/return-await -- Only classify failures from loading the Fate snapshot in this catch.
     return renderAdminPage(context, page, detailTitle, props, { fateSnapshot: client.dehydrate() });
   } catch (error) {
     if (error instanceof FateRequestError && error.status >= 400 && error.status < 500) {

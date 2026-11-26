@@ -12,6 +12,7 @@ export default function ScrollRestorationPage({ requestId, page }: Props) {
       <output data-testid="scroll-request">{requestId}</output>
       <output data-testid="scroll-page">{page}</output>
       <button
+        type="button"
         onClick={() =>
           startTransition(async () => {
             await action('/scroll-restoration?anchor');
@@ -38,6 +39,7 @@ export default function ScrollRestorationPage({ requestId, page }: Props) {
             {row === 30 && (
               <div>
                 <button
+                  type="button"
                   onClick={() =>
                     startTransition(async () => {
                       await action('/scroll-restoration?touch');
@@ -47,6 +49,7 @@ export default function ScrollRestorationPage({ requestId, page }: Props) {
                   Update action
                 </button>
                 <button
+                  type="button"
                   onClick={() =>
                     startTransition(async () => {
                       await action('/scroll-restoration?touch', { preserveScroll: false });
@@ -56,6 +59,7 @@ export default function ScrollRestorationPage({ requestId, page }: Props) {
                   Reset action scroll
                 </button>
                 <button
+                  type="button"
                   onClick={() =>
                     startTransition(async () => {
                       await action('/scroll-restoration?redirect');

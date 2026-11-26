@@ -11,8 +11,8 @@ import React, {
   useState,
   useSyncExternalStore,
   useTransition,
-  type ComponentType,
 } from 'react';
+import type { ComponentType } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import {
   createRouterFacade,
@@ -23,13 +23,16 @@ import {
   refreshPage,
   pageBoundarySlots,
   showTerminalPageError,
-  type BoundaryManifest,
   toUrlString,
-  type PageNavigationResource,
-  type PageNavigationResult,
-  type NavigationState,
-  type VisitOptions,
-  type VoidRouter,
+} from 'void/pages-client';
+import type {
+  BoundaryManifest,
+  PageNavigationEngine,
+  PageNavigationResource,
+  PageNavigationResult,
+  NavigationState,
+  VisitOptions,
+  VoidRouter,
 } from 'void/pages-client';
 import type { CacheForResult, LinkPrefetchValue } from 'void/pages-prefetch';
 import type { PageObject } from 'void/pages-protocol';
@@ -48,8 +51,7 @@ import { PageErrorBoundary } from './PageErrorBoundary.tsx';
 // oxlint-disable-next-line no-explicit-any -- component props are narrowed by generated route types
 type ComponentModule = { default: ComponentType<any> };
 type ReactPageData = PageObject;
-type ReactPageComponent = ComponentType<Record<string, unknown>>;
-type ReactLayoutComponent = ComponentType<{ children?: React.ReactNode }>;
+type ReactComponent = ComponentModule['default'];
 
 export type ReactPagesConfig = Readonly<{
   boundaryManifest?: BoundaryManifest;
@@ -84,9 +86,8 @@ type DeferredResourceState =
     }
   | { status: 'resolved' | 'rejected' };
 
-type ReactPageResource = PageNavigationResource & {
-  shell: Promise<PageNavigationResult | undefined>;
-};
+type ReactPageResource = PageNavigationResource<ReactComponent>;
+type ReactNavigationResult = PageNavigationResult<ReactComponent>;
 
 type VisitSettler = {
   resolve(pageData: ReactPageData | undefined): void;
@@ -112,7 +113,7 @@ type AppAction =
   | { type: 'fail'; resource: ReactPageResource; location: string }
   | { type: 'abandon'; resource: ReactPageResource; location: string };
 
-const deferredState = new WeakMap<DeferredResource, DeferredResourceState>();
+const deferredState = new WeakMap<object, DeferredResourceState>();
 const viewTransitionWaiters = new Map<number, () => void>();
 const pendingVisitSettlers = new Map<number, VisitSettler>();
 const committedResources = new Set<number>();
@@ -129,6 +130,7 @@ let scheduleVisit:
   | ((url: string, options?: VisitOptions) => Promise<ReactPageData | undefined>)
   | null = null;
 
+// oxlint-disable-next-line quality/no-unknown-returns -- Route-specific deferred payloads travel through the engine without a shared value type.
 function createDeferredResource(): DeferredResource {
   let resolve!: (value: unknown) => void;
   let reject!: (error: unknown) => void;
@@ -141,26 +143,32 @@ function createDeferredResource(): DeferredResource {
   return promise;
 }
 
-function resolveDeferredResource(ref: unknown, value: unknown): unknown {
-  const state = deferredState.get(ref as DeferredResource);
+function resolveDeferredResource<T>(ref: T, value: unknown): T {
+  if (typeof ref !== 'object' || ref === null) {
+    return ref;
+  }
+  const state = deferredState.get(ref);
   if (state?.status === 'pending') {
     state.resolve(value);
-    deferredState.set(ref as DeferredResource, { status: 'resolved' });
+    deferredState.set(ref, { status: 'resolved' });
   }
   return ref;
 }
 
-function rejectDeferredResource(ref: unknown, error: string): unknown {
-  const state = deferredState.get(ref as DeferredResource);
+function rejectDeferredResource<T>(ref: T, error: string): T {
+  if (typeof ref !== 'object' || ref === null) {
+    return ref;
+  }
+  const state = deferredState.get(ref);
   if (state?.status === 'pending') {
     state.reject(new Error(error));
-    deferredState.set(ref as DeferredResource, { status: 'rejected' });
+    deferredState.set(ref, { status: 'rejected' });
   }
   return ref;
 }
 
 function isDeferredResourceLoading(ref: unknown): boolean {
-  return deferredState.get(ref as DeferredResource)?.status === 'pending';
+  return typeof ref === 'object' && ref !== null && deferredState.get(ref)?.status === 'pending';
 }
 
 function currentUrl(): string {
@@ -290,7 +298,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-function createRouter(engine: Awaited<ReturnType<typeof createPageNavigationEngine>>): VoidRouter {
+function createRouter(engine: PageNavigationEngine<ReactComponent>): VoidRouter {
   const router: VoidRouter = {
     _hoverDelay: engine._hoverDelay,
     _prefetchDefaultStrategy: engine._prefetchDefaultStrategy,
@@ -338,9 +346,9 @@ function RouteResource({
   onFailure,
 }: {
   resource: ReactPageResource;
-  onCommit(resource: ReactPageResource, result: PageNavigationResult): void;
+  onCommit: (resource: ReactPageResource, result: ReactNavigationResult) => void;
   config: ReactPagesConfig;
-  onFailure(url: string): void;
+  onFailure: (url: string) => void;
 }): React.ReactNode {
   const result = use(resource.shell);
   const outerRouter = React.useContext(RouterContext);
@@ -350,16 +358,19 @@ function RouteResource({
     }
   }, [onCommit, resource, result]);
 
-  const pageData = result?.pageData as ReactPageData | undefined;
+  const pageData = result?.pageData;
   const pageDataUrl = pageData?.url ?? '';
   const routeParams = pageData?.params ?? EMPTY_PARAMS;
   const routeQuery = pageData?.query ?? EMPTY_QUERY;
   const routeRouter = useMemo(() => {
+    if (!outerRouter) {
+      throw new Error('pages: Missing router context for the page outlet.');
+    }
     const pageUrl = encodedPageUrl(pageDataUrl);
     return createRouterFacade(
-      outerRouter!,
+      outerRouter,
       () => {
-        const outerUrl = outerRouter!.url;
+        const outerUrl = outerRouter.url;
         const outerPath = outerUrl.pathname + outerUrl.search;
         if (outerPath === pageUrl) {
           return outerPath + outerUrl.hash;
@@ -384,7 +395,7 @@ function RouteResource({
     return null;
   }
 
-  const PageComponent = result.component as ReactPageComponent;
+  const PageComponent = result.component;
   const boundaries = pageBoundarySlots(
     config.boundaryManifest,
     pageData.component,
@@ -415,7 +426,7 @@ function RouteResource({
       );
   let element: React.ReactNode = React.createElement(PageComponent, pageData.props);
   for (let i = result.layouts.length - 1; i >= 0; i--) {
-    const Layout = result.layouts[i] as ReactLayoutComponent;
+    const Layout = result.layouts[i];
     element = React.createElement(Layout, null, wrap(element, i + 1));
   }
   element = wrap(element, 0);
@@ -464,12 +475,12 @@ function App({
   navigationFallback: NavigationFallback,
 }: {
   config: ReactPagesConfig;
-  engine: Awaited<ReturnType<typeof createPageNavigationEngine>>;
+  engine: PageNavigationEngine<ReactComponent>;
   router: VoidRouter;
   viewTransitions: boolean;
   navigationFallback?: ComponentType<{ initialPageData: PageObject }>;
 }): React.ReactNode {
-  const initialPageData = engine.initialPageData as ReactPageData;
+  const initialPageData = engine.initialPageData;
   const [hydrated, setHydrated] = useState(prerenderedUrl === null);
   const initialResource = useMemo<ReactPageResource>(
     () => ({
@@ -488,7 +499,11 @@ function App({
       abort() {},
       async commit() {
         engine.commitInitialRender();
-        document.getElementById('app')!.setAttribute('data-hydrated', 'true');
+        const appEl = document.getElementById('app');
+        if (!appEl) {
+          throw new Error('pages: Missing #app element for Void React pages hydration.');
+        }
+        appEl.setAttribute('data-hydrated', 'true');
         if (prerenderedUrl !== null) {
           prerenderedUrl = null;
           // A transition waits for Suspense boundaries that are still dehydrated, where an urgent
@@ -515,7 +530,7 @@ function App({
     const listeners = new Set<() => void>();
     return {
       getSnapshot: () => snapshot,
-      subscribe(listener: () => void) {
+      subscribe: (listener: () => void) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
@@ -534,7 +549,7 @@ function App({
   );
 
   const finishNavigation = useCallback(
-    (resource: ReactPageResource, result: PageNavigationResult) => {
+    (resource: ReactPageResource, result: ReactNavigationResult) => {
       if (committedResources.has(resource.id)) {
         return;
       }
@@ -567,7 +582,7 @@ function App({
           }
           dispatch({ type: 'finish', resource, location: currentUrl() });
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           // The history write failed, so the address bar still shows the committed page.
           // End this visit and show that page again; a newer visit keeps its own state.
           const resolveViewTransition = viewTransitionWaiters.get(resource.id);
@@ -612,7 +627,7 @@ function App({
             dispatch({ type: 'finish', resource: prepared, location: currentUrl() });
             return result?.pageData;
           },
-          (error) => {
+          (error: unknown) => {
             if (activePendingNavigationId === prepared.id) {
               activePendingNavigationId = null;
             }
@@ -655,7 +670,7 @@ function App({
             }
             return result;
           },
-          (error) => {
+          (error: unknown) => {
             const resolveViewTransition = viewTransitionWaiters.get(prepared.id);
             if (resolveViewTransition) {
               viewTransitionWaiters.delete(prepared.id);
@@ -806,6 +821,22 @@ function App({
   );
 }
 
+const onRecoverableError = (error: unknown) => {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'digest' in error &&
+    error.digest === DEFERRED_SHELL_DIGEST
+  ) {
+    return;
+  }
+  if (typeof globalThis.reportError === 'function') {
+    globalThis.reportError(error);
+  } else {
+    console.error(error);
+  }
+};
+
 export async function startReactPages(config: ReactPagesConfig): Promise<ReactPagesClient> {
   terminalResource = null;
   viewTransitionWaiters.clear();
@@ -834,7 +865,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     cacheVisitedPageData: config.cacheVisitedPageData,
     boundaryManifest: config.boundaryManifest,
     dev: config.dev,
-  }).catch((error) => {
+  }).catch((error: unknown) => {
     if (config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length) {
       showTerminalPageError();
     }
@@ -850,7 +881,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
 
   const isSsr = appEl.getAttribute('data-void-ssr') !== 'false';
   if (isSsr) {
-    prerenderedUrl = prerenderedRouteUrl(engine.initialPageData as ReactPageData);
+    prerenderedUrl = prerenderedRouteUrl(engine.initialPageData);
   }
   const appRoot = React.createElement(App, {
     config,
@@ -860,21 +891,6 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     navigationFallback: config.navigationFallback,
   });
   startTransition(() => {
-    const onRecoverableError = (error: unknown) => {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'digest' in error &&
-        error.digest === DEFERRED_SHELL_DIGEST
-      ) {
-        return;
-      }
-      if (typeof globalThis.reportError === 'function') {
-        globalThis.reportError(error);
-      } else {
-        console.error(error);
-      }
-    };
     const rootOptions =
       config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length
         ? {

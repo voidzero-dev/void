@@ -7,8 +7,8 @@ import {
   MIGRATION_CLASSIFIER_VERSION,
   splitSqlStatements,
   tokenizeSql,
-  type MigrationPlanHashInput,
 } from '@void/deploy-core';
+import type { MigrationPlanHashInput } from '@void/deploy-core';
 
 export const DESTRUCTIVE_PRAGMA = '-- void:allow-destructive';
 

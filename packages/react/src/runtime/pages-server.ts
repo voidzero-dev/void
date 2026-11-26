@@ -1,4 +1,5 @@
-import React, { type ComponentType } from 'react';
+import React from 'react';
+import type { ComponentType } from 'react';
 import { renderToReadableStream } from 'react-dom/server';
 import { createSsrRouter, idleNavigationState } from 'void/pages-client';
 import { renderBodyAttrs, renderHeadToString, renderHtmlAttrs } from 'void/pages-head';
@@ -30,7 +31,7 @@ function createPendingDeferred(): Promise<never> {
   return new Promise(() => {});
 }
 
-function propsForReactRender(pageObj: PageObject): Record<string, unknown> {
+function propsForReactRender(pageObj: PageObject): PageObject['props'] {
   if (!pageObj.deferredKeys) {
     return pageObj.props;
   }

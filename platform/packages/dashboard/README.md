@@ -14,13 +14,15 @@ mode app. The administrator UI is served by the API Worker.
 
 ## Pages
 
-| Route            | Purpose                                   |
-| ---------------- | ----------------------------------------- |
-| `/login`         | Currently enabled platform login methods  |
-| `/auth/callback` | Exchanges the login response for a token  |
-| `/`              | Minimal authenticated confirmation page   |
-| `/account`       | Links another login method to the account |
-| `/logout`        | Clears cookie, redirects to login         |
+| Route                      | Purpose                                                                   |
+| -------------------------- | ------------------------------------------------------------------------- |
+| `/login`                   | Currently enabled platform login methods                                  |
+| `/auth/callback`           | Exchanges the login response for a token                                  |
+| `/`                        | Minimal authenticated confirmation page                                   |
+| `/account`                 | Links another login method to the account                                 |
+| `/projects`                | The signed-in user's projects                                             |
+| `/projects/:slug/security` | Findings, scans, and the resolve, comment, model, budget and bypass forms |
+| `/logout`                  | Clears cookie, redirects to login                                         |
 
 ## Local Development
 
@@ -124,6 +126,11 @@ pages/
   logout.server.ts          # Cookie clear + redirect
   index.tsx                 # Authenticated confirmation page
   index.server.ts           # Session user from middleware
+  projects/
+    index.tsx               # Project list
+    index.server.ts         # GET /projects
+    [slug]/security.tsx     # Project security page and forms
+    [slug]/security.server.ts # Security reads and named actions through the typed API client
   auth/
     callback.tsx
     callback.server.ts      # OAuth callback token/code exchange

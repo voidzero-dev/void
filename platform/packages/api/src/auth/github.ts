@@ -1,4 +1,5 @@
-import { LoginFailure, type LoginFailureCode } from './login-failure.ts';
+import { LoginFailure } from './login-failure.ts';
+import type { LoginFailureCode } from './login-failure.ts';
 
 /** GitHub token errors with a fix of their own; any other error is github_failed. */
 const GITHUB_TOKEN_ERRORS = new Set([
@@ -55,7 +56,7 @@ export async function exchangeCodeForToken(
     throw new LoginFailure('github_failed', `GitHub token exchange failed: ${res.status}`);
   }
 
-  const data = (await res.json()) as { access_token?: string; error?: string };
+  const data = await res.json<{ access_token?: string; error?: string }>();
   if (data.error || !data.access_token) {
     throw new LoginFailure(
       data.error && GITHUB_TOKEN_ERRORS.has(data.error)
@@ -90,16 +91,18 @@ export async function getGitHubUser(accessToken: string): Promise<GitHubUser> {
     throw new LoginFailure('github_failed', `GitHub user fetch failed: ${userRes.status}`);
   }
 
-  const user = (await userRes.json()) as { id: number; login: string; email: string | null };
+  const user = await userRes.json<{ id: number; login: string; email: string | null }>();
 
   let email = user.email;
   let emailVerified = false;
   if (emailsRes.ok) {
-    const emails = (await emailsRes.json()) as ReadonlyArray<{
-      email: string;
-      primary: boolean;
-      verified: boolean;
-    }>;
+    const emails = await emailsRes.json<
+      ReadonlyArray<{
+        email: string;
+        primary: boolean;
+        verified: boolean;
+      }>
+    >();
     const primary = emails.find((e) => e.primary);
     if (primary) {
       email = primary.email;

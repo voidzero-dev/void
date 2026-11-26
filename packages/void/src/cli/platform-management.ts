@@ -8,9 +8,11 @@ import {
   recordInstallationStep,
   setInstallationDesiredState,
   transitionInstallation,
-  type InstallationResource,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
+} from '@void/platform';
+import type {
+  InstallationResource,
+  InstallationResourceKind,
+  PlatformInstallationManifest,
 } from '@void/platform';
 import { confirm, isCancel, log, outro, select } from '@voidzero-dev/vite-plus-prompts';
 import { ensurePlatformAccessToken } from './cf-access.ts';
@@ -21,6 +23,7 @@ import type { PlatformArgs } from './platform-args.ts';
 import { platformDatabaseNameFromOwnerUrl } from './platform-auth-database.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
+  platformOperatorCredentialLabel,
   resolvePlatformCloudflareCredential,
   verifyPlatformCloudflareCredential,
 } from './platform-auth.ts';
@@ -54,8 +57,8 @@ import {
   readPlatformProjectZeroTrustState,
   REMOTE_INSTALLATION_MANIFEST_KEY,
   resolveBootstrapGitHubId,
-  type PlatformDatabaseLifecycleLock,
 } from './platform-installer.ts';
+import type { PlatformDatabaseLifecycleLock } from './platform-installer.ts';
 import {
   assertNoninteractivePlatformMutationAcknowledged,
   resolvePlatformInstallDatabaseUrl,
@@ -73,6 +76,8 @@ import {
   revalidatePlatformInstallAction,
 } from './platform-plan.ts';
 import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
+import { verifyPlatformR2Credentials } from './platform-r2-credentials.ts';
+import type { PlatformR2CredentialCheck } from './platform-r2-credentials.ts';
 import {
   acquirePlatformLifecycleLock,
   listInstallationManifests,
@@ -89,6 +94,11 @@ import {
   shouldUpdateProjectWorkerRuntimeLogs,
   updateProjectWorkerRuntimeLogs,
 } from './platform-runtime-logs.ts';
+import {
+  assertPlatformSecurityAuditsSupported,
+  deletePlatformSecurityScanner,
+} from './platform-security-audits.ts';
+import type { SecurityScannerTeardown } from './platform-security-audits.ts';
 import { assertPlatformStorageSupported } from './platform-storage.ts';
 import {
   assertNoPlatformProjects,
@@ -105,14 +115,13 @@ import {
   purgeResourcesPermissions,
   PURGE_RESOURCES_STEP_PREFIX,
   runPurgeResourcesTeardown,
-  type PurgeResourcesClient,
-  type PurgeResourcesCredential,
 } from './platform-teardown.ts';
+import type { PurgeResourcesClient, PurgeResourcesCredential } from './platform-teardown.ts';
 import {
   assertProjectZeroTrustAllowsUninstall,
   formatZeroTrustApplications,
-  type PlatformProjectZeroTrustState,
 } from './platform-zero-trust-uninstall.ts';
+import type { PlatformProjectZeroTrustState } from './platform-zero-trust-uninstall.ts';
 
 type PlatformManagementClient = Pick<
   PlatformCloudflareClient,
@@ -176,7 +185,7 @@ export async function verifyPlatformInstallationOwnership(
     const unsafe = ready.filter((resource) => resource.kind !== 'zone');
     if (unsafe.length > 0) {
       throw ownershipError(
-        `the remote installation checkpoint is missing for ${unsafe[0]!.kind} ${unsafe[0]!.name}`,
+        `the remote installation checkpoint is missing for ${unsafe[0].kind} ${unsafe[0].name}`,
       );
     }
     const zone = ready.find((resource) => resource.kind === 'zone');
@@ -218,6 +227,10 @@ type PlatformManagementDependencies = Readonly<{
   readProjects?: () => Promise<ReadonlyArray<string>>;
   /** Where the operator credential came from; --purge-resources checks it before any change. */
   credential?: PurgeResourcesCredential;
+  /** Deletes the security scanner Worker and container application; required when security audits are on. */
+  deleteSecurityScanner?: (
+    manifest: PlatformInstallationManifest,
+  ) => Promise<SecurityScannerTeardown>;
 }>;
 
 export function selectAuthoritativePlatformManifest(
@@ -238,7 +251,9 @@ export function selectAuthoritativePlatformManifest(
 }
 
 function commandArgument(value: string): string {
-  return /^[a-zA-Z0-9_./:@-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+  return /^[a-zA-Z0-9_./:@-]+$/.test(value)
+    ? value
+    : `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 export function platformLifecycleResumeCommand(
@@ -261,6 +276,9 @@ export function platformLifecycleResumeCommand(
   if ('customDomains' in args && args.customDomains) {
     command.push('--custom-domains');
   }
+  if ('securityAudits' in args && args.securityAudits) {
+    command.push('--security-audits');
+  }
   if ('runtimeLogs' in args && args.runtimeLogs) {
     command.push('--runtime-logs', args.runtimeLogs);
   }
@@ -273,7 +291,10 @@ export function platformLifecycleResumeCommand(
   return command.join(' ');
 }
 
-export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<void> {
+export async function runInstalledPlatformCommand(
+  args: PlatformArgs,
+  dependencies: { fetch?: typeof fetch } = {},
+): Promise<void> {
   if (
     args.subcommand !== 'upgrade' &&
     args.subcommand !== 'rollback' &&
@@ -302,11 +323,16 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
   const operatorCredential = await resolvePlatformCloudflareCredential({
     savedManagementToken: readInstallationRecoverySecrets(manifest)?.managementApiToken,
   });
-  const operatorClient = new PlatformCloudflareClient(operatorCredential.token);
+  const operatorClient = new PlatformCloudflareClient(operatorCredential.token, {
+    credential: platformOperatorCredentialLabel(operatorCredential),
+  });
   await withPlatformProgress('Checking Cloudflare access', () =>
     verifyPlatformCloudflareCredential(operatorClient, {
       account: manifest.account,
       source: operatorCredential.source,
+      ...(operatorCredential.environmentVariable
+        ? { environmentVariable: operatorCredential.environmentVariable }
+        : {}),
       r2Buckets:
         args.subcommand === 'disable' || args.subcommand === 'uninstall'
           ? []
@@ -332,14 +358,23 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     databaseCheckpointExists = false,
   ): Promise<void> => {
     if (args.subcommand === 'rollback') {
-      assertPlatformRollbackCompatibility(manifest, runtime!, rollbackSourceRuntime!);
+      if (!runtime || !rollbackSourceRuntime) {
+        throw new Error('platform: Both runtimes are required to check rollback compatibility.');
+      }
+      assertPlatformRollbackCompatibility(manifest, runtime, rollbackSourceRuntime);
     }
     const recovery = readInstallationRecoverySecrets(manifest);
     const gatewayToken =
       process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN || recovery?.cloudflareApiToken;
+    // Browser login cannot use AI Gateway, so the runtime token does it.
     const client =
       operatorCredential.source === 'oauth' && gatewayToken
-        ? operatorClient.withAiGatewayToken(gatewayToken)
+        ? operatorClient.withAiGatewayToken(gatewayToken, {
+            role: 'runtime',
+            source: process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN
+              ? 'environment'
+              : 'saved',
+          })
         : operatorClient;
     const databaseUrl = resolvePlatformInstallDatabaseUrl(recovery, manifest);
 
@@ -368,6 +403,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
           ? databaseLock.readProjects
           : () => readPlatformProjectSlugs(databaseUrl, manifest.id, manifest.ownershipNonce),
         credential: { source: operatorCredential.source, aiGatewayToken: !!gatewayToken },
+        deleteSecurityScanner: (current) => deletePlatformSecurityScanner(client, current),
         ...(apiUrl && appAccessSetupToken
           ? {
               turnOffProjectZeroTrust: async () => {
@@ -405,6 +441,10 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     ) {
       log.info(`${manifest.deployment.displayName} is already enabled.`);
       return;
+    }
+
+    if (!runtime) {
+      throw new Error('platform: No runtime loaded for this operation.');
     }
 
     // repair --auth-config replaces the login settings of a first administrator
@@ -447,6 +487,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         ? { dashboardUrl: args.dashboardUrl }
         : {}),
       ...(args.subcommand !== 'rollback' && args.customDomains ? { customDomains: true } : {}),
+      ...(args.subcommand !== 'rollback' && args.securityAudits ? { securityAudits: true } : {}),
       ...(args.subcommand === 'upgrade' && args.storageLocation !== undefined
         ? { storageLocation: args.storageLocation }
         : {}),
@@ -463,15 +504,16 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         authoritativeProvisionIntents: databaseCheckpointExists,
         repairMissing: args.subcommand === 'repair',
         allowUnverifiedAiGateway: args.plan,
-        includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
-        enableSandbox: runtime!.manifest.safetyProtocols.sandboxDrain >= 3,
-        deploymentExecution: runtime!.manifest.deploymentExecution === 1,
+        includeEmailGateway: runtime.manifest.artifacts.emailGateway !== undefined,
+        enableSandbox: runtime.manifest.safetyProtocols.sandboxDrain >= 3,
+        deploymentExecution: runtime.manifest.deploymentExecution === 1,
         allowRuntimeLogsChange: args.subcommand === 'upgrade',
         allowStorageLocationChange: args.subcommand === 'upgrade',
       }),
     );
-    assertPlatformRuntimeLogsSupported(plan.deployment, runtime!.manifest);
-    assertPlatformStorageSupported(plan.deployment, runtime!.manifest);
+    assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
+    assertPlatformSecurityAuditsSupported(plan.deployment, runtime.manifest);
+    assertPlatformStorageSupported(plan.deployment, runtime.manifest);
     markPhase('plan');
     note(
       formatPlatformInstallPlan(plan, manifest.deployment),
@@ -485,10 +527,10 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     );
     note(
       [
-        `Version: ${manifest.platformVersion} → ${runtime!.manifest.platformVersion}`,
-        `Source: ${runtime!.source}`,
-        `Revision: ${runtime!.manifest.sourceRevision ?? 'not recorded'}`,
-        `Manifest SHA-256: ${runtime!.manifestSha256}`,
+        `Version: ${manifest.platformVersion} → ${runtime.manifest.platformVersion}`,
+        `Source: ${runtime.source}`,
+        `Revision: ${runtime.manifest.sourceRevision ?? 'not recorded'}`,
+        `Manifest SHA-256: ${runtime.manifestSha256}`,
       ].join('\n'),
       'Platform runtime',
     );
@@ -504,7 +546,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         );
       }
       // A plan holds no lifecycle lock, so it cannot read the database.
-      const outsideChanges = await findPlatformWorkerOutsideChanges(client, plan, runtime!, {
+      const outsideChanges = await findPlatformWorkerOutsideChanges(client, plan, runtime, {
         manifest,
       });
       if (outsideChanges.length > 0) {
@@ -634,11 +676,20 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         ? plan.deployment.emailSharedZoneId
         : undefined;
     if (runtimeTokenToPreflight) {
+      // A token in VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is the explicit update.
+      const credential = {
+        role: 'runtime',
+        source:
+          runtimeTokenToPreflight === secrets.workerSecretUpdates?.CF_API_TOKEN
+            ? 'environment'
+            : 'saved',
+      } as const;
       await verifyPlatformRuntimeTokenPermissions(
-        new PlatformCloudflareClient(runtimeTokenToPreflight),
+        new PlatformCloudflareClient(runtimeTokenToPreflight, { credential }),
         {
           accountId: manifest.account.id,
           applicationDomain: deployment.application.baseDomain,
+          credential,
           customDomains: plan.deployment.capabilities.customDomains,
           ...(emailZoneId ? { emailZoneId } : {}),
           zoneId: plan.zone?.id ?? null,
@@ -663,6 +714,16 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       }
     }
     markPhase('runtime token');
+    // A pair R2 rejects would break every app deploy. Check it before traffic
+    // pauses, so a bad pair leaves the installation as it was.
+    const r2PairToPreflight = resolvePlatformR2PairToPreflight(plan, secrets);
+    if (r2PairToPreflight) {
+      await verifyPlatformR2Credentials(
+        { accountId: manifest.account.id, ...r2PairToPreflight },
+        dependencies.fetch,
+      );
+      markPhase('r2 credentials');
+    }
     if (!databaseLock?.readAuthenticationState) {
       throw new Error(
         'platform: The database lifecycle lock cannot read authoritative authentication settings.',
@@ -675,7 +736,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     const outsideChanges = await reviewPlatformWorkerOutsideChanges({
       client,
       plan,
-      runtime: runtime!,
+      runtime,
       installation: {
         manifest: installation,
         readAuthenticationState: databaseLock.readAuthenticationState,
@@ -700,7 +761,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     // The platform refuses new login settings once an administrator signed in.
     // Keep the saved settings the platform still has, so later lifecycle
     // commands do not resend the refused ones.
-    const keepAcceptedLogin = async (error: unknown): Promise<unknown> => {
+    const keepAcceptedLogin = async <Failure>(error: Failure): Promise<Failure | Error> => {
       const after = replacedLogin
         ? await databaseLock?.readAdministratorSetup?.().catch(() => undefined)
         : undefined;
@@ -758,7 +819,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         markPhase(message);
         progress?.message(message);
       },
-      runtime: runtime!,
+      runtime,
       operation: args.subcommand,
       replanWorkers: async (recoveryManifest) =>
         (
@@ -766,9 +827,9 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
             allowRuntimeLogsChange: args.subcommand === 'upgrade',
             authoritativeProvisionIntents: true,
             repairMissing: true,
-            includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
-            enableSandbox: runtime!.manifest.safetyProtocols.sandboxDrain >= 3,
-            deploymentExecution: runtime!.manifest.deploymentExecution === 1,
+            includeEmailGateway: runtime.manifest.artifacts.emailGateway !== undefined,
+            enableSandbox: runtime.manifest.safetyProtocols.sandboxDrain >= 3,
+            deploymentExecution: runtime.manifest.deploymentExecution === 1,
           })
         ).actions.filter((action) => action.kind === 'worker'),
       revalidateBeforeWorkerDeploy: (manifest, action) =>
@@ -850,7 +911,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         log.warn(runtimeLogsWarning);
       }
       printSuccess(
-        `${deployment.displayName}: runtime ${runtime!.manifest.platformVersion} ${args.subcommand === 'rollback' ? 'restored' : 'ready'}.`,
+        `${deployment.displayName}: runtime ${runtime.manifest.platformVersion} ${args.subcommand === 'rollback' ? 'restored' : 'ready'}.`,
       );
     };
   };
@@ -1006,6 +1067,17 @@ export function assertPlatformRollbackCompatibility(
       'platform: The rollback target predates the installed sandbox-drain safety protocol.',
     );
   }
+  // The API Worker keeps the SecurityScanScheduler Durable Object once its
+  // migration ran. Cloudflare refuses an upload that no longer exports the
+  // class, so a rollback across that release would stop half way.
+  if (
+    target.manifest.securityAudits !== 1 &&
+    (source.manifest.securityAudits === 1 || installation.deployment.capabilities.securityAudits)
+  ) {
+    throw new Error(
+      'platform: The rollback target predates security audits and cannot replace this installation. Roll forward to a runtime with security audits instead.',
+    );
+  }
 }
 
 export function resolvePlatformRuntimeTokenToPreflight(
@@ -1040,6 +1112,45 @@ export function resolvePlatformRuntimeTokenToPreflight(
   )
     ? secrets.cloudflareApiToken
     : '';
+}
+
+/**
+ * The R2 key pair this run sends to the Workers, and the bucket to check it
+ * on. Returns nothing when the Workers keep their pair, or when the assets
+ * bucket is created by this run and cannot answer yet.
+ */
+export function resolvePlatformR2PairToPreflight(
+  plan: {
+    actions: ReadonlyArray<{ action: string; key: string; kind: string; name: string }>;
+  },
+  secrets: Pick<
+    ReturnType<typeof createPlatformInstallationSecrets>,
+    'r2AccessKeyId' | 'r2SecretAccessKey' | 'workerSecretUpdates'
+  >,
+): Omit<PlatformR2CredentialCheck, 'accountId'> | undefined {
+  const bucket = plan.actions.find(
+    (action) => action.key === 'assets-bucket' && action.kind === 'r2-bucket',
+  );
+  if (!bucket || bucket.action === 'create') {
+    return undefined;
+  }
+  const accessKeyId = secrets.workerSecretUpdates?.R2_ACCESS_KEY_ID;
+  const secretAccessKey = secrets.workerSecretUpdates?.R2_SECRET_ACCESS_KEY;
+  if (accessKeyId && secretAccessKey) {
+    return { bucket: bucket.name, accessKeyId, secretAccessKey, source: 'environment' };
+  }
+  const createsApiWorker = plan.actions.some(
+    (action) =>
+      action.kind === 'worker' && action.action === 'create' && action.key === 'api-worker',
+  );
+  return createsApiWorker && secrets.r2AccessKeyId && secrets.r2SecretAccessKey
+    ? {
+        bucket: bucket.name,
+        accessKeyId: secrets.r2AccessKeyId,
+        secretAccessKey: secrets.r2SecretAccessKey,
+        source: 'saved',
+      }
+    : undefined;
 }
 
 export async function resolveInstalledPlatformManifest(
@@ -1163,6 +1274,12 @@ export async function uninstallPlatform(
     writeRemoteManifest(client, state, dependencies.checkpoint);
   const retainData = !args.purgeData;
   const purgeResources = args.purgeResources;
+  const securityAudits = manifest.deployment.capabilities.securityAudits === true;
+  if (securityAudits && !dependencies.deleteSecurityScanner) {
+    throw new Error(
+      'platform: Refusing to uninstall because the security scanner cannot be removed from here.',
+    );
+  }
   const routingKv = manifest.resources.find((resource) => resource.key === 'routing-kv');
   // --purge-resources also uses routing KV that an uninstall which stopped before it
   // finished recorded as retained.
@@ -1193,6 +1310,11 @@ export async function uninstallPlatform(
                 formatZeroTrustApplications(zeroTrust.turnOff),
               ]
             : ['Turn off project Zero Trust; no platform user exists yet.']
+          : []),
+        ...(securityAudits
+          ? [
+              'Delete the security scanner Worker, its container applications, and the scanner images it copied.',
+            ]
           : []),
         purgeResources
           ? purgeResourcesPlanText(manifest)
@@ -1324,7 +1446,12 @@ export async function uninstallPlatform(
   // check did not see. A request admitted before the disable may already be
   // waiting on the lock, so the fence makes every later holder refuse. Only
   // enabling the platform again lifts it once the disable write has started.
-  const { fenceProjectZeroTrust, liftProjectZeroTrustFence, lockProjectZeroTrust } = dependencies;
+  const {
+    fenceProjectZeroTrust,
+    liftProjectZeroTrustFence,
+    lockProjectZeroTrust,
+    turnOffProjectZeroTrust,
+  } = dependencies;
   if (!lockProjectZeroTrust || !fenceProjectZeroTrust || !liftProjectZeroTrustFence) {
     throw new Error(
       'platform: Refusing to uninstall because no platform database connection is available to hold off project Zero Trust changes.',
@@ -1333,8 +1460,11 @@ export async function uninstallPlatform(
   if (zeroTrust) {
     // The API takes the Zero Trust lock to turn it off, so this runs before
     // uninstall takes that lock. The final check below then reads the result.
+    if (!turnOffProjectZeroTrust) {
+      throw new Error('platform: Cannot turn off project Zero Trust without setup authority.');
+    }
     log.step('Turning off project Zero Trust');
-    await dependencies.turnOffProjectZeroTrust!();
+    await turnOffProjectZeroTrust();
   }
   const releaseProjectZeroTrust = await lockProjectZeroTrust();
   let fenced = false;
@@ -1349,7 +1479,7 @@ export async function uninstallPlatform(
     }
     await releaseProjectZeroTrust();
   };
-  let next = manifest;
+  let next: PlatformInstallationManifest;
   try {
     await assertProjectZeroTrustAllowsUninstall(dependencies.readProjectZeroTrust);
     if (purgeResources) {
@@ -1409,7 +1539,19 @@ export async function uninstallPlatform(
         }
       }
     }
+    if (securityAudits && dependencies.deleteSecurityScanner) {
+      // The scanner holds no data. It is billable, so uninstall always removes it; an
+      // object that is not this installation's is left alone.
+      const teardown = await dependencies.deleteSecurityScanner(next);
+      for (const entry of teardown.kept) {
+        log.warn(`Kept ${entry}: it does not belong to this installation.`);
+      }
+    }
     if (purgeResources && hasRoutingCheckpoint) {
+      const { readProjects } = dependencies;
+      if (!readProjects) {
+        throw new Error('platform: Cannot purge resources without reading platform projects.');
+      }
       next = await runPurgeResourcesTeardown(
         {
           client,
@@ -1434,13 +1576,12 @@ export async function uninstallPlatform(
               ? 'unknown'
               : r2BucketConfigHash(bucket.name, live.fingerprint);
           },
-          // --purge-resources already refused unless the project list could be read.
-          readProjects: () => dependencies.readProjects!(),
+          readProjects,
         },
         next,
       );
     }
-    const deletionPriority: Record<string, number> = {
+    const deletionPriority = {
       worker: 0,
       queue: 1,
       'ai-gateway': 2,
@@ -1701,6 +1842,9 @@ function purgeResourcesPlanText(manifest: PlatformInstallationManifest): string 
   ].join('\n');
 }
 
+const isTraffic = (resource: InstallationResource) =>
+  KEPT_RESOURCE_ORDER.indexOf(resource.kind) < KEPT_RESOURCE_ORDER.indexOf('queue');
+
 function describeKeptResources(
   manifest: PlatformInstallationManifest,
   resources: ReadonlyArray<InstallationResource>,
@@ -1712,8 +1856,6 @@ function describeKeptResources(
   const sorted = [...resources].sort(
     (left, right) => keptResourceRank(manifest, left) - keptResourceRank(manifest, right),
   );
-  const isTraffic = (resource: InstallationResource) =>
-    KEPT_RESOURCE_ORDER.indexOf(resource.kind) < KEPT_RESOURCE_ORDER.indexOf('queue');
   const why = (key: string) => {
     const reason = purgeResourcesKeptReason(manifest, key);
     return reason === null ? '' : `, kept because ${reason}`;
@@ -1824,7 +1966,7 @@ async function hasLiveInstallationWorker(
 
 function resourceDeletionPriority(
   resource: InstallationResource,
-  priorities: Readonly<Record<string, number>>,
+  priorities: Readonly<Partial<Record<InstallationResource['kind'], number>>>,
 ): number {
   // The routing namespace contains the authoritative ownership checkpoint.
   // Delete it last so interrupted purges can still prove every earlier mutation.
@@ -1868,7 +2010,8 @@ async function verifyPlatformMutationOwnership(
       ) {
         throw ownershipError('the remote installation identity does not match this installation');
       }
-      if (targetResources.every((resource) => hasMatchingResourceProof(remote!, resource))) {
+      const checkpoint = remote;
+      if (targetResources.every((resource) => hasMatchingResourceProof(checkpoint, resource))) {
         break;
       }
     }
@@ -1954,7 +2097,7 @@ async function verifyPlatformMutationOwnership(
     inventory;
 
   for (const resource of targetResources) {
-    let exists = true;
+    let exists: boolean;
     if (resource.kind === 'ai-gateway') {
       exists = hasNamedResource(aiGateways, resource);
     } else if (resource.kind === 'dispatch-namespace') {

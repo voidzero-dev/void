@@ -1,5 +1,7 @@
-import { analyzeApplicationSync, type ApplicationAnalysis } from './application-analysis.ts';
-import { scanRoutes, type ScanResult } from './router/scan.ts';
+import { analyzeApplicationSync } from './application-analysis.ts';
+import type { ApplicationAnalysis } from './application-analysis.ts';
+import { scanRoutes } from './router/scan.ts';
+import type { ScanResult } from './router/scan.ts';
 
 export type CompleteApplicationAnalysis = ApplicationAnalysis & { scan: ScanResult };
 

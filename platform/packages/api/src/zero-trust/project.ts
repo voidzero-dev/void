@@ -3,21 +3,37 @@ import { getProject } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { requireProjectCapability } from '../project-access.ts';
 import type { projectZeroTrust } from '../schema.ts';
-import type { Project, ProjectZeroTrust } from '../types.ts';
-import { bypassPolicy, reusablePolicyReferences, ZeroTrustCloudflareClient } from './cloudflare.ts';
+import { pokeSecurityScanScheduler } from '../security/enqueue.ts';
 import {
-  type ManagedAccessApplication,
-  type ZeroTrustConfiguration,
-  readZeroTrustConfigurationStrict,
-} from './configuration.ts';
+  cancelOpenRequestForProtect,
+  gateAsk,
+  gateBypass,
+  gateFlip,
+  readGateState,
+  readOpenPublicRequest,
+  recordProtectionChange,
+} from '../security/public-gate.ts';
+import type {
+  GateActor,
+  GateEffects,
+  GateRequestedVia,
+  GateStep,
+  PublicRequestRow,
+} from '../security/public-gate.ts';
+import type { Project, ProjectZeroTrust } from '../types.ts';
+import type { ZeroTrustCloudflareClient } from './cloudflare.ts';
+import { bypassPolicy, reusablePolicyReferences } from './cloudflare.ts';
+import { readZeroTrustConfigurationStrict } from './configuration.ts';
+import type { ManagedAccessApplication, ZeroTrustConfiguration } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
-import { withProjectZeroTrustLock, type RecordProjectErrors } from './lock.ts';
+import { withProjectZeroTrustLock } from './lock.ts';
+import type { RecordProjectErrors } from './lock.ts';
 import {
   publishProjectZeroTrustRoutingLocked,
   requiredRoutingBudget,
   routingProtection,
-  type RoutingBudget,
 } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   applicationName,
   clientForConfiguration,
@@ -65,7 +81,33 @@ type ProjectReconciliationOptions = {
    * operation runs. Domain changes must not wait for the whole operation.
    */
   duringOperation?: boolean;
+  /** Who asked, for a platform admin acting from the admin panel or the operator route. */
+  requester?: Readonly<{ userId: string | null; via: Exclude<GateRequestedVia, 'project'> }>;
+  /**
+   * The public gate (spec §5.5). `ask`: a person turns protection off. `flip`: the gate's
+   * own re-check of the open request (ingest, resolve, cutover, rollback, hourly).
+   * `bypass`: skip the scan. Without it the gate is not consulted.
+   */
+  gate?:
+    | Readonly<{ kind: 'ask' }>
+    | Readonly<{ kind: 'flip'; requestId: string }>
+    | Readonly<{
+        kind: 'bypass';
+        requestId: string | null;
+        reason: string;
+        actor: GateActor & { kind: 'user' | 'installation_admin'; userId: string };
+      }>;
 };
+
+/** What a checkpoint committed. `held`: the request holds the project, the row is unchanged. */
+export type CheckpointResult = Readonly<{
+  row: ProjectZeroTrust;
+  request: PublicRequestRow | null;
+  held: boolean;
+  poke: boolean;
+  /** A bypass: what it skipped. */
+  skipped: string | null;
+}>;
 
 function savedConfigurationAllows(
   saved: ZeroTrustConfiguration | null,
@@ -81,17 +123,43 @@ async function checkpointProjectReconciliation(
   db: Db,
   projectId: string,
   options?: ProjectReconciliationOptions,
-): Promise<ProjectZeroTrust> {
+): Promise<CheckpointResult> {
   return withProjectZeroTrustLock(db, projectId, async (lockedDb) => {
     // The route precheck can go stale. Team and ownership changes share this
     // lock, so authorize again before committing the new intent. Platform
     // callers (operators, maintenance, domain hooks) have no actor here.
-    if (options?.actorUserId) {
-      await requireProjectCapability(lockedDb, projectId, options.actorUserId, 'settings');
-    }
+    const access = options?.actorUserId
+      ? await requireProjectCapability(lockedDb, projectId, options.actorUserId, 'settings')
+      : null;
     const project = await getProject(lockedDb, projectId);
     if (!project || project.status === 'deleting') {
       throw new ZeroTrustUnavailableError('Project is unavailable.');
+    }
+    const effects: GateEffects = { poke: false };
+    let step: GateStep = { kind: 'open' };
+    const held = async (request: PublicRequestRow | null): Promise<CheckpointResult> => {
+      const row = await getProjectZeroTrustState(lockedDb, projectId);
+      if (!row) {
+        throw new ZeroTrustUnavailableError('Project Zero Trust state is unavailable.');
+      }
+      return { row, request, held: true, poke: effects.poke, skipped: null };
+    };
+    const intent = options?.gate;
+    if (intent?.kind === 'flip') {
+      // Judge first: a hold is recorded even while Zero Trust is busy; only a pass
+      // needs the checks below.
+      const flip = await gateFlip(lockedDb, env, {
+        projectId,
+        requestId: intent.requestId,
+        effects,
+      });
+      if (flip.kind === 'closed') {
+        return held(null);
+      }
+      if (flip.kind === 'held') {
+        return held(flip.request);
+      }
+      step = flip;
     }
     const saved = await readZeroTrustConfigurationStrict(lockedDb);
     const configuration = options?.configuration ?? saved;
@@ -104,6 +172,34 @@ async function checkpointProjectReconciliation(
       throw new ZeroTrustUnavailableError('Project Zero Trust is not ready on this platform.');
     }
     const existing = await getProjectZeroTrustState(lockedDb, projectId);
+    if (
+      intent?.kind === 'ask' &&
+      options?.desiredProtection === false &&
+      existing?.desired_protected
+    ) {
+      const via = options.requester?.via ?? 'project';
+      step = await gateAsk(lockedDb, env, {
+        project,
+        via,
+        actor: options.requester
+          ? { kind: 'installation_admin', userId: options.requester.userId, role: null }
+          : { kind: 'user', userId: options.actorUserId ?? null, role: access?.role ?? null },
+        effects,
+      });
+      if (step.kind === 'held') {
+        return held(step.request);
+      }
+    }
+    if (intent?.kind === 'bypass') {
+      step = await gateBypass(lockedDb, env, {
+        projectId,
+        slug: project.slug,
+        requestId: intent.requestId,
+        reason: intent.reason,
+        actor: intent.actor,
+        effects,
+      });
+    }
     const desired =
       options?.desiredProtection ??
       existing?.desired_protected ??
@@ -136,7 +232,31 @@ async function checkpointProjectReconciliation(
     ) {
       values.protected_application_name = await applicationName(env, `protected-${project.id}`);
     }
-    return putProjectState(lockedDb, projectId, values);
+    const row = await putProjectState(lockedDb, projectId, values);
+    // An asked-for change only: a first reconcile that applies the initial protection is not one.
+    if (
+      options?.desiredProtection !== undefined &&
+      (existing?.desired_protected ?? false) !== options.desiredProtection
+    ) {
+      await recordProtectionChange(lockedDb, {
+        projectId,
+        protectedNow: desired,
+        actor: options?.requester
+          ? { kind: 'installation_admin', userId: options.requester.userId, role: null }
+          : options?.actorUserId
+            ? { kind: 'user', userId: options.actorUserId, role: access?.role ?? null }
+            : null,
+      });
+    }
+    // The request closes in the transaction that writes `desired_protected = false`.
+    const request = step.kind === 'go' ? await step.complete(lockedDb) : null;
+    return {
+      row,
+      request,
+      held: false,
+      poke: effects.poke,
+      skipped: step.kind === 'go' ? (step.skipped ?? null) : null,
+    };
   });
 }
 
@@ -191,7 +311,11 @@ async function reconcilePublicProjectLocked(
     });
   }
   if (!(await publishProjectZeroTrustRoutingLocked(env, lockedDb, project, null, routingBudget))) {
-    return (await getProjectZeroTrustState(lockedDb, project.id))!;
+    const pending = await getProjectZeroTrustState(lockedDb, project.id);
+    if (!pending) {
+      throw new Error('Project Zero Trust reconciliation state is missing.');
+    }
+    return pending;
   }
   const row = await updateProjectState(lockedDb, project.id, { effective_protected: false });
   if (!publicCustom) {
@@ -246,7 +370,7 @@ async function reconcileProjectZeroTrustLocked(
   );
 
   return recordErrors(async () => {
-    let row = existing;
+    const row = existing;
     if (!row.desired_protected) {
       return reconcilePublicProjectLocked(
         env,
@@ -275,14 +399,14 @@ async function reconcileProjectZeroTrustLocked(
         },
         projectApplicationReference(row, 'protected'),
       );
-      row = await updateProjectState(lockedDb, projectId, {
+      await updateProjectState(lockedDb, projectId, {
         protected_application_id: protectedApplication.id,
         protected_application_name: protectedApplication.name,
         protected_application_audience: protectedApplication.audience,
       });
     } else if (row.protected_application_id || row.protected_application_name) {
       await client.deleteApplication(row.protected_application_id, row.protected_application_name);
-      row = await updateProjectState(lockedDb, projectId, {
+      await updateProjectState(lockedDb, projectId, {
         protected_application_id: null,
         protected_application_name: null,
         protected_application_audience: null,
@@ -299,10 +423,14 @@ async function reconcileProjectZeroTrustLocked(
     ) {
       // Unpublished keys still lack the audience set. Keep the public
       // exception and stay reconciling until every route carries it.
-      return (await getProjectZeroTrustState(lockedDb, projectId))!;
+      const pending = await getProjectZeroTrustState(lockedDb, projectId);
+      if (!pending) {
+        throw new Error('Project Zero Trust reconciliation state is missing.');
+      }
+      return pending;
     }
-    row = await updateProjectState(lockedDb, projectId, { effective_protected: true });
-    await client.deleteApplication(row.bypass_application_id, row.bypass_application_name);
+    const updated = await updateProjectState(lockedDb, projectId, { effective_protected: true });
+    await client.deleteApplication(updated.bypass_application_id, updated.bypass_application_name);
     return updateProjectState(lockedDb, projectId, {
       effective_protected: true,
       status: 'ready',
@@ -314,22 +442,87 @@ async function reconcileProjectZeroTrustLocked(
   });
 }
 
+export type GatedReconciliation = Readonly<{
+  row: ProjectZeroTrust;
+  /** The public request this call stored, returned, closed or canceled. */
+  publicRequest: PublicRequestRow | null;
+  /** The request holds the project: the row is still protected and nothing was reconciled. */
+  held: boolean;
+  skipped: string | null;
+}>;
+
+/** Checkpoint, then reconcile; the gate (when `options.gate` is set) decides in the checkpoint. */
+export async function reconcileProjectZeroTrustGated(
+  env: ApiEnv['Bindings'],
+  db: Db,
+  projectId: string,
+  options?: ProjectReconciliationOptions,
+): Promise<GatedReconciliation> {
+  const checkpointed = await checkpointProjectReconciliation(env, db, projectId, options);
+  if (checkpointed.poke) {
+    await pokeSecurityScanScheduler(env);
+  }
+  const outcome = {
+    publicRequest: checkpointed.request,
+    held: checkpointed.held,
+    skipped: checkpointed.skipped,
+  };
+  if (checkpointed.held) {
+    return { row: checkpointed.row, ...outcome };
+  }
+  const budget = options?.routingBudget;
+  if (budget && budget.remaining < requiredRoutingBudget(checkpointed.row)) {
+    // The committed checkpoint keeps this project reconciling for the next batch.
+    budget.exhausted = true;
+    return { row: checkpointed.row, ...outcome };
+  }
+  const row = await withProjectZeroTrustLock(db, projectId, (lockedDb, recordErrors) =>
+    reconcileProjectZeroTrustLocked(env, lockedDb, projectId, recordErrors, options),
+  );
+  return { row, ...outcome };
+}
+
 export async function reconcileProjectZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
   projectId: string,
   options?: ProjectReconciliationOptions,
 ): Promise<ProjectZeroTrust> {
-  const checkpointed = await checkpointProjectReconciliation(env, db, projectId, options);
-  const budget = options?.routingBudget;
-  if (budget && budget.remaining < requiredRoutingBudget(checkpointed)) {
-    // The committed checkpoint keeps this project reconciling for the next batch.
-    budget.exhausted = true;
-    return checkpointed;
-  }
-  return withProjectZeroTrustLock(db, projectId, (lockedDb, recordErrors) =>
-    reconcileProjectZeroTrustLocked(env, lockedDb, projectId, recordErrors, options),
-  );
+  return (await reconcileProjectZeroTrustGated(env, db, projectId, options)).row;
+}
+
+/**
+ * `protect` with an open public request only cancels it: the row is still protected, so
+ * there is nothing to reconcile, and it works during an installation operation. A
+ * request is read with the strict policy reader (bad data: 503, fail closed).
+ */
+async function cancelPublicRequestForProtect(
+  env: ApiEnv['Bindings'],
+  db: Db,
+  projectId: string,
+  options: Pick<ProjectReconciliationOptions, 'actorUserId' | 'requester'>,
+): Promise<{ row: ProjectZeroTrust; request: PublicRequestRow } | null> {
+  return withProjectZeroTrustLock(db, projectId, async (lockedDb) => {
+    const access = options.actorUserId
+      ? await requireProjectCapability(lockedDb, projectId, options.actorUserId, 'settings')
+      : null;
+    if (!(await readOpenPublicRequest(lockedDb, projectId))) {
+      return null;
+    }
+    await readGateState(lockedDb, env);
+    const row = await getProjectZeroTrustState(lockedDb, projectId);
+    if (!row?.desired_protected) {
+      return null;
+    }
+    const request = await cancelOpenRequestForProtect(
+      lockedDb,
+      projectId,
+      options.requester
+        ? { kind: 'installation_admin', userId: options.requester.userId, role: null }
+        : { kind: 'user', userId: options.actorUserId ?? null, role: access?.role ?? null },
+    );
+    return request ? { row, request } : null;
+  });
 }
 
 export async function setProjectZeroTrustProtection(
@@ -337,11 +530,19 @@ export async function setProjectZeroTrustProtection(
   db: Db,
   projectId: string,
   protectedProject: boolean,
-  options?: Pick<ProjectReconciliationOptions, 'actorUserId'>,
-): Promise<ProjectZeroTrust> {
-  return reconcileProjectZeroTrust(env, db, projectId, {
+  options?: Pick<ProjectReconciliationOptions, 'actorUserId' | 'requester'>,
+): Promise<GatedReconciliation> {
+  if (protectedProject) {
+    const canceled = await cancelPublicRequestForProtect(env, db, projectId, options ?? {});
+    if (canceled) {
+      return { row: canceled.row, publicRequest: canceled.request, held: true, skipped: null };
+    }
+  }
+  return reconcileProjectZeroTrustGated(env, db, projectId, {
     desiredProtection: protectedProject,
     actorUserId: options?.actorUserId,
+    requester: options?.requester,
+    ...(protectedProject ? {} : { gate: { kind: 'ask' as const } }),
   });
 }
 

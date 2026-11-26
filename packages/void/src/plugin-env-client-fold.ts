@@ -1,17 +1,14 @@
 import MagicString from 'magic-string';
-import { parseSync, type Plugin, type ResolvedConfig } from 'vite';
+import { parseSync } from 'vite';
+import type { Plugin, ResolvedConfig } from 'vite';
 import {
   extractEnvBindings,
   isVoidEnvScriptCandidate,
   walkEnvReads,
-  type ImportBindings,
 } from './plugin-env-client-guard.ts';
-import {
-  isIdentifier,
-  isLiteral,
-  type AstMemberExpression,
-  type AstProgram,
-} from './shared/ast.ts';
+import type { ImportBindings } from './plugin-env-client-guard.ts';
+import { asAstProgram, isIdentifier, isLiteral } from './shared/ast.ts';
+import type { AstMemberExpression, AstProgram } from './shared/ast.ts';
 import { isClientEnvKey } from './shared/env.ts';
 
 type FoldHit = {
@@ -33,14 +30,17 @@ function findFoldHits(program: AstProgram, bindings: ImportBindings): Array<Fold
 }
 
 function pushHit(node: AstMemberExpression, hits: Array<FoldHit>): void {
+  if (node.start === undefined || node.end === undefined) {
+    throw new Error('Expected offsets for a parsed environment read.');
+  }
   // Static dot access: `env.FOO`
   if (!node.computed && isIdentifier(node.property)) {
-    hits.push({ start: node.start!, end: node.end!, property: node.property.name });
+    hits.push({ start: node.start, end: node.end, property: node.property.name });
     return;
   }
   // Static bracket access with a string literal: `env["FOO"]`
   if (node.computed && isLiteral(node.property) && typeof node.property.value === 'string') {
-    hits.push({ start: node.start!, end: node.end!, property: node.property.value });
+    hits.push({ start: node.start, end: node.end, property: node.property.value });
     return;
   }
   // Everything else (identifiers, template literals, etc.) falls through
@@ -103,7 +103,7 @@ export function envClientFoldPlugin(): Plugin {
         return;
       }
 
-      const program = parsed.program as unknown as AstProgram;
+      const program = asAstProgram(parsed.program);
       const bindings = extractEnvBindings(program);
       if (!bindings) {
         return;

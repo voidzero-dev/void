@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 
 import { act, createElement } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
+import type { Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { LinkPrefetchValue, VoidRouter } from 'void/pages-client';
 import { RouterContext } from '../../src/runtime/context.ts';
-import { Link, type LinkProps } from '../../src/runtime/link.tsx';
+import { Link } from '../../src/runtime/link.tsx';
+import type { LinkProps } from '../../src/runtime/link.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

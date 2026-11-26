@@ -1,0 +1,676 @@
+/**
+ * Findings for the project API (spec §9, §13.5): lists, one finding, comments, resolve,
+ * reopen and severity edits (M35). At `counts` level an open finding shows its F-id,
+ * severity, verdict and state, a resolved one its title too (spec §3). Every lookup is
+ * scoped to the project, so a finding of another project is a 404.
+ */
+import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import type { Db, DbOrTx } from '../db.ts';
+import { generateId } from '../id.ts';
+import { requireProjectCapability } from '../project-access.ts';
+import { projectMembers, projects, users } from '../schema.ts';
+import type { ProjectRole } from '../types.ts';
+import { SecurityApiError } from './errors.ts';
+import { isUrgentSeverity } from './findings.ts';
+import { enqueueSecurityNotification } from './notifications.ts';
+import {
+  effectiveSeverity,
+  parseSecurityFindingRef,
+  securityDuplicateHints,
+  securityFindingLabel,
+  securityIso,
+  securityUrgentSql,
+} from './project-view.ts';
+import type { SecurityDetailLevel, SecurityDuplicateHint } from './project-view.ts';
+import { SECURITY_SEVERITIES, securityFindingEvents, securityFindings } from './schema.ts';
+import type { SecurityResolution, SecuritySeverity } from './schema.ts';
+
+export const SECURITY_COMMENT_MAX_CHARS = 4000;
+
+export class SecurityFindingNotFoundError extends SecurityApiError {
+  constructor() {
+    super(404, 'finding not found', 'No finding with that id in this project.');
+    this.name = 'SecurityFindingNotFoundError';
+  }
+}
+
+const findingColumns = {
+  id: securityFindings.id,
+  number: securityFindings.number,
+  verdict: securityFindings.verdict,
+  severity: effectiveSeverity,
+  /** The scan's own value; `severity` above is the human one when set (M35). */
+  scanSeverity: securityFindings.severity,
+  severityOverride: securityFindings.severity_override,
+  confidence: securityFindings.confidence,
+  title: securityFindings.title,
+  category: securityFindings.category,
+  cwe: securityFindings.cwe,
+  file: securityFindings.file,
+  lineStart: securityFindings.line_start,
+  lineEnd: securityFindings.line_end,
+  detail: securityFindings.detail,
+  state: securityFindings.state,
+  resolution: securityFindings.resolution,
+  resolvedAt: securityFindings.resolved_at,
+  resolvedByUserId: securityFindings.resolved_by_user_id,
+  notSeenInLatest: securityFindings.not_seen_in_latest,
+  possibleDuplicateOf: securityFindings.possible_duplicate_of,
+  reopenCount: securityFindings.reopen_count,
+  revision: securityFindings.revision,
+  outsideDiff: securityFindings.outside_diff,
+  source: securityFindings.source,
+  verdictSource: securityFindings.verdict_source,
+  fixChecked: securityFindings.fix_checked_scan_id,
+  firstScanId: securityFindings.first_scan_id,
+  lastSeenScanId: securityFindings.last_seen_scan_id,
+  firstDeploymentId: securityFindings.first_deployment_id,
+  createdAt: securityFindings.created_at,
+  updatedAt: securityFindings.updated_at,
+};
+
+function findingRows(db: DbOrTx, where: SQL | undefined) {
+  return db.select(findingColumns).from(securityFindings).where(where);
+}
+
+type FindingRow = Awaited<ReturnType<typeof findingRows>>[number];
+
+export interface SecurityFindingView {
+  readonly [field: string]: unknown;
+}
+
+/** One finding as the caller may see it. */
+export function securityFindingView(
+  row: FindingRow,
+  level: SecurityDetailLevel,
+  duplicate: SecurityDuplicateHint | null,
+  resolvedBy: string | null,
+): SecurityFindingView {
+  const base = {
+    id: securityFindingLabel(row.number),
+    verdict: row.verdict,
+    severity: row.severity,
+    state: row.state,
+    urgent: row.verdict === 'confirmed' && row.state === 'open' && isUrgentSeverity(row.severity),
+  };
+  if (level === 'counts') {
+    // Readers: titles only for resolved findings; an open one is an exploit write-up.
+    return row.state === 'resolved'
+      ? { ...base, title: row.title, resolution: row.resolution, revision: row.revision }
+      : { ...base, revision: row.revision };
+  }
+  const detail =
+    row.detail && typeof row.detail === 'object' && !Array.isArray(row.detail)
+      ? (row.detail as Record<string, unknown>)
+      : {};
+  return {
+    ...base,
+    findingId: row.id,
+    title: row.title,
+    category: row.category,
+    cwe: row.cwe,
+    confidence: row.confidence,
+    file: row.file,
+    line: row.lineStart,
+    lineEnd: row.lineEnd,
+    resolution: row.resolution,
+    resolvedAt: securityIso(row.resolvedAt),
+    resolvedBy,
+    // M35: `severity` was set by a person; `scanSeverity` is what the scans said.
+    severityEdited: row.severityOverride !== null,
+    scanSeverity: row.scanSeverity,
+    notSeenInLatest: row.notSeenInLatest,
+    possibleDuplicateOf: duplicate,
+    reopenCount: row.reopenCount,
+    revision: row.revision,
+    outsideDiff: row.outsideDiff,
+    source: row.source,
+    // M30: `confirmed (runtime)` when a request to the scan's throwaway copy proved it.
+    verdictSource: row.verdict === 'confirmed' ? row.verdictSource : null,
+    runtimeProof: detail.runtime_proof ?? null,
+    // `fixed` is proven only once a later clean scan did not report it again.
+    fixChecked: row.fixChecked !== null,
+    firstScanId: row.firstScanId,
+    lastSeenScanId: row.lastSeenScanId,
+    deploymentId: row.firstDeploymentId,
+    firstSeenAt: securityIso(row.createdAt),
+    updatedAt: securityIso(row.updatedAt),
+    trace: detail.trace ?? null,
+    evidence: detail.evidence ?? null,
+    conditions: detail.conditions ?? null,
+    fix: detail.fix ?? null,
+  };
+}
+
+export type SecurityFindingFilter = Readonly<{
+  state: 'open' | 'resolved' | 'all';
+  urgent: boolean;
+  severity: SecuritySeverity | null;
+}>;
+
+async function loginsFor(
+  db: DbOrTx,
+  ids: ReadonlyArray<string | null>,
+): Promise<Map<string, string>> {
+  const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+  const out = new Map<string, string>();
+  if (wanted.length === 0) {
+    return out;
+  }
+  const rows = await db
+    .select({ id: users.id, login: users.login })
+    .from(users)
+    .where(inArray(users.id, wanted));
+  for (const row of rows) {
+    out.set(row.id, row.login);
+  }
+  return out;
+}
+
+export type SecurityFindingEventView = Readonly<Record<string, unknown>>;
+
+/** The owner and members of a project, of the people in `ids`. */
+async function currentMembers(
+  db: DbOrTx,
+  projectId: string,
+  ids: ReadonlyArray<string | null>,
+): Promise<Set<string>> {
+  const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+  if (wanted.length === 0) {
+    return new Set();
+  }
+  const [owners, members] = await Promise.all([
+    db
+      .select({ id: projects.user_id })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), inArray(projects.user_id, wanted))),
+    db
+      .select({ id: projectMembers.user_id })
+      .from(projectMembers)
+      .where(
+        and(eq(projectMembers.project_id, projectId), inArray(projectMembers.user_id, wanted)),
+      ),
+  ]);
+  return new Set([...owners, ...members].map((member) => member.id));
+}
+
+/**
+ * The history of each finding, oldest first, keyed by finding id (full detail only).
+ * A person no longer on the project keeps their events, marked `formerMember` (spec #24).
+ */
+export async function securityFindingTimelines(
+  db: DbOrTx,
+  projectId: string,
+  findingIds: ReadonlyArray<string>,
+): Promise<Map<string, ReadonlyArray<SecurityFindingEventView>>> {
+  const out = new Map<string, Array<SecurityFindingEventView>>();
+  if (findingIds.length === 0) {
+    return out;
+  }
+  const rows = await db
+    .select({
+      findingId: securityFindingEvents.finding_id,
+      action: securityFindingEvents.action,
+      actorKind: securityFindingEvents.actor_kind,
+      actorRole: securityFindingEvents.actor_role,
+      actorUserId: securityFindingEvents.actor_user_id,
+      scanId: securityFindingEvents.scan_id,
+      resolution: securityFindingEvents.resolution,
+      comment: securityFindingEvents.comment,
+      severityFrom: securityFindingEvents.severity_from,
+      severityTo: securityFindingEvents.severity_to,
+      createdAt: securityFindingEvents.created_at,
+    })
+    .from(securityFindingEvents)
+    .where(
+      and(
+        eq(securityFindingEvents.project_id, projectId),
+        inArray(securityFindingEvents.finding_id, [...findingIds]),
+      ),
+    )
+    .orderBy(asc(securityFindingEvents.created_at), asc(securityFindingEvents.id));
+  // Installation admins act from outside the project, so only `user` events are checked.
+  const people = rows.map((event) => (event.actorKind === 'user' ? event.actorUserId : null));
+  const [logins, members] = await Promise.all([
+    loginsFor(
+      db,
+      rows.map((event) => event.actorUserId),
+    ),
+    currentMembers(db, projectId, people),
+  ]);
+  for (const event of rows) {
+    const list = out.get(event.findingId) ?? [];
+    list.push({
+      action: event.action,
+      actorKind: event.actorKind,
+      actorRole: event.actorRole,
+      // A removed member keeps their comment; the login is gone with the account.
+      actor: event.actorUserId ? (logins.get(event.actorUserId) ?? null) : null,
+      formerMember:
+        event.actorKind === 'user' && event.actorUserId !== null && !members.has(event.actorUserId),
+      scanId: event.scanId,
+      resolution: event.resolution,
+      comment: event.comment,
+      ...(event.action === 'severity_edited'
+        ? { severityFrom: event.severityFrom, severityTo: event.severityTo }
+        : {}),
+      createdAt: securityIso(event.createdAt),
+    });
+    out.set(event.findingId, list);
+  }
+  return out;
+}
+
+export async function listSecurityFindings(
+  db: Db,
+  projectId: string,
+  level: SecurityDetailLevel,
+  filter: SecurityFindingFilter,
+  page: Readonly<{ limit: number; afterNumber: number | null }>,
+): Promise<Readonly<{ findings: ReadonlyArray<SecurityFindingView>; nextCursor: string | null }>> {
+  const conditions: Array<SQL | undefined> = [
+    eq(securityFindings.project_id, projectId),
+    filter.state === 'all' ? undefined : eq(securityFindings.state, filter.state),
+    filter.urgent ? securityUrgentSql : undefined,
+    filter.severity ? sql`${effectiveSeverity} = ${filter.severity}` : undefined,
+    page.afterNumber === null ? undefined : gt(securityFindings.number, page.afterNumber),
+  ];
+  const rows = await findingRows(db, and(...conditions))
+    .orderBy(asc(securityFindings.number))
+    .limit(page.limit + 1);
+  const more = rows.length > page.limit;
+  const shown = more ? rows.slice(0, page.limit) : rows;
+  const duplicates =
+    level === 'full'
+      ? await securityDuplicateHints(
+          db,
+          projectId,
+          shown.flatMap((row) => (row.possibleDuplicateOf ? [row.possibleDuplicateOf] : [])),
+        )
+      : new Map<string, SecurityDuplicateHint>();
+  const logins =
+    level === 'full'
+      ? await loginsFor(
+          db,
+          shown.map((row) => row.resolvedByUserId),
+        )
+      : new Map<string, string>();
+  const last = shown.at(-1);
+  return {
+    findings: shown.map((row) =>
+      securityFindingView(
+        row,
+        level,
+        row.possibleDuplicateOf ? (duplicates.get(row.possibleDuplicateOf) ?? null) : null,
+        row.resolvedByUserId ? (logins.get(row.resolvedByUserId) ?? null) : null,
+      ),
+    ),
+    nextCursor: more && last ? String(last.number) : null,
+  };
+}
+
+function refCondition(projectId: string, ref: string): SQL | undefined {
+  const parsed = parseSecurityFindingRef(ref);
+  return and(
+    eq(securityFindings.project_id, projectId),
+    'number' in parsed
+      ? eq(securityFindings.number, parsed.number)
+      : eq(securityFindings.id, parsed.id),
+  );
+}
+
+export async function showSecurityFinding(
+  db: Db,
+  projectId: string,
+  ref: string,
+  level: SecurityDetailLevel,
+) {
+  const [row] = await findingRows(db, refCondition(projectId, ref)).limit(1);
+  if (!row) {
+    throw new SecurityFindingNotFoundError();
+  }
+  const duplicates =
+    level === 'full' && row.possibleDuplicateOf
+      ? await securityDuplicateHints(db, projectId, [row.possibleDuplicateOf])
+      : new Map<string, SecurityDuplicateHint>();
+  let events: ReadonlyArray<SecurityFindingEventView> = [];
+  let resolvedBy: string | null = null;
+  if (level === 'full') {
+    const [timelines, logins] = await Promise.all([
+      securityFindingTimelines(db, projectId, [row.id]),
+      loginsFor(db, [row.resolvedByUserId]),
+    ]);
+    events = timelines.get(row.id) ?? [];
+    resolvedBy = row.resolvedByUserId ? (logins.get(row.resolvedByUserId) ?? null) : null;
+  }
+  return {
+    finding: securityFindingView(
+      row,
+      level,
+      row.possibleDuplicateOf ? (duplicates.get(row.possibleDuplicateOf) ?? null) : null,
+      resolvedBy,
+    ),
+    ...(level === 'full' ? { events } : {}),
+  };
+}
+
+/** A comment or reason text: a string, 1 to 4,000 characters once trimmed. */
+export function parseSecurityComment(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw SecurityApiError.invalid(
+      `${field} is required (1 to ${SECURITY_COMMENT_MAX_CHARS} characters).`,
+    );
+  }
+  const text = value.trim();
+  if (Array.from(text).length > SECURITY_COMMENT_MAX_CHARS) {
+    throw SecurityApiError.invalid(
+      `${field} must be at most ${SECURITY_COMMENT_MAX_CHARS} characters.`,
+    );
+  }
+  return text;
+}
+
+export async function commentOnSecurityFinding(
+  db: Db,
+  input: Readonly<{
+    projectId: string;
+    ref: string;
+    userId: string;
+    /** Ignored for an installation admin, who has no project role. */
+    role: ProjectRole | null;
+    text: string;
+    /** An operator acting for the installation (`operator/security-routes.ts`). */
+    actor?: SecurityFindingActor;
+  }>,
+) {
+  const [row] = await db
+    .select({ id: securityFindings.id, number: securityFindings.number })
+    .from(securityFindings)
+    .where(refCondition(input.projectId, input.ref))
+    .limit(1);
+  if (!row) {
+    throw new SecurityFindingNotFoundError();
+  }
+  // The role was checked by the route, outside a transaction. A comment never changes state,
+  // so a demotion landing mid-request can leave one comment with the older role. Accepted.
+  await db
+    .insert(securityFindingEvents)
+    .values(findingEvent(input, row.id, input.actor ? null : input.role, 'commented', input.text));
+  return { ok: true as const, id: securityFindingLabel(row.number) };
+}
+
+/** What the finding is now, for the `finding changed` reply. */
+async function changedError(
+  tx: DbOrTx,
+  row: Pick<FindingRow, 'id' | 'number' | 'state' | 'resolution' | 'revision' | 'updatedAt'>,
+): Promise<SecurityApiError> {
+  const [last] = await tx
+    .select({ role: securityFindingEvents.actor_role, kind: securityFindingEvents.actor_kind })
+    .from(securityFindingEvents)
+    .where(
+      and(
+        eq(securityFindingEvents.finding_id, row.id),
+        inArray(securityFindingEvents.action, ['resolved', 'reopened', 'severity_edited']),
+      ),
+    )
+    .orderBy(desc(securityFindingEvents.created_at), desc(securityFindingEvents.id))
+    .limit(1);
+  const label = securityFindingLabel(row.number);
+  const what =
+    row.state === 'resolved'
+      ? `resolved (${(row.resolution ?? 'resolved').replace('_', ' ')})`
+      : 'open';
+  return SecurityApiError.of(
+    'findingChanged',
+    `${label} changed while you were working on it: ${what}. Run void project security show ${label} to see it.`,
+    {
+      id: label,
+      state: row.state,
+      resolution: row.resolution,
+      revision: row.revision,
+      changedAt: securityIso(row.updatedAt),
+      byRole: last?.role ?? null,
+    },
+  );
+}
+
+function parseRevision(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw SecurityApiError.invalid(
+      'expectedRevision must be the revision you read, a positive integer.',
+    );
+  }
+  return value;
+}
+
+export function parseSecurityResolution(value: unknown): SecurityResolution {
+  if (value === 'fixed' || value === 'false_positive' || value === 'accepted_risk') {
+    return value;
+  }
+  throw SecurityApiError.invalid('reason must be fixed, false_positive or accepted_risk.');
+}
+
+/** Who changes a finding when it is not a project member. */
+export type SecurityFindingActor = 'installation_admin';
+
+/** A history row of the finding by this caller. */
+function findingEvent(
+  input: Readonly<{ projectId: string; userId: string; actor?: SecurityFindingActor }>,
+  findingId: string,
+  role: ProjectRole | null,
+  action: 'commented' | 'resolved' | 'reopened' | 'severity_edited',
+  comment: string,
+) {
+  return {
+    id: generateId('sfe'),
+    finding_id: findingId,
+    project_id: input.projectId,
+    actor_kind: input.actor ?? ('user' as const),
+    actor_user_id: input.userId,
+    actor_role: role,
+    action,
+    comment,
+  };
+}
+
+type ChangeInput = Readonly<{
+  projectId: string;
+  ref: string;
+  userId: string;
+  /** An operator: no project role is needed or recorded. */
+  actor?: SecurityFindingActor;
+  comment: string;
+  expectedRevision: unknown;
+}>;
+
+/**
+ * Locks the project row (as the ingest does, so the two never interleave), checks the
+ * caller still has `settings` (edge #22: an admin demoted mid-request gets 403), then
+ * locks the finding and checks the revision (edge #21: the second of two admins gets
+ * 409 `finding changed`).
+ */
+async function lockFindingForChange(tx: DbOrTx, input: ChangeInput) {
+  await tx.execute(sql`SELECT id FROM projects WHERE id = ${input.projectId} FOR UPDATE`);
+  const access = input.actor
+    ? { role: null }
+    : await requireProjectCapability(tx, input.projectId, input.userId, 'settings');
+  const [row] = await tx
+    .select({ ...findingColumns, sinkContentHash: securityFindings.sink_content_hash })
+    .from(securityFindings)
+    .where(refCondition(input.projectId, input.ref))
+    .for('update')
+    .limit(1);
+  if (!row) {
+    throw new SecurityFindingNotFoundError();
+  }
+  return { access, row };
+}
+
+export async function resolveSecurityFinding(
+  db: Db,
+  input: ChangeInput & Readonly<{ resolution: SecurityResolution }>,
+) {
+  const revision = parseRevision(input.expectedRevision);
+  return db.transaction(async (tx) => {
+    const { access, row } = await lockFindingForChange(tx, input);
+    if (row.revision !== revision || row.state !== 'open') {
+      throw await changedError(tx, row);
+    }
+    const [updated] = await tx
+      .update(securityFindings)
+      .set({
+        state: 'resolved',
+        resolution: input.resolution,
+        resolved_by_user_id: input.userId,
+        resolved_at: sql`now()`,
+        // The sink as it was when the human decided: a later change reopens (spec §9.3).
+        resolved_sink_hash: row.sinkContentHash,
+        resolved_severity: row.severity,
+        // A new `fixed` claim is unproven until a later clean scan checks it.
+        fix_checked_scan_id: null,
+        revision: sql`${securityFindings.revision} + 1`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(securityFindings.id, row.id))
+      .returning({ revision: securityFindings.revision });
+    await tx.insert(securityFindingEvents).values({
+      ...findingEvent(input, row.id, access.role, 'resolved', input.comment),
+      resolution: input.resolution,
+    });
+    return {
+      ok: true as const,
+      id: securityFindingLabel(row.number),
+      state: 'resolved' as const,
+      resolution: input.resolution,
+      revision: updated.revision,
+    };
+  });
+}
+
+export async function reopenSecurityFinding(db: Db, input: ChangeInput) {
+  const revision = parseRevision(input.expectedRevision);
+  return db.transaction(async (tx) => {
+    const { access, row } = await lockFindingForChange(tx, input);
+    if (row.revision !== revision || row.state !== 'resolved') {
+      throw await changedError(tx, row);
+    }
+    const [updated] = await tx
+      .update(securityFindings)
+      .set({
+        state: 'open',
+        resolution: null,
+        resolved_by_user_id: null,
+        resolved_at: null,
+        resolved_sink_hash: null,
+        resolved_severity: null,
+        fix_checked_scan_id: null,
+        reopen_count: sql`${securityFindings.reopen_count} + 1`,
+        revision: sql`${securityFindings.revision} + 1`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(securityFindings.id, row.id))
+      .returning({ revision: securityFindings.revision });
+    await tx
+      .insert(securityFindingEvents)
+      .values(findingEvent(input, row.id, access.role, 'reopened', input.comment));
+    // A human reopen of an urgent finding (confirmed critical or high) is emailed (M15).
+    if (row.verdict === 'confirmed' && isUrgentSeverity(row.severity)) {
+      await enqueueSecurityNotification(tx, {
+        kind: 'reopen',
+        projectId: input.projectId,
+        findingId: row.id,
+        reopenCount: row.reopenCount + 1,
+      });
+    }
+    return {
+      ok: true as const,
+      id: securityFindingLabel(row.number),
+      state: 'open' as const,
+      resolution: null,
+      revision: updated.revision,
+    };
+  });
+}
+
+/**
+ * The `severity` of an edit: one of the five levels, or `null` to drop the human value
+ * and show what the scans said again.
+ */
+export function parseSecuritySeverityEdit(value: unknown): SecuritySeverity | null {
+  if (value === null) {
+    return null;
+  }
+  const found = SECURITY_SEVERITIES.find((severity) => severity === value);
+  if (found === undefined) {
+    throw SecurityApiError.invalid(
+      `severity must be one of: ${SECURITY_SEVERITIES.join(', ')}, or null to use the scan value.`,
+    );
+  }
+  return found;
+}
+
+function notEditable(label: string, why: string): SecurityApiError {
+  return new SecurityApiError(409, 'finding severity not editable', `${label}: ${why}`, {
+    id: label,
+  });
+}
+
+/**
+ * A person sets the severity of an open, confirmed finding (M35): `severity_override`,
+ * sticky across scans (`null`: back to the scan value). Every rule reads the override, so
+ * lowering an urgent finding takes it out of the urgent count like a resolve (the route
+ * re-checks an open public request). Same locks and revision check as resolve.
+ */
+export async function editSecurityFindingSeverity(
+  db: Db,
+  input: ChangeInput & Readonly<{ severity: SecuritySeverity | null }>,
+) {
+  const revision = parseRevision(input.expectedRevision);
+  return db.transaction(async (tx) => {
+    const { access, row } = await lockFindingForChange(tx, input);
+    if (row.revision !== revision) {
+      throw await changedError(tx, row);
+    }
+    const label = securityFindingLabel(row.number);
+    if (row.verdict !== 'confirmed') {
+      throw notEditable(
+        label,
+        'a lead has no severity. Resolve it as false-positive, or wait for a scan to confirm it.',
+      );
+    }
+    if (row.state !== 'open') {
+      throw notEditable(label, 'it is resolved. Reopen it first to change its severity.');
+    }
+    const before = row.severity;
+    const after = input.severity ?? row.scanSeverity;
+    const result = (changedRevision: number) => ({
+      ok: true as const,
+      id: label,
+      severity: after,
+      scanSeverity: row.scanSeverity,
+      severityEdited: input.severity !== null,
+      urgent: isUrgentSeverity(after),
+      revision: changedRevision,
+    });
+    if (input.severity === row.severityOverride) {
+      // Nothing to change: no event, the revision stays.
+      return { ...result(row.revision), changed: false };
+    }
+    const [updated] = await tx
+      .update(securityFindings)
+      .set({
+        severity_override: input.severity,
+        revision: sql`${securityFindings.revision} + 1`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(securityFindings.id, row.id))
+      .returning({ revision: securityFindings.revision });
+    await tx.insert(securityFindingEvents).values({
+      ...findingEvent(input, row.id, access.role, 'severity_edited', input.comment),
+      severity_from: before,
+      severity_to: after,
+    });
+    return { ...result(updated.revision), changed: true };
+  });
+}

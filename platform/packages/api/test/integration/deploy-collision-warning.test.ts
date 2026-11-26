@@ -17,8 +17,8 @@ import {
   createTestProject,
   createTestProjectSecret,
   mockCfApi,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -46,7 +46,11 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function buildDeployRequest(projectId: string, jwt: string, manifest: object): Request {
+function buildDeployRequest(
+  projectId: string,
+  jwt: string,
+  manifest: Record<string, unknown>,
+): Request {
   const workerSrc = "export default { fetch() { return new Response('ok'); } }";
   return new Request(`http://localhost/projects/${projectId}/deploy`, {
     method: 'POST',

@@ -35,12 +35,13 @@ import { createBuilder } from 'vite';
 import { afterAll, afterEach, expect, it as serialIt, vi } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
-  type CfBuildOutput,
   prepareCfFrameworkBuildOutput,
   prepareCfStaticBuildOutput,
 } from '../../src/cli/cf-build-output.ts';
+import type { CfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { resolveGeneratedDeployConfigPathDefault } from '../../src/cli/deploy-artifact-validation.ts';
 import { deployPointerPath } from '../../src/cli/deploy-binding-snapshot.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { writeWranglerPublishedTrafficSnapshot } from '../../src/cli/wrangler.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
@@ -370,7 +371,7 @@ it('preserves native auxiliary Workers and already-built Container declarations'
   );
 });
 
-it.each(['../outside.js', '/outside.js', 'C:/outside.js', 'assets\\outside.js'])(
+it.each(['../outside.js', '/outside.js', 'C:/outside.js', String.raw`assets\outside.js`])(
   'rejects a native manifest module outside its portable bundle: %s',
   async (module) => {
     const root = await nativeBuild();
@@ -949,7 +950,7 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
-it.each(['../index.js', '/index.js', 'C:\\index.js'])(
+it.each(['../index.js', '/index.js', String.raw`C:\index.js`])(
   'rejects an out-of-bundle entry %s',
   async (main) => {
     const output = worker({ name: 'void-test', compatibility_date: '2026-09-29', main });
@@ -1174,12 +1175,14 @@ it('keeps Durable Objects, Queue triggers, and Containers in cf prebuilt output'
   );
 }, 15_000);
 
-it('bundles a generated static Worker and staged assets into prebuilt cf output', async () => {
-  const root = mkdtempSync(
-    packageFixturePath(dirname(fileURLToPath(import.meta.url)), '.tmp-cf-static-'),
-  );
+it.each([
+  ['implicit CommonJS', undefined, 'index.mjs'],
+  ['explicit CommonJS', 'commonjs', 'index.mjs'],
+  ['ES module', 'module', 'index.js'],
+])('bundles a generated static Worker and staged assets in %s', async (_label, type, main) => {
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-cf-static-'));
   roots.push(root);
-  writeFileSync(join(root, 'package.json'), '{"name":"static-app","type":"module"}');
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'static-app', type }));
   mkdirSync(join(root, 'node_modules'));
   symlinkSync(
     fileURLToPath(new URL('../../', import.meta.url)),
@@ -1228,7 +1231,7 @@ it('bundles a generated static Worker and staged assets into prebuilt cf output'
         readFileSync(join(root, 'package.json')),
       );
       const built = await readBuildOutput(prepared.directory);
-      expect(built.workers.default.config.manifest?.mainModule).toBe('index.js');
+      expect(built.workers.default.config.manifest?.mainModule).toBe(main);
       expect(built.workers.default.assetsDir).toBeDefined();
       expect(prepared.assetsDirectory).toBe(toSlash(assets));
       expectCfDryRun(prepared.directory, ['deploy']);
@@ -1368,7 +1371,7 @@ serialIt.skipIf(process.platform === 'win32')(
       prepareCfBuildOutput(output, { accountId: 'account-id' }),
       async (prepared) => {
         const built = await readBuildOutput(prepared.directory);
-        const container = built.containers[0]!.config;
+        const container = built.containers[0].config;
         expect(container.schedulingPolicy).toBe('durable-object');
         if (container.schedulingPolicy !== 'durable-object') {
           throw new Error('Expected a managed container');
@@ -1386,7 +1389,7 @@ serialIt.skipIf(process.platform === 'win32')(
     const calls = readFileSync(log, 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line));
+      .map((line): unknown => JSON.parse(line));
     expect(calls[0]).toEqual([
       'build',
       '--platform',

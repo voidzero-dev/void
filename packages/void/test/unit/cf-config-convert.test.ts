@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { translateWranglerConfig } from '../../src/cli/cf-config-migrate.ts';
 import cases from '../fixtures/cf-config-cases.json' with { type: 'json' };
-import { translateWithCodemod, type CodemodTranslation } from './cf-config-codemod.ts';
+import { translateWithCodemod } from './cf-config-codemod.ts';
+import type { CodemodTranslation } from './cf-config-codemod.ts';
 
 // The codemod reports what a project must install. Void's translation has no project.
 const projectFollowUp = /^(?:cf-install|vite-plugin-(?:install|upgrade)|wrangler-upgrade)/;
@@ -62,6 +63,7 @@ describe.concurrent('Void translates settings as the installed cf codemod does',
     expect(raw).toEqual(input);
     if (expected.config !== null) {
       // Compare as JSON: the reference crossed a process boundary.
+      // oxlint-disable-next-line unicorn/prefer-structured-clone -- Compare the follow-ups using the JSON emitted by the converter.
       expect(JSON.parse(JSON.stringify(translated.followUps))).toEqual(
         expected.followUps.filter(({ code }) => !projectFollowUp.test(code)),
       );

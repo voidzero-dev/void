@@ -1,4 +1,6 @@
-import { Context, type MiddlewareHandler } from 'hono';
+import { Context } from 'hono';
+import type { MiddlewareHandler } from 'hono';
+import type { matchedRoutes as honoMatchedRoutes } from 'hono/route';
 import {
   PRESERVED_QUERY_HEADER,
   markActionKey,
@@ -19,6 +21,7 @@ import type { ErrorRenderer } from './errors.ts';
 import type { RoutingRule, RoutingRuntime } from './index.ts';
 import { markStaticAsset } from './static-asset-marker.ts';
 import { createAssetCachePolicy } from './worker.ts';
+import type { RuntimeEnvironment } from './worker.ts';
 
 type PageGetArguments = Parameters<typeof handlePageGet>;
 type PageModule = {
@@ -67,18 +70,21 @@ function actionNameOf(request: Request): string | undefined {
   );
   return new URLSearchParams(search).keys().next().value;
 }
-const routeHandlers = new WeakSet<Function>();
-const namedActionHandlers = new WeakSet<Function>();
-const pageGetOptions = new WeakMap<Function, PageRouteOptions>();
+type MatchedRoutes = typeof honoMatchedRoutes;
+type RouteHandler = ReturnType<MatchedRoutes>[number]['handler'];
+
+const routeHandlers = new WeakSet<RouteHandler>();
+const namedActionHandlers = new WeakSet<RouteHandler>();
+const pageGetOptions = new WeakMap<RouteHandler, PageRouteOptions>();
 /** Records a handler that answers a route, so the marker can tell it from middleware. */
-export function markRouteHandler<T extends Function>(handler: T): T {
+export function markRouteHandler<T extends RouteHandler>(handler: T): T {
   routeHandlers.add(handler);
   return handler;
 }
 
 /** Hono catches middleware throws itself, before the page endpoint can run. */
 export function createPageErrorHandler(
-  matchedRoutes: (c: Context) => Array<{ handler: Function }>,
+  matchedRoutes: MatchedRoutes,
   fallback: ErrorRenderer['onError'],
 ): ErrorRenderer['onError'] {
   const recovering = new WeakSet<Context>();
@@ -111,8 +117,10 @@ export function createPageErrorHandler(
         options.headConfig ?? undefined,
         { ...options.renderOptions, boundaries: options.middlewareBoundaries ?? { errors: [] } },
       );
+      // oxlint-disable-next-line typescript/return-await -- Keep failures from the fallback outside boundary recovery and restore the route index immediately.
       return response ?? fallback(error, c);
     } catch (failure) {
+      // oxlint-disable-next-line typescript/return-await -- Keep failures from the fallback outside boundary recovery and restore the route index immediately.
       return fallback(
         failure instanceof Error
           ? failure
@@ -132,9 +140,7 @@ export function createPageErrorHandler(
  * `matchedRoutes` comes from 'hono/route' of the same Hono copy as the app: it
  * reads the request through a Symbol that each copy defines for itself.
  */
-export function createNamedActionMarker(
-  matchedRoutes: (c: Context) => Array<{ handler: Function }>,
-): MiddlewareHandler {
+export function createNamedActionMarker(matchedRoutes: MatchedRoutes): MiddlewareHandler {
   return async (c, next) => {
     const answer = matchedRoutes(c)
       .slice(c.req.routeIndex + 1)
@@ -270,7 +276,7 @@ export function createPagesFallback(options: {
     ) {
       return c.text('Not Found', 404);
     }
-    const assets = c.env?.ASSETS;
+    const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
     // A loader that called `c.notFound()` already claimed this URL. Serving a
     // static file that happens to share the path would turn its bytes into the
     // loader's return value, so answer from the not-found path instead.
@@ -279,7 +285,7 @@ export function createPagesFallback(options: {
       : assets && typeof assets.fetch === 'function'
         ? await assets.fetch(c.req.raw)
         : options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
-    const filePath = path.includes('/.') || path.substring(path.lastIndexOf('/') + 1).includes('.');
+    const filePath = path.includes('/.') || path.slice(path.lastIndexOf('/') + 1).includes('.');
     // Directory indexes may be served without a redirect by the asset binding.
     // Dynamic page patterns also match real files, which must keep their URLs.
     const pageNeedsSlash =
@@ -315,7 +321,10 @@ export function createPagesFallback(options: {
       return Response.redirect(url.href, 301);
     }
     if (assetResponse.status !== 404) {
-      return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, assetResponse));
+      return markStaticAsset(
+        c,
+        await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, assetResponse),
+      );
     }
     const fallback = options.fallbackRules
       ? await options.routing.applyFallback(c, options.fallbackRules)
@@ -360,14 +369,14 @@ export function createSsrFallback(options: {
 }): (c: Context) => Promise<Response> {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   const fetchAssets = async (c: Context): Promise<Response> => {
-    const binding = c.env?.ASSETS;
+    const binding = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
     if (!binding || typeof binding.fetch !== 'function') {
       return options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
     }
     const response: Response = await binding.fetch(c.req.raw);
     return response.status === 404
       ? options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }))
-      : markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
+      : markStaticAsset(c, await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, response));
   };
   return async (c) => {
     if (options.nodeTarget && options.fallbackRules) {
@@ -412,11 +421,14 @@ export function createAssetNotFound(options: {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   return async (c) => {
     if (!options.nodeTarget) {
-      const assets = c.env?.ASSETS;
+      const assets = (c.env as RuntimeEnvironment | undefined)?.ASSETS;
       if (assets && typeof assets.fetch === 'function') {
         const response: Response = await assets.fetch(c.req.raw);
         if (response.status !== 404) {
-          return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
+          return markStaticAsset(
+            c,
+            await cachePolicy(c.req.raw, c.env as RuntimeEnvironment, response),
+          );
         }
       }
     }

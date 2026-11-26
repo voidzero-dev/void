@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@sveltejs/adapter-cloudflare": "7.2.9",
-    "@sveltejs/kit": "2.70.3",
-    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@sveltejs/adapter-cloudflare": "7.2.10",
+    "@sveltejs/kit": "2.70.4",
+    "@sveltejs/vite-plugin-svelte": "^7.3.2",
     "svelte": "catalog:",
     "tsrs": "catalog:",
     "typescript": "catalog:sveltekit",

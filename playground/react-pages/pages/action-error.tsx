@@ -1,5 +1,6 @@
 import { action, useForm, useNavigation, useRouter } from '@void/react';
-import { Component, useRef, useState, type ReactNode } from 'react';
+import { Component, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useFormStatus } from 'react-dom';
 import type { Props } from './action-error.server.ts';
 

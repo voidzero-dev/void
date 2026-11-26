@@ -1,4 +1,5 @@
-import { updateUser, revokeOwnerVerifiedDestinationsForUserChange, type Db } from '../db.ts';
+import { updateUser, revokeOwnerVerifiedDestinationsForUserChange } from '../db.ts';
+import type { Db } from '../db.ts';
 import { lockEmailPolicy } from '../email/admission.ts';
 
 /**

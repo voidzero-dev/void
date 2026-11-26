@@ -1,4 +1,8 @@
-import { createPlatformDeploymentManifest, createPlatformWorkerConfigs } from '@void/platform';
+import {
+  createPlatformDeploymentManifest,
+  createPlatformWorkerConfigs,
+  serializePlatformCapabilities,
+} from '@void/platform';
 import { describe, expect, it } from 'vite-plus/test';
 
 describe('platform Worker configuration', () => {
@@ -42,7 +46,7 @@ describe('platform Worker configuration', () => {
     expect(JSON.stringify(configs)).not.toContain('BUILD_SCHEDULER');
     expect(configs.proxy.vars).toMatchObject({
       AI_GATEWAY_ID: deployment.resources.aiGateway,
-      PLATFORM_CAPABILITIES: JSON.stringify(deployment.capabilities),
+      PLATFORM_CAPABILITIES: serializePlatformCapabilities(deployment.capabilities),
       PLATFORM_INSTALLATION_ID: 'example-a1b2c3d4',
     });
     expect(configs.tail.vars).toMatchObject({

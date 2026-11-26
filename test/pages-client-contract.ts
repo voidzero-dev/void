@@ -1,11 +1,17 @@
-import type { Page, Request } from 'playwright';
-import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import type { Locator, Page, Request } from 'playwright';
+import { assert, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../packages/edge/src/pages-protocol.ts';
 import {
   decodePageData,
   deserializePageData,
   serializePageData,
 } from '../packages/void/src/pages/serialize.ts';
+
+async function readJsonText(locator: Locator): Promise<unknown> {
+  const value = await locator.textContent();
+  assert(value !== null, 'Expected serialized JSON text.');
+  return JSON.parse(value);
+}
 
 type TestWindow = Window & {
   __SPA_MARKER?: boolean;
@@ -40,8 +46,8 @@ export function registerSharedDevSsrTest({
     // scriptProbe tries to close the inline page-data <script> tag early.
     const probe = '</script><script>alert(1)</script>\u2028\u2029&';
     const probeMatch = rootHtml.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-    expect(probeMatch).not.toBeNull();
-    const probeJson = probeMatch![1];
+    assert(probeMatch, 'Expected the inline page data script.');
+    const probeJson = probeMatch[1];
     expect(probeJson).not.toMatch(/<\/script/i);
     expect(
       deserializePageData<{ shared: { scriptProbe: string } }>(probeJson).shared.scriptProbe,
@@ -155,9 +161,10 @@ export function registerSharedClientTests({
         await page.getByRole('button', { name: button, exact: true }).click();
         await page.waitForFunction(() => window.location.search.includes('anchored=1'));
         expect(page.url()).toBe(BASE + '/scroll-restoration?anchored=1#details');
-        await page.waitForFunction(
-          () => Math.abs(document.getElementById('details')!.getBoundingClientRect().top) < 1,
-        );
+        await page.waitForFunction(() => {
+          const details = document.getElementById('details');
+          return details !== null && Math.abs(details.getBoundingClientRect().top) < 1;
+        });
         expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
       } finally {
         await page.context().close();
@@ -264,7 +271,10 @@ export function registerSharedClientTests({
           'external-localhost-link',
           'query-only-link',
         ].map((id) => {
-          const link = root.querySelector(`[data-testid="${id}"]`)!;
+          const link = root.querySelector(`[data-testid="${id}"]`);
+          if (!link) {
+            throw new Error(`Missing test link: ${id}`);
+          }
           return [
             link.getAttribute('href'),
             link.getAttribute('aria-current'),
@@ -281,16 +291,17 @@ export function registerSharedClientTests({
     ];
     try {
       const response = await page.goto(BASE + '/link-behavior');
-      const html = await response!.text();
+      assert(response, 'Expected an HTML response for the link page.');
+      const html = await response.text();
       expect(await links(html)).toEqual(expected);
       await waitForHydration(page);
       expect(await links()).toEqual(expected);
       expect(hydrationErrors).toEqual([]);
 
       // The request origin is render context; serialized navigation URLs stay relative.
-      const pageUrl = deserializePageData<{ url: string }>(
-        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
-      ).url;
+      const match = html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      assert(match, 'Expected inline page data for the link page.');
+      const pageUrl = deserializePageData<{ url: string }>(match[1]).url;
       expect(pageUrl).toBe('/link-behavior');
       await page.getByTestId('query-only-link').click();
       await page.waitForURL(BASE + '/link-behavior?view=compact');
@@ -780,7 +791,7 @@ export function registerSharedClientTests({
         async function assertState(data: typeof edited, dirty: boolean) {
           await expect
             .poll(async () => ({
-              data: JSON.parse((await form.getByTestId('values').textContent())!),
+              data: await readJsonText(form.getByTestId('values')),
               dirty: await form.getByTestId('dirty').textContent(),
             }))
             .toEqual({ data, dirty: String(dirty) });
@@ -883,7 +894,7 @@ export function registerSharedClientTests({
       expect,
     }) => {
       const page = await openForm();
-      const readErrors = async () => JSON.parse((await page.getByTestId('errors').textContent())!);
+      const readErrors = () => readJsonText(page.getByTestId('errors'));
       try {
         await page.getByRole('button', { name: 'Set errors', exact: true }).click();
         await expect.poll(readErrors).toEqual({
@@ -911,7 +922,7 @@ export function registerSharedClientTests({
 
     it('clears errors after repeated nested object and array edits', async ({ expect }) => {
       const page = await openForm();
-      const readErrors = async () => JSON.parse((await page.getByTestId('errors').textContent())!);
+      const readErrors = () => readJsonText(page.getByTestId('errors'));
       try {
         for (let edit = 0; edit < 3; edit++) {
           await page.getByRole('button', { name: 'Set nested errors', exact: true }).click();
@@ -930,7 +941,7 @@ export function registerSharedClientTests({
 
     it('merges client and server errors without reviving cleared errors', async ({ expect }) => {
       const page = await openForm();
-      const readErrors = async () => JSON.parse((await page.getByTestId('errors').textContent())!);
+      const readErrors = () => readJsonText(page.getByTestId('errors'));
       try {
         await page.getByRole('button', { name: 'Save', exact: true }).click();
         await expect

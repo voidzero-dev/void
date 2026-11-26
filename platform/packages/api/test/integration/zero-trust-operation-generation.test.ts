@@ -10,22 +10,27 @@ import {
   vi,
 } from 'vite-plus/test';
 import type { ApiEnv } from '../../src/env.ts';
+import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import { domains, platformSettings } from '../../src/schema.ts';
 import {
   readZeroTrustConfigurationStrict,
-  type ZeroTrustConfigureInput,
   zeroTrustConfigurationStatus,
 } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
   reconcilePlatformZeroTrust,
+  resumePlatformZeroTrustOperation,
 } from '../../src/zero-trust/installation.ts';
+import { leaseExpiresAt, operationStartedAt } from '../../src/zero-trust/operation.ts';
 import {
   reconcileProjectZeroTrustDomains,
   initializeNewProjectZeroTrust,
 } from '../../src/zero-trust/project.ts';
 import { resolveProjectZeroTrustRouting } from '../../src/zero-trust/routing.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
+import * as zeroTrustState from '../../src/zero-trust/state.ts';
 import { getProjectZeroTrustState } from '../../src/zero-trust/state.ts';
 import {
   clearTables,
@@ -33,8 +38,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -131,7 +136,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);
@@ -240,7 +245,9 @@ describe('Zero Trust operation completion', () => {
     interleave = true;
     await reconcilePlatformZeroTrust(platform, env.db);
     const updated = (await readZeroTrustConfigurationStrict(env.db))!;
-    const routing = JSON.parse((await env.ROUTING.get(project.slug))!);
+    const routing = JSON.parse((await env.ROUTING.get(project.slug))!) as {
+      zeroTrust: { audiences: Array<{ hostname: string; audience: string }> };
+    };
     expect(zeroTrustConfigurationStatus(updated)).toBe('ready');
     expect(updated.wildcardApplication!.audience).not.toBe(
       oldConfiguration.wildcardApplication!.audience,
@@ -252,7 +259,7 @@ describe('Zero Trust operation completion', () => {
     expect(
       routing.zeroTrust.audiences.find(
         (entry: { hostname: string }) => entry.hostname === '*.apps.example.com',
-      ).audience,
+      )!.audience,
     ).toBe(updated.wildcardApplication!.audience);
   });
 
@@ -430,7 +437,9 @@ describe('Zero Trust operation completion', () => {
         // This assertion also fails deterministically when provider I/O happens
         // outside the configuration transaction, before the scheduling check.
         expect(transactionDepth).toBe(1);
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 25);
+        });
         expect(contenderSettled).toBe(false);
       } finally {
         release.resolve();
@@ -467,4 +476,165 @@ describe('Zero Trust operation completion', () => {
       }
     },
   );
+});
+
+describe('Zero Trust operation steps', () => {
+  /** Date.now that only moves forward, by real time plus whatever the test adds. */
+  function advancingClock() {
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+    return {
+      advance(ms: number) {
+        offset += ms;
+      },
+    };
+  }
+
+  /** Each project write takes a little over a minute, as on a slow provider. */
+  function slowProjectWrites(clock: ReturnType<typeof advancingClock>): void {
+    const original = zeroTrustState.putProjectState;
+    vi.spyOn(zeroTrustState, 'putProjectState').mockImplementation(async (...args) => {
+      clock.advance(61_000);
+      return original(...args);
+    });
+  }
+
+  async function protectedInstallation(prefix: string) {
+    const owner = await createTestUser(env.db, `${prefix}-owner`);
+    const projects = [];
+    for (let index = 0; index < 3; index++) {
+      projects.push(await createTestProject(env.db, owner.id, `${prefix}-project-${index}`));
+    }
+    const cloudflare = accessApi();
+    const platform = bindings();
+    vi.stubGlobal('fetch', cloudflare.fetcher);
+    await configurePlatformZeroTrust(platform, env.db, configurationInput());
+    return { platform, projects };
+  }
+
+  async function resumeUntilDone(platform: ApiEnv['Bindings']): Promise<void> {
+    for (let run = 0; run < 5; run++) {
+      if (!(await readZeroTrustConfigurationStrict(env.db))!.operation) {
+        return;
+      }
+      expect(await resumePlatformZeroTrustOperation(platform, env.db)).toBe(true);
+    }
+    throw new Error('The Zero Trust operation did not finish.');
+  }
+
+  it('stops a long reconcile at its time budget and lets scheduled maintenance finish it', async () => {
+    const { platform, projects } = await protectedInstallation('steps-reconcile');
+    slowProjectWrites(advancingClock());
+
+    expect(await reconcilePlatformZeroTrust(platform, env.db)).toMatchObject({
+      status: 'configuring',
+      operation: { kind: 'reconcile', phase: 'projects' },
+    });
+    const saved = (await readZeroTrustConfigurationStrict(env.db))!;
+    expect(saved.operation).toMatchObject({ owner: null, leaseExpiresAt: null });
+    const operationId = saved.operation!.id;
+    const pending = await Promise.all(
+      projects.map((project) => getProjectZeroTrustState(env.db, project.id)),
+    );
+    expect(pending.filter((row) => row?.reconciled_operation === operationId)).toHaveLength(1);
+
+    // A scheduled step that leaves work keeps the two-minute cron on for the rest.
+    await env.ROUTING.delete(FAST_MAINTENANCE_KEY);
+    expect(await resumePlatformZeroTrustOperation(platform, env.db)).toBe(true);
+    expect((await readZeroTrustConfigurationStrict(env.db))!.operation).not.toBeNull();
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).not.toBeNull();
+
+    await resumeUntilDone(platform);
+    expect(zeroTrustConfigurationStatus((await readZeroTrustConfigurationStrict(env.db))!)).toBe(
+      'ready',
+    );
+    for (const project of projects) {
+      expect(await getProjectZeroTrustState(env.db, project.id)).toMatchObject({
+        status: 'ready',
+        effective_protected: true,
+        reconciled_operation: operationId,
+      });
+    }
+  });
+
+  it('stops a long disable at its time budget and lets scheduled maintenance finish it', async () => {
+    const { platform, projects } = await protectedInstallation('steps-disable');
+    slowProjectWrites(advancingClock());
+
+    expect(await disablePlatformZeroTrust(platform, env.db)).toMatchObject({
+      status: 'disabling',
+      operation: { kind: 'disable', phase: 'projects' },
+    });
+    expect((await readZeroTrustConfigurationStrict(env.db))!.operation).toMatchObject({
+      owner: null,
+      leaseExpiresAt: null,
+    });
+
+    await resumeUntilDone(platform);
+    expect(await readZeroTrustConfigurationStrict(env.db)).toMatchObject({
+      enabled: false,
+      operation: null,
+      lastError: null,
+    });
+    for (const project of projects) {
+      expect(await getProjectZeroTrustState(env.db, project.id)).toMatchObject({
+        status: 'ready',
+        effective_protected: false,
+      });
+    }
+  });
+
+  it('arms the two-minute cron before a request starts the work', async () => {
+    const { platform } = await protectedInstallation('steps-armed');
+    await env.ROUTING.delete(FAST_MAINTENANCE_KEY);
+    // A request cancelled mid-run never reaches the after-request hook; a failed
+    // run stands in for it here, since both stop before the step ends.
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('network connection lost');
+    });
+
+    await expect(reconcilePlatformZeroTrust(platform, env.db)).rejects.toThrow(TypeError);
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).not.toBeNull();
+  });
+
+  it('resumes an operation left by a cancelled request within five minutes', async () => {
+    const { platform, projects } = await protectedInstallation('steps-abandoned');
+    const saved = (await readZeroTrustConfigurationStrict(env.db))!;
+    // A request that claimed the operation and then stopped, so it never released it.
+    await env.db
+      .update(platformSettings)
+      .set({
+        value: {
+          ...saved,
+          revision: saved.revision + 1,
+          operation: {
+            id: 'abandoned-operation',
+            kind: 'reconcile',
+            phase: 'projects',
+            owner: 'cancelled-request',
+            leaseExpiresAt: leaseExpiresAt(),
+            startedAt: await operationStartedAt(env.db),
+            existingProjects: null,
+          },
+        },
+      })
+      .where(eq(platformSettings.key, 'zeroTrust.configuration'));
+    const clock = advancingClock();
+
+    clock.advance(5 * 60_000 - 1000);
+    expect(await resumePlatformZeroTrustOperation(platform, env.db)).toBe(false);
+    clock.advance(2000);
+    expect(await resumePlatformZeroTrustOperation(platform, env.db)).toBe(true);
+    expect(await readZeroTrustConfigurationStrict(env.db)).toMatchObject({
+      operation: null,
+      lastError: null,
+    });
+    for (const project of projects) {
+      expect(await getProjectZeroTrustState(env.db, project.id)).toMatchObject({
+        status: 'ready',
+        reconciled_operation: 'abandoned-operation',
+      });
+    }
+  });
 });

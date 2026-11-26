@@ -294,7 +294,7 @@ function workerPathRules(pattern: string): Array<string> | null {
  * redundant"), and the wider rule already sends those paths to the Worker.
  */
 function withoutRedundantRules(rules: Array<string>): Array<string> {
-  const prefixes = rules.filter((rule) => rule.endsWith('/*')).map((rule) => rule.slice(0, -1));
+  const prefixes = rules.flatMap((rule) => (rule.endsWith('/*') ? [rule.slice(0, -1)] : []));
   return rules.filter(
     (rule) => !prefixes.some((prefix) => rule !== prefix + '*' && rule.startsWith(prefix)),
   );

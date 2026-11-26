@@ -20,7 +20,7 @@ export function conventionFileGlobs(
 
 function isConventionPath(filePath: string): boolean {
   return filePath
-    .replace(/\\/g, '/')
+    .replaceAll('\\', '/')
     .split('/')
     .every(
       (segment, index) =>

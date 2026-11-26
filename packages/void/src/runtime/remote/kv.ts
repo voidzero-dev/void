@@ -69,7 +69,9 @@ export class ProxyKVNamespace {
       isBase64 = true;
     }
 
-    const body: Record<string, unknown> = {
+    const body: Record<'binding' | 'key', string> &
+      Record<'value', unknown> &
+      Partial<Record<'base64' | 'expiration' | 'expiration_ttl' | 'metadata', unknown>> = {
       binding: this.binding,
       key,
       value: serializedValue,
@@ -100,6 +102,6 @@ export class ProxyKVNamespace {
       limit: options?.limit,
       cursor: options?.cursor,
     });
-    return (await res.json()) as KVNamespaceListResult<M, string>;
+    return await res.json<KVNamespaceListResult<M, string>>();
   }
 }

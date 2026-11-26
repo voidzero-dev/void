@@ -22,7 +22,7 @@ async function setup(
     url?: string | URL | null,
   ) => {
     historyStub.state = next;
-    if (url != null) {
+    if (url !== null && url !== undefined) {
       const target = new URL(url, windowStub.location.origin);
       Object.assign(windowStub.location, {
         pathname: target.pathname,

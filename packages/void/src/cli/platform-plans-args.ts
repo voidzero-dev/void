@@ -1,4 +1,5 @@
 import { parsePlatformPlanId } from '@void/platform/plans';
+import { parsePlanSecurityCapInput } from '@void/platform/security-policy';
 import { parseConfigFlags } from './platform-config-args.ts';
 
 const PLATFORM_PLAN_ACTIONS = [
@@ -23,6 +24,8 @@ export type PlatformPlansArgs = Readonly<{
   name: string;
   copy: string;
   replacement: string;
+  /** `--security-cap`: a USD amount, `none` or `inherit`; `undefined` keeps the plan's cap. */
+  securityCap: number | 'none' | 'inherit' | undefined;
   json: boolean;
   plan: boolean;
   yes: boolean;
@@ -35,6 +38,7 @@ export function parsePlatformPlansArgs(args: ReadonlyArray<string>): PlatformPla
     'name',
     'copy',
     'replacement',
+    'security-cap',
   ]);
   const [action = '', target = '', ...extra] = positional;
   if (extra.length || (action && !PLATFORM_PLAN_ACTIONS.includes(action as PlatformPlanAction))) {
@@ -62,6 +66,7 @@ export function parsePlatformPlansArgs(args: ReadonlyArray<string>): PlatformPla
     ['name', ['add', 'set']],
     ['copy', ['add']],
     ['replacement', ['remove']],
+    ['security-cap', ['add', 'set']],
   ] as const) {
     if (values.has(name) && !(actions as ReadonlyArray<string>).includes(action)) {
       throw new Error(`platform: --${name} is only valid for ${actions.join(' or ')}.`);
@@ -77,8 +82,28 @@ export function parsePlatformPlansArgs(args: ReadonlyArray<string>): PlatformPla
     name: values.get('name') ?? '',
     copy: values.get('copy') ?? '',
     replacement: values.get('replacement') ?? '',
+    securityCap: parseSecurityCapFlag(values.get('security-cap')),
     json: flags.has('json'),
     plan: flags.has('plan'),
     yes: flags.has('yes'),
   };
+}
+
+/** `--security-cap 50`, `--security-cap 12.50`, `none` (no cap) or `inherit` (policy default). */
+function parseSecurityCapFlag(value: string | undefined): number | 'none' | 'inherit' | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === 'none' || value === 'inherit') {
+    return value;
+  }
+  const usd = value.trim() === '' ? Number.NaN : Number(value);
+  try {
+    parsePlanSecurityCapInput(usd);
+  } catch {
+    throw new Error(
+      'platform: --security-cap must be a USD amount with at most two decimals (for example 50 or 12.50), none, or inherit.',
+    );
+  }
+  return usd;
 }

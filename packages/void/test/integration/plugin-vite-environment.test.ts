@@ -13,16 +13,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getWorkerBundleDir } from '@cloudflare/build-output-utils';
+import type { PluginOption } from 'vite';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { pagesPlugin as reactPagesPlugin } from '../../../react/src/plugin-pages.ts';
 import { voidPlugin } from '../../src/index.ts';
 import { findVoidDependentPackages } from '../../src/installed-packages.ts';
-import { getHookHandler } from '../helpers/vite-hooks.ts';
+import { getHookHandler, loadVirtualModule } from '../helpers/vite-hooks.ts';
 
 const roots: Array<string> = [];
 
-function createProjectRoot(): string {
-  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-vite-env-')));
+function createProjectRoot(prefix = 'void-vite-env-'): string {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
   roots.push(root);
   writeFileSync(
     join(root, 'package.json'),
@@ -161,6 +163,122 @@ describe('voidPlugin Vite environments', () => {
     expect(config.environments.ssr.resolve.conditions).toContain('workerd');
   });
 
+  it('scans native route and Durable Object dependencies before starting the Worker', async () => {
+    vi.stubEnv('VOID_INSPECTOR_PORT', 'false');
+    const root = createProjectRoot('void-vite env (test)-');
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    rmSync(join(root, 'void.json'));
+    writeFileSync(join(root, 'void.config.ts'), "export default { sourceDir: 'src' };");
+    mkdirSync(join(root, 'src/routes'), { recursive: true });
+    mkdirSync(join(root, 'durable-objects'));
+    for (const dependency of ['route-dependency', 'durable-dependency', 'production-dependency']) {
+      const pkg = join(root, 'node_modules', dependency);
+      mkdirSync(pkg, { recursive: true });
+      writeFileSync(
+        join(pkg, 'package.json'),
+        JSON.stringify({ name: dependency, main: 'index.js' }),
+      );
+      writeFileSync(join(pkg, 'index.js'), 'module.exports = 42;');
+    }
+    writeFileSync(
+      join(root, 'src/routes/[id].ts'),
+      "import value from 'route-dependency'; export const GET = () => Response.json(value);",
+    );
+    writeFileSync(
+      join(root, 'src/routes/only.prod.ts'),
+      "import value from 'production-dependency'; export const GET = () => Response.json(value);",
+    );
+    const durableRuntime = join(import.meta.dirname, '../../src/runtime/durable/index.ts');
+    writeFileSync(
+      join(root, 'durable-objects/counter.ts'),
+      `import { defineDurableState } from ${JSON.stringify(normalizePath(durableRuntime))};
+import count from 'durable-dependency';
+export default defineDurableState({ initialState: { count }, methods: { get(c) { return c.state.count; } } });`,
+    );
+
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [voidPlugin()],
+      server: { middlewareMode: true, ws: false, watch: null, preTransformRequests: false },
+    });
+    try {
+      const optimizer = server.environments.void_worker.depsOptimizer;
+      expect(optimizer).toBeDefined();
+      await optimizer?.scanProcessing;
+      const scanned = {
+        ...optimizer?.metadata.optimized,
+        ...optimizer?.metadata.discovered,
+      };
+      expect(Object.keys(scanned)).toEqual(
+        expect.arrayContaining(['route-dependency', 'durable-dependency']),
+      );
+      expect(scanned).not.toHaveProperty('production-dependency');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('adds native routes, auth and dev page loaders to the React Worker optimizer', async () => {
+    const root = createProjectRoot();
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    mkdirSync(join(root, 'routes'));
+    mkdirSync(join(root, 'pages'));
+    writeFileSync(join(root, 'routes/api.ts'), 'export const GET = () => new Response();');
+    writeFileSync(
+      join(root, 'auth.ts'),
+      "import { defineAuth } from 'void/auth'; export default defineAuth({});",
+    );
+    writeFileSync(join(root, 'pages/index.tsx'), 'export default function Page() { return null; }');
+    writeFileSync(join(root, 'pages/index.server.ts'), 'export const loader = () => ({});');
+    writeFileSync(
+      join(root, 'pages/only.prod.tsx'),
+      'export default function Page() { return null; }',
+    );
+    writeFileSync(join(root, 'pages/only.prod.server.ts'), 'export const loader = () => ({});');
+    const config = await resolveConfig(
+      { root, configFile: false, plugins: [reactPagesPlugin(join(root, 'pages')), voidPlugin()] },
+      'serve',
+      'development',
+    );
+
+    expect(config.environments.void_worker.optimizeDeps.entries).toEqual(
+      expect.arrayContaining([
+        'pages/**/*.{js,jsx,ts,tsx}',
+        normalizePath(join(root, '.void/entry.ts')),
+        normalizePath(join(root, 'routes/api.ts')),
+        normalizePath(join(root, 'auth.ts')),
+        normalizePath(join(root, 'pages/index.server.ts')),
+      ]),
+    );
+    expect(config.environments.void_worker.optimizeDeps.entries).not.toContain(
+      normalizePath(join(root, 'pages/only.prod.server.ts')),
+    );
+  });
+
+  it('preserves an explicitly configured scalar Worker optimizer entry', async () => {
+    const root = createProjectRoot();
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    mkdirSync(join(root, 'routes'));
+    writeFileSync(join(root, 'routes/api.ts'), 'export const GET = () => new Response();');
+    const config = await resolveConfig(
+      {
+        root,
+        configFile: false,
+        plugins: [voidPlugin()],
+        environments: { void_worker: { optimizeDeps: { entries: 'custom.ts' } } },
+      },
+      'serve',
+      'development',
+    );
+
+    expect(config.environments.void_worker.optimizeDeps.entries).toContain('custom.ts');
+    expect(config.environments.void_worker.optimizeDeps.entries).not.toContain(
+      normalizePath(join(root, 'routes/api.ts')),
+    );
+  });
+
   it('prebundles void CommonJS dependencies only in the worker environment', async () => {
     const root = createProjectRoot();
     writeFileSync(
@@ -214,9 +332,11 @@ describe('voidPlugin Vite environments', () => {
         pathToFileURL(astroRequire.resolve('@astrojs/cloudflare')),
       )!;
       const { exports: pluginExports } = JSON.parse(readFileSync(pluginManifest, 'utf8'));
-      const { cloudflare: astroCloudflare } = await import(
+      const { cloudflare: astroCloudflare } = (await import(
         new URL(pluginExports['.'].import, pathToFileURL(pluginManifest)).href
-      );
+      )) as {
+        cloudflare(config: { configPath: string; viteEnvironment: { name: string } }): PluginOption;
+      };
       const adapter = astroCloudflare({
         configPath: join(root, '.void-wrangler.jsonc'),
         viteEnvironment: { name: 'ssr' },
@@ -278,9 +398,8 @@ describe('voidPlugin Vite environments', () => {
 
     const config = await resolveConfig({ root, plugins: [voidPlugin()] }, 'serve', 'development');
     const plugin = config.plugins.find((candidate) => candidate.name === 'void:drizzle');
-    const load = getHookHandler(plugin?.load) as (this: object, id: string) => string;
 
-    expect(load.call({}, '\0virtual:void-db')).toContain(
+    expect(loadVirtualModule(plugin?.load, '\0virtual:void-db')).toContain(
       'drizzle(connectionString, { schema, casing: "snake_case" })',
     );
   });
@@ -379,7 +498,12 @@ describe('voidPlugin Vite environments', () => {
   });
 
   /** An installed package with the given manifest and `index.js`. */
-  function installPackage(root: string, name: string, manifest: object, index: string): void {
+  function installPackage(
+    root: string,
+    name: string,
+    manifest: Record<string, unknown>,
+    index: string,
+  ): void {
     const dir = join(root, 'node_modules', name);
     mkdirSync(dir, { recursive: true });
     writeFileSync(
@@ -578,9 +702,9 @@ describe('voidPlugin Vite environments', () => {
     }
   });
 
-  it.each([
+  it.each<[string, { casing?: string }]>([
     ['bundles', { casing: 'snake_case' }],
-    ['leaves out', {} as { casing?: string }],
+    ['leaves out', {}],
   ])(
     '%s installed packages that depend on void in a SvelteKit D1 build with database %j',
     async (_, database) => {
@@ -610,7 +734,7 @@ describe('voidPlugin Vite environments', () => {
         'production',
       );
 
-      expect(config.environments.ssr!.resolve.noExternal).toEqual(
+      expect(config.environments.ssr.resolve.noExternal).toEqual(
         database.casing
           ? expect.arrayContaining(['db-lib'])
           : expect.not.arrayContaining(['db-lib']),
@@ -692,7 +816,7 @@ describe('voidPlugin Vite environments', () => {
       resolveToUnqualified(request: string, issuer: string) {
         expect(inRoot(issuer)).toBe(true);
         const [name] = request.split('/package.json');
-        if (!existsSync(join(store, name!))) {
+        if (!existsSync(join(store, name))) {
           throw new Error(`${name} is not a dependency of ${issuer}`);
         }
         return join(store, request);
@@ -1093,7 +1217,7 @@ describe('voidPlugin Vite environments', () => {
         'production',
       );
 
-      expect(config.environments.ssr!.resolve.noExternal).toEqual(
+      expect(config.environments.ssr.resolve.noExternal).toEqual(
         expect.arrayContaining(['void', /^@void\//, 'kv-lib']),
       );
     });
@@ -1151,7 +1275,7 @@ describe('voidPlugin Vite environments', () => {
         server: { middlewareMode: true, ws: false, preTransformRequests: false },
       });
       try {
-        const resolved = await server.environments[environment]!.pluginContainer.resolveId(
+        const resolved = await server.environments[environment].pluginContainer.resolveId(
           'void',
           join(root, 'src/hooks.server.ts'),
         );
@@ -1194,13 +1318,13 @@ describe('deploy-build preview', () => {
       vi.stubEnv('VOID_CLOUDFLARE_DEPLOY_BUILD', '1');
       const once = vi.spyOn(process, 'once').mockReturnValue(process);
       const argv = process.argv;
-      process.argv = [argv[0]!, command, command === 'astro' ? 'preview' : 'build'];
+      process.argv = [argv[0], command, command === 'astro' ? 'preview' : 'build'];
       try {
         const guard = voidPlugin().find(
           (plugin) => plugin.name === 'void:remove-implicit-cloudflare-deploy-pointer',
         )!;
         const configure = getHookHandler(guard.config) as (
-          config: object,
+          config: import('vite').UserConfig,
           env: { command: string; mode: string; isPreview: boolean },
         ) => void;
         configure({}, { command: 'serve', mode: 'production', isPreview: true });
@@ -1241,7 +1365,7 @@ describe('Astro preview', () => {
       // Run the process exit cleanup below, before the temp root is removed.
       const once = vi.spyOn(process, 'once').mockReturnValue(process);
       const argv = process.argv;
-      process.argv = [argv[0]!, 'astro.mjs', command];
+      process.argv = [argv[0], 'astro.mjs', command];
       try {
         voidPlugin();
       } finally {
@@ -1355,7 +1479,7 @@ describe('Astro server entry', () => {
       try {
         const middleware = readFileSync(join(root, 'src/middleware.ts'), 'utf8');
         expect(middleware.includes('Auto-generated by Void in dev')).toBe(!appMiddleware);
-        const container = server.environments.ssr!.pluginContainer;
+        const container = server.environments.ssr.pluginContainer;
         const wrapped = database !== undefined || appMiddleware;
         expect((await container.resolveId(entry))?.id === scopedEntry).toBe(wrapped);
         if (wrapped) {
@@ -1376,7 +1500,7 @@ describe('Astro server entry', () => {
       const root = createAstroRoot(database);
       const server = await startDevServer(root);
       try {
-        const container = server.environments.ssr!.pluginContainer;
+        const container = server.environments.ssr.pluginContainer;
         const wrapper = await importWrapper(
           root,
           loadedCode(await container.load(scopedEntry)),
@@ -1421,7 +1545,7 @@ export default {
       const server = await startDevServer(root);
       let code: string;
       try {
-        code = loadedCode(await server.environments.ssr!.pluginContainer.load(scopedEntry));
+        code = loadedCode(await server.environments.ssr.pluginContainer.load(scopedEntry));
       } finally {
         await server.close();
       }

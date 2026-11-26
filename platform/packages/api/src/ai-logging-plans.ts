@@ -1,32 +1,20 @@
 import type { BuiltinPlanId, PlatformPlanCatalog } from '@void/platform/plans';
-import {
-  and,
-  asc,
-  count,
-  eq,
-  gt,
-  inArray,
-  isNull,
-  notInArray,
-  or,
-  sql,
-  type SQL,
-} from 'drizzle-orm';
-import {
-  PLAN_AI_LOGGING_SETTING,
-  planAiLogging,
-  type AiLoggingMode,
-  type PlanAiLoggingPublish,
-  type PlanAiLoggingSettings,
-  type PublishedAiLoggingMode,
+import { and, asc, count, eq, gt, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import { PLAN_AI_LOGGING_SETTING, planAiLogging } from './ai-logging-policy.ts';
+import type {
+  AiLoggingMode,
+  PlanAiLoggingPublish,
+  PlanAiLoggingSettings,
+  PublishedAiLoggingMode,
 } from './ai-logging-policy.ts';
 import {
   AI_LOGGING_SETTLE_MS,
   publishProjectAiLogging,
   savedPlanAiLogging,
   userAiLoggingPublishKey as userPublishKey,
-  type AiLoggingTrigger,
 } from './ai-logging.ts';
+import type { AiLoggingTrigger } from './ai-logging.ts';
 import type { Db, DbOrTx } from './db.ts';
 import {
   lockPlanCatalog,
@@ -91,6 +79,8 @@ function modeFor(
   return planAiLogging({ modes, publish: null }, catalog, planId).planMode;
 }
 
+type PlanAiLoggingChanges = Readonly<{ planIds: Array<string>; includeUnknown: boolean }>;
+
 /**
  * Which accounts a plan change moves to a different plan default. `movedFrom` is a
  * removed plan whose accounts now sit on `movedTo`.
@@ -103,7 +93,7 @@ export function planAiLoggingChanges(
     modesAfter: PlanAiLoggingSettings['modes'];
     moved?: Readonly<{ from: string; to: string }>;
   }>,
-): Readonly<{ planIds: Array<string>; includeUnknown: boolean }> {
+): PlanAiLoggingChanges {
   const { before, after, modesBefore, modesAfter } = input;
   const planIds = after.plans
     .map((plan) => plan.id)
@@ -112,7 +102,7 @@ export function planAiLoggingChanges(
       const previous = modeFor(modesBefore, before, id);
       const next = modeFor(modesAfter, after, id);
       return (
-        previous !== next || (moved && modeFor(modesBefore, before, input.moved!.from) !== next)
+        previous !== next || (moved && modeFor(modesBefore, before, input.moved.from) !== next)
       );
     });
   return {
@@ -408,12 +398,16 @@ export async function publishProjectsAiLogging(
 }
 
 function accountCandidates(userId: string, cursor: string | null): SQL {
-  return and(
+  const predicate = and(
     eq(projects.user_id, userId),
     eq(projects.status, 'active'),
     isNull(projectAiLogging.project_id),
     cursor ? gt(projects.id, cursor) : undefined,
-  )!;
+  );
+  if (!predicate) {
+    throw new Error('AI logging publish requires an account filter.');
+  }
+  return predicate;
 }
 
 /**
@@ -555,6 +549,7 @@ export async function runUserAiLoggingPublishPage(
     return { cursor };
   });
   if (failure !== undefined) {
+    // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured failure after recording the reconciliation state.
     throw failure;
   }
   const expectedBy = lastAt === null ? null : new Date(lastAt + AI_LOGGING_SETTLE_MS).toISOString();
@@ -571,5 +566,5 @@ export async function runUserAiLoggingPublishPage(
 
 /** A plan's saved default for display; `inherit` when it has none. */
 export function planAiLoggingMode(settings: PlanAiLoggingSettings, planId: string): AiLoggingMode {
-  return Object.hasOwn(settings.modes, planId) ? settings.modes[planId]! : 'inherit';
+  return Object.hasOwn(settings.modes, planId) ? settings.modes[planId] : 'inherit';
 }

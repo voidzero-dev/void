@@ -6,7 +6,7 @@ export {
   readEmailEnvelope,
 } from '@void/platform/email-protocol';
 
-const RECEIPT_VERIFICATION_DEADLINE_MS = 5_000;
+const RECEIPT_VERIFICATION_DEADLINE_MS = 5000;
 const MAX_RECEIPT_VERIFICATION_BYTES = 2 * 1024;
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
@@ -66,7 +66,7 @@ export async function readBoundedJson(
     void response.body?.cancel().catch(() => {});
     throw new Error('email response refused before reading');
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     throw new Error('email response is empty');
   }

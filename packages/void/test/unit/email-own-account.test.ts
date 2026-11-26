@@ -328,7 +328,7 @@ function buildHandleEmail(
   expect(start).toBeGreaterThan(-1);
   const end = code.indexOf('\n}\n', start);
   const body = code.slice(start, end + 3);
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     '__filterInternalBindings',
     '__createMessageProxy',

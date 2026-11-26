@@ -12,6 +12,7 @@ Show deployments for the configured target.
 - Void targets show recent hosted deployments; `[name]` looks up a project by slug and otherwise the linked project is used.
 - Cloudflare targets list Worker Versions, identify the active version, and show the recorded migration count. A project name is not accepted because the Worker name comes from `cloudflare.name` in `void.config.ts`.
 - Owners and admins also see a warning when the platform cannot finish [replacing the project's credentials](../../guide/project-collaboration.md#change-or-remove-access).
+- On a platform with [security audits](../../guide/platform/administration/security-audits.md), a `Security` line shows how many urgent findings are open, for example `Security  2 urgent open · 3 leads`. It is left out when scans are off.
 
 ## `void project link [name]` {#void-project-link-name}
 
@@ -59,6 +60,7 @@ Inspect or override protection for a project on a Void platform:
 void project zero-trust status [--project <slug>]
 void project zero-trust protect [--project <slug>]
 void project zero-trust public [--project <slug>]
+void project zero-trust bypass --reason "<text>" [--yes] [--project <slug>]
 void project zero-trust reconcile [--project <slug>]
 ```
 
@@ -71,6 +73,61 @@ platform default for future projects. Deploys and rollbacks wait until a
 protection change is finished; if one is refused, the owner or a project
 administrator can run `void project zero-trust reconcile` before you retry.
 These commands do not apply to direct Cloudflare deployments.
+
+When the platform scans before a project goes public, `public` does not make the
+project public at once. The project stays protected, and the command prints why
+and what to do next. It exits successfully, because the request was saved.
+`status` shows the open request and the last bypass:
+
+```text
+Public request: Waiting for a security scan of dpl_a3f0 before acme-web goes public. It stays protected by Zero Trust until the scan passes.
+Last bypass: Nov 17, by a project admin ("Launch today; scanner is down.")
+```
+
+A request waits for a scan, is held by urgent findings (resolve them, there is no bypass), has no usable scan result, or needs a new deploy. Running `public` again asks for a new scan. `protect` cancels the request and keeps the project protected. With `--json`, a held request prints the saved state with `"held": true`.
+
+`bypass` skips the scan and makes the project public. The owner or a project administrator can run it (platform administrators use `void platform security bypass`) while the request is waiting, has no result, or needs a deploy. It needs a `--reason` of up to 4,000 characters and asks for confirmation unless you pass `--yes`; `--json` and non-interactive shells require `--yes`. Every bypass is recorded and emailed to the platform administrators. A bypass never skips an open urgent finding: it is refused, and the message lists the findings to resolve first. With `--json`, a refusal prints the platform error code, such as `security public request has urgent findings` with the findings under `blockers`, or `public request closed` when someone protected the project or the request finished first. See [Scan before a project goes public](../../guide/platform/administration/security-audits.md#scan-before-public).
+
+## `void project security` {#void-project-security}
+
+Review security audit findings for a project on a Void platform that has security audits turned on:
+
+```sh
+void project security status
+void project security list [--urgent] [--state open|resolved|all] [--severity <level>] [--leads] [--format sarif]
+void project security show <F-id>
+void project security comment <F-id> "<text>"
+void project security resolve <F-id>... --reason fixed|false-positive|accepted-risk --comment "<text>"
+void project security reopen <F-id> --comment "<text>"
+void project security severity <F-id> <critical|high|medium|low|informational|scan> --comment "<text>"
+void project security scans [--limit <n>]
+void project security scan [--client-assets] [--yes]
+void project security check [<check-id>] [--yes] [--no-wait]
+void project security model [<id> | --default] [--accept-provider-notice]
+void project security budget [--usd <amount> | --off]
+void project security open
+```
+
+Every command takes `--project <slug>` (then `VOID_PROJECT`, then the linked project) and `--json`.
+
+| Command                                                                | Who can run it                                                        |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `status`, `list`, `open`                                               | Any project member. Readers see finding ids, severity and state only. |
+| `show`                                                                 | Any project member. Collaborators and up see title, file and details. |
+| `comment`                                                              | Collaborators, admins and the owner.                                  |
+| `resolve`, `reopen`, `severity`, `scan`, `model` (set), `budget` (set) | Project admins and the owner.                                         |
+| `scans`, `check`, `budget` (show)                                      | Collaborators, admins and the owner.                                  |
+
+- `resolve` needs `--reason` and a `--comment` of up to 4,000 characters. Pass several ids to resolve them together.
+- `severity` changes the severity of an open, confirmed finding and needs a `--comment` of up to 4,000 characters. Your value is what everyone sees from then on: later scans do not change it, and if you then resolve it as false-positive or accepted-risk, a scan reporting a higher severity does not reopen it (a change to its file still does). Lowering a critical or high finding to medium or below takes it out of the urgent count, as a resolve does, so it no longer holds a public request. `scan` goes back to the severity the scans report. Leads have no severity; resolved findings must be reopened first.
+- `list` hides leads unless you pass `--leads`. `--format sarif` prints the list as a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) file for code scanning tools, such as GitHub code scanning: `void project security list --format sarif > void-security.sarif`. Resolved findings in it are marked as suppressed. Notes go to stderr.
+- `model` with a third-party model prints the provider notice. Repeat the command with `--accept-provider-notice` to accept it.
+- `budget --usd` cannot exceed the platform limit. `--off` clears this project's own cap.
+- `scan` runs a full scan of the live deployment. It names the model and the most the scan can cost, then asks first; `--json` and non-interactive shells need `--yes`. Monthly caps apply. `--client-assets` also reviews the sources of your client bundles, read from the source maps deployed with them (`app.js.map` next to `app.js`, or the bundle's `sourceMappingURL`). Without deployed source maps it reviews the bundles only. It sends more code, so it can cost more.
+- `check` scans the code in the current folder before you deploy it. It sends only git-tracked files, as they are on disk now (uncommitted edits included); untracked files, secret-like files (`.env*`, keys, `.npmrc`), lockfiles, binaries and media stay on your machine. It lists what it sends, names the model (with the provider notice for a third-party model) and the most it can cost, then asks first; `--json` and non-interactive shells need `--yes`. Up to 10,000 files and 32 MB of code; run it from the app's folder in a large repository. It waits in the scan queue like any scan, monthly caps apply, and the command waits for the result unless you pass `--no-wait`. The result lists what it found but is not saved as project findings: it does not change the findings list, emails, or a public request. The platform keeps it for 30 days; show it again with `void project security check <check-id>`. The command fails when the check ends without a result, for example when the model refuses it.
+- `open` prints a page link that works for 15 minutes and opens it in a browser when run in a terminal. On the page, members can do what the commands above allow their role: comment, resolve, pick the model, set the budget, and bypass a held public request.
+
+On a platform without security audits, these commands tell you to ask the administrator to upgrade. They do not apply to direct Cloudflare deployments.
 
 ## `void project token <create|list|renew|revoke>` {#void-project-token-create-list-renew-revoke}
 

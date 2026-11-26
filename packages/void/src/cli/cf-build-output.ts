@@ -25,7 +25,8 @@ import {
   writeRootConfig,
   writeWorkerConfig,
 } from '@cloudflare/build-output-utils';
-import { type ModuleType, BuildOutputContainerConfigSchema } from '@cloudflare/config';
+import { BuildOutputContainerConfigSchema } from '@cloudflare/config';
+import type { ModuleType } from '@cloudflare/config';
 import ignore from 'ignore';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
 import type { Plugin } from 'vite';
@@ -41,28 +42,28 @@ export interface CfBuildOutput {
     versionId: string;
     bindings: ReadonlyArray<{ name: string; type: 'secret_text' | 'secret_key' }>;
   };
-  dispose(): Promise<void>;
+  dispose(this: void): Promise<void>;
 }
 
 // Match the additional modules emitted by the Cloudflare Vite plugin. A complete
 // manifest keeps cf from treating text, binary, and Wasm imports as JavaScript.
-const moduleTypes: Record<string, ModuleType> = {
-  '.js': 'esm',
-  '.mjs': 'esm',
-  '.cjs': 'cjs',
-  '.wasm': 'wasm',
-  '.bin': 'data',
-  '.woff': 'data',
-  '.woff2': 'data',
-  '.ttf': 'data',
-  '.otf': 'data',
-  '.eot': 'data',
-  '.txt': 'text',
-  '.html': 'text',
-  '.sql': 'text',
-  '.json': 'json',
-  '.map': 'sourcemap',
-};
+const moduleTypes = new Map<string, ModuleType>([
+  ['.js', 'esm'],
+  ['.mjs', 'esm'],
+  ['.cjs', 'cjs'],
+  ['.wasm', 'wasm'],
+  ['.bin', 'data'],
+  ['.woff', 'data'],
+  ['.woff2', 'data'],
+  ['.ttf', 'data'],
+  ['.otf', 'data'],
+  ['.eot', 'data'],
+  ['.txt', 'text'],
+  ['.html', 'text'],
+  ['.sql', 'text'],
+  ['.json', 'json'],
+  ['.map', 'sourcemap'],
+]);
 
 /** Whether `path` resolves strictly inside `directory`. */
 function isInside(directory: string, path: string): boolean {
@@ -83,7 +84,7 @@ function assertAssetSymlinksInside(directory: string): void {
   }
 }
 
-function copyBundle(source: string, destination: string): Record<string, { type: ModuleType }> {
+function copyBundle(source: string, destination: string) {
   const modules: Record<string, { type: ModuleType }> = {};
   for (const entry of readdirSync(source, { recursive: true, withFileTypes: true })) {
     if (!entry.isFile() && !entry.isSymbolicLink()) {
@@ -106,7 +107,7 @@ function copyBundle(source: string, destination: string): Record<string, { type:
     ) {
       continue;
     }
-    const type = moduleTypes[extname(entry.name).toLowerCase()];
+    const type = moduleTypes.get(extname(entry.name).toLowerCase());
     if (!type) {
       throw new Error(
         `The built Worker contains an unsupported module ${JSON.stringify(name)}. Emit public assets into the client output or configure the plugin that produced this file to run only in the client environment.`,
@@ -295,9 +296,11 @@ export async function prepareCfBuildOutput(
       manifest: { type: 'complete', mainModule: main, modules },
     });
     for (const container of config.containers ?? []) {
-      const builtContainer: Record<string, unknown> = { ...container };
+      let preparedImages:
+        | Record<string, { localReference: string } | { reference: string }>
+        | undefined;
       if ('images' in container && container.images) {
-        const prepared: Record<string, unknown> = {};
+        preparedImages = {};
         for (const [name, image] of Object.entries(container.images)) {
           if ('dockerfile' in image) {
             const built = await buildContainerImage(
@@ -305,16 +308,18 @@ export async function prepareCfBuildOutput(
               image.buildContext ? resolve(source, image.buildContext) : undefined,
             );
             images.push(built);
-            prepared[name] = { localReference: built.localReference };
+            preparedImages[name] = { localReference: built.localReference };
           } else {
-            prepared[name] = image;
+            preparedImages[name] = image;
           }
         }
-        builtContainer.images = prepared;
       }
       await writeContainerConfig({
         root: directory,
-        config: BuildOutputContainerConfigSchema.parse(builtContainer),
+        config: BuildOutputContainerConfigSchema.parse({
+          ...container,
+          ...(preparedImages ? { images: preparedImages } : {}),
+        }),
         directoryName: normalizeDirectoryName(container.name),
       });
     }
@@ -560,7 +565,7 @@ async function prepareBundledBuildOutput(options: {
   const scratch = mkdtempSync(join(tmpdir(), options.scratchPrefix));
   try {
     const { build } = await import('vite');
-    await build({
+    const result = await build({
       configFile: false,
       root: options.projectRoot,
       publicDir: false,
@@ -581,9 +586,16 @@ async function prepareBundledBuildOutput(options: {
         target: 'es2022',
       },
     });
+    // Library mode returns one bundle per format; we only build ES modules.
+    const entry =
+      Array.isArray(result) &&
+      result[0]?.output.find((file) => file.type === 'chunk' && file.isEntry);
+    if (!entry) {
+      throw new Error('Vite did not emit a Worker entry chunk.');
+    }
     writeFileSync(
       join(scratch, 'wrangler.json'),
-      JSON.stringify({ ...options.config, main: 'index.js', assets: options.assets }),
+      JSON.stringify({ ...options.config, main: entry.fileName, assets: options.assets }),
       { mode: 0o600 },
     );
     return await prepareCfBuildOutput(scratch, options.accountId, undefined, options.projectRoot);

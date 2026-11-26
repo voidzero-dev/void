@@ -10,7 +10,7 @@ type InputOf<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteMap[P][M] 
   input: infer I;
 }
   ? I
-  : {};
+  : Record<never, never>;
 
 type StreamOptions<P extends keyof RouteMap, M extends MethodsOf<P>> = BodyOption<InputOf<P, M>> &
   QueryOption<InputOf<P, M>> &
@@ -48,7 +48,7 @@ export async function* fetchStream<
 
   const response = await ofetch
     .raw(url, {
-      method: (options?.method ?? 'POST') as string,
+      method: options?.method ?? 'POST',
       body: options?.body as never,
       query: options?.query as never,
       headers: options?.headers,
@@ -81,7 +81,7 @@ export async function* fetchStream<
     let message = 'Generation was interrupted.';
     let limit = null;
     try {
-      const body = JSON.parse(data);
+      const body = JSON.parse(data) as { message?: unknown; error?: unknown };
       if (event === 'void:limit') {
         limit = asUsageLimit(body);
       }
@@ -104,7 +104,7 @@ export async function* fetchStream<
       buffer += decoder.decode(value, { stream: true });
 
       const lines = buffer.split('\n');
-      buffer = lines.pop()!; // Keep incomplete last line
+      buffer = lines.pop() ?? ''; // Keep incomplete last line
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -152,12 +152,9 @@ export async function* fetchStream<
 /** Workers AI frames carry text in `response`; other JSON with that key (e.g. usage metadata) is skipped. */
 function chunkText(data: string): string | undefined {
   try {
-    const parsed = JSON.parse(data);
-    if (typeof parsed.response === 'string') {
-      return parsed.response;
-    }
-    if ('response' in parsed) {
-      return undefined;
+    const parsed: unknown = JSON.parse(data);
+    if (parsed && typeof parsed === 'object' && 'response' in parsed) {
+      return typeof parsed.response === 'string' ? parsed.response : undefined;
     }
   } catch {
     // Not JSON: plain text frame.

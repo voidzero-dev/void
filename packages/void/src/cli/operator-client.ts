@@ -6,6 +6,13 @@ export const OPERATOR_READ_TIMEOUT_MS: number = 30_000;
 export const OPERATOR_MUTATION_TIMEOUT_MS: number = 5 * 60_000;
 export const OPERATOR_MAX_TIMEOUT_MS: number = 60 * 60_000;
 
+type OperatorErrorPayload = {
+  error: string;
+  message: string;
+  status?: number;
+  details?: unknown;
+};
+
 export class OperatorClientError extends Error {
   constructor(
     message: string,
@@ -16,7 +23,7 @@ export class OperatorClientError extends Error {
     super(message);
     this.name = 'OperatorClientError';
   }
-  toJSON(): Record<string, unknown> {
+  toJSON(): OperatorErrorPayload {
     return {
       error: this.code,
       message: this.message,
@@ -43,6 +50,8 @@ export class OperatorClient {
       body?: Record<string, unknown>;
       signal?: AbortSignal;
       timeoutMs?: number;
+      /** Replaces the generic note when a mutation times out or loses its connection. */
+      unknownOutcome?: string;
     } = {},
   ): Promise<Record<string, unknown>> {
     if (
@@ -58,11 +67,11 @@ export class OperatorClient {
       (options.method === 'POST' ? OPERATOR_MUTATION_TIMEOUT_MS : OPERATOR_READ_TIMEOUT_MS);
     if (
       !Number.isSafeInteger(timeoutMs) ||
-      timeoutMs < 1_000 ||
+      timeoutMs < 1000 ||
       timeoutMs > OPERATOR_MAX_TIMEOUT_MS
     ) {
       throw new OperatorClientError(
-        `Operator request timeout must be an integer from 1 to ${OPERATOR_MAX_TIMEOUT_MS / 1_000} seconds.`,
+        `Operator request timeout must be an integer from 1 to ${OPERATOR_MAX_TIMEOUT_MS / 1000} seconds.`,
         'invalid_timeout',
       );
     }
@@ -96,14 +105,19 @@ export class OperatorClient {
         if (options.signal?.aborted) {
           throw error;
         }
+        const next =
+          options.method === 'POST'
+            ? (options.unknownOutcome ??
+              'Its outcome may be unknown; inspect platform state before retrying.')
+            : 'Check connectivity and try again.';
         if (timeoutController.signal.aborted) {
           throw new OperatorClientError(
-            `Operator request exceeded the ${timeoutMs / 1_000}-second timeout. ${options.method === 'POST' ? 'Its outcome may be unknown; inspect platform state before retrying.' : 'Check connectivity and try again.'}`,
+            `Operator request exceeded the ${timeoutMs / 1000}-second timeout. ${next}`,
             'request_timeout',
           );
         }
         throw new OperatorClientError(
-          `Operator request to ${this.origin} failed. ${options.method === 'POST' ? 'Its outcome may be unknown; inspect platform state before retrying.' : 'Check connectivity and try again.'}`,
+          `Operator request to ${this.origin} failed. ${next}`,
           'connection_failed',
         );
       }

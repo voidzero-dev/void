@@ -18,16 +18,13 @@ app.use('*', async (context, next) => {
   await next();
 });
 app.post('/', async (context) => {
-  let body: { domain?: unknown; projectId?: unknown };
+  let body: Record<string, unknown>;
   try {
-    body = (await readBoundedInternalJson(context.req.raw, 4096)) as typeof body;
+    body = await readBoundedInternalJson(context.req.raw, 4096);
   } catch (error) {
     return error instanceof EmailInternalBodyError
       ? context.json({ error: error.message }, error.status)
       : context.json({ error: 'invalid body' }, 400);
-  }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return context.json({ error: 'invalid body' }, 400);
   }
   const domain = body.domain,
     projectId = body.projectId;

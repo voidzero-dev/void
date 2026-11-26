@@ -46,7 +46,7 @@ export async function cancelContainerBuildDos(
     }
     try {
       const ns = buildManagerNamespace(env, build.instance_type);
-      const stub = ns.get(ns.idFromName(build.id)) as unknown as DurableObjectStub<BuildManager>;
+      const stub = ns.get(ns.idFromName(build.id)) as DurableObjectStub<BuildManager>;
       await stub.cancelBuild(reason);
     } catch (err) {
       console.warn(`[github] best-effort cancel of build ${build.id} failed:`, err);

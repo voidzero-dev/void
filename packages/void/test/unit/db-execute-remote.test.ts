@@ -1,15 +1,25 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { CustomTypesConfig } from 'pg';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
+import { mySqlJsonTypeCast } from '../../src/cli/db-execute-results.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const mockReadDeploymentPlatform = vi.fn(() => 'void');
-const mockExecuteD1 = vi.fn();
-const mockImportD1 = vi.fn();
+const mockExecuteD1 =
+  vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').executeCloudflareD1Sql>();
+const mockImportD1 =
+  vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').importCloudflareD1Sql>();
+const mockExecuteD1Statements =
+  vi.fn<typeof import('../../src/cli/cloudflare-operations.ts').executeCloudflareD1Statements>();
 const mockD1Context = { binding: 'DB' };
 vi.mock('../../src/cli/cloudflare-operations.ts', () => ({
-  executeCloudflareD1Sql: (...args: Array<unknown>) => mockExecuteD1(...args),
-  importCloudflareD1Sql: (...args: Array<unknown>) => mockImportD1(...args),
+  executeCloudflareD1Sql: (...args: Parameters<typeof mockExecuteD1>) => mockExecuteD1(...args),
+  executeCloudflareD1Statements: (...args: Parameters<typeof mockExecuteD1Statements>) =>
+    mockExecuteD1Statements(...args),
+  importCloudflareD1Sql: (...args: Parameters<typeof mockImportD1>) => mockImportD1(...args),
   resolveCloudflareD1Context: () => mockD1Context,
 }));
 
@@ -21,7 +31,8 @@ const mockGetResources = vi.fn<() => Promise<Array<{ type: string; binding_name:
   Promise.resolve([]),
 );
 const mockGetDatabaseUrl = vi.fn<() => Promise<{ url: string }>>();
-const mockEnsurePlatformAccessToken = vi.fn();
+const mockEnsurePlatformAccessToken =
+  vi.fn<typeof import('../../src/cli/cf-access.ts').ensurePlatformAccessToken>();
 
 vi.mock('../../src/cli/auth', () => ({
   getProxyUrl: () => mockGetProxyUrl(),
@@ -57,7 +68,8 @@ vi.mock('../../src/cli/client', () => ({
 vi.mock('../../src/cli/cf-access', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/cli/cf-access.ts')>()),
   ensurePlatformProxyAccess: vi.fn(),
-  ensurePlatformAccessToken: (...args: Array<unknown>) => mockEnsurePlatformAccessToken(...args),
+  ensurePlatformAccessToken: (...args: Parameters<typeof mockEnsurePlatformAccessToken>) =>
+    mockEnsurePlatformAccessToken(...args),
 }));
 
 const mockPgConnect = vi.fn<() => Promise<void>>(() => Promise.resolve());
@@ -66,15 +78,34 @@ const mockPgQuery = vi.fn<() => Promise<{ rows: Array<Record<string, unknown>> }
   Promise.resolve({ rows: [] }),
 );
 
-vi.mock('pg', () => ({
+const mockPgClient = vi.fn((_options: Record<string, unknown>) => undefined);
+
+vi.mock('pg', async (importOriginal) => ({
+  types: (await importOriginal<typeof import('pg')>()).types,
   Client: class {
+    constructor(options: Record<string, unknown>) {
+      mockPgClient(options);
+    }
     connect = mockPgConnect;
     end = mockPgEnd;
     query = mockPgQuery;
   },
 }));
 
-const fetchMock = vi.fn();
+const mockMySqlQuery = vi.fn<(sql: string) => Promise<[unknown, unknown]>>(() =>
+  Promise.resolve([[], []]),
+);
+const mockMySqlCreateConnection = vi.fn((_options: Record<string, unknown>) => ({
+  query: mockMySqlQuery,
+  end: () => Promise.resolve(),
+}));
+
+vi.mock('mysql2/promise', () => ({
+  createConnection: (options: Record<string, unknown>) =>
+    Promise.resolve(mockMySqlCreateConnection(options)),
+}));
+
+const fetchMock = vi.fn<typeof fetch>();
 let originalFetch: typeof globalThis.fetch | undefined;
 
 const mockConfirm = vi.fn<(opts: { message: string }) => Promise<boolean | symbol>>();
@@ -96,11 +127,15 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
 
 const roots: Array<string> = [];
 
-function createProjectRoot(options: { database?: 'pg'; d1Binding?: string } = {}): string {
+function createProjectRoot(
+  options: { database?: 'pg' | 'mysql'; d1Binding?: string } = {},
+): string {
   const root = mkdtempSync(join(tmpdir(), 'void-db-execute-remote-'));
   roots.push(root);
 
-  const voidConfig: Record<string, unknown> = options.database === 'pg' ? { database: 'pg' } : {};
+  const voidConfig: Record<string, unknown> = options.database
+    ? { database: options.database }
+    : {};
   if (options.d1Binding) {
     voidConfig.inference = { bindings: { db: options.d1Binding } };
   }
@@ -116,6 +151,15 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+let stdoutWrite: MockInstance<typeof process.stdout.write>;
+
+/** The results `void db execute --json` wrote to stdout, in one write and nothing else. */
+function stdoutJson(): unknown {
+  const writes = stdoutWrite.mock.calls;
+  expect(writes).toHaveLength(1);
+  return JSON.parse(String(writes[0][0]));
+}
+
 describe('void db execute --remote (D1)', () => {
   let runDbCommand: typeof import('../../src/cli/db.ts').runDbCommand;
 
@@ -123,7 +167,7 @@ describe('void db execute --remote (D1)', () => {
     vi.clearAllMocks();
     mockReadDeploymentPlatform.mockReturnValue('void');
     originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = fetchMock;
 
     mockGetToken.mockReturnValue('test-token');
     mockReadProjectConfig.mockReturnValue({ projectId: 'proj-abc', slug: 'test-proj' });
@@ -279,7 +323,7 @@ describe('void db execute --remote (D1)', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       'https://void-company-proxy.example.workers.dev/d1/query',
     );
-    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers['CF-Access-Client-Id']).toBe('proxy-id');
     expect(headers['CF-Access-Client-Secret']).toBe('proxy-secret');
     expect(headers['CF-Access-Client-Id']).not.toBe('api-id');
@@ -321,11 +365,11 @@ describe('void db execute --remote (D1)', () => {
       false,
       'stale-user-token',
     );
-    const firstHeaders = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<
+    const firstHeaders = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<
       string,
       string
     >;
-    const secondHeaders = (fetchMock.mock.calls[1]![1] as RequestInit).headers as Record<
+    const secondHeaders = (fetchMock.mock.calls[1][1] as RequestInit).headers as Record<
       string,
       string
     >;
@@ -436,7 +480,7 @@ describe('void db execute --remote (D1)', () => {
     const consoleSpy = vi.spyOn(console, 'log');
     await runDbCommand(root, { action: 'execute', command: 'SELECT * FROM users', remote: true });
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
+    const output = consoleSpy.mock.calls.map(([line]) => String(line ?? '')).join('\n');
     expect(output).toContain('id');
     expect(output).toContain('name');
     expect(output).toContain('Alice');
@@ -494,7 +538,7 @@ describe('void db execute --remote (D1)', () => {
     await runDbCommand(root, { action: 'execute', command: 'DELETE FROM users', remote: true });
 
     expect(mockConfirm).toHaveBeenCalledTimes(1);
-    const confirmCall = mockConfirm.mock.calls[0][0] as { message: string };
+    const confirmCall = mockConfirm.mock.calls[0][0];
     expect(confirmCall.message).toContain('deployed database');
   });
 
@@ -575,6 +619,131 @@ describe('void db execute --remote (D1)', () => {
     expect(mockImportD1).toHaveBeenCalledWith(mockD1Context, sql);
   });
 
+  describe('--json', () => {
+    beforeEach(() => {
+      stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    });
+    const jsonOutput = stdoutJson;
+
+    it('prints each direct D1 statement result as JSON without the success line', async () => {
+      mockReadDeploymentPlatform.mockReturnValue('cloudflare');
+      const results = [
+        { results: [{ a: 1 }], success: true, meta: { changes: 0 } },
+        { results: [{ b: 'x' }], success: true, meta: { changes: 0 } },
+      ];
+      mockExecuteD1Statements.mockResolvedValue(results);
+      const sql = 'select 1 as a; select 2 as b';
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: sql,
+        remote: true,
+        json: true,
+      });
+
+      expect(mockExecuteD1Statements).toHaveBeenCalledWith(mockD1Context, sql);
+      expect(mockExecuteD1).not.toHaveBeenCalled();
+      expect(jsonOutput()).toEqual(results);
+      const { outro } = await import('@voidzero-dev/vite-plus-prompts');
+      expect(outro).not.toHaveBeenCalled();
+    });
+
+    it('asks on stderr before a destructive direct D1 statement in a TTY', async () => {
+      mockReadDeploymentPlatform.mockReturnValue('cloudflare');
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+      mockExecuteD1Statements.mockResolvedValue([{ results: [], success: true, meta: {} }]);
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: 'DELETE FROM users',
+        remote: true,
+        json: true,
+      });
+
+      expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ output: process.stderr }));
+      expect(jsonOutput()).toEqual([{ results: [], success: true, meta: {} }]);
+    });
+
+    it('refuses a direct D1 import, which returns no results, before asking or importing', async () => {
+      const root = directD1File(selectOfSize(D1_STATEMENT_LIMIT + 1), true);
+
+      await expect(
+        runDbCommand(root, { action: 'execute', file: 'input.sql', remote: true, json: true }),
+      ).rejects.toThrow('Run it without --json.');
+
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockImportD1).not.toHaveBeenCalled();
+      expect(mockExecuteD1Statements).not.toHaveBeenCalled();
+      expect(stdoutWrite).not.toHaveBeenCalled();
+    });
+
+    it("prints the platform proxy's D1 result as a one-statement array", async () => {
+      const meta = { changes: 0, duration: 0.2, rows_read: 1 };
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 1, name: null }], success: true, meta }),
+      );
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: 'SELECT id, name FROM users',
+        remote: true,
+        json: true,
+      });
+
+      expect(jsonOutput()).toEqual([{ results: [{ id: 1, name: null }], success: true, meta }]);
+    });
+
+    it('refuses several statements through the platform proxy before sending them', async () => {
+      await expect(
+        runDbCommand(createProjectRoot(), {
+          action: 'execute',
+          command: 'SELECT 1; SELECT 2',
+          remote: true,
+          json: true,
+        }),
+      ).rejects.toThrow('Run each statement separately.');
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+    });
+
+    it('sends one CREATE TRIGGER, whose body holds semicolons, through the platform proxy', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ results: [], success: true, meta: {} }));
+      const sql =
+        "CREATE TRIGGER log_users AFTER INSERT ON users BEGIN INSERT INTO log VALUES ('a;b'); UPDATE users SET seen = 1; END;";
+
+      await runDbCommand(createProjectRoot(), {
+        action: 'execute',
+        command: sql,
+        remote: true,
+        json: true,
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ sql });
+      expect(jsonOutput()).toEqual([{ results: [], success: true, meta: {} }]);
+    });
+
+    it('writes errors to stderr and leaves stdout empty', async () => {
+      mockGetToken.mockReturnValue(null);
+
+      await expect(
+        runDbCommand(createProjectRoot(), {
+          action: 'execute',
+          command: 'SELECT 1',
+          remote: true,
+          json: true,
+        }),
+      ).rejects.toThrow('process.exit:1');
+
+      const { log: clackLog } = await import('@voidzero-dev/vite-plus-prompts');
+      expect(clackLog.error).toHaveBeenCalledWith(expect.stringContaining('Not logged in'), {
+        output: process.stderr,
+      });
+      expect(stdoutWrite).not.toHaveBeenCalled();
+    });
+  });
+
   it('runs execute without --remote against the local database, not the proxy', async () => {
     const root = createProjectRoot();
     // No local database exists, so the local path exits.
@@ -591,7 +760,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    globalThis.fetch = fetchMock;
 
     mockGetToken.mockReturnValue('test-token');
     mockReadProjectConfig.mockReturnValue({ projectId: 'proj-abc', slug: 'test-proj' });
@@ -602,6 +771,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
     mockIsCancel.mockImplementation((v) => typeof v === 'symbol');
 
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`process.exit:${code ?? 0}`);
     }) as never);
@@ -649,7 +819,7 @@ describe('void db execute --remote (PostgreSQL)', () => {
       remote: true,
     });
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join('\n');
+    const output = consoleSpy.mock.calls.map(([line]) => String(line ?? '')).join('\n');
     expect(output).toContain('id');
     expect(output).toContain('name');
     expect(output).toContain('Bob');
@@ -691,5 +861,212 @@ describe('void db execute --remote (PostgreSQL)', () => {
         remote: true,
       }),
     ).rejects.toThrow(PlatformApiError);
+  });
+
+  it('reads MySQL BIGINT values past 2^53 as strings with --json only', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    mockMySqlQuery.mockResolvedValue([[{ id: '9007199254740993' }], [{ name: 'id' }]]);
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command: 'SELECT id FROM users',
+      remote: true,
+      json: true,
+    });
+
+    expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith(
+      expect.objectContaining({ supportBigNumbers: true, bigNumberStrings: false }),
+    );
+    expect(stdoutJson()).toEqual([
+      { results: [{ id: '9007199254740993' }], success: true, meta: {} },
+    ]);
+
+    await runDbCommand(root, { action: 'execute', command: 'SELECT id FROM users', remote: true });
+    expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ supportBigNumbers: true }),
+    );
+  });
+
+  it("groups a MySQL CALL's results by the server's sql_mode", async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    const header = { fieldCount: 0, affectedRows: 0, insertId: 0 };
+    mockMySqlQuery.mockImplementation((sql) =>
+      Promise.resolve(
+        sql.startsWith('SELECT @@SESSION.sql_mode')
+          ? [[{ sql_mode: 'NO_BACKSLASH_ESCAPES', version: '8.4.3' }], [{ name: 'sql_mode' }]]
+          : [
+              [[{ a: '\\' }], [{ b: 2 }], header],
+              [[{ name: 'a' }], [{ name: 'b' }], undefined],
+            ],
+      ),
+    );
+    const command = String.raw`SELECT '\'; CALL p()`;
+    mockMySqlCreateConnection.mockClear();
+
+    await runDbCommand(root, { action: 'execute', command, remote: true, json: true });
+
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version',
+      command,
+    ]);
+    // The mode is read on a connection of its own, which leaves the SQL's session untouched.
+    expect(mockMySqlCreateConnection.mock.calls.map(([options]) => options)).toEqual([
+      { uri: 'mysql://host/db' },
+      expect.objectContaining({ uri: 'mysql://host/db', multipleStatements: true }),
+    ]);
+    expect(stdoutJson()).toEqual([
+      { results: [{ a: '\\' }], success: true, meta: {} },
+      { results: [{ b: 2 }], success: true, meta: { affectedRows: 0, insertId: 0 } },
+    ]);
+
+    // SQL without a backslash or a version comment, and the table, need no extra query.
+    mockMySqlQuery.mockClear();
+    await runDbCommand(root, { action: 'execute', command: 'CALL p()', remote: true, json: true });
+    await runDbCommand(root, { action: 'execute', command, remote: true });
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual(['CALL p()', command]);
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
+  it('reads MySQL dates as text and drops URL options that change the output with --json only', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    const url =
+      'mysql://user:p%40ss@host:3306/db?debug=true&ssl=%7B%22rejectUnauthorized%22%3Atrue%7D&rowsAsArray=true&bigNumberStrings=true';
+    mockGetDatabaseUrl.mockResolvedValue({ url });
+    mockMySqlQuery.mockImplementation((sql) =>
+      Promise.resolve(
+        sql.startsWith('SELECT @@SESSION.sql_mode')
+          ? [[{ sql_mode: '', version: '8.4.3' }], [{ name: 'sql_mode' }]]
+          : [[{ at: '2024-01-02 03:04:05.123456' }], [{ name: 'at' }]],
+      ),
+    );
+    // A backslash makes the command read the server's mode on a connection of its own first.
+    const command = String.raw`SELECT at FROM t WHERE note <> '\\'`;
+    mockMySqlCreateConnection.mockClear();
+
+    await runDbCommand(root, { action: 'execute', command, remote: true, json: true });
+
+    // mysql2 prints protocol traces to stdout for `debug`, and the URL's options would win over
+    // the ones --json passes as false, so neither connection gets them.
+    const withoutDebug =
+      'mysql://user:p%40ss@host:3306/db?ssl=%7B%22rejectUnauthorized%22%3Atrue%7D';
+    expect(mockMySqlCreateConnection.mock.calls.map(([options]) => options)).toEqual([
+      { uri: withoutDebug },
+      expect.objectContaining({
+        uri: withoutDebug,
+        dateStrings: true,
+        typeCast: mySqlJsonTypeCast,
+      }),
+    ]);
+    expect(stdoutJson()).toEqual([
+      { results: [{ at: '2024-01-02 03:04:05.123456' }], success: true, meta: {} },
+    ]);
+
+    // The table keeps the URL and mysql2's own dates.
+    await runDbCommand(root, { action: 'execute', command, remote: true });
+    expect(mockMySqlCreateConnection).toHaveBeenLastCalledWith({
+      uri: url,
+      multipleStatements: true,
+    });
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
+  it('refuses MySQL SQL whose CALL results it cannot group, before running it', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    mockMySqlQuery.mockImplementation((sql) =>
+      Promise.resolve(
+        sql.startsWith('SELECT @@SESSION.sql_mode')
+          ? [[{ sql_mode: '', version: '8.4.3' }], [{ name: 'sql_mode' }]]
+          : [[], []],
+      ),
+    );
+    // With backslash escapes the string holds `';'`, without them it ends before the first `;`.
+    const command = String.raw`SET sql_mode = @saved; SELECT 'a\';\''; CALL p()`;
+
+    await expect(
+      runDbCommand(root, { action: 'execute', command, remote: true, json: true }),
+    ).rejects.toThrow('cannot tell where the statements of this MySQL SQL end');
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual([
+      'SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS version',
+    ]);
+    // Nor does it run an EXECUTE of a statement it cannot see, which may be a CALL.
+    mockMySqlQuery.mockClear();
+    await expect(
+      runDbCommand(root, {
+        action: 'execute',
+        command: 'PREPARE s FROM @sql; EXECUTE s',
+        remote: true,
+        json: true,
+      }),
+    ).rejects.toThrow('cannot tell whether an EXECUTE in this MySQL SQL runs a CALL');
+    expect(mockMySqlQuery).not.toHaveBeenCalled();
+    expect(stdoutWrite).not.toHaveBeenCalled();
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
+  it('runs MySQL SQL without the comments after its last statement with --json only', async () => {
+    const root = createProjectRoot({ database: 'mysql' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'mysql://host/db' });
+    const header = { fieldCount: 0, affectedRows: 0, insertId: 0 };
+    mockMySqlQuery.mockImplementation(() =>
+      Promise.resolve([
+        [[{ a: 1 }], header],
+        [[{ name: 'a' }], undefined],
+      ]),
+    );
+    const command = 'CALL p(); -- end of script';
+
+    await runDbCommand(root, { action: 'execute', command, remote: true, json: true });
+    await runDbCommand(root, { action: 'execute', command, remote: true });
+
+    // MySQL answers a comment after the last statement with a result of its own.
+    expect(mockMySqlQuery.mock.calls.map(([sql]) => sql)).toEqual(['CALL p();', command]);
+    expect(stdoutJson()).toEqual([
+      { results: [{ a: 1 }], success: true, meta: { affectedRows: 0, insertId: 0 } },
+    ]);
+    mockMySqlQuery.mockImplementation(() => Promise.resolve([[], []]));
+  });
+
+  it('keeps PostgreSQL numeric arrays and JSON numbers exact with --json only', async () => {
+    const root = createProjectRoot({ database: 'pg' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'postgres://host/db' });
+    const parserFor = (oid: number) => {
+      const options = mockPgClient.mock.lastCall?.[0] as { types?: CustomTypesConfig } | undefined;
+      return options?.types?.getTypeParser(oid, 'text') as ((value: string) => unknown) | undefined;
+    };
+
+    await runDbCommand(root, { action: 'execute', command: 'SELECT 1', remote: true, json: true });
+    expect(parserFor(1231)?.('{1234567890123456789.987}')).toEqual(['1234567890123456789.987']);
+
+    await runDbCommand(root, { action: 'execute', command: 'SELECT 1', remote: true });
+    expect(parserFor(1231)).toBeUndefined();
+  });
+
+  it('prints every statement of a multi-statement query with --json', async () => {
+    const root = createProjectRoot({ database: 'pg' });
+    mockGetDatabaseUrl.mockResolvedValue({ url: 'postgres://host/db' });
+    // node-postgres resolves to an array of results for several statements.
+    mockPgQuery.mockResolvedValue([
+      { command: 'UPDATE', rowCount: 2, rows: [] },
+      { command: 'SELECT', rowCount: 1, rows: [{ id: 1, name: null }] },
+    ] as never);
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command: 'UPDATE users SET name = NULL; SELECT id, name FROM users WHERE id = 1',
+      remote: true,
+      json: true,
+    });
+
+    expect(stdoutJson()).toEqual([
+      { results: [], success: true, meta: { command: 'UPDATE', rowCount: 2 } },
+      {
+        results: [{ id: 1, name: null }],
+        success: true,
+        meta: { command: 'SELECT', rowCount: 1 },
+      },
+    ]);
   });
 });

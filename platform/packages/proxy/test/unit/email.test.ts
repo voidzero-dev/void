@@ -38,7 +38,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signHmac(data: string, secret: string): Promise<string> {
@@ -257,7 +257,7 @@ function parseJsonc(source: string): Record<string, unknown> {
     }
     out += ch;
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1')) as Record<string, unknown>;
+  return JSON.parse(out.replaceAll(/,(\s*[}\]])/g, '$1')) as Record<string, unknown>;
 }
 
 const wranglerConfig = parseJsonc(
@@ -372,7 +372,7 @@ describe('POST /email/send — sender domain', () => {
   it('rejects a production `from` when the worker is configured for staging', async () => {
     const env = createMockEnv(kv, { EMAIL_SENDER_DOMAIN: STAGING_DOMAIN });
     const res = await postSend(env, await sendBody());
-    const body = (await res.json()) as { ok: boolean; error: { code: string; message: string } };
+    const body = await res.json<{ ok: boolean; error: { code: string; message: string } }>();
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe('UPSTREAM_ERROR');
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
@@ -381,13 +381,13 @@ describe('POST /email/send — sender domain', () => {
   it('accepts a staging `from` when the worker is configured for staging', async () => {
     const env = createMockEnv(kv, { EMAIL_SENDER_DOMAIN: STAGING_DOMAIN });
     const res = await postSend(env, await sendBody({ from: `acme+noreply@${STAGING_DOMAIN}` }));
-    expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(true);
   });
 
   it('escapes the domain so a `.` cannot match an arbitrary character', async () => {
     const env = createMockEnv(kv);
     const res = await postSend(env, await sendBody({ from: 'acme+noreply@mailxvoid.cloud' }));
-    expect(((await res.json()) as { ok: boolean }).ok).toBe(false);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(false);
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
   });
 
@@ -395,7 +395,7 @@ describe('POST /email/send — sender domain', () => {
     const env = createMockEnv(kv, { EMAIL_SENDER_DOMAIN: undefined });
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(502);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('UPSTREAM_ERROR');
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('UPSTREAM_ERROR');
     expect(kv.put).not.toHaveBeenCalled();
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
   });
@@ -445,7 +445,7 @@ describe('POST /email/send — platform capability', () => {
     const env = createMockEnv(kv, { PLATFORM_CAPABILITIES: capabilities });
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { ok: boolean }).ok).toBe(true);
+    expect((await res.json<{ ok: boolean }>()).ok).toBe(true);
     expect((env.SEND_EMAIL as { send: ReturnType<typeof vi.fn> }).send).toHaveBeenCalledTimes(1);
   });
 });
@@ -536,7 +536,7 @@ interface SendResponseBody {
 }
 
 async function readSend(res: Response): Promise<SendResponseBody> {
-  return (await res.json()) as SendResponseBody;
+  return await res.json<SendResponseBody>();
 }
 
 describe('POST /email/send — request validation', () => {
@@ -614,7 +614,9 @@ describe('POST /email/send — request validation', () => {
       apiFetch.mockImplementation(async (url, init) => {
         if (String(url).endsWith('/admit')) {
           markAdmissionStarted();
-          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10_000);
+          });
         }
         return normalFetch(url, init);
       });
@@ -625,7 +627,7 @@ describe('POST /email/send — request validation', () => {
       await firstSubmitted;
       await vi.advanceTimersByTimeAsync(30_000);
       await secondSubmitted;
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       const body = await readSend(await pending);
 
       expect(send).toHaveBeenCalledTimes(2);
@@ -963,7 +965,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       ['a quoted display name', { email: DEFAULT_FROM, name: 'Smith, John' }],
       [
         'a display name with quotes and backslashes',
-        { email: DEFAULT_FROM, name: 'Acme "Co" \\ Ltd <x>' },
+        { email: DEFAULT_FROM, name: String.raw`Acme "Co" \ Ltd <x>` },
       ],
       ['a short non-ASCII display name', { email: DEFAULT_FROM, name: 'Jürgen Müller' }],
       ['a 200-character CJK display name (folded)', { email: DEFAULT_FROM, name: longName }],
@@ -1069,7 +1071,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       const started = performance.now();
       const res = await postSend(
         env,
-        await sendBody({ mimeBase64: Buffer.from(raw).toString('base64') }),
+        await sendBody({ mimeBase64: (Buffer as BufferConstructor).from(raw).toString('base64') }),
       );
       expect(performance.now() - started).toBeLessThan(5000);
       const body = await readSend(res);
@@ -1118,7 +1120,7 @@ describe('POST /email/send — MIME From pin (what the recipient sees)', () => {
       // keep accepting what the framework's own preflight accepts: the fix
       // for the per-line cost was to stop retaining lines, not to cap the
       // value, and a cap would be a contract change owned by the framework.
-      const name = '東京都千代田区'.repeat(15000).slice(0, 100_000);
+      const name = '東京都千代田区'.repeat(15_000).slice(0, 100_000);
       const email = await normalizeEmail({
         from: { email: DEFAULT_FROM, name },
         to: 'dev@example.com',
@@ -1254,15 +1256,14 @@ describe('POST /email/send — the envelope handed to CF', () => {
     ['ASCII upper case', `ACME@${PROD_DOMAIN}`, 'acme'],
     ['a code point that case-folds into the slug', `acmeK@${PROD_DOMAIN}`, 'acmek'],
     ['a carriage return', `acme\r\nX-Bcc: attacker@evil.com@${PROD_DOMAIN}`, 'acme'],
-    ['a null byte', `acme\x00@${PROD_DOMAIN}`, 'acme'],
+    ['a null byte', `acme\u0000@${PROD_DOMAIN}`, 'acme'],
   ])('never hands a control character to the send binding (%s)', async (_label, from, slug) => {
     const kv = happyPathKv({ 'email-slug:proj_000000000001': slug });
     const sender = createSender();
     const env = createMockEnv(kv, { SEND_EMAIL: sender.binding });
     await postSend(env, await sendBody({ from }));
     for (const call of sender.calls) {
-      // oxlint-disable-next-line no-control-regex
-      expect(new RegExp('[\\u0000-\\u001f\\u007f]').test(call.from)).toBe(false);
+      expect(new RegExp(String.raw`[\u0000-\u001f\u007f]`).test(call.from)).toBe(false);
     }
   });
 });
@@ -1277,8 +1278,7 @@ describe('POST /email/send — the envelope handed to CF', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /email/send — requestId is bounded and sanitized at intake', () => {
-  // oxlint-disable-next-line no-control-regex
-  const CONTROL = new RegExp('[\\u0000-\\u001f\\u007f]');
+  const CONTROL = new RegExp(String.raw`[\u0000-\u001f\u007f]`);
 
   it('a 5 MB control-heavy requestId still sends, and logs a short clean id', async () => {
     // Alternating LF / letter: one regex match per LF, the shape that made
@@ -1286,13 +1286,28 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
     // (measured: +170 MB on this input, past the 128 MB isolate ceiling).
     const requestId = `\na`.repeat((5 * 1024 * 1024) / 2);
     const forged = `req_1\n[email-log] proj_victim x@example.com sent forged @0`;
-    const sender = createSender();
-    const env = createMockEnv(happyPathKv(), { SEND_EMAIL: sender.binding });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    // Both call through; `mock.contexts` keeps the string each one ran on.
+    const replaceSpy = vi.spyOn(String.prototype, 'replace');
+    const replaceAllSpy = vi.spyOn(String.prototype, 'replaceAll');
     try {
-      const t0 = performance.now();
-      const res = await postSend(env, await sendBody({ requestId }));
-      const elapsed = performance.now() - t0;
+      const sender = createSender();
+      const env = createMockEnv(happyPathKv(), { SEND_EMAIL: sender.binding });
+      const body = await sendBody({ requestId });
+      replaceSpy.mockClear();
+      replaceAllSpy.mockClear();
+      const res = await postSend(env, body);
+      // Slice first, then strip: no part of the id longer than the 128 cap may
+      // reach a replace. Timing could not tell the two orders apart under load.
+      const replacedIdLengths = [
+        ...replaceSpy.mock.contexts,
+        ...replaceAllSpy.mock.contexts,
+      ].flatMap((context) => {
+        const value = String(context);
+        return value.startsWith('\na\na') ? [value.length] : [];
+      });
+      expect(replacedIdLengths.length).toBeGreaterThan(0);
+      expect(Math.max(...replacedIdLengths)).toBeLessThanOrEqual(128);
       expect(res.status).toBe(200);
       expect((await readSend(res)).ok).toBe(true);
       expect(sender.calls).toHaveLength(1);
@@ -1304,11 +1319,9 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       // so the whole line is the fixed fields plus at most 128 chars of id.
       const fixed = `[email-log] proj_000000000001  dev@example.com sent cf-msg-1 @${Date.now()}`
         .length;
-      expect(lines[0]!.length).toBeLessThanOrEqual(fixed + 128);
+      expect(lines[0].length).toBeLessThanOrEqual(fixed + 128);
       expect(lines[0]).not.toMatch(CONTROL);
-      expect(lines[0]!.split(' ')[1]).toBe('proj_000000000001');
-      // Generous: the slice-first path is ~0 ms; the JSON body is ~5 MB.
-      expect(elapsed).toBeLessThan(500);
+      expect(lines[0].split(' ')[1]).toBe('proj_000000000001');
 
       // And a newline can no longer forge a second `[email-log]` line.
       logSpy.mockClear();
@@ -1320,8 +1333,10 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
       expect(lines2).toHaveLength(1);
       expect(lines2[0]).not.toMatch(CONTROL);
       expect(lines2[0]).not.toContain('\n[email-log]');
-      expect(lines2[0]!.split(' ')[1]).toBe('proj_000000000001');
+      expect(lines2[0].split(' ')[1]).toBe('proj_000000000001');
     } finally {
+      replaceAllSpy.mockRestore();
+      replaceSpy.mockRestore();
       logSpy.mockRestore();
     }
   });
@@ -1340,7 +1355,7 @@ describe('POST /email/send — requestId is bounded and sanitized at intake', ()
         .map((call) => String(call[0]))
         .filter((line) => line.startsWith('[email-log] '));
       expect(lines).toHaveLength(1);
-      expect(lines[0]!.split(' ')[2]).toBe('unknown');
+      expect(lines[0].split(' ')[2]).toBe('unknown');
     } finally {
       logSpy.mockRestore();
     }

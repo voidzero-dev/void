@@ -1,12 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import type { PlatformInstallationManifest } from '@void/platform';
 import type { PlatformRuntime } from '@void/platform/installer';
-import { confirm, isCancel, log, type SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
+import { confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
+import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import { note } from './output.ts';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
+import { PLATFORM_WORKERS_PERMISSION } from './platform-credential-label.ts';
 import {
   interruptedWorkerCutover,
   workerCutoverUpdatesSecrets,
@@ -23,8 +23,8 @@ import type {
 import {
   platformWorkerResourceKey,
   uploadPlatformWorkerForReview,
-  type runPlatformWrangler,
 } from './platform-installer-workers.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 
 const OUTSIDE_SOURCES = {
@@ -68,7 +68,7 @@ function unreadablePlatformWorker(workerName: string, error: unknown): Error {
       `platform: Void cannot read the platform Worker ${workerName} (${answer}), so it cannot find changes made outside Void.`,
       NO_WORKER_CHANGED,
       status === 401 || status === 403
-        ? 'Make sure that the Cloudflare API token has Account → Workers Scripts → Edit for this account. Then run the command again.'
+        ? `Make sure that the Cloudflare API token has ${PLATFORM_WORKERS_PERMISSION} for this account. Then run the command again.`
         : 'Run the command again.',
     ].join(' '),
     { cause: error },

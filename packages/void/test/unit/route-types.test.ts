@@ -99,8 +99,8 @@ describe('generateRouteTypes', () => {
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
     const routeMap = dts
-      .split('  interface RouteMap {')[1]!
-      .split('  interface WebSocketRouteMap {')[0]!;
+      .split('  interface RouteMap {')[1]
+      .split('  interface WebSocketRouteMap {')[0];
 
     expect(routeMap.match(/"\/api\/health": \{/g)).toHaveLength(1);
     expect(routeMap).toContain('GET: {');
@@ -133,8 +133,8 @@ describe('generateRouteTypes', () => {
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
     const routeMap = dts
-      .split('  interface RouteMap {')[1]!
-      .split('  interface WebSocketRouteMap {')[0]!;
+      .split('  interface RouteMap {')[1]
+      .split('  interface WebSocketRouteMap {')[0];
 
     expect(routeMap.match(/"\/api\/health": \{/g)).toHaveLength(1);
     expect(routeMap.match(/GET: \{/g)).toHaveLength(1);
@@ -157,8 +157,8 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
-    const routeMap = dts.split('  interface RouteMap {')[1]!.split('\n  }')[0]!;
-    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
+    const routeMap = dts.split('  interface RouteMap {')[1].split('\n  }')[0];
+    const pathMap = dts.split('  export interface RoutePathMap {')[1].split('  }')[0];
 
     expect(routeMap).not.toContain('/api/legacy');
     expect(pathMap).toContain('"/api/legacy": never;');
@@ -195,7 +195,7 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
-    const pageMap = dts.split('  export interface PagePathMap {')[1]!.split('  }')[0]!;
+    const pageMap = dts.split('  export interface PagePathMap {')[1].split('  }')[0];
 
     expect(pageMap).toContain('"/about": never;');
     expect(pageMap).toContain('"/users/[id]": "id";');
@@ -291,7 +291,7 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
-    const encoded = dts.split('  export interface EncodedRoutePathMap {')[1]!.split('  }')[0]!;
+    const encoded = dts.split('  export interface EncodedRoutePathMap {')[1].split('  }')[0];
 
     expect(encoded.trim().split('\n')).toEqual([
       '"/café menu": "/caf%C3%A9%20menu";',
@@ -317,7 +317,7 @@ describe('generateRouteTypes', () => {
       ],
     });
     const typesConfig = (dts: string) =>
-      dts.split('  export interface RouteTypesConfig {')[1]!.split('  }')[0]!;
+      dts.split('  export interface RouteTypesConfig {')[1].split('  }')[0];
 
     const off = generateRouteTypes(scan, '/project/routes', '/project/.void').dts;
     const on = generateRouteTypes(scan, '/project/routes', '/project/.void', undefined, {
@@ -406,7 +406,7 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
-    const actionMap = dts.split('  interface PageActionMap {')[1]!;
+    const actionMap = dts.split('  interface PageActionMap {')[1];
     const dev = '(typeof import("../pages/users/[id].dev.server.ts"))["action"]';
     const prod = '(typeof import("../pages/users/[id].prod.server.ts"))["actions"]';
 
@@ -528,7 +528,7 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
-    const map = dts.split('  export interface PageQueryMap {')[2]!;
+    const map = dts.split('  export interface PageQueryMap {')[2];
 
     expect(map).toContain('    "/payments": {');
     expect(map).toContain('    } | {');
@@ -586,7 +586,7 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
-    const websocketMap = dts.split('  interface WebSocketRouteMap {')[1]!.split('\n  }\n}')[0]!;
+    const websocketMap = dts.split('  interface WebSocketRouteMap {')[1].split('\n  }\n}')[0];
 
     expect(websocketMap).toContain('params: RouteParams<[]>');
     expect(websocketMap).not.toContain('actions:');
@@ -619,7 +619,7 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
-    const websocketMap = dts.split('  interface WebSocketRouteMap {')[1]!.split('\n  }\n}')[0]!;
+    const websocketMap = dts.split('  interface WebSocketRouteMap {')[1].split('\n  }\n}')[0];
 
     expect(websocketMap.match(/"\/chat\/\[room\]": \{/g)).toHaveLength(1);
     expect(websocketMap).toContain('"/chat/:room": WebSocketRouteMap["/chat/[room]"];');
@@ -786,7 +786,7 @@ describe('generateRouteTypes', () => {
       ],
     });
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
-    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
+    const pathMap = dts.split('  export interface RoutePathMap {')[1].split('  }')[0];
     expect(pathMap).toContain('"/api/users/[id]": "id";');
     expect(pathMap).toContain('"/api/users/:id": RoutePathMap["/api/users/[id]"];');
     expect(pathMap).toContain('"/about": never;');
@@ -825,7 +825,7 @@ describe('generateRouteTypes', () => {
       pages: [source, { ...source, env: 'prod', componentPath: 'users/[id].prod.vue' }],
     });
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
-    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
+    const pathMap = dts.split('  export interface RoutePathMap {')[1].split('  }')[0];
     expect(pathMap.match(/"\/users\/:id":/g)).toHaveLength(1);
     expect(pathMap).toContain('"/users/[id]": "id";');
     expect(pathMap).toContain('"/users/:id": RoutePathMap["/users/[id]"];');

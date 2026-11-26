@@ -2,10 +2,11 @@ import {
   createDeployArtifact,
   deployArtifactDigest,
   validateManifestShape,
-  type DeployArtifact,
 } from '@void/deploy-core';
+import type { DeployArtifact } from '@void/deploy-core';
 import { and, count, eq, gt, sql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import {
   AiLoggingPublishError,
@@ -13,7 +14,8 @@ import {
   publishProjectAiLogging,
 } from '../ai-logging.ts';
 import { signJwt, verifyJwt } from '../auth/jwt.ts';
-import { activeOAuthClient, activeOAuthGrant, oauthBearer, OAuthError } from '../auth/oauth.ts';
+import type { activeOAuthClient } from '../auth/oauth.ts';
+import { activeOAuthGrant, oauthBearer, OAuthError } from '../auth/oauth.ts';
 import { hashLoginProof, randomLoginProof } from '../auth/proofs.ts';
 import { createProject, getProject } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
@@ -56,7 +58,8 @@ async function ownedPreview(
     project.status !== 'active' ||
     project.preview_client_id !== grant.client_id ||
     project.user_id !== grant.user_id ||
-    Date.parse(project.preview_expires_at!) <= Date.now()
+    !project.preview_expires_at ||
+    Date.parse(project.preview_expires_at) <= Date.now()
   ) {
     throw new OAuthError('access_denied', 'Preview unavailable.', 404);
   }
@@ -92,16 +95,16 @@ app.post('/previews', async (context) => {
       }
       const [renewed] = await tx
         .update(projects)
-        .set({ preview_expires_at: expiry(7 * 86400) })
+        .set({ preview_expires_at: expiry(7 * 86_400) })
         .where(eq(projects.id, existing.id))
         .returning();
-      return renewed!;
+      return renewed;
     }
     const [total] = await tx
       .select({ count: count() })
       .from(projects)
       .where(and(eq(projects.user_id, user.id), sql`${projects.preview_client_id} IS NOT NULL`));
-    if (total!.count >= 10) {
+    if (total.count >= 10) {
       throw new OAuthError(
         'access_denied',
         'Remove an unused preview before creating another (limit 10).',
@@ -118,7 +121,7 @@ app.post('/previews', async (context) => {
       .set({
         preview_client_id: grant.client_id,
         preview_workspace_id: body.workspace,
-        preview_expires_at: expiry(7 * 86400),
+        preview_expires_at: expiry(7 * 86_400),
       })
       .where(eq(projects.id, created.id))
       .returning();
@@ -138,7 +141,7 @@ app.post('/previews', async (context) => {
       }
       throw error;
     });
-    return preview!;
+    return preview;
   });
   await initializeNewProjectZeroTrust(context.env, context.get('db'), project.id);
   return context.json(
@@ -205,7 +208,7 @@ app.post('/preview-deployment-requests', async (context) => {
           sql`${oauthRequests.expires_at} > now() - interval '45 minutes'`,
         ),
       );
-    if (recent!.count >= 60) {
+    if (recent.count >= 60) {
       throw new OAuthError(
         'access_denied',
         'Preview build allowance reached. Try again in an hour.',
@@ -235,7 +238,7 @@ app.post('/preview-deployment-requests', async (context) => {
       approved_at: new Date().toISOString(),
       consumed_at: new Date().toISOString(),
       expires_at: new Date(
-        Math.min(Date.now() + 900000, Date.parse(grant.expires_at)),
+        Math.min(Date.now() + 900_000, Date.parse(grant.expires_at)),
       ).toISOString(),
     });
   });

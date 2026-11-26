@@ -17,12 +17,12 @@ describe('detectHttpExports', () => {
   it.each([
     ['const handler = () => {}; export { handler as "GET" };', ['GET']],
     ['export { handler as "POST" } from "./handler";', ['POST']],
-    ['const handler = () => {}; export { handler as "G\\u0045T" };', ['GET']],
+    [String.raw`const handler = () => {}; export { handler as "G\u0045T" };`, ['GET']],
     ['const GET = () => {}; export { GET as "helper" };', []],
     ['export type { GET as "GET" } from "./types";', []],
     ['export { type GET as "GET", handler as "POST" } from "./handler";', ['POST']],
   ])('uses the actual exported name in %s', (source, methods) => {
-    expect(detectHttpExports(writeRoute('quoted.ts', source as string))).toEqual(methods);
+    expect(detectHttpExports(writeRoute('quoted.ts', source))).toEqual(methods);
   });
 
   beforeEach(() => {

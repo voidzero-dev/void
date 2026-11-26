@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import {
-  DirectR2PutError,
-  uploadAssetsToR2,
-  type DirectR2PutItem,
-} from '../../src/cli/direct-r2-upload.ts';
+import { DirectR2PutError, r2ErrorCode, uploadAssetsToR2 } from '../../src/cli/direct-r2-upload.ts';
+import type { DirectR2PutItem } from '../../src/cli/direct-r2-upload.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 function makeItem(
   path: string,
@@ -37,7 +35,7 @@ beforeEach(() => {
 
 describe('uploadAssetsToR2', () => {
   it('PUTs each item once when all succeed', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
     const items = [makeItem('/a.html', 'h1'), makeItem('/b.css', 'h2'), makeItem('/c.js', 'h3')];
 
     await uploadAssetsToR2(items, cliLog, fetchMock);
@@ -113,6 +111,72 @@ describe('uploadAssetsToR2', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  const r2ErrorXml = (code: string) =>
+    `<?xml version="1.0" encoding="UTF-8"?><Error><Code>${code}</Code><Message>details</Message></Error>`;
+
+  it.each([
+    [403, 'SignatureDoesNotMatch'],
+    [403, 'AccessDenied'],
+    [403, 'InvalidAccessKeyId'],
+    [401, 'Unauthorized'],
+    [400, 'InvalidArgument'],
+    [400, 'AuthorizationHeaderMalformed'],
+  ])('names the platform R2 credentials for HTTP %s %s', async (status, code) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(r2ErrorXml(code), { status }));
+
+    const error = await uploadAssetsToR2([makeItem('/a.js', 'h-a')], cliLog, fetchMock).catch(
+      (err: unknown) => err,
+    );
+
+    expect(error).toBeInstanceOf(DirectR2PutError);
+    const putError = error as DirectR2PutError;
+    expect(putError.code).toBe(code);
+    expect(putError.status).toBe(status);
+    expect(putError.body).toBe(r2ErrorXml(code));
+    expect(putError.message).toContain(`R2 rejected the upload signature (${code}) for /a.js`);
+    expect(putError.message).toContain('Ask the platform operator');
+    expect(putError.message).toContain('VOID_PLATFORM_R2_ACCESS_KEY_ID');
+    expect(putError.message).toContain('VOID_PLATFORM_R2_SECRET_ACCESS_KEY');
+    expect(putError.message).toContain('void platform repair');
+    expect(putError.message).toContain(
+      'https://void.cloud/guide/platform/installation/credentials#r2-upload-credentials',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The raw R2 body stays in the JSONL log.
+    const end = cliLog.error.mock.calls.find(([msg]) => msg === 'r2_put_end');
+    expect(end?.[2]).toMatchObject({ status, body: r2ErrorXml(code) });
+  });
+
+  it.each([
+    [403, r2ErrorXml('ExpiredRequest')],
+    [403, r2ErrorXml('SignatureExpired')],
+    [403, r2ErrorXml('RequestTimeTooSkewed')],
+    [400, r2ErrorXml('BadDigest')],
+    [400, r2ErrorXml('SignatureDoesNotMatch')],
+    [403, 'SignatureMismatch'],
+  ])('keeps the raw R2 response for HTTP %s %s', async (status, body) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body, { status }));
+
+    const error = (await uploadAssetsToR2([makeItem('/a.js', 'h-a')], cliLog, fetchMock).catch(
+      (err: unknown) => err,
+    )) as DirectR2PutError;
+
+    expect(error.message).toBe(`R2 PUT failed for /a.js (h-a): ${status} ${body}`);
+    expect(error.message).not.toContain('VOID_PLATFORM_R2');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['', undefined],
+    ['SignatureMismatch', undefined],
+    ['<Error><Code>AccessDenied', undefined],
+    ['<Error><Code></Code></Error>', undefined],
+    ['<Error><Code> AccessDenied </Code></Error>', 'AccessDenied'],
+    ['<Error><Code>NoSuchBucket</Code><Message>x</Message></Error>', 'NoSuchBucket'],
+  ])('reads the S3 error code from %j', (body, code) => {
+    expect(r2ErrorCode(body)).toBe(code);
+  });
+
   it.each([429, 500])(
     'throws DirectR2PutError when HTTP %s exceeds retry budget',
     async (status) => {
@@ -153,7 +217,9 @@ describe('uploadAssetsToR2', () => {
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       // Yield once so concurrent requests stack up.
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
       inFlight--;
       return new Response(null, { status: 200 });
     });
@@ -167,7 +233,7 @@ describe('uploadAssetsToR2', () => {
   });
 
   it('returns immediately when items is empty', async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>();
     await uploadAssetsToR2([], cliLog, fetchMock);
     expect(fetchMock).not.toHaveBeenCalled();
   });

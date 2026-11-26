@@ -2,12 +2,14 @@ import {
   PLATFORM_APPLICATION_KEY,
   readPlatformApplication,
   platformHealthHostname,
-  type PlatformApplication,
 } from '@void/platform';
+import type { PlatformApplication } from '@void/platform';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import { armFastMaintenance } from '../fast-maintenance.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
 import { encryptPlatformCredential } from '../project-secrets.ts';
+import { assertPublicGateOff } from '../security/public-gate.ts';
 import {
   applicationTargetEnvironment,
   PLATFORM_APPLICATION_SETTING,
@@ -16,8 +18,6 @@ import {
 import { ZeroTrustCloudflareClient, publicAppManagementDestination } from './cloudflare.ts';
 import {
   ZERO_TRUST_CREDENTIAL_ID,
-  type ZeroTrustConfiguration,
-  type ZeroTrustConfigureInput,
   parseZeroTrustApplicationTarget,
   zeroTrustConfigurationStatus,
   readZeroTrustConfigurationStrict,
@@ -25,6 +25,7 @@ import {
   writeZeroTrustConfiguration,
   zeroTrustWildcardDestinations,
 } from './configuration.ts';
+import type { ZeroTrustConfiguration, ZeroTrustConfigureInput } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
 import { lockZeroTrustConfiguration } from './lock.ts';
 import {
@@ -104,6 +105,9 @@ export async function activatePlatformApplication(
   if (!claim.configuration) {
     return { ready: claim.ready };
   }
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
   const completed = await runConfigureOperation(env, db, claim.configuration);
   return { ready: completed.operation === null };
 }
@@ -114,7 +118,7 @@ function wildcardDestinationMatches(pattern: string, hostname: string): boolean 
   const expression = pattern
     .toLowerCase()
     .split('*')
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    .map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, String.raw`\$&`))
     .join('.+');
   return new RegExp(`^${expression}$`).test(hostname);
 }
@@ -196,6 +200,9 @@ export function assertExistingProjectsChoice(
   }
 }
 
+const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
+  left.length === right.length && left.every((id) => right.includes(id));
+
 export async function configurePlatformZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
@@ -212,7 +219,11 @@ export async function configurePlatformZeroTrust(
     );
   }
   const previous = await readZeroTrustConfigurationStrict(db);
-  // Fail before any Cloudflare call; the claim below checks again under the lock.
+  // Fail before any Cloudflare call; the claim below checks again under the lock. The
+  // gate refusal comes first: it names the real step for a public-only switch (#64).
+  if (input.publicAccess) {
+    await assertPublicGateOff(db, env);
+  }
   assertExistingProjectsChoice(previous, input);
   const replacingDisableCredential = previous?.operation?.kind === 'disable';
   // A disable removes the wildcard, so a replacement credential for it must
@@ -247,76 +258,83 @@ export async function configurePlatformZeroTrust(
     ZERO_TRUST_CREDENTIAL_ID,
     input.apiToken,
   );
-  const configuration = await claimConfiguration(db, async (current, owner, startedAt) => {
-    if (
-      replacingDisableCredential &&
-      (current?.revision !== previous.revision || current.operation?.kind !== 'disable')
-    ) {
-      throw new ZeroTrustUnavailableError(
-        'The saved Zero Trust operation changed. Retry configuration.',
-      );
-    }
-    assertExistingProjectsChoice(current, input);
-    if (current?.operation) {
-      const sameIds = (left: ReadonlyArray<string>, right: ReadonlyArray<string>) =>
-        left.length === right.length && left.every((id) => right.includes(id));
+  const configuration = await claimConfiguration(
+    db,
+    async (current, owner, startedAt) => {
       if (
-        current.accountId !== accountId ||
-        !!current.publicAccess !== !!input.publicAccess ||
-        current.protectNewProjects !== input.protectNewProjects ||
-        !sameIds(current.identityProviderIds, input.identityProviderIds) ||
-        !sameIds(current.policyIds, input.policyIds)
+        replacingDisableCredential &&
+        (current?.revision !== previous.revision || current.operation?.kind !== 'disable')
       ) {
         throw new ZeroTrustUnavailableError(
-          'A saved Zero Trust operation is pending. To replace its API token, configure again with the same identity providers, policies, and project selections.',
+          'The saved Zero Trust operation changed. Retry configuration.',
         );
       }
+      assertExistingProjectsChoice(current, input);
+      if (current?.operation) {
+        if (
+          current.accountId !== accountId ||
+          !!current.publicAccess !== !!input.publicAccess ||
+          current.protectNewProjects !== input.protectNewProjects ||
+          !sameIds(current.identityProviderIds, input.identityProviderIds) ||
+          !sameIds(current.policyIds, input.policyIds)
+        ) {
+          throw new ZeroTrustUnavailableError(
+            'A saved Zero Trust operation is pending. To replace its API token, configure again with the same identity providers, policies, and project selections.',
+          );
+        }
+        return {
+          ...current,
+          revision: current.revision + 1,
+          credential,
+          teamDomain: selection.teamDomain,
+          operation: { ...current.operation, owner, leaseExpiresAt: leaseExpiresAt() },
+          lastError: null,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      const now = new Date().toISOString();
       return {
-        ...current,
-        revision: current.revision + 1,
-        credential,
+        version: 1,
+        ...(input.publicAccess
+          ? { publicAccess: true as const, publicAccessGuardDestination }
+          : {}),
+        ...(input.managePublicCustomDomains || current?.managePublicCustomDomains
+          ? { managePublicCustomDomains: true as const }
+          : {}),
+        revision: (current?.revision ?? 0) + 1,
+        enabled: current?.enabled ?? false,
+        protectNewProjects: input.protectNewProjects,
+        accountId,
         teamDomain: selection.teamDomain,
-        operation: { ...current.operation, owner, leaseExpiresAt: leaseExpiresAt() },
+        identityProviderIds: [...input.identityProviderIds],
+        policyIds: [...input.policyIds],
+        credential,
+        // The name is kept for the installation's lifetime so a retry or a later
+        // re-enable can recover the same wildcard application.
+        wildcardApplicationName:
+          current?.wildcardApplicationName ?? (await applicationName(env, 'project-zero-trust')),
+        wildcardApplication: current?.wildcardApplication ?? null,
+        healthApplicationName:
+          current?.healthApplicationName ?? (await applicationName(env, 'platform-health')),
+        healthApplication: current?.healthApplication ?? null,
+        operation: {
+          id: crypto.randomUUID(),
+          kind: 'configure',
+          phase: 'seed',
+          owner,
+          leaseExpiresAt: leaseExpiresAt(),
+          startedAt,
+          existingProjects: input.existingProjects ?? null,
+        },
         lastError: null,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       };
-    }
-    const now = new Date().toISOString();
-    return {
-      version: 1,
-      ...(input.publicAccess ? { publicAccess: true as const, publicAccessGuardDestination } : {}),
-      ...(input.managePublicCustomDomains || current?.managePublicCustomDomains
-        ? { managePublicCustomDomains: true as const }
-        : {}),
-      revision: (current?.revision ?? 0) + 1,
-      enabled: current?.enabled ?? false,
-      protectNewProjects: input.protectNewProjects,
-      accountId,
-      teamDomain: selection.teamDomain,
-      identityProviderIds: [...input.identityProviderIds],
-      policyIds: [...input.policyIds],
-      credential,
-      // The name is kept for the installation's lifetime so a retry or a later
-      // re-enable can recover the same wildcard application.
-      wildcardApplicationName:
-        current?.wildcardApplicationName ?? (await applicationName(env, 'project-zero-trust')),
-      wildcardApplication: current?.wildcardApplication ?? null,
-      healthApplicationName:
-        current?.healthApplicationName ?? (await applicationName(env, 'platform-health')),
-      healthApplication: current?.healthApplication ?? null,
-      operation: {
-        id: crypto.randomUUID(),
-        kind: 'configure',
-        phase: 'seed',
-        owner,
-        leaseExpiresAt: leaseExpiresAt(),
-        startedAt,
-        existingProjects: input.existingProjects ?? null,
-      },
-      lastError: null,
-      updatedAt: now,
-    };
-  });
+    },
+    input.publicAccess ? { refuseWhileGateOn: env } : undefined,
+  );
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
   return redactedZeroTrustConfiguration(
     configuration.operation?.kind === 'disable'
       ? await runDisableOperation(env, db, configuration)
@@ -364,16 +382,25 @@ async function claimReconcileOperation(db: Db): Promise<ZeroTrustConfiguration> 
   });
 }
 
+async function runClaimedOperation(
+  env: ApiEnv['Bindings'],
+  db: Db,
+  configuration: ZeroTrustConfiguration,
+): Promise<ZeroTrustConfiguration> {
+  return configuration.operation?.kind === 'disable'
+    ? runDisableOperation(env, db, configuration)
+    : runConfigureOperation(env, db, configuration);
+}
+
 export async function reconcilePlatformZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
 ): Promise<ReturnType<typeof redactedZeroTrustConfiguration>> {
   const configuration = await claimReconcileOperation(db);
-  const result =
-    configuration.operation?.kind === 'disable'
-      ? await runDisableOperation(env, db, configuration)
-      : await runConfigureOperation(env, db, configuration);
-  return redactedZeroTrustConfiguration(result);
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
+  return redactedZeroTrustConfiguration(await runClaimedOperation(env, db, configuration));
 }
 
 export async function disablePlatformZeroTrust(
@@ -387,30 +414,37 @@ export async function disablePlatformZeroTrust(
   if (!saved.enabled && !saved.operation) {
     return redactedZeroTrustConfiguration(saved);
   }
-  const configuration = await claimConfiguration(db, (current, owner, startedAt) => {
-    if (!current) {
-      throw new ZeroTrustUnavailableError('Project Zero Trust is not configured.');
-    }
-    const now = new Date().toISOString();
-    return {
-      ...current,
-      revision: current.revision + 1,
-      operation:
-        current.operation?.kind === 'disable'
-          ? { ...current.operation, owner, leaseExpiresAt: leaseExpiresAt() }
-          : {
-              id: crypto.randomUUID(),
-              kind: 'disable',
-              phase: 'seed',
-              owner,
-              leaseExpiresAt: leaseExpiresAt(),
-              startedAt,
-              existingProjects: null,
-            },
-      lastError: null,
-      updatedAt: now,
-    };
-  });
+  const configuration = await claimConfiguration(
+    db,
+    (current, owner, startedAt) => {
+      if (!current) {
+        throw new ZeroTrustUnavailableError('Project Zero Trust is not configured.');
+      }
+      const now = new Date().toISOString();
+      return {
+        ...current,
+        revision: current.revision + 1,
+        operation:
+          current.operation?.kind === 'disable'
+            ? { ...current.operation, owner, leaseExpiresAt: leaseExpiresAt() }
+            : {
+                id: crypto.randomUUID(),
+                kind: 'disable',
+                phase: 'seed',
+                owner,
+                leaseExpiresAt: leaseExpiresAt(),
+                startedAt,
+                existingProjects: null,
+              },
+        lastError: null,
+        updatedAt: now,
+      };
+    },
+    { refuseWhileGateOn: env },
+  );
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
   return redactedZeroTrustConfiguration(await runDisableOperation(env, db, configuration));
 }
 
@@ -434,6 +468,10 @@ export async function resumePlatformZeroTrustOperation(
   ) {
     return false;
   }
-  await reconcilePlatformZeroTrust(env, db);
+  // A run that stopped at its step limit leaves the rest to the two-minute cron,
+  // including after an hourly retry of a failed operation.
+  if ((await runClaimedOperation(env, db, await claimReconcileOperation(db))).operation) {
+    await armFastMaintenance(env);
+  }
   return true;
 }

@@ -29,5 +29,5 @@ export function checkIslandForm(): void {
   form.data.title = 'Hello';
   void form.submit('/notes', 'PATCH');
   // @ts-expect-error Svelte edits `data` in place, so there is no setData.
-  form.setData('title', 'Hello');
+  void form.setData;
 }

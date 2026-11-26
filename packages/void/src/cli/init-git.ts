@@ -44,7 +44,7 @@ export async function setupGit(root: string, git?: boolean): Promise<boolean> {
 
   const result = spawnSync('git', ['init'], {
     cwd: root,
-    encoding: 'utf-8',
+    encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (result.status !== 0) {

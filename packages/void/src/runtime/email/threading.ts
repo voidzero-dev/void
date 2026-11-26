@@ -69,13 +69,13 @@ export function fitsHeaderLine(name: string, value: string | undefined): value i
     // UTF-8 octets: a surrogate pair is 4, a lone surrogate (U+FFFD) is 3.
     if (c < 0x80) {
       run += 1;
-    } else if (c < 0x800) {
+    } else if (c < 0x8_00) {
       run += 2;
     } else if (
-      c >= 0xd800 &&
-      c <= 0xdbff &&
+      c >= 0xd8_00 &&
+      c <= 0xdb_ff &&
       i + 1 < value.length &&
-      (value.charCodeAt(i + 1) & 0xfc00) === 0xdc00
+      (value.charCodeAt(i + 1) & 0xfc_00) === 0xdc_00
     ) {
       run += 4;
       i++;

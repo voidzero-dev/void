@@ -360,6 +360,15 @@ Every admin write is additionally same-origin checked in `admin/middleware/auth.
   removes those legacy bindings but is not required for trusted gate metering.
 - **Scheduled enforcement** runs hourly from the worker cron and reconciles request/AI usage against plan limits.
 - **Per-request runtime limits** are carried in routing data and enforced by `dispatch`.
+- **The two-minute cron is idle unless armed.** It returns before opening a
+  database connection when the `fast-maintenance` marker is absent from routing
+  KV, so an idle installation lets a scale-to-zero PostgreSQL suspend. A
+  mutating API request, a deployment Queue delivery, or a tick that left work
+  unfinished arms it for 30 minutes (`src/fast-maintenance.ts`). Work created
+  any other way, such as a row written directly to the database, waits for the
+  hourly cron. A new fast-tier step that must keep running past that window
+  sets `fastTier.unfinished` in `scheduled()`, and only for work that ends by
+  itself.
 
 Build cancellation invalidates pending startup immediately. If container startup
 has already begun, the manager stops any late producer before publishing final

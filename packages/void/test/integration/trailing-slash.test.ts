@@ -7,8 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
 
@@ -33,9 +33,9 @@ describe.each(['node', 'cloudflare'] as const)('trailing-slash Pages on %s', (ta
       ['posts', 'slug', 'hello'],
       ['files', '...path', 'guides/intro'],
     ]) {
-      mkdirSync(join(fixture.root, 'pages', directory!), { recursive: true });
-      const name = param!.replace('...', '');
-      const file = join(fixture.root, 'pages', directory!, `[${param}]`);
+      mkdirSync(join(fixture.root, 'pages', directory), { recursive: true });
+      const name = param.replace('...', '');
+      const file = join(fixture.root, 'pages', directory, `[${param}]`);
       writeFileSync(
         `${file}.tsx`,
         `export default function Page({ value }) { return <h1>{value}</h1>; }`,

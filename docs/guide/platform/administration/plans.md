@@ -122,6 +122,19 @@ Moving an account to another plan, replacing a removed plan, or transferring a p
 
 Inspect a plan's default with `void platform config plans show <plan-id>` or the dashboard's user detail page. If the CLI reports that your platform does not support plan defaults, run `void platform upgrade` first.
 
+## Security Scan Cap {#security-scan-cap}
+
+With [security audits](./security-audits.md) on, a plan can set the most each of its projects may spend on scans in a calendar month (UTC). In the dashboard, edit the plan's **Security scan cap**: **Policy default**, **Monthly amount**, or **No cap**. From the CLI:
+
+```sh
+void platform config plans set team --security-cap 200 --plan
+void platform config plans set team --security-cap 200 --yes
+```
+
+`--security-cap` takes a USD amount, `none` for no cap, or `inherit` for the default project cap. Plan files use the `securityCap` field with the same values. A plan amount applies even while project caps are off, and `none` lifts the default project cap for the plan's projects. A limit you set for one project comes first. The platform cap still stops every scan once it is used up.
+
+A change applies right away: to the next scan that starts, and to scans already running from their next model call, so a lower cap can stop one. Copying a plan copies its scan cap, and accounts moved to a replacement plan get that plan's cap. See [Spending caps](./security-audits.md#spending-caps).
+
 ## Archive or Remove a Plan
 
 Archive a plan to stop assigning it to new accounts while preserving its current accounts:

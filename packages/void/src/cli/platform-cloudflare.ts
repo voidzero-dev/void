@@ -1,6 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { formatUrl } from './output.ts';
+import {
+  describePlatformCredential,
+  formatPlatformCredentialDenials,
+  platformCredentialHelp,
+} from './platform-credential-label.ts';
+import type {
+  PlatformCredentialDenial,
+  PlatformCredentialLabel,
+} from './platform-credential-label.ts';
 import { resolvePinnedApiBaseUrl } from './provision.ts';
+
+// oxlint-disable-next-line quality/no-unknown-returns -- Endpoint-specific readers validate the fields they need.
+export type ReadCloudflare = (path: string) => Promise<unknown>;
 
 type CloudflareEnvelope<T> = Readonly<{
   errors?: ReadonlyArray<{ code?: number; message?: string }>;
@@ -17,12 +29,22 @@ type CloudflareEnvelope<T> = Readonly<{
 export class PlatformCloudflareApiError extends Error {
   readonly status: number;
   readonly requestPath?: string;
+  /** The credential Cloudflare rejected, when the client knows it. */
+  readonly credential?: PlatformCredentialLabel;
 
-  constructor(message: string, status: number, requestPath?: string) {
+  constructor(
+    message: string,
+    status: number,
+    requestPath?: string,
+    credential?: PlatformCredentialLabel,
+  ) {
     super(message);
     this.name = 'PlatformCloudflareApiError';
     this.status = status;
     this.requestPath = requestPath;
+    if (credential) {
+      this.credential = credential;
+    }
   }
 }
 
@@ -57,11 +79,19 @@ export class PlatformWorkerRoutesChangedError extends Error {
 export class PlatformRuntimeTokenEmailPermissionError extends Error {
   /** Cloudflare answered HTTP 401 at least once: it did not accept the token. */
   readonly tokenNotValid: boolean;
+  /** Each email check Cloudflare denied. */
+  readonly denials: ReadonlyArray<PlatformCredentialDenial>;
 
-  constructor(message: string, tokenNotValid: boolean, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    tokenNotValid: boolean,
+    options?: ErrorOptions,
+    denials: ReadonlyArray<PlatformCredentialDenial> = [],
+  ) {
     super(message, options);
     this.name = 'PlatformRuntimeTokenEmailPermissionError';
     this.tokenNotValid = tokenNotValid;
+    this.denials = denials;
   }
 }
 
@@ -104,7 +134,12 @@ export type CloudflareHyperdriveOrigin =
   | CloudflareHyperdriveHostOrigin
   | (CloudflareHyperdriveDatabase & Readonly<{ serviceId: string; host?: never }>);
 export type CloudflareHyperdriveConfig = CloudflareNamedResource &
-  Readonly<{ origin: CloudflareHyperdriveOrigin; cachingDisabled?: boolean }>;
+  Readonly<{
+    origin: CloudflareHyperdriveOrigin;
+    cachingDisabled?: boolean;
+    /** The soft cap on connections Hyperdrive opens to the origin, when Cloudflare reports one. */
+    originConnectionLimit?: number;
+  }>;
 export type CloudflareDnsRecord = CloudflareNamedResource &
   Readonly<{
     content: string;
@@ -177,46 +212,79 @@ export async function verifyPlatformRuntimeTokenPermissions(
     accountId: string;
     applicationDomain: string;
     customDomains: boolean;
+    /** Where the token came from, so a failure can name it. */
+    credential?: PlatformCredentialLabel;
     /** The shared email zone, only when platform email is on. */
     emailZoneId?: string;
     zoneId: string | null;
   },
 ): Promise<void> {
-  try {
-    await client.listHyperdriveConfigs(input.accountId);
-  } catch (error) {
-    throw runtimeTokenPreflightError('Account → Hyperdrive → Write', error);
-  }
+  const credential = input.credential ?? { role: 'runtime' };
+  // Run every check, so one error lists every missing permission. Only an
+  // authorization answer shows a missing permission; anything else stops.
+  const denials: Array<PlatformCredentialDenial & { error: PlatformCloudflareApiError }> = [];
+  let emailDenial: PlatformRuntimeTokenEmailPermissionError | undefined;
+  // Callers keep a token that only lacks email access, so this error keeps
+  // its own class when email is the only problem.
+  const deniedError = (): Error | undefined =>
+    denials.length === 0
+      ? emailDenial
+      : new Error(
+          `platform: ${formatPlatformCredentialDenials(credential, [...denials, ...(emailDenial?.denials ?? [])])}`,
+          { cause: denials[0].error },
+        );
+  const check = async <Result>(permission: string, action: () => Promise<Result>) => {
+    try {
+      await action();
+    } catch (error) {
+      if (
+        error instanceof PlatformCloudflareApiError &&
+        (error.status === 401 || error.status === 403)
+      ) {
+        denials.push({ error, permission, status: error.status });
+        return;
+      }
+      // Report a denial already seen, so callers still see the rejected token.
+      throw deniedError() ?? runtimeTokenPreflightError(permission, error, credential);
+    }
+  };
+
+  await check('Account → Hyperdrive → Write', () => client.listHyperdriveConfigs(input.accountId));
 
   if (input.emailZoneId) {
-    await verifyPlatformRuntimeTokenEmailPermissions(client, {
-      accountId: input.accountId,
-      zoneId: input.emailZoneId,
-    });
-  }
-
-  if (!input.zoneId) {
-    return;
-  }
-
-  const probeUrl = `https://${input.applicationDomain}/.well-known/void/runtime-token-preflight-${randomUUID()}`;
-  try {
-    await client.request(`/zones/${encodeURIComponent(input.zoneId)}/purge_cache`, {
-      body: JSON.stringify({ files: [probeUrl] }),
-      method: 'POST',
-    });
-  } catch (error) {
-    throw runtimeTokenPreflightError('Zone → Cache Purge → Purge', error);
-  }
-
-  if (input.customDomains) {
     try {
-      await client.request(
-        `/zones/${encodeURIComponent(input.zoneId)}/custom_hostnames?per_page=1`,
-      );
+      await verifyPlatformRuntimeTokenEmailPermissions(client, {
+        accountId: input.accountId,
+        credential,
+        zoneId: input.emailZoneId,
+      });
     } catch (error) {
-      throw runtimeTokenPreflightError('Zone → SSL and Certificates → Edit', error);
+      if (!(error instanceof PlatformRuntimeTokenEmailPermissionError)) {
+        throw error;
+      }
+      emailDenial = error;
     }
+  }
+
+  if (input.zoneId) {
+    const zoneId = input.zoneId;
+    const probeUrl = `https://${input.applicationDomain}/.well-known/void/runtime-token-preflight-${randomUUID()}`;
+    await check('Zone → Cache Purge → Purge', () =>
+      client.request(`/zones/${encodeURIComponent(zoneId)}/purge_cache`, {
+        body: JSON.stringify({ files: [probeUrl] }),
+        method: 'POST',
+      }),
+    );
+    if (input.customDomains) {
+      await check('Zone → SSL and Certificates → Edit', () =>
+        client.request(`/zones/${encodeURIComponent(zoneId)}/custom_hostnames?per_page=1`),
+      );
+    }
+  }
+
+  const denied = deniedError();
+  if (denied) {
+    throw denied;
   }
 }
 
@@ -230,6 +298,8 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
   client: Pick<PlatformCloudflareClient, 'request'>,
   input: {
     accountId: string;
+    /** Where the token came from, so a failure can name it. */
+    credential?: PlatformCredentialLabel;
     zoneId: string;
     /**
      * The token is the one saved on this machine, and the run does not send
@@ -248,7 +318,7 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
       `/accounts/${encodeURIComponent(input.accountId)}/email/routing/addresses?per_page=5`,
     ],
   ] as const;
-  const missing: Array<string> = [];
+  const denials: Array<PlatformCredentialDenial> = [];
   let denial: PlatformCloudflareApiError | undefined;
   let tokenNotValid = false;
   for (const [permission, path] of probes) {
@@ -261,7 +331,7 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
         error instanceof PlatformCloudflareApiError &&
         (error.status === 401 || error.status === 403)
       ) {
-        missing.push(permission);
+        denials.push({ permission, status: error.status });
         denial ??= error;
         // A token that is not valid gets 403 on the zone read, but 401 on
         // the Email Routing reads. A valid token without access gets 403.
@@ -270,25 +340,34 @@ export async function verifyPlatformRuntimeTokenEmailPermissions(
     }
   }
   if (denial) {
-    const denied = `Cloudflare denied: ${missing.join(', ')} (HTTP ${denial.status}).`;
+    const denied = `Cloudflare denied: ${denials.map((entry) => entry.permission).join(', ')} (HTTP ${denial.status}).`;
+    const name = describePlatformCredential(
+      input.savedToken
+        ? { role: 'runtime', source: 'saved' }
+        : (input.credential ?? { role: 'runtime' }),
+    );
     throw new PlatformRuntimeTokenEmailPermissionError(
       input.savedToken
-        ? `platform: The runtime API token saved on this machine cannot use platform email. ${denied} Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.`
-        : `platform: The runtime API token cannot use platform email. ${denied} Check that the token is valid and that its zone permissions include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.`,
+        ? `platform: The ${name} cannot use platform email. ${denied} Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.`
+        : `platform: The ${name} cannot use platform email. ${denied} Check that the token is valid and that its zone permissions include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.`,
       tokenNotValid,
       { cause: denial },
+      denials,
     );
   }
 }
 
-function runtimeTokenPreflightError(permission: string, cause: unknown): Error {
+function runtimeTokenPreflightError(
+  permission: string,
+  cause: unknown,
+  credential: PlatformCredentialLabel,
+): Error {
   const status = cause instanceof PlatformCloudflareApiError ? cause.status : null;
+  const name = describePlatformCredential(credential);
   const message =
-    status === 401 || status === 403
-      ? `Cloudflare denied the runtime-token check (HTTP ${status}). Check that the token is valid, scoped to this account, and includes ${permission}.`
-      : status === 429
-        ? `Cloudflare rate-limited the runtime-token check for ${permission} (HTTP 429). Retry shortly; this does not mean the token is missing a permission.`
-        : `Could not complete the runtime-token check for ${permission}${status === null ? '' : ` (Cloudflare HTTP ${status})`}. Retry the check; this failure does not establish that a permission is missing.`;
+    status === 429
+      ? `Cloudflare rate-limited the check of the ${name} for ${permission} (HTTP 429). Retry shortly; this does not mean the token is missing a permission.`
+      : `Could not complete the check of the ${name} for ${permission}${status === null ? '' : ` (Cloudflare HTTP ${status})`}. Retry the check; this failure does not establish that a permission is missing.`;
   return new Error(`platform: ${message}`, { cause });
 }
 
@@ -297,10 +376,22 @@ export class PlatformCloudflareClient {
   readonly #fetcher: typeof fetch;
   readonly #token: string;
   readonly #aiGatewayClient?: PlatformCloudflareClient;
+  readonly #credential?: PlatformCredentialLabel;
 
   constructor(
     token: string,
-    options?: { apiBase?: string; fetcher?: typeof fetch; aiGatewayToken?: string },
+    options?: {
+      apiBase?: string;
+      fetcher?: typeof fetch;
+      aiGatewayToken?: string;
+      /** Where the AI Gateway token came from. */
+      aiGatewayCredential?: PlatformCredentialLabel;
+      /**
+       * Where the token came from. A 401 or 403 answer then names it and
+       * says what to do.
+       */
+      credential?: PlatformCredentialLabel;
+    },
   ) {
     if (!token) {
       throw new Error(
@@ -310,20 +401,31 @@ export class PlatformCloudflareClient {
     this.#token = token;
     this.apiBaseUrl = (options?.apiBase ?? resolvePinnedApiBaseUrl()).replace(/\/+$/, '');
     this.#fetcher = options?.fetcher ?? fetch;
+    this.#credential = options?.credential;
     if (options?.aiGatewayToken) {
+      const aiGatewayCredential = options.aiGatewayCredential ?? { role: 'runtime' };
       this.#aiGatewayClient = new PlatformCloudflareClient(options.aiGatewayToken, {
         apiBase: this.apiBaseUrl,
         fetcher: this.#fetcher,
+        credential: {
+          ...aiGatewayCredential,
+          aiGatewayFor: this.#credential ?? { role: 'management' },
+        },
       });
     }
   }
 
   /** Keep operator auth for infrastructure; use the existing runtime credential only for AI Gateway. */
-  withAiGatewayToken(token: string): PlatformCloudflareClient {
+  withAiGatewayToken(
+    token: string,
+    credential?: PlatformCredentialLabel,
+  ): PlatformCloudflareClient {
     return new PlatformCloudflareClient(this.#token, {
       apiBase: this.apiBaseUrl,
       fetcher: this.#fetcher,
       aiGatewayToken: token,
+      ...(credential ? { aiGatewayCredential: credential } : {}),
+      ...(this.#credential ? { credential: this.#credential } : {}),
     });
   }
 
@@ -335,21 +437,26 @@ export class PlatformCloudflareClient {
     path: string,
     init?: RequestInit,
   ): Promise<{ result: T; resultInfo: CloudflareEnvelope<T>['result_info'] }> {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${this.#token}`);
+    }
+    // FormData sets its own multipart boundary.
+    if (typeof init?.body === 'string' && !headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await this.#fetcher(`${this.apiBaseUrl}${path}`, {
       ...init,
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${this.#token}`,
-        // FormData sets its own multipart boundary.
-        ...(typeof init?.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
-        ...init?.headers,
-      },
+      headers,
       signal: init?.signal ?? AbortSignal.timeout(30_000),
       redirect: 'manual',
     });
     let envelope: CloudflareEnvelope<T>;
     try {
-      envelope = (await response.json()) as CloudflareEnvelope<T>;
+      envelope = await response.json<CloudflareEnvelope<T>>();
     } catch {
       throw new PlatformCloudflareApiError(
         `Cloudflare returned a non-JSON response (HTTP ${response.status}).`,
@@ -360,7 +467,7 @@ export class PlatformCloudflareClient {
     if (!response.ok || envelope.success !== true || envelope.result === undefined) {
       const details = cloudflareErrorDetails(envelope, response.status);
       const requestPath = path.split('?')[0];
-      const error = new PlatformCloudflareApiError(
+      const error = this.#apiError(
         `Cloudflare API error: ${details} (HTTP ${response.status}; ${init?.method ?? 'GET'} ${requestPath}).`,
         response.status,
         requestPath,
@@ -372,6 +479,24 @@ export class PlatformCloudflareClient {
       throw error;
     }
     return { result: envelope.result, resultInfo: envelope.result_info };
+  }
+
+  /**
+   * An API error that, on 401 or 403, names the credential Cloudflare
+   * rejected and how to fix it. The error keeps its class, status and path:
+   * callers decide on those.
+   */
+  #apiError(message: string, status: number, requestPath: string): PlatformCloudflareApiError {
+    const credential =
+      this.#credential && (status === 401 || status === 403) ? this.#credential : undefined;
+    return new PlatformCloudflareApiError(
+      credential
+        ? `${message} ${platformCredentialHelp(credential, status, requestPath)}`
+        : message,
+      status,
+      requestPath,
+      credential,
+    );
   }
 
   async listAccounts(): Promise<ReadonlyArray<CloudflareAccount>> {
@@ -399,11 +524,15 @@ export class PlatformCloudflareClient {
         `/accounts/${encodeURIComponent(accountId)}/workers/subdomain`,
       );
     } catch (error) {
-      const status = error instanceof PlatformCloudflareApiError ? error.status : null;
+      const apiError = error instanceof PlatformCloudflareApiError ? error : undefined;
+      const status = apiError?.status ?? null;
       const reason = status === null ? 'the request failed' : `HTTP ${status}`;
+      // Keep the name of the rejected credential: the CLI prints only this message.
       const guidance =
         status === 401 || status === 403
-          ? 'Check your Cloudflare login or API token permissions for this account, then rerun the command.'
+          ? apiError?.credential
+            ? platformCredentialHelp(apiError.credential, status, apiError.requestPath)
+            : 'Check your Cloudflare login or API token permissions for this account, then rerun the command.'
           : status === 404
             ? `Open ${setupUrl} once to provision your account for Workers automatically, then retry the install.`
             : 'Rerun the command. If the dashboard already shows a subdomain, no Workers onboarding change is needed.';
@@ -625,7 +754,7 @@ export class PlatformCloudflareClient {
     const after = await this.listWorkerRoutes(zoneId);
     for (const pattern of patterns) {
       const matches = after.filter((route) => route.pattern === pattern);
-      if (matches.length !== 1 || matches[0]!.script !== workerName) {
+      if (matches.length !== 1 || matches[0].script !== workerName) {
         throw new PlatformWorkerRoutesChangedError(
           `platform: Worker route ${JSON.stringify(pattern)} changed concurrently after publication; retaining live routes for safe reconciliation.`,
         );
@@ -689,11 +818,11 @@ export class PlatformCloudflareClient {
         if (!Array.isArray(result)) {
           throw new Error('platform: Cloudflare returned an invalid certificate inventory.');
         }
-        for (const entry of result) {
+        for (const entry of result as ReadonlyArray<Record<string, unknown>>) {
           const certificates =
             kind === 'ssl/certificate_packs'
               ? Array.isArray(entry.certificates)
-                ? entry.certificates
+                ? (entry.certificates as Array<unknown>)
                 : []
               : [entry];
           if (certificates.some(covers)) {
@@ -776,7 +905,7 @@ export class PlatformCloudflareClient {
         | ReadonlyArray<{ creation_date?: unknown; name?: unknown }>
       >(`/accounts/${encodeURIComponent(accountId)}/r2/buckets?${query}`);
       const page = Array.isArray(result)
-        ? result
+        ? (result as ReadonlyArray<{ creation_date?: unknown; name?: unknown }>)
         : 'buckets' in result
           ? (result.buckets ?? [])
           : [];
@@ -940,6 +1069,20 @@ export class PlatformCloudflareClient {
     );
   }
 
+  async setHyperdriveOriginConnectionLimit(
+    accountId: string,
+    id: string,
+    limit: number,
+  ): Promise<void> {
+    await this.request(
+      `/accounts/${encodeURIComponent(accountId)}/hyperdrive/configs/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ origin_connection_limit: limit }),
+      },
+    );
+  }
+
   async putKvValue(
     accountId: string,
     namespaceId: string,
@@ -974,7 +1117,7 @@ export class PlatformCloudflareClient {
       if (!Array.isArray(result)) {
         throw new Error('platform: Cloudflare returned an invalid KV key list.');
       }
-      for (const entry of result) {
+      for (const entry of result as ReadonlyArray<{ name?: unknown; metadata?: unknown }>) {
         const name = requiredString(entry.name, 'KV key name');
         keys.push(entry.metadata === undefined ? { name } : { name, metadata: entry.metadata });
       }
@@ -1021,20 +1164,19 @@ export class PlatformCloudflareClient {
   }
 
   async getKvValue(accountId: string, namespaceId: string, key: string): Promise<string | null> {
-    const response = await this.#fetcher(
-      `${this.apiBaseUrl}/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}/values/${encodeURIComponent(key)}`,
-      {
-        headers: { Authorization: `Bearer ${this.#token}` },
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
+    const path = `/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}/values/${encodeURIComponent(key)}`;
+    const response = await this.#fetcher(`${this.apiBaseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${this.#token}` },
+      signal: AbortSignal.timeout(30_000),
+    });
     if (response.status === 404) {
       return null;
     }
     if (!response.ok) {
-      throw new PlatformCloudflareApiError(
+      throw this.#apiError(
         `Cloudflare API error reading the installation manifest (HTTP ${response.status}).`,
         response.status,
+        path,
       );
     }
     return response.text();
@@ -1046,41 +1188,39 @@ export class PlatformCloudflareClient {
     key: string,
     value: string,
   ): Promise<void> {
-    const response = await this.#fetcher(
-      `${this.apiBaseUrl}/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/objects/${encodeR2ObjectKey(key)}`,
-      {
-        body: value,
-        headers: {
-          Authorization: `Bearer ${this.#token}`,
-          'Content-Type': 'application/json',
-        },
-        method: 'PUT',
-        signal: AbortSignal.timeout(30_000),
+    const path = `/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/objects/${encodeR2ObjectKey(key)}`;
+    const response = await this.#fetcher(`${this.apiBaseUrl}${path}`, {
+      body: value,
+      headers: {
+        Authorization: `Bearer ${this.#token}`,
+        'Content-Type': 'application/json',
       },
-    );
+      method: 'PUT',
+      signal: AbortSignal.timeout(30_000),
+    });
     if (!response.ok) {
-      throw new PlatformCloudflareApiError(
+      throw this.#apiError(
         `Cloudflare API error writing the R2 ownership marker (HTTP ${response.status}).`,
         response.status,
+        path,
       );
     }
   }
 
   async getR2Object(accountId: string, bucketName: string, key: string): Promise<string | null> {
-    const response = await this.#fetcher(
-      `${this.apiBaseUrl}/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/objects/${encodeR2ObjectKey(key)}`,
-      {
-        headers: { Authorization: `Bearer ${this.#token}` },
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
+    const path = `/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/objects/${encodeR2ObjectKey(key)}`;
+    const response = await this.#fetcher(`${this.apiBaseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${this.#token}` },
+      signal: AbortSignal.timeout(30_000),
+    });
     if (response.status === 404) {
       return null;
     }
     if (!response.ok) {
-      throw new PlatformCloudflareApiError(
+      throw this.#apiError(
         `Cloudflare API error reading the R2 ownership marker (HTTP ${response.status}).`,
         response.status,
+        path,
       );
     }
     return response.text();
@@ -1168,34 +1308,31 @@ export class PlatformCloudflareClient {
       if (cursor) {
         query.set('cursor', cursor);
       }
-      const response = await this.#fetcher(
-        `${this.apiBaseUrl}/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/objects?${query}`,
-        {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${this.#token}`,
-          },
-          signal: AbortSignal.timeout(30_000),
+      const path = `/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(bucketName)}/objects`;
+      const response = await this.#fetcher(`${this.apiBaseUrl}${path}?${query}`, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${this.#token}`,
         },
-      );
+        signal: AbortSignal.timeout(30_000),
+      });
       if (response.status === 404) {
         return;
       }
-      const envelope = (await response.json()) as CloudflareEnvelope<
-        ReadonlyArray<{ key?: unknown }>
-      >;
+      const envelope = await response.json<CloudflareEnvelope<ReadonlyArray<{ key?: unknown }>>>();
       if (!response.ok || envelope.success !== true || !Array.isArray(envelope.result)) {
         const details =
           envelope.errors
             ?.map((error) => error.message)
             .filter(Boolean)
             .join(', ') || `HTTP ${response.status}`;
-        throw new PlatformCloudflareApiError(
+        throw this.#apiError(
           `Cloudflare API error listing R2 objects: ${details}`,
           response.status,
+          path,
         );
       }
-      const keys = envelope.result
+      const keys = (envelope.result as ReadonlyArray<{ key?: unknown }>)
         .map((object) => requiredString(object.key, 'R2 object key'))
         .filter((key) => !preservedKeys.has(key));
       if (keys.length > 0) {
@@ -1273,15 +1410,15 @@ export class PlatformCloudflareClient {
     if (response.status === 404) {
       return;
     }
-    let envelope: CloudflareEnvelope<unknown> = {};
+    let envelope: CloudflareEnvelope<unknown>;
     try {
-      envelope = (await response.json()) as CloudflareEnvelope<unknown>;
+      envelope = await response.json<CloudflareEnvelope<unknown>>();
     } catch {
       // Judge an empty body by its status alone.
       envelope = { success: response.ok };
     }
     if (!response.ok || envelope.success !== true) {
-      throw new PlatformCloudflareApiError(
+      throw this.#apiError(
         `Cloudflare API error: ${cloudflareErrorDetails(envelope, response.status)} (HTTP ${response.status}; DELETE ${path}).`,
         response.status,
         path,
@@ -1452,18 +1589,19 @@ export class PlatformCloudflareClient {
         break;
       }
     }
-    return entries
-      .filter(
-        (entry) =>
-          !(Array.isArray(entry.matchers) ? entry.matchers : []).some(
-            (matcher: unknown) => (matcher as { type?: unknown } | null)?.type === 'all',
-          ),
+    return entries.flatMap((entry) =>
+      !(Array.isArray(entry.matchers) ? entry.matchers : []).some(
+        (matcher: unknown) => (matcher as { type?: unknown } | null)?.type === 'all',
       )
-      .map((entry) => ({
-        // `tag` is the deprecated name of `id`.
-        id: requiredString(entry.id ?? entry.tag, 'Email Routing rule id'),
-        ...parseEmailRoutingTarget(entry),
-      }));
+        ? [
+            {
+              // `tag` is the deprecated name of `id`.
+              id: requiredString(entry.id ?? entry.tag, 'Email Routing rule id'),
+              ...parseEmailRoutingTarget(entry),
+            },
+          ]
+        : [],
+    );
   }
 
   async deleteEmailRoutingRule(zoneId: string, ruleId: string): Promise<void> {
@@ -1565,7 +1703,7 @@ function cloudflarePrerequisiteHelp(
   if (scope !== 'accounts' || !accountId) {
     return;
   }
-  if (service === 'r2' && envelope.errors?.some((error) => error.code === 10042)) {
+  if (service === 'r2' && envelope.errors?.some((error) => error.code === 10_042)) {
     return (
       'Cloudflare R2 is not enabled for this account (code 10042). ' +
       `Complete R2 activation at ${formatUrl(`https://dash.cloudflare.com/${accountId}/r2/overview`)}, then retry the same command.`
@@ -1574,7 +1712,7 @@ function cloudflarePrerequisiteHelp(
   if (
     service === 'workers' &&
     resource === 'dispatch' &&
-    envelope.errors?.some((error) => error.code === 10121)
+    envelope.errors?.some((error) => error.code === 10_121)
   ) {
     return (
       'Cloudflare Workers for Platforms requires a paid subscription for this account (code 10121). ' +
@@ -1603,7 +1741,7 @@ function encodeR2ObjectKey(key: string): string {
  * An AI Gateway creation time as ISO 8601 UTC. Cloudflare reports it without a
  * zone ("2026-10-05 18:29:14"), which JavaScript would read as local time.
  */
-function withCreatedAt(value: unknown): { createdAt?: string } {
+function withCreatedAt(value: unknown) {
   if (typeof value !== 'string') {
     return {};
   }
@@ -1653,14 +1791,16 @@ function parseDnsRecord(value: Record<string, unknown>): CloudflareDnsRecord {
   };
 }
 
-export function parsePostgresConnectionString(value: string): {
+type PostgresConnectionSettings = {
   database: string;
   host: string;
   mtls?: Readonly<{ sslmode: 'require' }>;
   password: string;
   port: number;
   user: string;
-} {
+};
+
+export function parsePostgresConnectionString(value: string): PostgresConnectionSettings {
   let url: URL;
   try {
     url = new URL(value);
@@ -1772,9 +1912,13 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
     user: typeof record.user === 'string' && record.user ? record.user : null,
   };
   let parsedOrigin: CloudflareHyperdriveOrigin;
-  if (record.service_id != null) {
+  if (record.service_id !== null && record.service_id !== undefined) {
     const serviceId = requiredString(record.service_id, 'Hyperdrive origin service ID');
-    if (record.host != null || record.port != null || record.access_client_id != null) {
+    if (
+      (record.host !== null && record.host !== undefined) ||
+      (record.port !== null && record.port !== undefined) ||
+      (record.access_client_id !== null && record.access_client_id !== undefined)
+    ) {
       throw new Error(
         'platform: Cloudflare Hyperdrive config mixes Workers VPC and host origin fields.',
       );
@@ -1786,11 +1930,11 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
         ? record.access_client_id
         : undefined;
     const port =
-      accessClientId && record.port == null
+      accessClientId && (record.port === null || record.port === undefined)
         ? null
         : typeof record.port === 'number' || typeof record.port === 'string'
           ? Number(record.port)
-          : NaN;
+          : Number.NaN;
     if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
       throw new Error('platform: Cloudflare Hyperdrive config has an invalid origin port.');
     }
@@ -1810,5 +1954,10 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
       !Array.isArray(value.caching) &&
       (value.caching as Record<string, unknown>).disabled === true,
     origin: parsedOrigin,
+    ...(typeof value.origin_connection_limit === 'number' &&
+    Number.isInteger(value.origin_connection_limit) &&
+    value.origin_connection_limit > 0
+      ? { originConnectionLimit: value.origin_connection_limit }
+      : {}),
   };
 }

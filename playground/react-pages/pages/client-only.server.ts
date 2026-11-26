@@ -1,4 +1,5 @@
-import { defineHandler, defineHead, type InferProps } from 'void';
+import { defineHandler, defineHead } from 'void';
+import type { InferProps } from 'void';
 
 export const ssr = false;
 

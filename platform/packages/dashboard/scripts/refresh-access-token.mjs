@@ -60,7 +60,7 @@ function runCloudflared(args, options = {}) {
   const result = spawnSync('cloudflared', args, {
     encoding: 'utf8',
     stdio: options.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
-    timeout: options.timeoutMs ?? 5_000,
+    timeout: options.timeoutMs ?? 5000,
   });
   if (result.error || result.status !== 0) {
     return null;
@@ -69,12 +69,16 @@ function runCloudflared(args, options = {}) {
   return out ? out : null;
 }
 
+/**
+ * @param {string} contents
+ * @param {string} key
+ */
 function removeDevVar(contents, key) {
-  return contents.replace(new RegExp(`^[\\t ]*${key}[\\t ]*=.*(?:\\r?\\n|$)`, 'gm'), '');
+  return contents.replaceAll(new RegExp(`^[\\t ]*${key}[\\t ]*=.*(?:\\r?\\n|$)`, 'gm'), '');
 }
 
 function setDevVar(contents, key, value) {
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\\"');
+  const escaped = value.replaceAll('\\', String.raw`\\`).replaceAll('"', '\\\"');
   const line = `${key}="${escaped}"`;
   return `${removeDevVar(contents, key).replace(/\s*$/, '')}\n${line}\n`;
 }

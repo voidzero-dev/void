@@ -1,6 +1,7 @@
 import type { IconOption, VoidZeroThemeConfig } from '@voidzero-dev/vitepress-theme';
 import { extendConfig } from '@voidzero-dev/vitepress-theme/config.js';
-import { defineConfigWithTheme, type DefaultTheme } from 'vitepress';
+import { defineConfigWithTheme } from 'vitepress';
+import type { DefaultTheme } from 'vitepress';
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons';
 import llmstxt from 'vitepress-plugin-llms';
 import { createCodeHighlighter } from './highlight.ts';
@@ -109,6 +110,7 @@ const referenceItems: Array<SidebarItem> = [
       { text: 'Platform Configuration', link: '/reference/cli/platform-config' },
       { text: 'Platform Users and Projects', link: '/reference/cli/platform-users' },
       { text: 'Project Zero Trust', link: '/reference/cli/platform-zero-trust' },
+      { text: 'Platform Security Audits', link: '/reference/cli/platform-security' },
       { text: 'Platform Operations', link: '/reference/cli/platform-operations' },
       { text: 'Platform Email', link: '/reference/cli/platform-email' },
     ],
@@ -195,6 +197,7 @@ const platformSidebar = [
       { text: 'Users and Projects', link: '/guide/platform/administration/projects' },
       { text: 'Plans and Limits', link: '/guide/platform/administration/plans' },
       { text: 'Project Zero Trust', link: '/guide/platform/administration/zero-trust' },
+      { text: 'Security Audits', link: '/guide/platform/administration/security-audits' },
       { text: 'Email', link: '/guide/platform/administration/email' },
       { text: 'Operations', link: '/guide/platform/administration/operations' },
     ],
@@ -402,7 +405,7 @@ export default extendConfig(
           },
         ],
         '/integrations/': (() => {
-          const frameworkIcons: Record<string, IconOption> = {
+          const frameworkIcons: Record<string, string | { light: string; dark: string }> = {
             'TanStack Start': 'simple-icons:tanstack',
             'React Router': {
               light: 'logos:react-router',
@@ -413,7 +416,7 @@ export default extendConfig(
             Nuxt: 'logos:nuxt-icon',
             Analog: 'logos:analog',
           };
-          const itemIcons: Record<string, IconOption> = {
+          const itemIcons: Record<string, string> = {
             'Coding Agents': 'lucide:bot',
             Hono: 'logos:hono',
             Cloudflare: 'devicon:cloudflare',

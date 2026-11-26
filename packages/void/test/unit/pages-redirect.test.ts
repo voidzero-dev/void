@@ -39,6 +39,7 @@ it.each([301, 302, 303, 307, 308] as const)(
       });
       const get = status === 303 || ((status === 301 || status === 302) && method === 'POST');
       expect(result.redirectedTo).toBe('https://app.test/to#details');
+      expect(result.method).toBe(get ? 'GET' : method);
       expect(await result.response.json()).toEqual({
         method: get ? 'GET' : method,
         body: get ? '' : '{"id":42}',

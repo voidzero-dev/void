@@ -52,7 +52,7 @@ type DeliveryItem = Readonly<{
 
 type FailureReason = 'network-error' | 'http-4xx' | 'http-5xx' | 'exhausted' | 'jwt-error';
 
-function errInfo(err: unknown): { name?: string; message: string } {
+function errInfo(err: unknown) {
   if (err instanceof Error) {
     return { name: err.name, message: err.message };
   }
@@ -102,7 +102,7 @@ export function parseNextCursorUrl(linkHeader: string | null): string | null {
   return null;
 }
 
-function appJwtHeaders(appJwt: string): Record<string, string> {
+function appJwtHeaders(appJwt: string) {
   return {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${appJwt}`,
@@ -122,7 +122,7 @@ async function fetchDeliveriesPage(
     try {
       const res = await fetch(url, { headers: appJwtHeaders(appJwt) });
       if (res.ok) {
-        const data = (await res.json().catch(() => [])) as unknown;
+        const data = await res.json<unknown>().catch(() => []);
         const items = Array.isArray(data) ? (data as Array<DeliveryItem>) : [];
         return { items, next: parseNextCursorUrl(res.headers.get('Link')) };
       }
@@ -147,7 +147,9 @@ async function fetchDeliveriesPage(
       logFailure('webhook-deliveries-list', 'network-error', { url, attempt, err: errInfo(err) });
     }
     if (attempt < WEBHOOK_DELIVERY_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS);
+      });
     }
   }
   logFailure('webhook-deliveries-list', 'exhausted', {
@@ -260,7 +262,9 @@ export async function redeliverWebhookDelivery(
       logFailure('webhook-redeliver', 'network-error', { deliveryId, attempt, err: errInfo(err) });
     }
     if (attempt < WEBHOOK_DELIVERY_RETRY_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS));
+      await new Promise((r) => {
+        setTimeout(r, WEBHOOK_DELIVERY_RETRY_DELAY_MS);
+      });
     }
   }
   logFailure('webhook-redeliver', 'exhausted', {

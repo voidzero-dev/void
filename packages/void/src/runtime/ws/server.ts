@@ -1,7 +1,8 @@
 import { DurableObject as CloudflareDurableObject } from 'cloudflare:workers';
 import type { StandardSchemaV1 } from '../../standard-schema.ts';
 import type { VoidAuthEnv, VoidAuthRuntimeOptions } from '../auth/better-auth-shared.ts';
-import { authContext, type AuthState, type AuthUser } from '../auth/index.ts';
+import { authContext } from '../auth/index.ts';
+import type { AuthState, AuthUser } from '../auth/index.ts';
 import { withRuntimeEnv } from '../env/runtime.ts';
 import type { CloudEnv } from '../handler/index.ts';
 import type {
@@ -68,17 +69,16 @@ type StoredConnection = {
   state?: unknown;
 };
 
-function matchRoute(
-  pattern: string,
-  pathname: string,
-): { matched: boolean; params: Record<string, string> } {
+type RoomRouteMatch = { matched: boolean; params: Record<string, string> };
+
+function matchRoute(pattern: string, pathname: string): RoomRouteMatch {
   const patternSegments = pattern.split('/').filter(Boolean);
   const pathSegments = pathname.split('/').filter(Boolean);
   const params: Record<string, string> = {};
 
   let i = 0;
   for (; i < patternSegments.length; i++) {
-    const patternSegment = patternSegments[i]!;
+    const patternSegment = patternSegments[i];
     const pathSegment = pathSegments[i];
 
     if (patternSegment === '*') {
@@ -90,7 +90,7 @@ function matchRoute(
       return { matched: true, params };
     }
 
-    if (pathSegment == null) {
+    if (pathSegment === null || pathSegment === undefined) {
       return { matched: false, params: {} };
     }
 
@@ -167,7 +167,10 @@ const WEB_SOCKET_ROUTES_SYMBOL: unique symbol = Symbol.for('void.webSocketRoutes
 const sharedWebSocketRoutes = globalThis as {
   [WEB_SOCKET_ROUTES_SYMBOL]?: Map<string, WebSocketRouteMeta>;
 };
-const webSocketRoutes = (sharedWebSocketRoutes[WEB_SOCKET_ROUTES_SYMBOL] ??= new Map());
+const webSocketRoutes = (sharedWebSocketRoutes[WEB_SOCKET_ROUTES_SYMBOL] ??= new Map<
+  string,
+  WebSocketRouteMeta
+>());
 
 /** @internal Called by the generated route table. */
 export function __registerWebSocketRoutes(routes: Array<WebSocketRouteMeta>): void {
@@ -210,7 +213,7 @@ function withAuthState<T>(state: AuthState | null, fn: () => Promise<T> | T): Pr
 
 function getStoredConnection(webSocket: WebSocket): StoredConnection {
   const stored = (
-    webSocket as WebSocket & {
+    webSocket as {
       deserializeAttachment?: () => StoredConnection | undefined;
     }
   ).deserializeAttachment?.();
@@ -392,7 +395,7 @@ export function createWebSocketDurableObject(
       const roomId = buildWebSocketInstanceId(instanceRoute, params);
       const authState =
         authRuntime && resolveAuthState
-          ? await resolveAuthState(request, this.env as VoidAuthEnv, authRuntime)
+          ? await resolveAuthState(request, this.env, authRuntime)
           : null;
       const user = authState?.user ?? null;
       const upgrade = request.headers.get('upgrade');
@@ -426,7 +429,8 @@ export function createWebSocketDurableObject(
         return new Response(null, { status: 101, webSocket: client });
       }
 
-      if (!definition.onRequest) {
+      const onRequest = definition.onRequest;
+      if (!onRequest) {
         return new Response('Upgrade Required', { status: 426 });
       }
 
@@ -438,7 +442,7 @@ export function createWebSocketDurableObject(
         authState,
       };
       const ctx = this.#context(request, new WebSocketPair()[1], stored);
-      return withAuthState(authState, () => definition.onRequest!(ctx as never));
+      return withAuthState(authState, () => onRequest.call(definition, ctx as never));
     }
 
     webSocketMessage(

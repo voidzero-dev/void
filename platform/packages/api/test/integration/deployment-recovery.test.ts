@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
-import { getDeployment, getProject, type Db } from '../../src/db.ts';
+import { getDeployment, getProject } from '../../src/db.ts';
 import { replayDeploymentCutover } from '../../src/deploy/recovery.ts';
 import { settleExpiredDeployment } from '../../src/deployment-recovery.ts';
 import type { ApiEnv } from '../../src/env.ts';
@@ -16,8 +16,9 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
+  withTestTransaction,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let project: Awaited<ReturnType<typeof createTestProject>>;
@@ -215,20 +216,13 @@ test('reconciles a lost cleanup commit acknowledgement without another deploymen
   const candidate = await createTestDeployment(env.db, project.id, 'uploading');
   const realTransaction = env.db.transaction.bind(env.db);
   let injected = false;
-  const wrappedDb = new Proxy(env.db, {
-    get(target, property, receiver) {
-      if (property === 'transaction') {
-        return async (callback: Parameters<Db['transaction']>[0]) => {
-          const result = await realTransaction(callback);
-          if (!injected && (await getDeployment(env.db, candidate.id))?.status === 'failed') {
-            injected = true;
-            throw new Error('cleanup COMMIT acknowledgement lost');
-          }
-          return result;
-        };
-      }
-      return Reflect.get(target, property, receiver);
-    },
+  const wrappedDb = withTestTransaction(env.db, async (callback) => {
+    const result = await realTransaction(callback);
+    if (!injected && (await getDeployment(env.db, candidate.id))?.status === 'failed') {
+      injected = true;
+      throw new Error('cleanup COMMIT acknowledgement lost');
+    }
+    return result;
   });
   const fetch = providerDelete(404);
   await expect(
@@ -417,7 +411,7 @@ test.each([
           }
           return new Response('{}', { status: 200 });
         },
-      } as unknown as DurableObjectStub;
+      };
     });
 
     const lockedProject = (await getProject(env.db, project.id))!;
@@ -439,7 +433,7 @@ test.each([
       proxyToken: heldToken,
     });
     expect(syncBodies).toHaveLength(1);
-    const sync = JSON.parse(syncBodies[0]!) as Record<string, unknown>;
+    const sync = JSON.parse(syncBodies[0]) as Record<string, unknown>;
     // Exactly one token: the one the Worker holds.
     expect(Object.keys(sync).filter((key) => key.startsWith('proxyToken'))).toEqual(['proxyToken']);
     expect(sync.proxyToken).toBe(heldToken);

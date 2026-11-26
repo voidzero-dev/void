@@ -4,8 +4,8 @@ import {
   platformWorkersDevAliasKey,
   readPlatformApplication,
   PLATFORM_PROJECT_INGRESS_SOURCE,
-  type PlatformApplicationProject,
 } from '@void/platform';
+import type { PlatformApplicationProject } from '@void/platform';
 import type { ApiEnv } from './env.ts';
 import { cfFetch, CF_API_BASE, CloudflareApiError } from './provisioning/cloudflare-api.ts';
 
@@ -76,7 +76,7 @@ export async function ensureProjectIngress(
       headers: { Authorization: `Bearer ${env.CF_API_TOKEN}`, 'If-None-Match': '*' },
       body: form,
     });
-    const body = (await response.json()) as { success?: boolean };
+    const body = await response.json<{ success?: boolean }>();
     if (!response.ok || body.success !== true) {
       throw new Error(`Could not provision workers.dev ingress ${name} (HTTP ${response.status}).`);
     }

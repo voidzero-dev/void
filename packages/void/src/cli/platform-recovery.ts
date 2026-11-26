@@ -1,8 +1,5 @@
-import {
-  parsePlatformInstallationManifest,
-  setInstallationEndpoints,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { parsePlatformInstallationManifest, setInstallationEndpoints } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import { REMOTE_INSTALLATION_MANIFEST_KEY } from './platform-installer.ts';
@@ -11,7 +8,8 @@ import {
   recoverDurablyMarkedProvisionIntents,
   verifyPlatformInstallationOwnership,
 } from './platform-management.ts';
-import { createPlatformInstallPlan, type PlatformInstallPlan } from './platform-plan.ts';
+import { createPlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformInstallPlan } from './platform-plan.ts';
 import {
   acquirePlatformLifecycleLock,
   listInstallationManifests,
@@ -75,6 +73,7 @@ export async function recoverPlatformInstallations(
     } catch (error) {
       throw new Error(
         `platform: Routing namespace ${namespace.name} contains invalid Void ownership metadata: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
     if (
@@ -216,7 +215,7 @@ export async function verifyInstallationEndpoint(
       `platform: Installation ${manifest.id} is not reachable (HTTP ${response.status}).`,
     );
   }
-  const value = (await response.json()) as { installationId?: unknown };
+  const value = await response.json<{ installationId?: unknown }>();
   if (value.installationId !== manifest.id) {
     throw new Error(`platform: Installation ${manifest.id} endpoint identity does not match.`);
   }

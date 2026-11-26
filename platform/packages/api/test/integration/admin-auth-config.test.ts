@@ -14,7 +14,8 @@ import {
   platformAuthSettings,
   platformLoginConnections,
 } from '../../src/schema.ts';
-import { clearTables, createTestUser, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import { clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { nativeFormSubmission } from './native-form-browser.ts';
 
 let env: TestEnv;
@@ -171,7 +172,7 @@ describe('browser authentication configuration', () => {
   });
 
   it('rejects an unscoped social login as company admission and accepts an explicitly trusted OIDC connection', async () => {
-    const initial = (await env.db.select().from(platformAuthSettings))[0]!;
+    const initial = (await env.db.select().from(platformAuthSettings))[0];
     expect(
       (
         await request('/admin/signup-control/policy', {
@@ -198,7 +199,7 @@ describe('browser authentication configuration', () => {
       .update(platformLoginConnections)
       .set({ enabled: true, active_revision: 1 })
       .where(eq(platformLoginConnections.id, 'company'));
-    const latest = (await env.db.select().from(platformAuthSettings))[0]!;
+    const latest = (await env.db.select().from(platformAuthSettings))[0];
     expect(
       (
         await request('/admin/signup-control/policy', {

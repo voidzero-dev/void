@@ -9,20 +9,21 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
+import type { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
-import { createJiti } from 'jiti';
 import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
+import type { QueryResult } from 'pg';
 import {
   readConfig,
   getDatabaseCasing,
   getDatabaseDialect,
   resolveBindingNames,
-  type DatabaseCasing,
-  type DatabaseDialect,
 } from '../config.ts';
-import type { DatabaseProviderAdapter, DatabaseProviderDialect } from '../database-provider.ts';
-import { resolveLocalD1Target, type LocalD1Target } from '../local-d1.ts';
+import type { DatabaseCasing, DatabaseDialect } from '../config.ts';
+import type { DatabaseProviderAdapter } from '../database-provider.ts';
+import { resolveLocalD1Target } from '../local-d1.ts';
+import type { LocalD1Target } from '../local-d1.ts';
 import {
   collectMigrations,
   readJournal,
@@ -46,12 +47,27 @@ import {
 import { PlatformApiError, PlatformClient } from './client.ts';
 import type { DbArgs } from './db-args.ts';
 import {
+  formatStatementResults,
+  MYSQL_SERVER_MODE_QUERY,
+  mySqlJsonTypeCast,
+  mySqlServerMode,
+  mySqlStatementResults,
+  mySqlStatements,
+  needsMySqlServerMode,
+  pgJsonTypes,
+  pgStatementResults,
+  runSqliteStatements,
+  splitSqliteStatements,
+} from './db-execute-results.ts';
+import type { MySqlServerMode, MySqlStatements, StatementResult } from './db-execute-results.ts';
+import {
   assertPgExportableSchema,
   exportPgConstraints,
   exportPgSequences,
   quoteSqlIdentifier,
   quoteSqlString,
 } from './db-export-sequences.ts';
+import type { SeedModuleImporter } from './db-seed-loader.ts';
 import { formatTimestamp } from './gen.ts';
 import { Buffer } from './node-buffer.ts';
 import { printSuccess, dim, formatCount, formatUrl, getErrorMessage, pc } from './output.ts';
@@ -124,7 +140,6 @@ type SeedTarget = {
 };
 
 type PgClient = {
-  connect(): Promise<unknown>;
   end(): Promise<void>;
   query<T extends Record<string, unknown> = Record<string, unknown>>(
     sql: string,
@@ -145,7 +160,7 @@ function getLocalDatabaseUrl(root: string, dialect: 'postgresql' | 'mysql'): str
 async function withPgClient<T>(root: string, fn: (client: PgClient) => Promise<T>): Promise<T> {
   const url = getLocalDatabaseUrl(root, 'postgresql');
   const { Client } = await import('pg');
-  const client: PgClient = new Client({ connectionString: url });
+  const client = new Client({ connectionString: url });
   await client.connect();
   try {
     return await fn(client);
@@ -187,7 +202,19 @@ function validatePendingMigrations(
   validateMigrations(pending);
 }
 
-export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
+export async function runDbCommand(
+  root: string,
+  args: DbArgs,
+  writeResults: (text: string) => void = (text) => process.stdout.write(text),
+): Promise<void> {
+  if (args.action === 'execute' && args.json) {
+    const printResults: PrintResults = (results) => {
+      writeResults(`${formatStatementResults(results)}\n`);
+    };
+    await runExecute(root, args, getDatabaseDialect(readConfig(root)), printResults);
+    return;
+  }
+
   // Keep raw SQL exports clean for piping into other tools.
   if (!(args.action === 'export' && !args.output)) {
     console.log();
@@ -206,7 +233,7 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
   } else if (args.action === 'seed') {
     await runSeed(root, args.file, dialect, args.yes);
   } else if (args.action === 'execute') {
-    await runExecute(root, args.command, args.file, dialect, args.remote, args.yes);
+    await runExecute(root, args, dialect, undefined);
   } else if (args.action === 'migrate') {
     await runMigrate(root, dialect, args.remote);
   } else if (args.action === 'studio') {
@@ -226,8 +253,8 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
 
 export function writeLocalDatabaseUrl(root: string, connectionString: string): void {
   const envPath = join(root, '.env');
-  const original = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
-  const lines = original ? original.replace(/\r\n/g, '\n').split('\n') : [];
+  const original = existsSync(envPath) ? readFileSync(envPath, 'utf8') : '';
+  const lines = original ? original.replaceAll('\r\n', '\n').split('\n') : [];
   const assignment = `DATABASE_URL=${JSON.stringify(connectionString)}`;
   const index = lines.findIndex((line) => /^\s*(?:export\s+)?DATABASE_URL\s*=/.test(line));
   if (index === -1) {
@@ -314,7 +341,7 @@ async function runConnect(
   let connectionString = args.url;
   if (args.provider) {
     const adapter = await loadDatabaseProvider(root, args.provider);
-    if (!adapter.dialects.includes(dialect as DatabaseProviderDialect)) {
+    if (!adapter.dialects.includes(dialect)) {
       throw new Error(`${adapter.label} does not support the configured ${dialect} dialect.`);
     }
     log.info(`Provisioning ${adapter.label} database...`);
@@ -341,7 +368,7 @@ async function runConnect(
     if (isCancel(answer)) {
       process.exit(0);
     }
-    connectionString = answer as string;
+    connectionString = answer;
   }
 
   const parsed = new URL(connectionString);
@@ -775,47 +802,61 @@ async function runSeed(
   // Load the seed before the reset, so a wrong path or a broken module stops the command
   // before any data is dropped. Importing a module runs its code, so ask about the database first.
   const seed = resolveSeedTarget(root, file);
-  const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf-8') : undefined;
+  const seedSql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf8') : undefined;
   await confirmReset(root, dialect, yes);
-  const seedFn = sql === undefined ? await loadSeedFunction(seed.path) : undefined;
 
-  // Reset first (drop + re-run migrations). The drop is confirmed above, so do not ask again.
-  const migrationCount = await resetDatabase(root, dialect, true);
-  log.step(`Reset database. Applied ${formatCount(migrationCount, 'migration')}.`);
-
-  if (sql !== undefined) {
-    if (dialect === 'postgresql') {
-      await withPgClient(root, async (client) => {
-        await client.query(sql);
-      });
-      printSuccess(`Seeded from ${seed.displayPath}.`);
-
-      return;
+  if (seedSql !== undefined) {
+    await resetBeforeSeed(root, dialect);
+    await runSqlSeed(root, dialect, seedSql);
+    if (dialect === 'sqlite') {
+      log.info(dim("Restart your dev server if it's running."));
     }
-
-    if (dialect === 'mysql') {
-      await withMySqlClient(root, async (client) => {
-        await client.query(sql);
-      });
-      printSuccess(`Seeded from ${seed.displayPath}.`);
-
-      return;
-    }
-
-    const { openSqliteDatabase } = await import('../migrations/runner.ts');
-    const { databasePath: dbPath } = getLocalD1Target(root);
-    const db = await openSqliteDatabase(dbPath);
-    try {
-      db.exec(sql);
-    } finally {
-      db.close();
-    }
-  } else {
-    await runSeedModule(root, seedFn!, dialect);
+    printSuccess(`Seeded from ${seed.displayPath}.`);
+    return;
   }
 
+  const { createSeedModuleLoader } = await import('./db-seed-loader.ts');
+  const loader = createSeedModuleLoader(root, seed.path);
+  try {
+    const run = await loadSeedFunction(seed.path, loader.importModule);
+    await resetBeforeSeed(root, dialect);
+    await runSeedModule(root, run, dialect, loader.importModule);
+  } finally {
+    loader.close();
+  }
   log.info(dim("Restart your dev server if it's running."));
   printSuccess(`Seeded from ${seed.displayPath}.`);
+}
+
+/** Drop and re-run migrations before a seed. The drop is already confirmed, so do not ask again. */
+async function resetBeforeSeed(root: string, dialect: DatabaseDialect): Promise<void> {
+  const migrationCount = await resetDatabase(root, dialect, true);
+  log.step(`Reset database. Applied ${formatCount(migrationCount, 'migration')}.`);
+}
+
+async function runSqlSeed(root: string, dialect: DatabaseDialect, sql: string): Promise<void> {
+  if (dialect === 'postgresql') {
+    await withPgClient(root, async (client) => {
+      await client.query(sql);
+    });
+    return;
+  }
+
+  if (dialect === 'mysql') {
+    await withMySqlClient(root, async (client) => {
+      await client.query(sql);
+    });
+    return;
+  }
+
+  const { openSqliteDatabase } = await import('../migrations/runner.ts');
+  const { databasePath: dbPath } = getLocalD1Target(root);
+  const db = await openSqliteDatabase(dbPath);
+  try {
+    db.exec(sql);
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -830,7 +871,7 @@ function isSafeStatement(sql: string): boolean {
   if (sql.replace(/;\s*$/, '').includes(';')) {
     return false;
   }
-  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+  const decommented = sql.replaceAll(/\/\*[\s\S]*?\*\//g, ' ').replaceAll(/--[^\n]*/g, ' ');
   const stripped = decommented.replace(/;\s*$/, '');
   if (/^\s*SELECT\b/i.test(stripped)) {
     return true;
@@ -874,7 +915,11 @@ function prepareSingleStatement(
  * Exits with a friendly message when the URL has never been stored (404);
  * other errors propagate so the caller's top-level handler can report them.
  */
-async function fetchRemoteDatabaseUrl(client: PlatformClient, projectId: string): Promise<string> {
+async function fetchRemoteDatabaseUrl(
+  client: PlatformClient,
+  projectId: string,
+  messages: { output?: Writable } = {},
+): Promise<string> {
   try {
     const result = await client.getDatabaseUrl(projectId);
     return result.url;
@@ -882,6 +927,7 @@ async function fetchRemoteDatabaseUrl(client: PlatformClient, projectId: string)
     if (err instanceof PlatformApiError && err.status === 404) {
       log.error(
         "This project's database URL isn't stored on the platform yet. Run `void db set-url` once to populate it, then retry.",
+        messages,
       );
       process.exit(1);
     }
@@ -889,18 +935,34 @@ async function fetchRemoteDatabaseUrl(client: PlatformClient, projectId: string)
   }
 }
 
-async function executeExternalRemoteSql(
+/**
+ * Run SQL on a PostgreSQL or MySQL database. Both drivers return one result per statement, so
+ * `--json` prints every statement with `printResults`; the table prints only a single
+ * statement's rows.
+ */
+async function executeExternalSql(
   dialect: Exclude<DatabaseDialect, 'sqlite'>,
   dbUrl: string,
   sql: string,
+  printResults: PrintResults | undefined,
 ): Promise<void> {
+  const json = printResults !== undefined;
   if (dialect === 'postgresql') {
-    const { Client } = await import('pg');
-    const pgClient: PgClient = new Client({ connectionString: dbUrl });
+    const { Client, types } = await import('pg');
+    const pgClient = new Client({
+      connectionString: dbUrl,
+      // numeric[] and JSON values keep their digits.
+      ...(json ? { types: pgJsonTypes(types) } : {}),
+    });
     await pgClient.connect();
     try {
-      const result = await pgClient.query(sql);
-      if (result.rows && result.rows.length > 0) {
+      // node-postgres resolves to an array of results when the SQL holds several statements.
+      const result:
+        | QueryResult<Record<string, unknown>>
+        | Array<QueryResult<Record<string, unknown>>> = await pgClient.query(sql);
+      if (json) {
+        printResults(pgStatementResults(result));
+      } else if (!Array.isArray(result) && result.rows.length > 0) {
         printTable(result.rows);
       }
     } finally {
@@ -909,16 +971,90 @@ async function executeExternalRemoteSql(
     return;
   }
   const { createConnection } = await import('mysql2/promise');
-  const mySqlClient = await createConnection({ uri: dbUrl, multipleStatements: true });
+  const uri = json ? mySqlJsonUri(dbUrl) : dbUrl;
+  // Grouping a CALL's results reads the SQL the way this server does: its sql_mode decides
+  // what a backslash means, and its version and family which executable comments run. The
+  // mode is read on a connection of its own, so the session the SQL runs in stays untouched
+  // (FOUND_ROWS(), ROW_COUNT(), warnings). The statements are found before the SQL runs, so SQL
+  // whose results cannot be grouped fails without running.
+  let statements: MySqlStatements | undefined;
+  if (json) {
+    let mode: MySqlServerMode | undefined;
+    if (needsMySqlServerMode(sql)) {
+      const modeClient = await createConnection({ uri });
+      try {
+        mode = mySqlServerMode((await modeClient.query(MYSQL_SERVER_MODE_QUERY))[0]);
+      } finally {
+        await modeClient.end();
+      }
+    }
+    statements = mySqlStatements(sql, mode);
+  }
+  const mySqlClient = await createConnection({
+    uri,
+    multipleStatements: true,
+    // BIGINT values past 2^53 arrive as strings instead of rounded numbers, dates and times
+    // as the text MySQL returns, without a time zone conversion or rounding to milliseconds,
+    // and JSON numbers with the digits MySQL sends.
+    ...(json
+      ? {
+          supportBigNumbers: true,
+          bigNumberStrings: false,
+          dateStrings: true,
+          typeCast: mySqlJsonTypeCast,
+        }
+      : {}),
+  });
   try {
-    const [rows] = await mySqlClient.query(sql);
-    if (Array.isArray(rows) && rows.length > 0) {
+    const [rows, fields] = await mySqlClient.query(statements?.sql ?? sql);
+    if (json && statements) {
+      printResults(mySqlStatementResults(rows, fields, statements));
+    } else if (Array.isArray(rows) && rows.length > 0) {
       printTable(rows as Array<Record<string, unknown>>);
     }
   } finally {
     await mySqlClient.end();
   }
 }
+
+// URL options that would change --json output. mysql2 writes protocol traces to stdout for
+// `debug`, and the others change how rows and values arrive.
+const MYSQL_JSON_URL_OPTIONS = [
+  'debug',
+  'bigNumberStrings',
+  'dateStrings',
+  'decimalNumbers',
+  'jsonStrings',
+  'nestTables',
+  'rowsAsArray',
+  'supportBigNumbers',
+  'typeCast',
+];
+
+/**
+ * The URL without options that would change --json output. mysql2 reads options from the URL,
+ * and an option passed as false does not override one the URL sets.
+ */
+function mySqlJsonUri(dbUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(dbUrl);
+  } catch {
+    // mysql2 reads the URL the same way and reports it.
+    return dbUrl;
+  }
+  const options = MYSQL_JSON_URL_OPTIONS.filter((option) => url.searchParams.has(option));
+  if (options.length === 0) {
+    return dbUrl;
+  }
+  for (const option of options) {
+    url.searchParams.delete(option);
+  }
+  return url.toString();
+}
+
+/** How `void db execute --json` prints its results. */
+type PrintResults = (results: Array<StatementResult>) => void;
 
 /**
  * Prompt the user to confirm a destructive remote query when running in a TTY.
@@ -927,7 +1063,11 @@ async function executeExternalRemoteSql(
  */
 async function confirmDestructiveRemote(
   sql: string,
-  { always = false, yes = false }: { always?: boolean; yes?: boolean } = {},
+  {
+    always = false,
+    yes = false,
+    output,
+  }: { always?: boolean; yes?: boolean; output?: Writable } = {},
 ): Promise<boolean> {
   if (yes || (!always && isSafeStatement(sql))) {
     return true;
@@ -937,6 +1077,7 @@ async function confirmDestructiveRemote(
   }
   const ok = await confirm({
     message: 'This will run against your deployed database. Continue?',
+    output,
   });
   if (isCancel(ok) || !ok) {
     return false;
@@ -948,39 +1089,72 @@ async function confirmDestructiveRemote(
 // that limit on the query API, which prints rows; a larger dump runs as a D1 import (up to 5 GB).
 const D1_MAX_SQL_STATEMENT_BYTES = 100_000;
 
+type ExecuteArgs = Omit<Extract<DbArgs, { action: 'execute' }>, 'action'>;
+
+/** Run `void db execute`. `printResults` prints the results with --json, and is undefined without. */
 async function runExecute(
   root: string,
-  command: string | undefined,
-  file: string | undefined,
+  { command, file, remote, yes }: ExecuteArgs,
   dialect: DatabaseDialect,
-  remote?: boolean,
-  yes?: boolean,
+  printResults: PrintResults | undefined,
 ): Promise<void> {
+  const json = printResults !== undefined;
+  // With --json, stdout carries only the results: prompts and messages go to stderr.
+  const messages = json ? { output: process.stderr } : {};
+  const finish = () => {
+    if (!json) {
+      printSuccess('SQL executed successfully.');
+    }
+  };
+  const readSql = () => {
+    if (file) {
+      return readFileSync(resolve(root, file), 'utf8');
+    }
+    if (command === undefined) {
+      throw new Error('db execute requires a SQL command or file.');
+    }
+    return command;
+  };
   if (remote) {
     const directCloudflare = readDeploymentPlatform(root) === 'cloudflare';
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+    const sql = readSql();
 
     if (directCloudflare) {
       const bulkImport =
         dialect === 'sqlite' &&
         file !== undefined &&
         Buffer.byteLength(sql) > D1_MAX_SQL_STATEMENT_BYTES;
+      if (bulkImport && json) {
+        throw new Error(
+          `db: ${file} is larger than 100 KB, so Void would run it as a D1 import, which returns no results. Run it without --json.`,
+        );
+      }
       if (bulkImport) {
         log.warn(
           `${file} is larger than 100 KB, so Void runs it as a D1 import. The database cannot serve queries until the import finishes, and query rows are not printed.`,
         );
       }
-      const shouldProceed = await confirmDestructiveRemote(sql, { always: bulkImport, yes });
+      const shouldProceed = await confirmDestructiveRemote(sql, {
+        always: bulkImport,
+        yes,
+        ...messages,
+      });
       if (!shouldProceed) {
-        log.info('Cancelled.');
+        log.info('Cancelled.', messages);
         process.exit(0);
       }
       if (dialect === 'sqlite') {
-        const { executeCloudflareD1Sql, importCloudflareD1Sql, resolveCloudflareD1Context } =
-          await import('./cloudflare-operations.ts');
+        const {
+          executeCloudflareD1Sql,
+          executeCloudflareD1Statements,
+          importCloudflareD1Sql,
+          resolveCloudflareD1Context,
+        } = await import('./cloudflare-operations.ts');
         const context = resolveCloudflareD1Context(root, configuredD1Binding(root));
         if (bulkImport) {
           await importCloudflareD1Sql(context, sql);
+        } else if (json) {
+          printResults(await executeCloudflareD1Statements(context, sql));
         } else {
           const rows = await executeCloudflareD1Sql(context, sql);
           if (rows.length > 0) {
@@ -992,40 +1166,48 @@ async function runExecute(
         if (!dbUrl) {
           log.error(
             'DATABASE_URL is required in the shell for a direct Cloudflare remote database command.',
+            messages,
           );
           process.exit(1);
         }
-        await executeExternalRemoteSql(dialect, dbUrl, sql);
+        await executeExternalSql(dialect, dbUrl, sql, printResults);
       }
-      printSuccess('SQL executed successfully.');
+      finish();
       return;
     }
 
     const token = getToken(root);
     if (!token) {
-      log.error('Not logged in. Run `void account login` first.');
+      log.error('Not logged in. Run `void account login` first.', messages);
       process.exit(1);
     }
 
     const projectConfig = readProjectConfig(root);
     if (!projectConfig) {
-      log.error('No project linked. Run `void deploy` first or link a project.');
+      log.error('No project linked. Run `void deploy` first or link a project.', messages);
       process.exit(1);
     }
 
-    const shouldProceed = await confirmDestructiveRemote(sql, { yes });
+    // The platform proxy returns the first statement's result only.
+    if (json && dialect === 'sqlite' && splitSqliteStatements(sql).length > 1) {
+      throw new Error(
+        'db: `void db execute --remote --json` runs one statement at a time on a Void platform D1 database. Run each statement separately.',
+      );
+    }
+
+    const shouldProceed = await confirmDestructiveRemote(sql, { yes, ...messages });
     if (!shouldProceed) {
-      log.info('Cancelled.');
+      log.info('Cancelled.', messages);
       process.exit(0);
     }
 
     if (dialect !== 'sqlite') {
       // External database: fetch the connection string from the platform, then connect directly.
       const client = new PlatformClient(token, { root });
-      const dbUrl = await fetchRemoteDatabaseUrl(client, projectConfig.projectId);
+      const dbUrl = await fetchRemoteDatabaseUrl(client, projectConfig.projectId, messages);
 
-      await executeExternalRemoteSql(dialect, dbUrl, sql);
-      printSuccess('SQL executed successfully.');
+      await executeExternalSql(dialect, dbUrl, sql, printResults);
+      finish();
       return;
     }
 
@@ -1040,7 +1222,7 @@ async function runExecute(
       // The configured binding wins. A renamed binding leaves its old resource
       // behind, so only a single D1 resource is a safe fallback.
       if (!d1Bindings.includes(configuredBinding) && d1Bindings.length === 1) {
-        binding = d1Bindings[0]!;
+        binding = d1Bindings[0];
       }
     } catch {
       // Keep the configured binding name (or 'DB' by default) if resource discovery fails.
@@ -1085,43 +1267,29 @@ async function runExecute(
 
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);
-      log.error(`db: Proxy request failed with ${res.status}: '${text}'.`);
+      log.error(`db: Proxy request failed with ${res.status}: '${text}'.`, messages);
       process.exit(1);
     }
 
-    const data = (await res.json()) as {
+    const data = await res.json<{
       results?: Array<Record<string, unknown>>;
       success?: boolean;
-    };
+      meta?: Record<string, unknown>;
+    }>();
     const rows = data.results ?? [];
-    if (rows.length > 0) {
+    if (json) {
+      printResults([{ results: rows, success: data.success !== false, meta: data.meta ?? {} }]);
+    } else if (rows.length > 0) {
       printTable(rows);
     }
-    printSuccess('SQL executed successfully.');
+    finish();
     return;
   }
 
-  if (dialect === 'postgresql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
-    await withPgClient(root, async (client) => {
-      const result = await client.query(sql);
-      if (result.rows && result.rows.length > 0) {
-        printTable(result.rows);
-      }
-    });
-    printSuccess('SQL executed successfully.');
-    return;
-  }
-
-  if (dialect === 'mysql') {
-    const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
-    await withMySqlClient(root, async (client) => {
-      const rows = await client.query(sql);
-      if (rows.length > 0) {
-        printTable(rows);
-      }
-    });
-    printSuccess('SQL executed successfully.');
+  if (dialect !== 'sqlite') {
+    const sql = readSql();
+    await executeExternalSql(dialect, getLocalDatabaseUrl(root, dialect), sql, printResults);
+    finish();
     return;
   }
 
@@ -1129,30 +1297,34 @@ async function runExecute(
   const { databasePath: dbPath } = getLocalD1Target(root);
 
   if (!existsSync(dbPath)) {
-    log.error('No local database found. Start the dev server first.');
+    log.error('No local database found. Start the dev server first.', messages);
     process.exit(1);
   }
 
-  const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
+  const sql = readSql();
 
   const db = await openSqliteDatabase(dbPath);
   try {
-    const statement = prepareSingleStatement(db, sql);
-    if (statement?.reader) {
-      // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
-      // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
-      // target.
-      const rows = statement.all();
-      if (rows.length > 0) {
-        printTable(rows);
-      }
+    if (json) {
+      printResults(runSqliteStatements(db, sql));
     } else {
-      db.exec(sql);
+      const statement = prepareSingleStatement(db, sql);
+      if (statement?.reader) {
+        // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
+        // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
+        // target.
+        const rows = statement.all();
+        if (rows.length > 0) {
+          printTable(rows);
+        }
+      } else {
+        db.exec(sql);
+      }
     }
   } finally {
     db.close();
   }
-  printSuccess('SQL executed successfully.');
+  finish();
 }
 
 function printTable(rows: Array<Record<string, unknown>>): void {
@@ -1639,6 +1811,9 @@ async function hasDeployedCloudflareDatabase(root: string): Promise<boolean> {
   );
 }
 
+// Drizzle-kit finds a snapshot by the part of the journal tag before the first underscore.
+const snapshotPrefix = (tag: string): string => tag.split('_')[0];
+
 async function runRenameMigrations(root: string, dialect: DatabaseDialect): Promise<void> {
   const paths = readProjectPaths(root);
   const migrationsDir = paths.migrationsDir;
@@ -1740,8 +1915,6 @@ async function runRenameMigrations(root: string, dialect: DatabaseDialect): Prom
     ? readFileSync(journalPath)
     : null;
   const journal = readJournal(migrationsDir, paths.sourceRelative);
-  // Drizzle-kit finds a snapshot by the part of the journal tag before the first underscore.
-  const snapshotPrefix = (tag: string): string => tag.split('_')[0];
   const snapshotPathFor = (tag: string): string =>
     join(metaDir, `${snapshotPrefix(tag)}_snapshot.json`);
 
@@ -2026,7 +2199,9 @@ function formatMySqlExportValue(value: unknown): string {
   if (value instanceof Uint8Array) {
     return `X'${Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('')}'`;
   }
-  return `'${String(value).replaceAll('\\', '\\\\').replaceAll("'", "''")}'`;
+  return `'${String(value)
+    .replaceAll('\\', String.raw`\\`)
+    .replaceAll("'", "''")}'`;
 }
 
 function formatSqliteExportValue(value: unknown): string {
@@ -2134,7 +2309,7 @@ async function runExport(
               if (typeof value === 'number') {
                 return String(value);
               }
-              return `'${String(value).replace(/'/g, "''")}'`;
+              return `'${String(value).replaceAll("'", "''")}'`;
             });
             parts.push(
               `INSERT INTO ${tableName} (${cols.map(quoteSqlIdentifier).join(', ')})${overriding} VALUES (${vals.join(', ')});`,
@@ -2305,8 +2480,10 @@ async function runExport(
       for (const sequence of sequences) {
         if (tables.includes(sequence.name)) {
           const name = quoteSqlString(sequence.name);
-          parts.push(`DELETE FROM sqlite_sequence WHERE name = ${name};`);
-          parts.push(`INSERT INTO sqlite_sequence (name, seq) VALUES (${name}, ${sequence.seq});`);
+          parts.push(
+            `DELETE FROM sqlite_sequence WHERE name = ${name};`,
+            `INSERT INTO sqlite_sequence (name, seq) VALUES (${name}, ${sequence.seq});`,
+          );
         }
       }
     }
@@ -2390,7 +2567,7 @@ async function runSetUrl(root: string, dialect: DatabaseDialect): Promise<void> 
   }
 
   const client = new PlatformClient(token, { root });
-  await client.setDatabaseUrl(projectConfig.projectId, connectionString as string);
+  await client.setDatabaseUrl(projectConfig.projectId, connectionString);
 
   printSuccess('Database URL updated.');
 }
@@ -2401,9 +2578,10 @@ function resolveSeedTarget(root: string, file: string | undefined): SeedTarget {
   }
 
   const paths = readProjectPaths(root);
-  const defaults = DEFAULT_SEED_FILES.map((candidate) => paths.sourceRelative(candidate)).filter(
-    (candidate) => existsSync(join(root, candidate)),
-  );
+  const defaults = DEFAULT_SEED_FILES.flatMap((candidate) => {
+    const mappedCandidate = paths.sourceRelative(candidate);
+    return existsSync(join(root, mappedCandidate)) ? [mappedCandidate] : [];
+  });
   if (defaults.length === 0) {
     log.error(
       `db: No seed file found. Create one of: ${DEFAULT_SEED_FILES.map((candidate) => paths.sourceRelative(candidate)).join(', ')} or pass --file <path>.`,
@@ -2445,8 +2623,9 @@ async function runSeedModule(
   root: string,
   seed: SeedFn<Record<string, unknown>>,
   dialect: DatabaseDialect,
+  importModule: SeedModuleImporter,
 ): Promise<void> {
-  const schema = await loadSeedSchema(root);
+  const schema = await loadSeedSchema(root, importModule);
   const casing = getDatabaseCasing(readConfig(root));
 
   if (dialect === 'postgresql') {
@@ -2489,8 +2668,11 @@ async function runSeedModule(
   }
 }
 
-async function loadSeedFunction(seedPath: string): Promise<SeedFn<Record<string, unknown>>> {
-  const mod = await importLocalModule(seedPath);
+async function loadSeedFunction(
+  seedPath: string,
+  importModule: SeedModuleImporter,
+): Promise<SeedFn<Record<string, unknown>>> {
+  const mod = await importModule(seedPath);
   const seed =
     typeof mod.default === 'function'
       ? mod.default
@@ -2505,7 +2687,10 @@ async function loadSeedFunction(seedPath: string): Promise<SeedFn<Record<string,
   return seed as SeedFn<Record<string, unknown>>;
 }
 
-async function loadSeedSchema(root: string): Promise<Record<string, unknown>> {
+async function loadSeedSchema(
+  root: string,
+  importModule: SeedModuleImporter,
+): Promise<Record<string, unknown>> {
   const { discoverSchema } = await import('../drizzle/discover.ts');
   const paths = readProjectPaths(root);
   const location = discoverSchema(root, paths);
@@ -2514,20 +2699,22 @@ async function loadSeedSchema(root: string): Promise<Record<string, unknown>> {
   }
 
   if (location.type === 'file') {
-    const mod = await importLocalModule(location.path);
+    const mod = await importModule(location.path);
     return Object.fromEntries(
       Object.entries(mod).filter(([name]) => name !== 'default' && name !== '__esModule'),
     );
   }
 
   const files = collectSchemaModuleFiles(location.path);
-  const parts = await Promise.all(files.map((file) => importLocalModule(file)));
-  return Object.assign(
-    {},
+  const parts = await Promise.all(files.map((file) => importModule(file)));
+  const schema: Record<string, unknown> = {};
+  Object.assign(
+    schema,
     ...parts.map((mod) =>
       Object.fromEntries(Object.entries(mod).filter(([name]) => name !== 'default')),
     ),
   );
+  return schema;
 }
 
 function collectSchemaModuleFiles(dir: string): Array<string> {
@@ -2547,16 +2734,6 @@ function collectSchemaModuleFiles(dir: string): Array<string> {
     }
   }
   return files.sort();
-}
-
-async function importLocalModule(modulePath: string): Promise<Record<string, unknown>> {
-  // Native import() cannot resolve the extensionless re-exports that `void gen model` writes.
-  const jiti = createJiti(import.meta.url, {
-    fsCache: false,
-    moduleCache: false,
-    interopDefault: false,
-  });
-  return jiti.import<Record<string, unknown>>(modulePath);
 }
 
 /** The schema and casing that `void/db` gives drizzle, or undefined when neither is set. */

@@ -1,4 +1,10 @@
-import { matchSegmentPattern, PAGES_PROTOCOL_VERSION } from '@void/edge';
+import {
+  isStaleBuildReload,
+  matchSegmentPattern,
+  pagesPayloadFitsBuild,
+  PAGES_BUILD_HEADER,
+  PAGES_PROTOCOL_VERSION,
+} from '@void/edge';
 import {
   buildVariantOriginalUrl,
   decodeIsrCacheEntry,
@@ -19,10 +25,8 @@ import {
   SHARED_CACHE_POLICY_HEADER,
   serializeHeaders,
   shouldBypassIsr,
-  type IsrCacheEntry,
-  type IsrCacheMetadata,
-  type QueryAllowlist,
 } from './core.ts';
+import type { IsrCacheEntry, IsrCacheMetadata, QueryAllowlist } from './core.ts';
 import { isrCacheKey, isrCachePrefix, isrCacheVariantPrefix, isrEdgeCacheUrl } from './index.ts';
 
 export {
@@ -326,7 +330,12 @@ function sharedHtmlCacheHeaders(response: Response, ttl: number, state: 'HIT' | 
   return headers;
 }
 
-function jsonCacheResponse(pageData: string, ttl: number, state: 'HIT' | 'MISS'): Response {
+function jsonCacheResponse(
+  pageData: string,
+  ttl: number,
+  state: 'HIT' | 'MISS',
+  build: string | null,
+): Response {
   const response = new Response(pageData, {
     headers: {
       'content-type': 'application/json',
@@ -334,6 +343,9 @@ function jsonCacheResponse(pageData: string, ttl: number, state: 'HIT' | 'MISS')
       // `X-VoidPages` is present, and otherwise reloads the whole page.
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      // Kept with the payload: a hit for a client from another build must not
+      // pass off this render's props as its own.
+      ...(build ? { [PAGES_BUILD_HEADER]: build } : {}),
       Vary: 'X-VoidPages, X-VoidPages-Version',
       'Cache-Control': `public, s-maxage=${ttl}, max-age=0, must-revalidate`,
       'x-isr-cache': state,
@@ -359,6 +371,7 @@ export async function populateJsonEdgeCache(
     return;
   }
   try {
+    const build = response.headers.get(PAGES_BUILD_HEADER);
     const fromHeader = response.headers.get('x-void-page-data');
     const pageData = fromHeader
       ? normalizePageDataForJsonCache(fromHeader)
@@ -366,7 +379,7 @@ export async function populateJsonEdgeCache(
     if (!pageData) {
       return;
     }
-    await cache.put(cacheKey, jsonCacheResponse(pageData, ttl, state));
+    await cache.put(cacheKey, jsonCacheResponse(pageData, ttl, state, build));
   } catch {
     // Fail open.
   }
@@ -582,12 +595,26 @@ async function handleIsrInternal(
       return null; // fail open → caller renders live
     }
     if (jsonCached && hasCurrentSharedCachePolicy(jsonCached)) {
-      return clientRevalidateResponse(jsonCached);
-    }
-    if (jsonCached) {
+      // A cached payload from another build would hand this client page props it
+      // has no components for. Let the app answer below, which reloads a stale
+      // tab, and keep the entry: it is still right for clients of its own build.
+      if (
+        pagesPayloadFitsBuild(
+          jsonCached.headers.get(PAGES_BUILD_HEADER),
+          request.headers.get(PAGES_BUILD_HEADER),
+        )
+      ) {
+        return clientRevalidateResponse(jsonCached);
+      }
+    } else if (jsonCached) {
       await safeCacheDelete(cache, jsonKey);
     }
     const response = await render(request);
+    // The app answered a stale client with its reload response. That says nothing
+    // about this path's cached HTML, which other tabs can still use.
+    if (isStaleBuildReload(request, response)) {
+      return response;
+    }
     const ttl = resolveRevalidateTtl(response, isrTtl);
     if (isUncacheableRender(response, ttl, false)) {
       ctx.waitUntil(

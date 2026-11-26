@@ -32,8 +32,8 @@ import {
   VOID_BUILD_CHECK_RUN_NAME,
   completeCheckRun,
   preservedCheckRunConclusion,
-  type CheckRunConclusion,
 } from '../github/check-run.ts';
+import type { CheckRunConclusion } from '../github/check-run.ts';
 import { listInstallationRepositories } from '../github/installation-repos.ts';
 import {
   getBranchExistence,
@@ -48,6 +48,10 @@ import {
 import { verifyGithubWebhookSignature } from '../github/webhook-verify.ts';
 import { githubConnections, githubInstallations } from '../schema.ts';
 import type { GitHubInstallationRepository } from '../schema.ts';
+import {
+  handleSecurityCheckRerequest,
+  VOID_SECURITY_AUDIT_CHECK_RUN_NAME,
+} from '../security/github-check.ts';
 import type { Build } from '../types.ts';
 
 const app = new Hono<ApiEnv>();
@@ -120,6 +124,8 @@ type CheckRunPayload = {
     conclusion?: string | null;
     check_suite?: { head_branch?: string | null };
   };
+  // The GitHub user who clicked Re-run. Read only for the security check (M28).
+  sender?: { id?: number | string };
 };
 
 // `check_suite:rerequested` — GitHub's "Re-run all checks" button.
@@ -1052,6 +1058,18 @@ export async function handleVerifiedGitHubWebhook(
       if (data.action !== 'rerequested') {
         return context.json({ ok: true, ignored: `check_run:${data.action ?? 'unknown'}` });
       }
+      if (data.check_run?.name === VOID_SECURITY_AUDIT_CHECK_RUN_NAME) {
+        // Informational (design doc 0095 M28): a project rescan for a sender who could
+        // ask for one, else a no-op. Never a build or a deploy.
+        return context.json(
+          await handleSecurityCheckRerequest(context.env, db, {
+            installationId: data.installation?.id,
+            repositoryId: data.repository?.id,
+            externalId: data.check_run?.external_id,
+            senderId: data.sender?.id,
+          }),
+        );
+      }
       // GitHub only delivers `rerequested` for runs OUR App created, but the App
       // may publish more check names later; match ours explicitly so a future run
       // can't accidentally trigger a deploy.
@@ -1296,7 +1314,12 @@ export async function handleVerifiedGitHubWebhook(
       }
       const orgId = data.organization?.id;
       const removedGithubUserId = data.membership?.user?.id;
-      if (orgId == null || removedGithubUserId == null) {
+      if (
+        orgId === null ||
+        orgId === undefined ||
+        removedGithubUserId === null ||
+        removedGithubUserId === undefined
+      ) {
         return context.json({ ok: true, ignored: 'organization: missing ids' });
       }
 

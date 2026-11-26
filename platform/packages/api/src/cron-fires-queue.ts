@@ -41,7 +41,9 @@ async function invokeWorker(
   env: ApiEnv['Bindings'],
   message: CronFireMessage,
 ): Promise<InvokeOutcome> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<'Content-Type', string> & Partial<Record<'x-void-internal', string>> = {
+    'Content-Type': 'application/json',
+  };
   if (message.proxyToken) {
     headers['x-void-internal'] = message.proxyToken;
   }
@@ -124,7 +126,7 @@ export async function processCronFiresBatch(
           console.error(
             `[cron-fires] AUTH_DRIFT non-delivery for ${msg.body.workerName} (cron ${msg.body.cron}): status=${status} body=${outcome.bodySnippet ?? ''}; acking — next deploy will resync token`,
           );
-        } else if (status != null && status >= 400) {
+        } else if (status !== null && status !== undefined && status >= 400) {
           console.warn(
             `[cron-fires] non-ok response from ${msg.body.workerName} (cron ${msg.body.cron}): status=${status} body=${outcome.bodySnippet ?? ''}`,
           );

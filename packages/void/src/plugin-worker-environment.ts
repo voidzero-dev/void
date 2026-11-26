@@ -2,9 +2,12 @@ import { readFileSync } from 'node:fs';
 import { builtinModules, createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'pathslash';
-import { type Plugin } from 'vite';
-import { ensureWranglerCompat, type WranglerCompat } from './cli/wrangler.ts';
-import { readConfig, isNodeTarget, type DatabaseDialect } from './config.ts';
+import { convertPathToPattern } from 'tinyglobby';
+import type { Plugin } from 'vite';
+import { ensureWranglerCompat } from './cli/wrangler.ts';
+import type { WranglerCompat } from './cli/wrangler.ts';
+import { isNodeTarget } from './config.ts';
+import type { DatabaseDialect, readConfig } from './config.ts';
 
 const CLOUDFLARE_BUILTIN_IMPORT = /^cloudflare:/;
 
@@ -181,7 +184,10 @@ async function readWorkerdNodeBuiltins(compat: WranglerCompat): Promise<Set<stri
   const { getCloudflarePreset } = (await import(
     pathToFileURL(join(dirname(manifestPath), manifest.exports['.'].import)).href
   )) as {
-    getCloudflarePreset(compat: { compatibilityDate: string; compatibilityFlags: Array<string> }): {
+    getCloudflarePreset(
+      this: void,
+      compat: { compatibilityDate: string; compatibilityFlags: Array<string> },
+    ): {
       external: Array<string>;
     };
   };
@@ -196,11 +202,29 @@ export function createServerRuntimeOptimizerPlugin(
   dialect: DatabaseDialect,
   readCompat: () => WranglerCompat,
   ssrEntry: string | null = null,
+  nativeWorker?: { root: string; scan: () => Promise<Array<string>> },
 ): Plugin {
   let workerdNodeBuiltins: Promise<Set<string>> | undefined;
+  let scanNativeWorker = false;
+  let hasExplicitWorkerEntries = false;
   const serverRuntimeOptimizerPlugin: Plugin = {
     name: 'void:server-runtime-optimizer',
-    configEnvironment(name, environment) {
+    config: {
+      order: 'pre',
+      handler(config, { command, isPreview }) {
+        scanNativeWorker = nativeWorker !== undefined && command === 'serve' && !isPreview;
+        if (!scanNativeWorker) {
+          return;
+        }
+        const optimizer = config.environments?.[DEFAULT_WORKER_ENVIRONMENT_NAME]?.optimizeDeps;
+        hasExplicitWorkerEntries = optimizer?.entries !== undefined;
+        if (typeof optimizer?.entries === 'string') {
+          // Cloudflare's scalar default would replace another scalar in the config merge.
+          optimizer.entries = [optimizer.entries];
+        }
+      },
+    },
+    async configEnvironment(name, environment) {
       if (name === 'client') {
         return;
       }
@@ -210,6 +234,18 @@ export function createServerRuntimeOptimizerPlugin(
       // CommonJS themselves, and an include there turns on SSR prebundling nobody asked for.
       if (!environment.resolve?.conditions?.includes('workerd')) {
         return { optimizeDeps: { exclude: ['void'] } };
+      }
+      const entries = ssrEntry ? [ssrEntry] : [];
+      if (name === DEFAULT_WORKER_ENVIRONMENT_NAME && scanNativeWorker && nativeWorker) {
+        const optimizer = (environment.optimizeDeps ??= {});
+        const generatedEntry = join(nativeWorker.root, '.void/entry.ts');
+        const configured = optimizer.entries ?? generatedEntry;
+        optimizer.entries = (Array.isArray(configured) ? configured : [configured]).map((entry) =>
+          entry === generatedEntry ? convertPathToPattern(entry) : entry,
+        );
+        if (!hasExplicitWorkerEntries) {
+          entries.push(...(await nativeWorker.scan()));
+        }
       }
       return {
         optimizeDeps: {
@@ -221,7 +257,7 @@ export function createServerRuntimeOptimizerPlugin(
           // The Worker reaches the SSR entry through generated modules, which the dependency
           // scan cannot follow. Unscanned, the entry's dependencies are found during the first
           // request, and the Worker reloads once they are prebundled.
-          ...(ssrEntry ? { entries: [ssrEntry] } : {}),
+          ...(entries.length > 0 ? { entries: entries.map(convertPathToPattern) } : {}),
           // Excluding void also skips converting its CommonJS dependencies, which workerd cannot
           // evaluate: an installed void/email fails with "exports is not defined".
           //
@@ -265,7 +301,7 @@ export function createServerRuntimeOptimizerPlugin(
       },
     },
     load: {
-      // oxlint-disable-next-line no-control-regex -- \0 prefix is Vite's virtual module convention
+      // \0 prefix is Vite's virtual module convention
       filter: { id: /^\0void:node-require:/ },
       handler(id) {
         // A built-in's default export is its CommonJS exports, and `require` returns an ES

@@ -22,7 +22,16 @@ export function pagesRedirectResponse(request: Request, response: Response): Res
   return new Response(response.body, { status: 200, headers });
 }
 
-export type PagesFetchResult = { response: Response; redirectedTo?: string };
+export type PagesFetchResult = {
+  response: Response;
+  redirectedTo?: string;
+  /**
+   * The method of the request that got `response`: a 303 turns a POST into a GET,
+   * a 307 or 308 keeps it. A redirect the browser followed itself is not seen, so
+   * it keeps the method that was sent.
+   */
+  method: string;
+};
 export type PagesFetchOptions = Omit<RequestInit, 'headers'> & { headers: Record<string, string> };
 
 /** Follow negotiated redirects with HTTP method rules and origin checks. */
@@ -31,9 +40,10 @@ export async function fetchPages(
   options: PagesFetchOptions,
   followGetRedirects = true,
 ): Promise<PagesFetchResult> {
-  const headers: Record<string, string> = { ...options.headers, [REDIRECT_HEADER]: 'manual' };
+  const headers: PagesFetchOptions['headers'] = { ...options.headers, [REDIRECT_HEADER]: 'manual' };
   const init = { ...options, headers };
   let redirectedTo: string | undefined;
+  const finalMethod = () => (init.method ?? 'GET').toUpperCase();
   for (let redirects = 0; redirects <= 20; redirects++) {
     const response = await fetch(url.split('#')[0], init);
     const status = Number(response.headers.get(REDIRECT_HEADER));
@@ -48,7 +58,7 @@ export async function fetchPages(
         }
         redirectedTo = destination.href;
       }
-      return { response, redirectedTo };
+      return { response, redirectedTo, method: finalMethod() };
     }
     await response.body?.cancel();
     const base = new URL(
@@ -71,7 +81,7 @@ export async function fetchPages(
       !isSameOrigin(destination, window.location.origin) ||
       (!followGetRedirects && (get || method === 'GET' || method === 'HEAD'))
     ) {
-      return { response, redirectedTo };
+      return { response, redirectedTo, method: finalMethod() };
     }
     if (get) {
       for (const name of Object.keys(headers)) {

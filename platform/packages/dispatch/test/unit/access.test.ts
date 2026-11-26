@@ -36,8 +36,8 @@ async function assertion(audience = 'wildcard-aud', claims: Record<string, unkno
     aud: [audience],
     sub: 'employee',
     type: 'app',
-    iat: Math.floor(Date.now() / 1_000),
-    exp: Math.floor(Date.now() / 1_000) + 600,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 600,
     ...claims,
   })
     .setProtectedHeader({ alg: 'RS256', kid: 'key-1' })
@@ -99,7 +99,7 @@ describe('project Access verification', () => {
 
   it('verifies the scoped workers.dev audience', async () => {
     const request = vi.fn(async () => Response.json({ keys: [jwk] }));
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
     const hostname = 'void-123456abcdef-blog-789abc.my-account.workers.dev';
 
     await expect(
@@ -110,7 +110,7 @@ describe('project Access verification', () => {
 
   it('verifies Access app assertions and caches the signing keys', async () => {
     const request = vi.fn(async () => Response.json({ keys: [jwk] }));
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
     const token = await assertion();
 
     await expect(verifier.verify('project.apps.example.com', token, routing)).resolves.toBe(true);
@@ -120,7 +120,7 @@ describe('project Access verification', () => {
 
   it('fails closed for absent, mismatched, future, or non-app assertions', async () => {
     const request = vi.fn(async () => Response.json({ keys: [jwk] }));
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
 
     await expect(verifier.verify('project.apps.example.com', null, routing)).resolves.toBe(false);
     await expect(
@@ -129,7 +129,7 @@ describe('project Access verification', () => {
     await expect(
       verifier.verify(
         'project.apps.example.com',
-        await assertion('wildcard-aud', { iat: Math.floor(Date.now() / 1_000) + 120 }),
+        await assertion('wildcard-aud', { iat: Math.floor(Date.now() / 1000) + 120 }),
         routing,
       ),
     ).resolves.toBe(false);
@@ -165,7 +165,7 @@ describe('project Access verification', () => {
       async () =>
         new Response(null, { status: 302, headers: { Location: 'https://attacker.test' } }),
     );
-    const verifier = new ProjectAccessVerifier(request as typeof fetch);
+    const verifier = new ProjectAccessVerifier(request);
 
     await expect(
       verifier.verify('project.apps.example.com', await assertion(), routing),

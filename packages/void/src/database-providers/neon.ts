@@ -1,8 +1,5 @@
-import {
-  defineDatabaseProvider,
-  type DatabaseProviderAdapter,
-  type DatabaseProvisionResult,
-} from '../database-provider.ts';
+import { defineDatabaseProvider } from '../database-provider.ts';
+import type { DatabaseProviderAdapter, DatabaseProvisionResult } from '../database-provider.ts';
 
 type NeonProviderOptions = {
   apiKey?: string;

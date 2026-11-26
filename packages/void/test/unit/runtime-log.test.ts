@@ -63,7 +63,7 @@ describe('runtime log', () => {
     logger.info('visible', {
       toJSON: () => ({ level: 'error' }),
       x: 1,
-    } as Record<string, unknown>);
+    });
 
     const arg = (console.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     const parsed = JSON.parse(arg);

@@ -1,4 +1,5 @@
-import { chromium, type Browser } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 
 // Exercise the bundle without loading its global declarations alongside source declarations.

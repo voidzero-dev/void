@@ -13,7 +13,8 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { hasDeploySchemaDrift } from '../../src/cli/deploy-drift.ts';
 import { generateStarterMigration } from '../../src/cli/init.ts';
-import { createPagesStarterTemplate, type ScaffoldStarterMode } from '../../src/cli/template.ts';
+import { createPagesStarterTemplate } from '../../src/cli/template.ts';
+import type { ScaffoldStarterMode } from '../../src/cli/template.ts';
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   intro: vi.fn(),

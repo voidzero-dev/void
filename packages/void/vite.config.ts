@@ -140,6 +140,7 @@ export default defineConfig({
       'src/pages/serialize.ts',
       'src/pages/islands-plugin.ts',
       'src/cli/cli.ts',
+      'src/cli/db-execute-process.ts',
       // Stable entry that deploy spawns as an isolated child.
       'src/cli/env-schema-probe.ts',
       // Private typed Cloudflare transport, spawned by deployment orchestrators.

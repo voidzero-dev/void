@@ -1,16 +1,17 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'pathslash';
 import pc from 'picocolors';
-import { type Plugin } from 'vite';
-import { analyzeApplicationSync, type ApplicationAnalysis } from './application-analysis.ts';
+import type { Plugin } from 'vite';
+import { analyzeApplicationSync, getNativeWorkerSourceFiles } from './application-analysis.ts';
+import type { ApplicationAnalysis } from './application-analysis.ts';
 import { applyBindingOverrides } from './application-features.ts';
 import {
   edgeRulesNeedWorker,
   hasApiRoutes as routeScanHasApiRoutes,
   hasDocumentRoutes as routeScanHasDocumentRoutes,
   resolveAssetRoutingPolicy,
-  type AssetRoutingPolicy,
 } from './asset-routing.ts';
+import type { AssetRoutingPolicy } from './asset-routing.ts';
 import { mergeRoutingRules } from './cli/headers.ts';
 import { readDeploymentPlatform } from './cli/project.ts';
 import {
@@ -36,7 +37,8 @@ import { pagesDevCssAssetsPlugin } from './pages/dev-css-assets.ts';
 import { readVoidDevCredentials, runAiSetupPrompt } from './plugin-ai-setup.ts';
 import { bindingRuntimePlugin } from './plugin-binding-runtime.ts';
 import { createClientStubsPlugin } from './plugin-client-stubs.ts';
-import { cloudflare, type WorkerConfig, type AuxiliaryWorkerConfig } from './plugin-cloudflare.ts';
+import { cloudflare } from './plugin-cloudflare.ts';
+import type { WorkerConfig, AuxiliaryWorkerConfig } from './plugin-cloudflare.ts';
 import {
   afterServerReady,
   warnIfPackageJsonIsNotEsm,
@@ -51,7 +53,8 @@ import { drizzlePlugin } from './plugin-drizzle.ts';
 import { emailDevInboxPlugin } from './plugin-email-dev-inbox.ts';
 import { envClientFoldPlugin } from './plugin-env-client-fold.ts';
 import { envClientGuardPlugin } from './plugin-env-client-guard.ts';
-import { envSchemaPlugin, type EnvSchemaFacts } from './plugin-env-schema.ts';
+import { envSchemaPlugin } from './plugin-env-schema.ts';
+import type { EnvSchemaFacts } from './plugin-env-schema.ts';
 import {
   getFrameworkEntry,
   generateClassATriggerWrapper,
@@ -60,7 +63,8 @@ import {
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
 import { createFrameworkPlugins } from './plugin-framework.ts';
-import { DEFAULT_SCAN_DIRS, FRAMEWORK_SCAN_DIRS, type Framework } from './plugin-inference.ts';
+import { DEFAULT_SCAN_DIRS, FRAMEWORK_SCAN_DIRS } from './plugin-inference.ts';
+import type { Framework } from './plugin-inference.ts';
 import { migrationPlugin } from './plugin-migration.ts';
 import { nodeTargetPlugin } from './plugin-node-target.ts';
 import { prerenderPlugin } from './plugin-prerender.ts';
@@ -80,7 +84,8 @@ import {
 } from './plugin-worker-environment.ts';
 import { assertNoRootSourceConventionConflicts } from './project-paths.ts';
 import { hasEmailHandlers } from './router/email.ts';
-import { isRouteEnabledForEnvironment, type RouteEnvironment } from './router/parse-filename.ts';
+import { isRouteEnabledForEnvironment } from './router/parse-filename.ts';
+import type { RouteEnvironment } from './router/parse-filename.ts';
 import { resolveSandboxConfig } from './sandbox/config.ts';
 import { CLOUDFLARE_DEPLOY_BUILD_ENV, loadLocalEnv, resolveRemoteMode } from './shared/env.ts';
 import { getSsrServerEntryPath, validateSsrEntry } from './ssr/entry.ts';
@@ -240,6 +245,9 @@ export function voidPlugin(options?: {
     dialect,
     () => readWranglerCompat(root, config),
     framework ? null : getSsrServerEntryPath(root),
+    detected || isNodeTarget(config.target)
+      ? undefined
+      : { root, scan: () => getNativeWorkerSourceFiles(application) },
   );
   // Scan queues/websocket routes early so both framework-mode and default-mode
   // branches can safely close over these bindings.
@@ -582,9 +590,9 @@ export function voidPlugin(options?: {
           return;
         }
         try {
-          const code = readFileSync(path, 'utf-8');
+          const code = readFileSync(path, 'utf8');
           const fileBindings = applyBindingOverrides(
-            inferBindingsFromSource(code, path.split('/').pop()!),
+            inferBindingsFromSource(code, path.slice(path.lastIndexOf('/') + 1)),
             config.inference?.bindings,
           );
           const newBindings: Array<string> = [];
@@ -1042,10 +1050,15 @@ export function voidPlugin(options?: {
       finalizeAssets(clientDir, environment) {
         // Vite can create a separate plugin instance for each environment. Use
         // the client instance that recorded this build's immutable asset files.
-        const clientRoutes = environment?.config.plugins.find(
+        if (!environment) {
+          return;
+        }
+        const clientRoutes = environment.config.plugins.find(
           (plugin) => plugin.name === routes.name,
-        ) as typeof routes | undefined;
-        clientRoutes?.api.finalizeCloudflareAssets(clientDir, environment!.config.build.assetsDir);
+        ) as
+          | { api: { finalizeCloudflareAssets(clientDir: string, assetsDir: string): void } }
+          | undefined;
+        clientRoutes?.api.finalizeCloudflareAssets(clientDir, environment.config.build.assetsDir);
       },
     }),
     prerenderPlugin(root, config),

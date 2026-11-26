@@ -9,8 +9,8 @@ import {
   isCallSiteActionError,
   isVoidActionError,
   submitAction,
-  type VoidRouter,
 } from '../../src/pages/client.ts';
+import type { VoidRouter } from '../../src/pages/client.ts';
 
 declare module 'void/routes' {
   interface PageActionMap {

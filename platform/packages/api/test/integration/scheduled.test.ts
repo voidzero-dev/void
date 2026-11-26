@@ -1,7 +1,8 @@
 import { eq, sql } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vite-plus/test';
 import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
-import { FAST_CRON, scheduled } from '../../src/index.ts';
+import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
+import { app, FAST_CRON, scheduled } from '../../src/index.ts';
 import { transferOperatorProjectOwner } from '../../src/operator/tenant-service.ts';
 import {
   proxyTokenRotationTarget,
@@ -17,11 +18,12 @@ import {
 import {
   setupEnv,
   teardownEnv,
+  captureQueries,
   clearTables,
   createTestUser,
   createTestProject,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 const zeroTrust = vi.hoisted(() => ({ progressed: false }));
 vi.mock('../../src/zero-trust/installation.ts', async (importOriginal) => {
@@ -71,6 +73,7 @@ function makeBindings(e: TestEnv) {
     CRON_SCHEDULER: e.CRON_SCHEDULER,
     ERROR_ALERT_MONITOR: e.ERROR_ALERT_MONITOR,
     SANDBOX_CONCURRENCY_COUNTER: e.SANDBOX_CONCURRENCY_COUNTER,
+    SECURITY_SCAN_SCHEDULER: e.SECURITY_SCAN_SCHEDULER,
     BUILD_SCHEDULER: e.BUILD_SCHEDULER,
     BUILD_MANAGER: e.BUILD_MANAGER,
     BUILD_MANAGER_LARGE: e.BUILD_MANAGER_LARGE,
@@ -734,7 +737,7 @@ describe('scheduled() proxy token rotations', () => {
       .select({ payload: projectCleanupJobs.payload })
       .from(projectCleanupJobs)
       .where(eq(projectCleanupJobs.target, proxyTokenRotationTarget(projectId)));
-    return { gen: project!.gen, phase: job?.payload.phase };
+    return { gen: project.gen, phase: job?.payload.phase };
   }
 
   it.each([
@@ -742,6 +745,7 @@ describe('scheduled() proxy token rotations', () => {
     ['hourly', mockController],
   ])('advances a due rotation on the %s cron', async (_tier, controller) => {
     const projectId = await dueRotation();
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, new Date(Date.now() - 10 * 60_000).toISOString());
     await scheduled(controller, makeBindings(env), mockCtx);
     // A project without Workers runs START through REVOKE, then waits for the
     // raised floor to reach every reader.
@@ -762,6 +766,98 @@ describe('scheduled() proxy token rotations', () => {
     const projectId = await dueRotation();
     await scheduled(mockController, { ...makeBindings(env), ...overrides }, mockCtx);
     expect(await rotationState(projectId)).toEqual({ gen: 0, phase: 'requested' });
+  });
+});
+
+describe('scheduled() fast tier gate', () => {
+  const fastController = { cron: FAST_CRON, scheduledTime: Date.now() } as ScheduledController;
+
+  async function pendingDomain(ageMs: number): Promise<void> {
+    const { id } = await createTestUser(env.db, 'gate-owner');
+    const project = await createTestProject(env.db, id);
+    await env.db.insert(domains).values({
+      id: 'dom_gate',
+      project_id: project.id,
+      hostname: 'gate.example.com',
+      cf_hostname_id: 'cf-gate',
+      status: 'pending',
+      created_at: new Date(Date.now() - ageMs).toISOString(),
+    });
+  }
+
+  beforeEach(async () => {
+    await env.ROUTING.delete(FAST_MAINTENANCE_KEY);
+  });
+
+  it('runs no database query on an idle fast tick', async () => {
+    await pendingDomain(60_000);
+    const { queries } = await captureQueries(env.db, () =>
+      scheduled(fastController, makeBindings(env), mockCtx),
+    );
+    expect(queries).toEqual([]);
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).toBeNull();
+  });
+
+  it('runs an armed fast tick and stays armed while work is unfinished', async () => {
+    await pendingDomain(60_000);
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, new Date(Date.now() - 10 * 60_000).toISOString());
+    const put = vi.spyOn(env.ROUTING, 'put');
+    const { queries } = await captureQueries(env.db, () =>
+      scheduled(fastController, makeBindings(env), mockCtx),
+    );
+    expect(queries.length).toBeGreaterThan(0);
+    expect(put).toHaveBeenCalledWith(FAST_MAINTENANCE_KEY, expect.any(String), {
+      expirationTtl: 1800,
+    });
+  });
+
+  it('does not re-arm an armed fast tick that found nothing to do', async () => {
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, new Date(Date.now() - 10 * 60_000).toISOString());
+    const put = vi.spyOn(env.ROUTING, 'put');
+    await scheduled(fastController, makeBindings(env), mockCtx);
+    expect(put).not.toHaveBeenCalledWith(
+      FAST_MAINTENANCE_KEY,
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('arms the fast tier from the hourly cron when a young pending domain remains', async () => {
+    await pendingDomain(60_000);
+    await scheduled(mockController, makeBindings(env), mockCtx);
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).not.toBeNull();
+  });
+
+  it('leaves the fast tier idle after an hourly cron with only old pending domains', async () => {
+    await pendingDomain(2 * 60 * 60 * 1000);
+    await scheduled(mockController, makeBindings(env), mockCtx);
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).toBeNull();
+  });
+
+  it('does not rewrite a marker that was armed moments ago', async () => {
+    await pendingDomain(60_000);
+    const recent = new Date().toISOString();
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, recent);
+    await scheduled(fastController, makeBindings(env), mockCtx);
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).toBe(recent);
+  });
+
+  it('is armed by a mutating request, not by a read or a rejected request', async () => {
+    const owner = await createTestUser(env.db, 'gate-request-owner');
+    const project = await createTestProject(env.db, owner.id);
+    const send = (method: string, token: string) =>
+      app.request(
+        `/projects/${project.id}`,
+        { method, headers: { Authorization: `Bearer ${token}` } },
+        makeBindings(env),
+      );
+
+    expect((await send('GET', owner.jwt)).status).toBe(200);
+    expect((await send('DELETE', 'not-a-token')).status).toBe(401);
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).toBeNull();
+
+    expect((await send('DELETE', owner.jwt)).status).toBeLessThan(400);
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).not.toBeNull();
   });
 });
 

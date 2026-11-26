@@ -1,7 +1,8 @@
-import { execFileSync, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
@@ -10,8 +11,8 @@ import {
   spawnFixtureServer,
   startServer,
   waitForServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
   registerSharedClientTests,
@@ -452,7 +453,10 @@ function defineTransitionAwaitTests(getBase: () => string, serverOutput: () => s
           // optimistic state and URL must stay until React can commit the new UI.
           await page.evaluate(() => window.dispatchEvent(new Event('finish-action')));
           await page.evaluate(
-            () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+            () =>
+              new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+              }),
           );
           expect(await button.textContent()).toBe('pending');
           expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
@@ -547,7 +551,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         await page.waitForFunction(() =>
           document.querySelector('h1')?.textContent?.includes('Users'),
         );
-        await page.waitForFunction(() => window.__visitAwaitObserved != null);
+        await page.waitForFunction(
+          () => window.__visitAwaitObserved !== null && window.__visitAwaitObserved !== undefined,
+        );
 
         const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
         expect(observedHeading).toBe('Users');
@@ -645,7 +651,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await waitForHydration(page);
 
       await page.evaluate(() => {
-        (document.querySelector('nav') as NavElement | null)!.__stamp = 1;
+        document.querySelector<NavElement>('nav')!.__stamp = 1;
       });
 
       await page.click('a[href="/users"]');
@@ -653,9 +659,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         document.querySelector('h1')?.textContent?.includes('Users'),
       );
 
-      const stamp = await page.evaluate(
-        () => (document.querySelector('nav') as NavElement | null)?.__stamp,
-      );
+      const stamp = await page.evaluate(() => document.querySelector<NavElement>('nav')?.__stamp);
       expect(stamp).toBe(1);
 
       const navText = await page.textContent('nav');
@@ -671,7 +675,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     try {
       await page.route('**/users?keep-visible=1', async (route) => {
         if (route.request().headers()['x-voidpages']) {
-          await new Promise((resolve) => setTimeout(resolve, 750));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 750);
+          });
         }
         await route.continue();
       });
@@ -1001,7 +1007,7 @@ describe('react-pages client (dev)', () => {
 
   beforeAll(
     async () => {
-      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf-8');
+      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf8');
       installLateWorkerDeps();
       writeFileSync(REACT_PAGES_LAYOUT, lateWorkerDepLayout());
 
@@ -1121,13 +1127,13 @@ describe('react-pages client (dev)', () => {
     });
     expect(inertiaRoot.status).toBe(200);
     expect(inertiaRoot.headers.get('X-VoidPages')).toBe('true');
-    const rootPage = decodePageData(await inertiaRoot.json()) as {
+    const rootPage = decodePageData<{
       component: string;
       props: Record<string, unknown>;
       shared: Record<string, unknown>;
       url: string;
       head: PageHead;
-    };
+    }>(await inertiaRoot.json());
     expect(rootPage.component).toBe('index');
     expect(rootPage.props).toHaveProperty('title', 'Home');
     expect(rootPage.shared).toHaveProperty('appName', 'React Pages Demo');
@@ -1144,10 +1150,10 @@ describe('react-pages client (dev)', () => {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUsers.status).toBe(200);
-    const usersPage = decodePageData(await inertiaUsers.json()) as {
+    const usersPage = decodePageData<{
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
-    };
+    }>(await inertiaUsers.json());
     expect(usersPage.component).toBe('users');
     expect(usersPage.props.users).toHaveLength(2);
     expect(usersPage.props.users[0].name).toBe('Alice');
@@ -1167,11 +1173,11 @@ describe('react-pages client (dev)', () => {
       body: JSON.stringify({ name: 'Charlie', email: 'charlie@example.com' }),
     });
     expect(postValid.status).toBe(200);
-    const validPage = decodePageData(await postValid.json()) as {
+    const validPage = decodePageData<{
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
-    };
+    }>(await postValid.json());
     expect(validPage.errors).toBeNull();
     expect(validPage.props.users).toHaveLength(3);
     expect(validPage.props.users[2].name).toBe('Charlie');
@@ -1186,11 +1192,11 @@ describe('react-pages client (dev)', () => {
       body: JSON.stringify({ name: '', email: '' }),
     });
     expect(postInvalid.status).toBe(200);
-    const invalidPage = decodePageData(await postInvalid.json()) as {
+    const invalidPage = decodePageData<{
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
-    };
+    }>(await postInvalid.json());
     expect(invalidPage.errors).not.toBeNull();
     expect(invalidPage.errors!.name).toBe('Name is required');
     expect(invalidPage.errors!.email).toBe('Email is required');
@@ -1200,11 +1206,11 @@ describe('react-pages client (dev)', () => {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUser.status).toBe(200);
-    const userPage = decodePageData(await inertiaUser.json()) as {
+    const userPage = decodePageData<{
       component: string;
       props: { user: { id: number; name: string; email: string } };
       head: PageHead;
-    };
+    }>(await inertiaUser.json());
     expect(userPage.component).toBe('users/[id]');
     expect(userPage.props.user.name).toBe('Alice');
     expect(userPage.head.title).toBe('Alice | React Pages Demo');
@@ -1213,10 +1219,10 @@ describe('react-pages client (dev)', () => {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaCharlie.status).toBe(200);
-    const charliePage = decodePageData(await inertiaCharlie.json()) as {
+    const charliePage = decodePageData<{
       component: string;
       props: { user: { id: number; name: string; email: string } };
-    };
+    }>(await inertiaCharlie.json());
     expect(charliePage.component).toBe('users/[id]');
     expect(charliePage.props.user.name).toBe('Charlie');
     expect(charliePage.props.user.email).toBe('charlie@example.com');
@@ -1309,7 +1315,9 @@ describe('react-pages client (dev)', () => {
       let lastStatus = 0;
       let lastBody = '';
       while (Date.now() - start < 10_000) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => {
+          setTimeout(r, 100);
+        });
         const res = await fetch(`${DEV_BASE}/hmr-new-route`);
         lastStatus = res.status;
         lastBody = await res.text();

@@ -112,7 +112,9 @@ for (const action of ['enable', 'disable', 'link'] as const) {
         await changeAuthenticationConnection(context, context.req.param('id'), action, body);
         return {
           response: context.redirect(
-            action === 'link' ? `${HOME}?test=${encodeURIComponent(body.testId!)}` : HOME,
+            action === 'link' && body.testId
+              ? `${HOME}?test=${encodeURIComponent(body.testId)}`
+              : HOME,
           ),
           succeeded: true,
         };

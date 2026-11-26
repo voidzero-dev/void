@@ -1,4 +1,5 @@
 import type { PlatformPlanCatalog } from '@void/platform/plans';
+import type { PlanSecurityCaps } from '@void/platform/security-policy';
 import type { PlanAiLoggingSettings } from '../ai-logging-policy.ts';
 import type { PlanCatalogAction } from '../operator/plans.ts';
 
@@ -12,6 +13,11 @@ export type AdminPlanPreview = {
   /** Plan AI logging defaults before and after the change. */
   aiLoggingBefore: PlanAiLoggingSettings['modes'];
   aiLoggingAfter: PlanAiLoggingSettings['modes'];
+  /** Per-plan security scan caps before and after the change (M27). */
+  securityCapsBefore: PlanSecurityCaps;
+  securityCapsAfter: PlanSecurityCaps;
+  /** The scan cap row shows only while security audits are on, as on the Plans page. */
+  securityAudits: boolean;
   affectedAccounts: number;
   warnings: Array<string>;
   overLimitAccounts: Array<{ id: string; login: string; reasons: Array<string> }>;

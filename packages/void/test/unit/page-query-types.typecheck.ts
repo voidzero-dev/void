@@ -1,5 +1,5 @@
 import { expectTypeOf } from 'vite-plus/test';
-import { type PageQuery, type PageQueryInput, type RouteQuery } from 'void/routes';
+import type { PageQuery, PageQueryInput, RouteQuery } from 'void/routes';
 import type { VoidRouter } from '../../src/pages/client.ts';
 
 // What .void/routes.d.ts generates for a page whose loader validates its query,

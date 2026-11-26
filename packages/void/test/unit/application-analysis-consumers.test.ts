@@ -5,7 +5,8 @@ import type { ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { computeDesiredCloudflareResources } from '../../src/cli/deploy-resources.ts';
 import { buildFrameworkManifest, buildVoidManifest } from '../../src/cli/package.ts';
-import { readConfig, type VoidConfig } from '../../src/config.ts';
+import { readConfig } from '../../src/config.ts';
+import type { VoidConfig } from '../../src/config.ts';
 
 type CloudflarePluginConfig = {
   config: (resolved: Record<string, unknown>) => Record<string, unknown>;

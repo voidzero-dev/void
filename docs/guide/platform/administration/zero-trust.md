@@ -22,7 +22,7 @@ choose to protect apps. To renew their token in Admin, leave the policy fields b
 - A Cloudflare Zero Trust organization in the account that hosts the platform, with the identity providers and reusable Access policies you want to use. Select at least one Allow policy that matches people by identity. Void rejects Bypass and Service Auth policies, and rules that allow Everyone or any service token.
 - A Cloudflare API token for that account with **Access: Apps and Policies Write** and **Access: Organizations, Identity Providers, and Groups Read**. Void keeps it separate from the platform runtime token, stores it encrypted, and never shows it again.
 - Free Access applications in the account. Cloudflare's default limit is 500 per account. Count the applications you already manage outside Void, then add the ones Void needs, as described in [Access Applications Void Creates](#access-applications-void-creates).
-- Platform API, proxy, and email gateway hostnames outside the project application domain. Configuration is rejected when project protection would cover one of them. Any other hostname under the project application domain also asks for sign-in, except the `/health` path of `void-platform-health.<your domain>`, which Void keeps open for its health checks and never serves from a project. New projects cannot use that name. A project that already uses it keeps every other path, protected or public like any other project.
+- Platform API, proxy, and email gateway hostnames outside the project application domain. Configuration is rejected when project protection would cover one of them. Any other hostname under the project application domain also asks for sign-in, except `/health` and the paths under it on `void-platform-health.<your domain>`. Void keeps these open for its health checks and answers them itself, never from a project. New projects cannot use that name. A project that already uses it keeps its other paths, protected or public like any other project, but cannot serve paths that start with `/health`.
 
 ## Enable Zero Trust
 
@@ -69,6 +69,12 @@ void project zero-trust reconcile
 Installation administrators can do the same from the project page in the administrator UI or with `void platform zero-trust project-status|project-protect|project-public|project-reconcile <project-id>`.
 
 Deploys and rollbacks wait until a project's protection change is finished. If one is refused, run `void project zero-trust status` to see why; the owner or a project administrator can run `void project zero-trust reconcile` before you try again. A protected project can have up to 100 custom domains.
+
+## Scan Before Public
+
+If you turn on [scan before a project goes public](./security-audits.md#scan-before-public), making a protected project public no longer takes effect at once. The project stays protected until a scan of its live deployment finds no urgent finding, or until an allowed person bypasses the scan with a reason. Deploys keep working while the request waits.
+
+While it is on, `void platform zero-trust disable` and public-only configuration are refused. Turn the gate off first with `void platform security public-gate off`. In the administrator UI, **Disable** and the public-only option are unavailable, and **Make project public** says that the project stays protected until the scan passes.
 
 ## Disable Zero Trust
 

@@ -47,6 +47,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
   return createPagesPlugin(pagesDir, {
     name: 'void-svelte:pages',
     root: options?.root,
+    deployRecovery: options?.deployRecovery,
     generateRenderer(scan) {
       return generateRendererModule(scan, pagesDir);
     },

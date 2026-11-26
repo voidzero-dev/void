@@ -1,10 +1,7 @@
-import {
-  normalizePath,
-  parseSync,
-  type EnvironmentModuleNode,
-  type Plugin,
-  type ViteDevServer,
-} from 'vite';
+import { isRecord } from '@void/deploy-core';
+import { normalizePath, parseSync } from 'vite';
+import type { EnvironmentModuleNode, Plugin, ViteDevServer } from 'vite';
+import { Buffer } from '../cli/node-buffer.ts';
 import { staticModuleReferences } from '../shared/module-references.ts';
 import type { DevCssAsset } from './types.ts';
 
@@ -14,10 +11,6 @@ const DEV_CSS_ASSET_GUARD_HEADER = 'X-Void-Dev-Asset-Request';
 const DEV_CSS_ASSET_GUARD_VALUE = 'pages-css';
 
 type DevCssRootPhases = Array<Array<string>>;
-
-type DevCssRequestBody = {
-  rootPhases?: DevCssRootPhases;
-};
 
 type OrderedEdgeStore = {
   version: number;
@@ -31,7 +24,7 @@ const CSS_BYPASS_RE = /[?&](?:raw|url|worker|sharedworker)\b/;
 const SKIPPABLE_VIRTUAL_URL_RE =
   /^(?:\/@id\/__x00__)?virtual:void-client-(?:browser|worker)(?:$|[?#])/;
 
-function splitQueryHash(value: string): { pathname: string; suffix: string } {
+function splitQueryHash(value: string) {
   const index = value.search(/[?#]/);
   if (index === -1) {
     return { pathname: value, suffix: '' };
@@ -117,9 +110,11 @@ type CssOutputNode = {
   kind?: string;
 };
 
-function parseCssOutput(code: string): { css?: string; id?: string; templateCss?: boolean } {
-  const program = parseSync('void-dev-css.js', code).program as unknown as CssOutputNode;
-  const result: { css?: string; id?: string; templateCss?: boolean } = {};
+type CompiledCssOutput = { css?: string; id?: string; templateCss?: boolean };
+
+function parseCssOutput(code: string): CompiledCssOutput {
+  const program = parseSync('void-dev-css.js', code).program as CssOutputNode;
+  const result: CompiledCssOutput = {};
   const readCss = (node: CssOutputNode | undefined): void => {
     if (node?.type === 'Literal' && typeof node.value === 'string') {
       result.css = node.value;
@@ -350,7 +345,7 @@ class DevCssProvider {
 
     this.cache.set(cacheKey, assets);
     if (this.cache.size > 100) {
-      const oldest = this.cache.keys().next().value as string | undefined;
+      const oldest = this.cache.keys().next().value;
       if (oldest) {
         this.cache.delete(oldest);
       }
@@ -359,15 +354,30 @@ class DevCssProvider {
   }
 }
 
-async function readJsonBody(req: import('node:http').IncomingMessage): Promise<unknown> {
+async function readDevCssRootPhases(
+  req: import('node:http').IncomingMessage,
+): Promise<DevCssRootPhases> {
   const chunks: Array<Buffer> = [];
   for await (const chunk of req) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   if (chunks.length === 0) {
-    return {};
+    return [];
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+  const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  const rootPhases = isRecord(body) ? body.rootPhases : undefined;
+  if (!Array.isArray(rootPhases)) {
+    return [];
+  }
+  if (
+    !rootPhases.every(
+      (phase): phase is Array<string> =>
+        Array.isArray(phase) && phase.every((url) => typeof url === 'string'),
+    )
+  ) {
+    throw new Error('Invalid dev CSS root phases');
+  }
+  return rootPhases;
 }
 
 function getInternalDevOrigin(server: ViteDevServer): string {
@@ -391,7 +401,6 @@ function getInternalDevOrigin(server: ViteDevServer): string {
 
 export function pagesDevCssAssetsPlugin(root: string, token: string): Array<Plugin> {
   const edgeStore = createOrderedEdgeStore(root);
-  let provider: DevCssProvider | null = null;
   let viteServer: ViteDevServer | null = null;
 
   return [
@@ -448,7 +457,17 @@ async function readDevCssResponse(response) {
     throw new Error("HTTP " + response.status);
   }
   const body = await response.json();
-  return Array.isArray(body.assets) ? body.assets : [];
+  const assets = body?.assets;
+  if (
+    !Array.isArray(assets) ||
+    !assets.every((asset) =>
+      asset && typeof asset.url === "string" && typeof asset.css === "string" &&
+      (asset.id === undefined || typeof asset.id === "string")
+    )
+  ) {
+    throw new Error("Invalid dev CSS assets");
+  }
+  return assets;
 }
 
 export async function getVoidPagesDevCss(request, env, payload) {
@@ -498,8 +517,8 @@ export async function getVoidPagesDevCss(request, env, payload) {
 
       configureServer(server) {
         viteServer = server;
-        provider = new DevCssProvider(server, root, edgeStore);
-        const invalidate = () => provider?.invalidate();
+        const provider = new DevCssProvider(server, root, edgeStore);
+        const invalidate = () => provider.invalidate();
         server.watcher.on('add', invalidate);
         server.watcher.on('change', invalidate);
         server.watcher.on('unlink', invalidate);
@@ -537,9 +556,8 @@ export async function getVoidPagesDevCss(request, env, payload) {
             return;
           }
           try {
-            const body = (await readJsonBody(req)) as DevCssRequestBody;
-            const rootPhases = Array.isArray(body.rootPhases) ? body.rootPhases : [];
-            const assets = await provider!.collect(rootPhases);
+            const rootPhases = await readDevCssRootPhases(req);
+            const assets = await provider.collect(rootPhases);
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ assets }));

@@ -16,6 +16,8 @@ export const dbSubcommands: Array<SubcommandDef> = [
     name: 'execute',
     arg: '<sql>',
     description: 'Run SQL against the database (use --remote for the deployed database)',
+    // No --json: this menu draws on stdout, which --json keeps for its result. Scripts pass it
+    // on the command line, which skips the menu.
     flags: [
       { name: '--remote', description: 'Run against the deployed database' },
       { name: '--yes', description: 'Skip the confirmation prompt' },
@@ -85,7 +87,14 @@ export type DbArgs =
   | { action: 'status' }
   | { action: 'reset'; yes?: boolean }
   | { action: 'seed'; file?: string; yes?: boolean }
-  | { action: 'execute'; command?: string; file?: string; remote?: boolean; yes?: boolean }
+  | {
+      action: 'execute';
+      command?: string;
+      file?: string;
+      remote?: boolean;
+      yes?: boolean;
+      json?: boolean;
+    }
   | { action: 'migrate'; remote?: boolean }
   | { action: 'studio'; remote?: boolean }
   | {
@@ -137,7 +146,7 @@ const ACTION_FLAGS: Record<DbArgs['action'], Array<string>> = {
   status: [],
   reset: ['yes'],
   seed: ['file', 'yes'],
-  execute: ['file', 'remote', 'yes'],
+  execute: ['file', 'remote', 'yes', 'json'],
   migrate: ['remote'],
   studio: ['remote'],
   'set-url': [],
@@ -197,6 +206,7 @@ export function parseDbArgs(args: Array<string>): DbArgs {
       region: { type: 'string' },
       'local-only': { type: 'boolean' },
       yes: { type: 'boolean' },
+      json: { type: 'boolean' },
       bookmark: { type: 'string' },
       timestamp: { type: 'string' },
       platform: { type: 'string' },
@@ -238,7 +248,14 @@ export function parseDbArgs(args: Array<string>): DbArgs {
       if (command && values.file) {
         throw new Error('db: Provide either SQL inline or --file, not both.');
       }
-      return { action, command, file: values.file, remote: values.remote, yes: values.yes };
+      return {
+        action,
+        command,
+        file: values.file,
+        remote: values.remote,
+        yes: values.yes,
+        json: values.json,
+      };
     }
     case 'migrate':
     case 'studio':

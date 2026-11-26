@@ -72,7 +72,7 @@ describe('void dev better-auth module', () => {
     });
     try {
       await server.listen();
-      const response = await fetch(new URL('/api/oauth-state', server.resolvedUrls!.local[0]!));
+      const response = await fetch(new URL('/api/oauth-state', server.resolvedUrls!.local[0]));
       const body = await response.text();
       expect(response.status, body).toBe(200);
       expect(JSON.parse(body)).toEqual({ same: true });

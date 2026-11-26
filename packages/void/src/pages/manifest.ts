@@ -58,13 +58,18 @@ export function generateComponentManifest(scan: PageScanResult, pagesDir: string
   }
 
   const lines: Array<string> = [];
-  lines.push('const components = {};');
-  lines.push(`const __voidLayoutChains = [${chains.join(', ')}];`);
-  // [componentId, load, layout chain index (-1 for none), pattern unless "/" + componentId]
-  lines.push('const __voidStaticRoutes = [', ...staticRows, '];');
-  // [pattern, componentId, load, layout chain index]
-  lines.push('const __voidDynamicRoutes = [', ...dynamicRows, '];');
-  lines.push(`const layoutTree = {};
+  lines.push(
+    'const components = {};',
+    `const __voidLayoutChains = [${chains.join(', ')}];`,
+    // [componentId, load, layout chain index (-1 for none), pattern unless "/" + componentId]
+    'const __voidStaticRoutes = [',
+    ...staticRows,
+    '];',
+    // [pattern, componentId, load, layout chain index]
+    'const __voidDynamicRoutes = [',
+    ...dynamicRows,
+    '];',
+    `const layoutTree = {};
 const __voidStaticRouteIds = new Map();
 for (const [id, load, chain, pattern = "/" + id] of __voidStaticRoutes) {
   components[id] = load;
@@ -76,7 +81,8 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
   components[id] = load;
   if (chain >= 0) layoutTree[id] = __voidLayoutChains[chain];
   routes.push({ pattern, id });
-}`);
+}`,
+  );
   for (const layout of [...scan.layouts, ...scan.namedLayouts]) {
     lines.push(
       `components[${JSON.stringify(layoutKey(toLayoutId(layout)))}] = ${load(layout.filePath)};`,
@@ -88,8 +94,10 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
   const boundaryManifest = createBoundaryManifest(scan);
   lines.push(`const boundaryManifest = ${JSON.stringify(boundaryManifest)};`);
   for (const plan of Object.values(boundaryManifest.plans)) {
-    lines.push(`components[${JSON.stringify(plan.id)}] = ${load(plan.filePath)};`);
-    lines.push(`layoutTree[${JSON.stringify(plan.id)}] = ${JSON.stringify(plan.layouts)};`);
+    lines.push(
+      `components[${JSON.stringify(plan.id)}] = ${load(plan.filePath)};`,
+      `layoutTree[${JSON.stringify(plan.id)}] = ${JSON.stringify(plan.layouts)};`,
+    );
   }
 
   // Sparse route metadata: only flags that differ from the defaults.
@@ -131,7 +139,7 @@ function captureGroup(segment: string): string | undefined {
     case 'rest':
       return segment === '*' ? '(.*)' : '(.+)';
     case 'param':
-      return '([^\\/]+)';
+      return String.raw`([^\/]+)`;
     case 'static':
       return undefined;
   }
@@ -159,6 +167,6 @@ export function patternToRegex(pattern: string): string {
       }
       return literal;
     })
-    .join('\\/');
-  return `/^${regexSource}${trailingWildcard ? '(?:(.*)\\/)?' : ''}$/`;
+    .join(String.raw`\/`);
+  return `/^${regexSource}${trailingWildcard ? String.raw`(?:(.*)\/)?` : ''}$/`;
 }

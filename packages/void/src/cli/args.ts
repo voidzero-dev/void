@@ -30,17 +30,19 @@ export function parseDeployArgs(
     if (message.includes('argument missing') || message.includes('argument is ambiguous')) {
       const optionMatch = message.match(/Option '(--[a-z-]+)/);
       if (optionMatch?.[1] === '--platform') {
-        throw new Error("deploy: --platform requires a value ('cloudflare' or 'void').");
+        throw new Error("deploy: --platform requires a value ('cloudflare' or 'void').", {
+          cause: error,
+        });
       }
-      throw new Error('deploy: --project requires a slug.');
+      throw new Error('deploy: --project requires a slug.', { cause: error });
     }
 
     const unknownOptionMatch = message.match(/Unknown option '([^']+)'/);
     if (unknownOptionMatch) {
-      throw new Error(`deploy: Unknown option '${unknownOptionMatch[1]}'.`);
+      throw new Error(`deploy: Unknown option '${unknownOptionMatch[1]}'.`, { cause: error });
     }
 
-    throw new Error(`deploy: ${message}.`);
+    throw new Error(`deploy: ${message}.`, { cause: error });
   }
 
   const tokens = parsed.tokens ?? [];

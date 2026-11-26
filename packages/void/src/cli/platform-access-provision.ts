@@ -4,13 +4,10 @@ import {
   isPlatformAccessIdentityRule,
   parsePlatformAccessProtection,
   parsePlatformLoginConfiguration,
-  type PlatformAccessProtection,
-  type PlatformLoginConfiguration,
 } from '@void/platform';
-import {
-  PlatformCloudflareApiError,
-  type PlatformCloudflareClient,
-} from './platform-cloudflare.ts';
+import type { PlatformAccessProtection, PlatformLoginConfiguration } from '@void/platform';
+import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 
 type ObjectValue = Record<string, unknown>;
 type AccessResource = {
@@ -66,10 +63,14 @@ function text(value: unknown, name: string): string {
   }
   return value;
 }
-export function platformAccessIdentityProvider(provider: ObjectValue): {
+type PlatformAccessIdentityProvider = {
   id: string;
   name: string;
-} {
+};
+
+export function platformAccessIdentityProvider(
+  provider: ObjectValue,
+): PlatformAccessIdentityProvider {
   const id = text(provider.id, 'identity provider ID');
   // Cloudflare's built-in provider can have an empty display name. Identity
   // selection still uses its validated ID, including in the interactive picker.
@@ -77,7 +78,7 @@ export function platformAccessIdentityProvider(provider: ObjectValue): {
   return {
     id,
     name:
-      name == null || (typeof name === 'string' && !name.trim())
+      name === null || name === undefined || (typeof name === 'string' && !name.trim())
         ? id
         : text(name, 'identity provider name'),
   };
@@ -111,9 +112,11 @@ export class PlatformAccessClient {
   path(suffix: string): string {
     return `/accounts/${encodeURIComponent(this.accountId)}/access/${suffix}`;
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- The inventory and resource readers validate different response shapes.
   get(suffix: string): Promise<unknown> {
     return this.client.request(this.path(suffix));
   }
+  // oxlint-disable-next-line quality/no-unknown-returns -- The provisioner validates the resource-specific response.
   create(suffix: string, body: ObjectValue): Promise<unknown> {
     return this.client.request(this.path(suffix), { method: 'POST', body: JSON.stringify(body) });
   }
@@ -273,12 +276,12 @@ export function platformAccessPublicDestinations(application: ObjectValue): Arra
   ];
 }
 function platformAccessOverlapsOrigin(destination: string, origin: string): boolean {
-  const host = destination.split('/')[0]!;
+  const host = destination.split('/')[0];
   const pattern =
     '^' +
     host
       .split('*')
-      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
       .join('.*') +
     '$';
   return new RegExp(pattern, 'i').test(new URL(origin).hostname);
@@ -417,11 +420,12 @@ export async function provisionPlatformAccess(
       'platform: Connecting an existing protection application requires its admitted service token.',
     );
   }
-  if (input.serviceToken) {
-    const token = tokenInventory.find((token) => token.id === input.serviceToken!.id);
+  const { serviceToken } = input;
+  if (serviceToken) {
+    const token = tokenInventory.find((token) => token.id === serviceToken.id);
     if (
       !token ||
-      token.client_id !== input.serviceToken.clientId ||
+      token.client_id !== serviceToken.clientId ||
       token.enabled === false ||
       (typeof token.expires_at === 'string' && Date.parse(token.expires_at) <= Date.now())
     ) {
@@ -431,11 +435,11 @@ export async function provisionPlatformAccess(
     }
     const prior = state.resources['service-token'];
     state.resources['service-token'] = {
-      id: input.serviceToken.id,
+      id: serviceToken.id,
       name: text(token.name, 'service token name'),
       fingerprint: fingerprint({ origins }),
       pending: false,
-      adopted: prior?.id === input.serviceToken.id ? prior.adopted : true,
+      adopted: prior?.id === serviceToken.id ? prior.adopted : true,
     };
     save(state);
   }
@@ -498,13 +502,13 @@ export async function provisionPlatformAccess(
       return found;
     }
     if (checkpoint?.pending) {
-      const matching = inventory.filter((app) => app.name === checkpoint!.name);
+      const matching = inventory.filter((app) => app.name === checkpoint.name);
       if (matching.length !== 1) {
         throw new Error(
           'platform: An Access application creation has an uncertain outcome. Inspect Cloudflare and connect the existing application; no creation was retried.',
         );
       }
-      checkpoint.id = text(matching[0]!.id, 'application ID');
+      checkpoint.id = text(matching[0].id, 'application ID');
       save(state);
       return object(
         await client.get(`apps/${encodeURIComponent(checkpoint.id)}`),
@@ -619,7 +623,7 @@ export async function provisionPlatformAccess(
         };
         state.resources[tokenKey] = saved;
         save(state);
-        if (tokenInventory.some((token) => token.name === saved!.name)) {
+        if (tokenInventory.some((token) => token.name === saved.name)) {
           throw new Error(
             'platform: An Access service token for this installation already exists. Supply its credentials explicitly; no duplicate was created.',
           );
@@ -636,9 +640,9 @@ export async function provisionPlatformAccess(
       }
       if (!saved.id || !saved.clientId || !saved.clientSecret) {
         const tokens = await client.list('service_tokens');
-        const found = tokens.filter((token) => token.name === saved!.name);
+        const found = tokens.filter((token) => token.name === saved.name);
         if (found.length === 1) {
-          saved.id = text(found[0]!.id, 'service token ID');
+          saved.id = text(found[0].id, 'service token ID');
           save(state);
         }
         throw new Error(
@@ -678,10 +682,14 @@ export async function provisionPlatformAccess(
       );
     }
     const audience = text(app.aud, 'application audience');
-    output.protection = parsePlatformAccessProtection({
+    const protection = parsePlatformAccessProtection({
       teamDomain: inspected.teamDomain,
       applications: origins.map((origin) => ({ origin, audience })),
-    })!;
+    });
+    if (!protection) {
+      throw new Error('platform: The Access protection configuration is missing.');
+    }
+    output.protection = protection;
     output.credentials = Object.fromEntries(
       origins.map((origin) => [
         origin,

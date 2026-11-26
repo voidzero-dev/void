@@ -21,7 +21,10 @@ export const loader = defineHandler<Props>(async (context) => {
 
   // Derive origin from Host header — context.req.url can be localhost in prod
   // due to Workers Assets internal dispatch
-  const host = context.req.header('host')!;
+  const host = context.req.header('host');
+  if (!host) {
+    throw new Error('Missing Host header.');
+  }
   const isLocal = isLocalDashboardHost(host);
   const protocol = isLocal ? 'http' : 'https';
   const callbackUrl = `${protocol}://${host}/auth/callback`;
@@ -65,12 +68,12 @@ export const loader = defineHandler<Props>(async (context) => {
     if (!response.ok) {
       throw new Error('Discovery unavailable');
     }
-    const document = (await response.json()) as {
+    const document = await response.json<{
       schemaVersion?: number;
       displayName?: unknown;
       authentication?: { methods: Array<{ id: string; label: string }> };
       authenticationProviders?: Array<string>;
-    };
+    }>();
     if (![1, 2, 3].includes(document.schemaVersion ?? 0)) {
       throw new Error('Unsupported platform');
     }

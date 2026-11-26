@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Plugin } from 'vite';
+import type { Plugin, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pagesPlugin as reactPagesPlugin } from '../../../react/src/plugin-pages.ts';
 import { pagesPlugin as solidPagesPlugin } from '../../../solid/src/plugin-pages.ts';
@@ -10,7 +10,7 @@ import { pagesPlugin as vuePagesPlugin } from '../../../vue/src/plugin-pages.ts'
 
 type Hook<T> = T | { handler: T; filter?: { id: RegExp } };
 type PagesPluginHooks = {
-  config: Hook<(config: object, env: { command: 'serve' | 'build' }) => unknown>;
+  config: Hook<(config: UserConfig, env: { command: 'serve' | 'build' }) => unknown>;
   configResolved: (config: { publicDir: string | false }) => void;
   buildStart: Hook<() => Promise<void>>;
   resolveId: Hook<(id: string) => string | undefined>;
@@ -39,13 +39,14 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     root = undefined;
   });
 
-  function setup() {
+  function setup(options: Record<string, unknown> = {}) {
     root = mkdtempSync(join(tmpdir(), `void-${adapter.name}-pages-plugin-`));
     const pagesDir = join(root, '_source', '_views');
     const plugins = adapter.create(pagesDir, {
       root,
       viewTransitions: true,
       prefetch: { defaultStrategy: ['hover', 'click'], hoverDelay: 123, cacheFor: '45s' },
+      ...options,
     });
     const plugin = (Array.isArray(plugins) ? plugins : [plugins]).find(
       (candidate: Plugin) => candidate.name === `void-${adapter.name}:pages`,
@@ -87,7 +88,14 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
           rollupOptions: { input: { 'pages-client': 'virtual:void-pages-client' } },
         },
       };
-      expect(config).toEqual(
+      const { define, ...rest } = config as Record<string, unknown> & {
+        define?: Record<string, string>;
+      };
+      // Every Pages client carries the build it was compiled into.
+      expect(define).toEqual({
+        'import.meta.env.__VOID_PAGES_BUILD_ID': expect.stringMatching(/^"[0-9a-f]{12}"$/),
+      });
+      expect(rest).toEqual(
         adapter.name === 'vue'
           ? { environments: { client: clientConfig } }
           : adapter.name === 'react'
@@ -97,6 +105,17 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     } else {
       expect(config).toBeUndefined();
     }
+  });
+
+  it('omits the build id when deploy recovery is off', async () => {
+    const { plugin, write } = setup({ deployRecovery: false });
+    write(`about.${adapter.extension}`);
+
+    const config = (await handler(plugin.config)({}, { command: 'build' })) as
+      | { define?: Record<string, string> }
+      | undefined;
+
+    expect(config?.define).toBeUndefined();
   });
 
   it('resolves only the Pages virtual module IDs', async () => {
@@ -161,7 +180,10 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     await handler(plugin.buildStart)();
     const events = new Map<string, (path: string) => Promise<void>>();
     const moduleIds = ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client'];
-    const invalidations = [vi.fn(), vi.fn()];
+    const invalidations = [
+      vi.fn<(module: { id: string }) => void>(),
+      vi.fn<(module: { id: string }) => void>(),
+    ];
     plugin.configureServer({
       watcher: {
         on(event: string, callback: (path: string) => Promise<void>) {

@@ -10,6 +10,7 @@ import {
   vi,
 } from 'vite-plus/test';
 import type { ApiEnv } from '../../src/env.ts';
+import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import { FAST_CRON, scheduled } from '../../src/index.ts';
 import {
   domains,
@@ -17,10 +18,8 @@ import {
   projects as projectTable,
   projectZeroTrust,
 } from '../../src/schema.ts';
-import {
-  readZeroTrustConfigurationStrict,
-  type ZeroTrustConfigureInput,
-} from '../../src/zero-trust/configuration.ts';
+import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
@@ -40,8 +39,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -132,23 +131,23 @@ function accessApi(options?: {
     if (policyMatch) {
       return Response.json({
         success: true,
-        result: applications.get(policyMatch[1]!)?.policies ?? [],
+        result: applications.get(policyMatch[1])?.policies ?? [],
       });
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match && init?.method === 'PUT') {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      const previous = applications.get(match[1]!);
+      const previous = applications.get(match[1]);
       const application = { ...body, id: match[1], aud: previous?.aud ?? `aud-${match[1]}` };
-      applications.set(match[1]!, application);
+      applications.set(match[1], application);
       return Response.json({ success: true, result: application });
     }
     if (match && init?.method === 'DELETE') {
-      applications.delete(match[1]!);
+      applications.delete(match[1]);
       return Response.json({ success: true, result: { id: match[1] } });
     }
     if (match) {
-      const application = applications.get(match[1]!);
+      const application = applications.get(match[1]);
       return application
         ? Response.json({ success: true, result: application })
         : Response.json(
@@ -550,9 +549,11 @@ describe('project Zero Trust reconciliation', () => {
       .limit(1);
     expect(unseeded).toBeDefined();
     await expect(
-      initializeNewProjectZeroTrust(bindings, env.db, unseeded!.id),
+      initializeNewProjectZeroTrust(bindings, env.db, unseeded.id),
     ).resolves.toMatchObject({ desired_protected: false, status: 'reconciling' });
 
+    // Configuration is saved by an operator request, which arms the fast tier.
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, 'armed');
     const controller = {
       cron: FAST_CRON,
       scheduledTime: Date.now(),
@@ -707,12 +708,10 @@ describe('project Zero Trust reconciliation', () => {
     releaseBypassCreation();
 
     await expect(publicTransition).resolves.toMatchObject({
-      status: 'ready',
-      desired_protected: false,
+      row: { status: 'ready', desired_protected: false },
     });
     await expect(protectedTransition).resolves.toMatchObject({
-      status: 'ready',
-      desired_protected: true,
+      row: { status: 'ready', desired_protected: true },
     });
     expect(await getProjectZeroTrustState(env.db, project.id)).toMatchObject({
       desired_protected: true,

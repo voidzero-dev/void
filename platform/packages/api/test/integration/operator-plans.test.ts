@@ -22,8 +22,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let token: string;
@@ -35,8 +35,7 @@ const counter = {
   get: (id: string) => ({
     fetch: async (request: Request) => {
       const path = new URL(request.url).pathname;
-      const body =
-        request.method === 'POST' ? ((await request.json()) as Record<string, unknown>) : {};
+      const body = request.method === 'POST' ? await request.json<Record<string, unknown>>() : {};
       calls.push({ id, path, body });
       if (path === '/state') {
         const [account] = await env.db
@@ -176,14 +175,16 @@ describe('operator installation plans', () => {
       limits: { requestsPerMonth: 25_000_000 },
     });
     expect(add.status).toBe(200);
-    const shown = (await (await req('/team')).json()) as {
+    const shown = await (
+      await req('/team')
+    ).json<{
       plan: {
         id: string;
         name: string;
         buildInstanceType: string;
         limits: { requestsPerMonth: number; retainedDeployments: number };
       };
-    };
+    }>();
     expect(shown.plan).toMatchObject({
       id: 'team',
       name: 'Team',
@@ -248,7 +249,7 @@ describe('operator installation plans', () => {
       project.slug,
       JSON.stringify({ workerName: 'worker', projectId: project.id, userId: owner.id }),
     );
-    const before = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0]!;
+    const before = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0];
     const response = await change('/free/set', {
       limits: { cpuMsPerRequest: 20, maxCpuMsPerRequest: 20, requestsPerMonth: 10_000_000 },
     });
@@ -257,7 +258,7 @@ describe('operator installation plans', () => {
       ok: true,
       reconciliation: { complete: true, processed: 1 },
     });
-    const after = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0]!;
+    const after = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0];
     expect(after.billing_cycle_start).toBe(before.billing_cycle_start);
     expect(after.suspended_reason).toBe('admin_suspended');
     expect(JSON.parse((await env.ROUTING.get(project.slug))!)).toMatchObject({
@@ -299,7 +300,7 @@ describe('operator installation plans', () => {
       .update(projectOwnershipPeriods)
       .set({ starts_at: '2026-01-01T00:00:00Z' })
       .where(eq(projectOwnershipPeriods.project_id, project.id));
-    const before = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0]!;
+    const before = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0];
     const periods = await env.db.select().from(projectOwnershipPeriods);
     expect((await change('/pro/remove', {})).status).toBe(409);
     expect((await change('/pro/remove', { replacementPlanId: 'pro' })).status).toBe(400);
@@ -309,7 +310,7 @@ describe('operator installation plans', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ affectedAccounts: 1, ok: true });
     expect((await req('/pro')).status).toBe(404);
-    const after = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0]!;
+    const after = (await env.db.select().from(users).where(eq(users.id, owner.id)))[0];
     expect(after).toMatchObject({
       plan: 'solo',
       billing_cycle_start: before.billing_cycle_start,
@@ -387,7 +388,7 @@ describe('operator installation plans', () => {
       ok: true,
       reconciliation: { complete: true, processed: 1 },
     });
-    const initialized = calls.filter((call) => call.path === '/init').map((call) => call.id);
+    const initialized = calls.flatMap((call) => (call.path === '/init' ? [call.id] : []));
     expect(initialized).toHaveLength(26);
     expect(new Set(initialized).size).toBe(26);
   });

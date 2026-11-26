@@ -105,10 +105,10 @@ describe('trusted Sandbox lifecycle', () => {
     });
     await f.start();
     expect(f.container.start.mock.invocationCallOrder[0]).toBeLessThan(
-      f.container.setInactivityTimeout.mock.invocationCallOrder[0]!,
+      f.container.setInactivityTimeout.mock.invocationCallOrder[0],
     );
     expect(f.container.setInactivityTimeout.mock.invocationCallOrder[0]).toBeLessThan(
-      f.container.exec.mock.invocationCallOrder[0]!,
+      f.container.exec.mock.invocationCallOrder[0],
     );
   });
   it('reserves before boot and confirms readiness before billing', async () => {
@@ -426,9 +426,7 @@ describe('trusted Sandbox lifecycle', () => {
     });
     await f.controller.invoke('exec', [['true'], { abort: cancellation }]);
     await vi.advanceTimersByTimeAsync(0);
-    const signals = f.container.exec.mock.calls.map(
-      ([, options]) => options?.signal as AbortSignal | undefined,
-    );
+    const signals = f.container.exec.mock.calls.map(([, options]) => options?.signal);
     expect(signals).toHaveLength(2);
     expect(signals.every((signal) => signal && !signal.aborted)).toBe(true);
     abort.abort();

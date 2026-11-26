@@ -14,8 +14,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { createUsageCounterFixture } from './usage-counter-fixture.ts';
 
 let env: TestEnv;
@@ -78,7 +78,7 @@ describe('live plan transitions using the production quota counter', () => {
           billingPeriodStart: priorPeriod,
           billingPeriodInitialized: true,
           totalRequests: 9000,
-          totalNeurons: 120000,
+          totalNeurons: 120_000,
           totalSandboxSeconds: 100,
           requestsSuspended: true,
           aiSuspended: true,
@@ -176,7 +176,7 @@ describe('live plan transitions using the production quota counter', () => {
       expect(response.status).toBe(200);
     };
     const state = async () =>
-      (await (await counter.fetch(new Request('https://do/state'))).json()) as CounterState;
+      await (await counter.fetch(new Request('https://do/state'))).json<CounterState>();
     await record(3);
     const period = (await state()).billingPeriodStart;
     await change('/free/set', { limits: { requestsPerMonth: 2 } });

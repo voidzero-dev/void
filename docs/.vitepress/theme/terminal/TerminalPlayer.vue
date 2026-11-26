@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { PlaybackClock, terminalFrame, type TerminalDemo } from './timeline.ts';
+import { PlaybackClock, terminalFrame } from './timeline.ts';
+import type { TerminalDemo } from './timeline.ts';
 
 const props = withDefaults(
   defineProps<{

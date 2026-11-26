@@ -4,8 +4,8 @@ import {
   classifySqlMigration,
   getMigrationPlanHashInput,
   MIGRATION_CLASSIFIER_VERSION,
-  type MigrationPlanHashInput,
 } from '@void/deploy-core';
+import type { MigrationPlanHashInput } from '@void/deploy-core';
 
 export type ServerMigrationPlan = {
   name: string;
@@ -31,8 +31,8 @@ export async function validateSubmittedExecutionPlans(
     return 'executionPlans must match migrations length';
   }
   for (let index = 0; index < migrations.length; index++) {
-    const migration = migrations[index]!;
-    const plan = plans[index]!;
+    const migration = migrations[index];
+    const plan = (plans as Array<Record<string, unknown>>)[index];
     if (plan.name !== migration.name) {
       return `executionPlans[${index}].name must match migrations[${index}].name`;
     }
@@ -60,13 +60,13 @@ export async function validateSubmittedExecutionPlans(
     if (plan.stability !== serverPlan.stability) {
       return `executionPlans[${index}].stability does not match server classification`;
     }
-    const hashInput: Record<string, unknown> = {
+    const hashInput: ReturnType<typeof getMigrationPlanHashInput> = {
       classifierVersion: plan.classifierVersion,
       dialect: plan.dialect,
       kind,
       name: plan.name,
       sqlHash: plan.sqlHash,
-      stability: plan.stability,
+      stability: serverPlan.stability,
     };
     if (kind === 'breakpoint-framed') {
       const serverStatements = serverPlan.kind === 'breakpoint-framed' ? serverPlan.statements : [];

@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { oauthNonces, authCodes } from '../schema.ts';
-import { type Db } from './client.ts';
+import type { Db } from './client.ts';
 
 // ---------------------------------------------------------------------------
 // oauth nonces

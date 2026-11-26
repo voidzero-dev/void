@@ -1,8 +1,6 @@
 import type { PlatformInstallationManifest } from '@void/platform';
-import {
-  PLATFORM_WORKER_SECRET_UPDATE_NAMES,
-  type PlatformWorkerSecretUpdates,
-} from './platform-installer-types.ts';
+import { PLATFORM_WORKER_SECRET_UPDATE_NAMES } from './platform-installer-types.ts';
+import type { PlatformWorkerSecretUpdates } from './platform-installer-types.ts';
 
 type PendingWorkerSecretUpdateIntent = Readonly<{
   generation: number | null;
@@ -73,7 +71,7 @@ function unresolvedWorkerSecretUpdate(
   if (pending.length === 0) {
     return null;
   }
-  return { generation: latestGeneration, id: pending[0]!.id };
+  return { generation: latestGeneration, id: pending[0].id };
 }
 
 function readLatestWorkerGeneration(manifest: PlatformInstallationManifest): number {

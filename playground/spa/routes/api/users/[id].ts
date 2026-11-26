@@ -1,10 +1,10 @@
 import { users } from '@schema';
-import * as v from 'valibot';
+import { object, string } from 'valibot';
 import { defineHandler } from 'void';
 import { db, eq } from 'void/db';
 
 export const GET = defineHandler.withValidator({
-  params: v.object({ id: v.string() }),
+  params: object({ id: string() }),
 })(async (c, { params }) => {
   const [user] = await db
     .select()

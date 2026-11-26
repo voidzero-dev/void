@@ -13,7 +13,7 @@
     "svelte": "catalog:"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.2",
     "tsrs": "catalog:",
     "typescript": "catalog:sveltekit",
     "vite": "catalog:",

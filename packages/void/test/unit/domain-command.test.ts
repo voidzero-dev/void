@@ -3,10 +3,10 @@ import type { DomainStatusResponse } from '../../src/cli/client.ts';
 import type { DomainArgs } from '../../src/cli/domain-args.ts';
 import { computeRollup, runDomainCommand } from '../../src/cli/domain.ts';
 
-const mockLogError = vi.fn();
-const mockLogSuccess = vi.fn();
-const mockLogInfo = vi.fn();
-const mockNote = vi.fn();
+const mockLogError = vi.fn<(...args: Array<unknown>) => void>();
+const mockLogSuccess = vi.fn<(...args: Array<unknown>) => void>();
+const mockLogInfo = vi.fn<(...args: Array<unknown>) => void>();
+const mockNote = vi.fn<(...args: Array<unknown>) => void>();
 class ProcessExitError extends Error {
   constructor(public code: number | undefined) {
     super(`process.exit(${code})`);
@@ -20,49 +20,68 @@ async function runExpectingExit(rt: string, a: DomainArgs): Promise<void> {
   await expect(runDomainCommand(rt, a)).rejects.toBeInstanceOf(ProcessExitError);
 }
 
-const mockGetToken = vi.fn();
-const mockReadProjectConfig = vi.fn();
-const mockReadDeploymentPlatform = vi.fn();
-const mockListProjects = vi.fn();
-const mockAddDomain = vi.fn();
-const mockListDomains = vi.fn();
-const mockGetDomainStatus = vi.fn();
-const mockRemoveDomain = vi.fn();
+const mockGetToken = vi.fn<typeof import('../../src/cli/auth.ts').getToken>();
+const mockReadProjectConfig = vi.fn<(root: string) => { projectId: string; slug: string } | null>();
+const mockReadDeploymentPlatform =
+  vi.fn<typeof import('../../src/cli/project.ts').readDeploymentPlatform>();
+const mockListProjects = vi.fn<() => Promise<Array<{ id: string; slug: string }>>>();
+const mockAddDomain = vi.fn<import('../../src/cli/client.ts').PlatformClient['addDomain']>();
+const mockListDomains =
+  vi.fn<
+    (
+      projectId: string,
+    ) => Promise<
+      Array<Pick<import('../../src/cli/client.ts').DomainResponse, 'id' | 'hostname' | 'status'>>
+    >
+  >();
+const mockGetDomainStatus = vi.fn<
+  (
+    projectId: string,
+    domainId: string,
+  ) => Promise<
+    Omit<DomainStatusResponse, 'cname_target'> & {
+      cname_target?: string;
+    }
+  >
+>();
+const mockRemoveDomain = vi.fn<import('../../src/cli/client.ts').PlatformClient['removeDomain']>();
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   outro: vi.fn(),
   log: {
-    error: (...args: Array<unknown>) => mockLogError(...args),
-    success: (...args: Array<unknown>) => mockLogSuccess(...args),
-    info: (...args: Array<unknown>) => mockLogInfo(...args),
+    error: (...args: Parameters<typeof mockLogError>) => mockLogError(...args),
+    success: (...args: Parameters<typeof mockLogSuccess>) => mockLogSuccess(...args),
+    info: (...args: Parameters<typeof mockLogInfo>) => mockLogInfo(...args),
   },
-  note: (...args: Array<unknown>) => mockNote(...args),
+  note: (...args: Parameters<typeof mockNote>) => mockNote(...args),
 }));
 
 vi.mock('../../src/cli/auth', () => ({
-  getToken: (...args: Array<unknown>) => mockGetToken(...args),
+  getToken: (...args: Parameters<typeof mockGetToken>) => mockGetToken(...args),
 }));
 
 vi.mock('../../src/cli/project', () => ({
-  readProjectConfig: (...args: Array<unknown>) => mockReadProjectConfig(...args),
-  readDeploymentPlatform: (...args: Array<unknown>) => mockReadDeploymentPlatform(...args),
+  readProjectConfig: (...args: Parameters<typeof mockReadProjectConfig>) =>
+    mockReadProjectConfig(...args),
+  readDeploymentPlatform: (...args: Parameters<typeof mockReadDeploymentPlatform>) =>
+    mockReadDeploymentPlatform(...args),
 }));
 
 vi.mock('../../src/cli/client', () => ({
   PlatformClient: class {
-    listProjects(...args: Array<unknown>) {
+    listProjects(...args: Parameters<typeof mockListProjects>) {
       return mockListProjects(...args);
     }
-    addDomain(...args: Array<unknown>) {
+    addDomain(...args: Parameters<typeof mockAddDomain>) {
       return mockAddDomain(...args);
     }
-    listDomains(...args: Array<unknown>) {
+    listDomains(...args: Parameters<typeof mockListDomains>) {
       return mockListDomains(...args);
     }
-    getDomainStatus(...args: Array<unknown>) {
+    getDomainStatus(...args: Parameters<typeof mockGetDomainStatus>) {
       return mockGetDomainStatus(...args);
     }
-    removeDomain(...args: Array<unknown>) {
+    removeDomain(...args: Parameters<typeof mockRemoveDomain>) {
       return mockRemoveDomain(...args);
     }
   },

@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 
-import { Component, type ReactNode } from 'react';
+import { Component } from 'react';
+import type { ReactNode } from 'react';
 import { AdminErrorPage } from './views/AdminErrorPage.tsx';
 
 function isFateRequestError(error: unknown): error is Error & { status: number } {
@@ -12,11 +13,13 @@ function isFateRequestError(error: unknown): error is Error & { status: number }
   );
 }
 
+type FateErrorState = { error: unknown };
+
 export class AdminFateErrorBoundary extends Component<
   { children: ReactNode; platformName: string },
-  { error: unknown }
+  FateErrorState
 > {
-  state: { error: unknown } = { error: null };
+  state: FateErrorState = { error: null };
 
   static getDerivedStateFromError(error: unknown) {
     return { error };

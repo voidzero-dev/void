@@ -3,8 +3,8 @@ import {
   DEPLOY_ARTIFACT_VERSION,
   createDeployArtifact,
   createDeployUploadPayload,
-  type DeployManifest,
 } from '../../src/index.ts';
+import type { DeployManifest } from '../../src/index.ts';
 
 describe('deployment artifacts', () => {
   const manifest: DeployManifest = {

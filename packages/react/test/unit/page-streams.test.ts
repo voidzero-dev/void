@@ -37,7 +37,9 @@ it('concatenates streams in order without reading ahead of the consumer', async 
   );
   const joined = concatStreams([first, chunkStream(['b', 'c'])]);
 
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
   expect(pulls).toBeLessThan(4);
   expect(await new Response(joined).text()).toBe(`${'a'.repeat(32)}bc`);
 });

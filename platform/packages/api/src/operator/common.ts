@@ -59,11 +59,13 @@ export function stringField(
   return value.trim();
 }
 
-export function pagination(context: Context<ApiEnv>): {
+type Pagination = {
   page: number;
   limit: number;
   offset: number;
-} {
+};
+
+export function pagination(context: Context<ApiEnv>): Pagination {
   const parse = (name: string, fallback: number, maximum: number): number => {
     const raw = context.req.query(name);
     if (raw === undefined) {

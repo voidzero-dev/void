@@ -1,6 +1,7 @@
 import { redirectToHttps } from '@void/edge';
 import type { ExecutionContext } from 'hono';
-import { createManifestLoader, type ManifestLoader } from './assets.ts';
+import { createManifestLoader } from './assets.ts';
+import type { ManifestLoader } from './assets.ts';
 
 // Native Void routing records intentional 404s before Hono wraps HEAD responses.
 export const intentionalNotFoundRequests: WeakSet<Request> = new WeakSet();
@@ -12,7 +13,11 @@ export type AssetFallbackOptions = {
   serveSpaFallback?: boolean;
   notFound?: 'none' | '404-page' | 'single-page-application';
 };
-const ASSET_CONTENT_TYPES: Readonly<Record<string, string>> = {
+interface AssetContentTypes {
+  readonly [extension: string]: string | undefined;
+}
+
+const ASSET_CONTENT_TYPES: AssetContentTypes = {
   '.avif': 'image/avif',
   '.css': 'text/css; charset=utf-8',
   '.gif': 'image/gif',
@@ -58,7 +63,7 @@ export function applyAssetCachePolicy(
   const providerDefault = directives.join(',') === 'max-age=0,must-revalidate,public';
   const hashed =
     fingerprinted &&
-    pathname.startsWith('/' + assetsDir.replace(/^\/+|\/+$/g, '') + '/') &&
+    pathname.startsWith('/' + assetsDir.replaceAll(/^\/+|\/+$/g, '') + '/') &&
     extension !== '.html' &&
     !(headers.get('Content-Type') ?? '').toLowerCase().includes('text/html');
   if (!headers.has('Set-Cookie') && hashed && (!policy || providerDefault)) {
@@ -76,29 +81,29 @@ export function createAssetCachePolicy(
   assetsDir?: string,
   loadManifest: ManifestLoader = createManifestLoader(),
 ): (request: Request, env: RuntimeEnvironment, asset: Response) => Promise<Response> {
-  let files: Promise<Set<string>> | undefined;
+  let files: Set<string> | undefined;
   return async (request, env, asset) => {
     const path = new URL(request.url).pathname;
     if (
       !['GET', 'HEAD'].includes(request.method) ||
       ![200, 206, 304].includes(asset.status) ||
-      !path.startsWith('/' + (assetsDir ?? 'assets').replace(/^\/+|\/+$/g, '') + '/')
+      !path.startsWith('/' + (assetsDir ?? 'assets').replaceAll(/^\/+|\/+$/g, '') + '/')
     ) {
       return applyAssetCachePolicy(request, asset, assetsDir);
     }
     if (!files) {
-      // Optional cache metadata must not make a successfully served asset fail.
-      files = loadManifest(request, env).then(
-        (manifest) =>
-          new Set(
-            Object.values(manifest ?? {}).flatMap((entry) =>
-              Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
-            ),
+      // Keep the lookup scoped to this request. A miss uses the conservative policy
+      // until a request successfully loads the manifest.
+      const manifest = await loadManifest(request, env).catch(() => null);
+      if (manifest) {
+        files ??= new Set(
+          Object.values(manifest).flatMap((entry) =>
+            Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
           ),
-        () => new Set(),
-      );
+        );
+      }
     }
-    return applyAssetCachePolicy(request, asset, assetsDir, (await files).has(path.slice(1)));
+    return applyAssetCachePolicy(request, asset, assetsDir, files?.has(path.slice(1)));
   };
 }
 
@@ -156,6 +161,7 @@ export function filterInternalBindings<E extends Record<string, unknown>>(
     (prefixes.some((prefix) => key.startsWith(prefix)) || exactNames.includes(key));
   return new Proxy(env, {
     get: (target, prop, receiver) =>
+      // oxlint-disable-next-line quality/no-reflect-get -- Forward the receiver for user binding getters.
       hidden(prop) ? undefined : Reflect.get(target, prop, receiver),
     has: (target, prop) => !hidden(prop) && Reflect.has(target, prop),
     ownKeys: (target) => Reflect.ownKeys(target).filter((key) => !hidden(key)),

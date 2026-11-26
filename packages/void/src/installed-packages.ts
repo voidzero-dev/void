@@ -26,7 +26,7 @@ function readManifest(dir: string): PackageManifest | undefined {
 type PnpApi = { resolveToUnqualified(request: string, issuer: string): string | null };
 
 /** The directory Node loads `name` from for code in `fromDir`. Ignores `exports`. */
-function findInstalledPackage(name: string, fromDir: string): string | undefined {
+export function findInstalledPackage(name: string, fromDir: string): string | undefined {
   // A Yarn Plug'n'Play install has no node_modules. Under `yarn`, its runtime adds
   // `findPnpApi` to `node:module` and serves the packages' files from its archives.
   const pnp = (module as { findPnpApi?: (path: string) => PnpApi | null }).findPnpApi?.(fromDir);
@@ -149,7 +149,7 @@ function relativeImports(code: string, parsed: ReturnType<typeof parseSync>): Ar
   for (const { moduleRequest } of parsed.module.dynamicImports) {
     const literal = RELATIVE_LITERAL.exec(code.slice(moduleRequest.start, moduleRequest.end));
     if (literal) {
-      specifiers.push(literal[2]!);
+      specifiers.push(literal[2]);
     }
   }
   return specifiers.filter((specifier) => /^\.{1,2}\//.test(specifier));

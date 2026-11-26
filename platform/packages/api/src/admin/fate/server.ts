@@ -5,11 +5,8 @@ import {
   hasNestedSelection,
   list,
   resolveSourceById,
-  type Entity,
-  type SourceDefinition,
-  type SourcePlan,
-  type SourceRegistry,
 } from '@nkzw/fate/server';
+import type { Entity, SourceDefinition, SourcePlan, SourceRegistry } from '@nkzw/fate/server';
 import type { Context } from 'hono';
 import type { ApiEnv } from '../../env.ts';
 import {
@@ -43,6 +40,7 @@ export type {
   AdminAuthEdit,
   AdminEmailSettings,
   AdminEmailProject,
+  AdminSecurity,
   AdminZeroTrust,
 } from './page-server.ts';
 export type { AdminBuildLogs, AdminBuildStatus, AdminDeploymentLogs } from './telemetry.ts';
@@ -189,7 +187,7 @@ const sources = {
     if (!source) {
       throw new Error(`Unknown admin Fate source: ${typeName}`);
     }
-    return source as unknown as SourceDefinition<Item>;
+    return source as SourceDefinition<Item>;
   },
   registry,
 };

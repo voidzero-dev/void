@@ -1,14 +1,15 @@
 import type { Context, Env, MiddlewareHandler, Next, TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
 import type { RewriteDestination, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
-import type { HeadConfig, HeadDescriptor } from '../../pages/head.ts';
+import type { HeadConfig } from '../../pages/head.ts';
 import { base64ToBytes } from '../../shared/base64.ts';
 import type { AuthSession, AuthUser } from '../auth/index.ts';
 import type { TypedRoutes } from '../routing/route-url.ts';
 import type { AssetBinding } from '../routing/worker.ts';
 import { executeComposedHandler, setHandlerComposition } from './composition.ts';
 import { convertReturnValue } from './response.ts';
-import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
+import { runValidation } from './validator.ts';
+import type { ValidatorSlots, HandlerInput } from './validator.ts';
 
 /**
  * Thrown when `c.rewrite()` is called with a destination whose final path
@@ -232,12 +233,14 @@ export type TypedQueueHandler<T = unknown> = {
   readonly __payload: T;
 };
 
+type NoValidators = Pick<ValidatorSlots, never>;
+
 /**
  * A typed handler with phantom type carriers for validators and return type.
  * `__validators` and `__output` exist at the type level only —
  * TypeScript's `typeof import(...)` reads them for codegen.
  */
-export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
+export type TypedHandler<V extends ValidatorSlots = NoValidators, R = unknown> = {
   (c: CloudContext): Promise<Response> | Response | unknown | Promise<unknown>;
   readonly __validators: V;
   readonly __output: R;
@@ -251,7 +254,7 @@ export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
  */
 export function defineHandler<R>(
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 // Middleware keeps a typed leaf's validators and output (e.g. withValidator).
 export function defineHandler<V extends ValidatorSlots, R>(
   ...args: [MiddlewareFn, ...Array<MiddlewareFn>, TypedHandler<V, R>]
@@ -259,69 +262,69 @@ export function defineHandler<V extends ValidatorSlots, R>(
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
   firstMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
-export function defineHandler<R>(
-  firstMiddleware: MiddlewareFn,
-  secondMiddleware: MiddlewareFn,
-  thirdMiddleware: MiddlewareFn,
-  fourthMiddleware: MiddlewareFn,
-  handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
-export function defineHandler<F extends HandlerFn>(
-  firstMiddleware: MiddlewareFn,
-  secondMiddleware: MiddlewareFn,
-  thirdMiddleware: MiddlewareFn,
-  fourthMiddleware: MiddlewareFn,
-  handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
-  fifthMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
 export function defineHandler<F extends HandlerFn>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  thirdMiddleware: MiddlewareFn,
+  fourthMiddleware: MiddlewareFn,
+  handler: F,
+): TypedHandler<NoValidators, LoaderOutput<F>>;
+export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
   thirdMiddleware: MiddlewareFn,
   fourthMiddleware: MiddlewareFn,
   fifthMiddleware: MiddlewareFn,
+  handler: LoaderFn<R>,
+): TypedHandler<NoValidators, Exclude<Awaited<R>, Response>>;
+export function defineHandler<F extends HandlerFn>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  thirdMiddleware: MiddlewareFn,
+  fourthMiddleware: MiddlewareFn,
+  fifthMiddleware: MiddlewareFn,
   handler: F,
-): TypedHandler<{}, LoaderOutput<F>>;
+): TypedHandler<NoValidators, LoaderOutput<F>>;
 export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHandler {
   if (args.length === 1) {
     return args[0] as TypedHandler;
   }
   const middlewares = args.slice(0, -1) as Array<MiddlewareFn>;
-  const handler = args[args.length - 1] as HandlerFn;
+  const handler = args.at(-1) as HandlerFn;
   // Pages read the recorded composition to render inside the same chain.
   const composed = setHandlerComposition(
     async (c: CloudContext) =>
@@ -329,7 +332,7 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
     middlewares,
     handler,
   );
-  return composed as unknown as TypedHandler;
+  return composed as TypedHandler;
 }
 
 /**
@@ -376,10 +379,7 @@ export namespace defineHandler {
  * At runtime it simply returns the function passed to it.
  */
 export function defineMiddleware(handler: MiddlewareFn): MiddlewareHandler<CloudEnv> {
-  // The callback's context accepts destination objects. Hono's handler type
-  // does not, so the same function is not assignable without a cast. The
-  // routing runtime replaces `redirect` before this runs.
-  return handler as MiddlewareHandler<CloudEnv>;
+  return handler;
 }
 
 const basicAuthEncoder = new TextEncoder();
@@ -425,7 +425,7 @@ function isVoidInternalPath(pathname: string) {
 }
 
 function basicAuthChallenge(realm: string, message: string) {
-  const escapedRealm = realm.replace(/["\\]/g, '\\$&');
+  const escapedRealm = realm.replaceAll(/["\\]/g, String.raw`\$&`);
 
   return new Response(message, {
     status: 401,
@@ -501,8 +501,8 @@ export function defineRender(handler: RenderFn): RenderFn {
  * At runtime it simply returns the function passed to it.
  */
 export function defineHead<P = Record<string, unknown>>(
-  handler: (c: CloudContext, props: P) => HeadDescriptor | undefined,
-): (c: CloudContext, props: P) => HeadDescriptor | undefined {
+  handler: (c: CloudContext, props: P) => HeadConfig | undefined,
+): (c: CloudContext, props: P) => HeadConfig | undefined {
   return handler;
 }
 

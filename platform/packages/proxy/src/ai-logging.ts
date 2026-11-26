@@ -2,8 +2,8 @@ import {
   AI_LOGGING_CACHE_TTL_SECONDS,
   aiLoggingKey,
   parsePublishedAiLogging,
-  type AiLoggingMode,
 } from '@void/platform/ai-logging';
+import type { AiLoggingMode } from '@void/platform/ai-logging';
 import type { Context } from 'hono';
 import type { ProxyEnv } from './types.ts';
 

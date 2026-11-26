@@ -15,25 +15,23 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
   encodeCloudflareVersionMessage,
-  readCloudflareTriggerConfig,
   stabilizeCloudflareVersionTriggers,
-  type CloudflareCommandResult,
-  type CloudflareOperation,
-  type CloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
-import {
-  createPlatformWorkerConfigs,
-  PLATFORM_DISABLED_KEY,
-  PLATFORM_DISABLED_VALUE,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import type {
+  CloudflareCommandResult,
+  CloudflareOperation,
+  CloudflareTriggerConfig,
+  readCloudflareTriggerConfig,
+} from '@void/deploy-cloudflare';
+import { PLATFORM_DISABLED_KEY, PLATFORM_DISABLED_VALUE } from '@void/platform';
+import type { PlatformInstallationManifest, createPlatformWorkerConfigs } from '@void/platform';
 import { dirname, join, resolve } from 'pathslash';
 import { getErrorMessage } from './output.ts';
 import {
   PlatformWorkerCustomDomainsChangedError,
   PlatformWorkerRoutesChangedError,
-  type CloudflareWorkerCustomDomainOrigin,
 } from './platform-cloudflare.ts';
+import type { CloudflareWorkerCustomDomainOrigin, ReadCloudflare } from './platform-cloudflare.ts';
 import {
   readTriggerConfigFromObject,
   recordWorkerCutoverResolution,
@@ -58,8 +56,8 @@ import {
   PlatformWorkerOwnershipError,
   samePlatformWorkerTraffic,
 } from './platform-installer-inspection.ts';
+import type { runPlatformWrangler } from './platform-installer-process.ts';
 import {
-  runPlatformWrangler,
   platformWorkerCommandRunner,
   runPlatformWranglerForConditionalCreate,
 } from './platform-installer-process.ts';
@@ -73,18 +71,18 @@ import {
   validateReplannedWorkerActions,
   withoutPlatformWorkerTrafficAttachments,
 } from './platform-installer-resources.ts';
-import {
-  type InstallerClient,
-  type PlatformInstallerDependencies,
-  type InstallationCheckpointWriter,
-  type InterruptedWorkerCutover,
-  type PlatformWorkerKey,
-  type PlatformWorkerDeploymentOptions,
-  type PlatformWorkerRollback,
-  type PlatformWorkerDeployment,
-  PlatformWorkerRecoveryIncompleteError,
+import { PlatformWorkerRecoveryIncompleteError } from './platform-installer-types.ts';
+import type {
+  InstallerClient,
+  PlatformInstallerDependencies,
+  InstallationCheckpointWriter,
+  InterruptedWorkerCutover,
+  PlatformWorkerKey,
+  PlatformWorkerDeploymentOptions,
+  PlatformWorkerRollback,
+  PlatformWorkerDeployment,
 } from './platform-installer-types.ts';
-import { type PlatformInstallPlan, type PlatformInstallPlanAction } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import { writeInstallationManifest } from './platform-registry.ts';
 import { platformWorkerLiveTriggersMatch } from './platform-trigger-proof.ts';
 import { resolveCloudflareOperationArgv } from './preset.ts';
@@ -178,8 +176,11 @@ export async function recoverInterruptedPlatformWorkerCutover(
       'proxy',
       'api',
     ];
-    for (const key of recoveryOrder.filter((key) => interruptedCutover.staged.has(key))) {
-      const snapshot = interruptedCutover.staged.get(key)!;
+    for (const key of recoveryOrder) {
+      const snapshot = interruptedCutover.staged.get(key);
+      if (!snapshot) {
+        continue;
+      }
       const preservedRoutes = dependencies.recoverWorkerCutover
         ? []
         : await inventoryUnmanagedPlatformWorkerTraffic(
@@ -351,7 +352,7 @@ function platformWorkerUploaderHash(): string | null {
           .toString('utf8')
           .matchAll(/\b(?:from|import)\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g),
       ]
-        .map((match) => match[1]!)
+        .map((match) => match[1])
         .sort();
       for (const specifier of imports) {
         visit(resolve(dirname(path), specifier), specifier);
@@ -407,7 +408,10 @@ export function platformWorkerUploadFingerprint(
       return null;
     }
     const mainSha256 = createHash('sha256').update(readFileSync(config.main)).digest('hex');
-    const normalized: Record<string, unknown> = { ...config, main: { sha256: mainSha256 } };
+    const normalized: WorkerUploadSnapshot<{ sha256: string }> = {
+      ...config,
+      main: { sha256: mainSha256 },
+    };
     if (config.assets !== undefined) {
       const assets = config.assets;
       if (!assets || typeof assets !== 'object' || Array.isArray(assets)) {
@@ -434,17 +438,22 @@ export function platformWorkerUploadFingerprint(
   }
 }
 
+type WorkerUploadSnapshot<Main> = {
+  main: Main;
+  assets?: object;
+};
+
 function snapshotPlatformWorkerUploadInputs(
   config: Record<string, unknown>,
   directory: string,
-): Record<string, unknown> {
+): WorkerUploadSnapshot<string> {
   const main = config.main;
   if (typeof main !== 'string') {
     throw new Error('platform: Worker upload has no script artifact.');
   }
   const snapshotMain = join(directory, 'worker-upload.js');
   copyFileSync(main, snapshotMain);
-  const snapshot: Record<string, unknown> = { ...config, main: snapshotMain };
+  const snapshot: WorkerUploadSnapshot<string> = { ...config, main: snapshotMain };
   if (config.assets !== undefined) {
     const assets = config.assets as Record<string, unknown>;
     const sourceDirectory = assets.directory;
@@ -461,7 +470,7 @@ function snapshotPlatformWorkerUploadInputs(
 function platformWorkerApiReadRunner(
   accountId: string,
   workerName: string,
-  readCloudflare: (path: string) => Promise<unknown>,
+  readCloudflare: ReadCloudflare,
   fallback: typeof runPlatformWrangler,
 ): typeof runPlatformWrangler {
   const base = `/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}`;
@@ -659,7 +668,7 @@ export async function deployPlatformWorker(
           before[0]?.id !== after[0]?.id ||
           !deploymentRunsOnlyVersion(after[0], snapshot.versionId);
         if (!changedDuringRead && snapshot.contentHash === contentHash) {
-          candidate = { deploymentId: after[0]!.id, snapshot };
+          candidate = { deploymentId: after[0].id, snapshot };
         }
       } catch (error) {
         if (error instanceof PlatformWorkerOwnershipError) {
@@ -707,7 +716,7 @@ export async function deployPlatformWorker(
           `platform: Worker ${workerName} changed concurrently while its deployment lineage was inspected.`,
         );
       }
-      previousDeployment = deployments[0]!;
+      previousDeployment = deployments[0];
       previousDeploymentId = previousDeployment.id;
       if (
         contentHash &&
@@ -799,6 +808,9 @@ export async function deployPlatformWorker(
     await options.onStaged(previousVersionId, uploadedVersionId, previousTriggers);
     await options.onReadyForActivation?.();
     await options.waitForPriorWorker?.();
+    // Deployments already listed before activation. A stale read can return
+    // one of these at the head; it is not evidence of a newer deployment.
+    const knownDeploymentIds = new Set<string>();
     if (options.workerExisted) {
       const deploymentsBeforeActivation = await readPlatformWorkerDeployments(
         configPath,
@@ -813,6 +825,9 @@ export async function deployPlatformWorker(
         throw new Error(
           `platform: Worker ${workerName} changed concurrently before activation; refusing to overwrite it.`,
         );
+      }
+      for (const deployment of deploymentsBeforeActivation) {
+        knownDeploymentIds.add(deployment.id);
       }
       activatedVersionId = uploadedVersionId;
       const activated = await options.runner(
@@ -832,9 +847,14 @@ export async function deployPlatformWorker(
       readPlatformWorkerDeployments(configPath, accountId, workerName, readRunner);
     let deploymentsAfterActivation = await readDeploymentHistory();
     // A successful activation may not be visible in history yet. Only wait
-    // while the same deployment we replaced is still at the head.
-    for (const wait of [250, 500, 1_000]) {
-      if (deploymentsAfterActivation[0]?.id !== previousDeploymentId) {
+    // while the list is empty or its head is a deployment we listed before
+    // activation. A head we have never seen is a real newer deployment.
+    const headIsStale = () => {
+      const head = deploymentsAfterActivation[0];
+      return head === undefined || knownDeploymentIds.has(head.id);
+    };
+    for (const wait of [250, 500, 1000]) {
+      if (!headIsStale()) {
         break;
       }
       await delay(wait);
@@ -848,12 +868,19 @@ export async function deployPlatformWorker(
         );
       }
     }
-    if (deploymentsAfterActivation[0]?.id === previousDeploymentId) {
+    if (headIsStale()) {
       // Neither the new deployment nor a competitor has been confirmed.
       // Leave the staged cutover for recovery rather than trying to roll it back.
+      const head = deploymentsAfterActivation[0];
       activatedVersionId = null;
       throw new PlatformWorkerRecoveryIncompleteError(
-        `platform: Void could not confirm activation of ${workerName} because Cloudflare still reports the previous deployment.`,
+        `platform: Void could not confirm activation of ${workerName} because Cloudflare ${
+          head === undefined
+            ? 'lists no deployments for it yet'
+            : head.id === previousDeploymentId
+              ? 'still reports the previous deployment'
+              : `still reports older deployment ${head.id}`
+        }.`,
       );
     }
     const lineage = classifyPlatformWorkerDeploymentLineage(
@@ -929,11 +956,12 @@ export async function deployPlatformWorker(
       await options.publishRoutes(workerName, options.managedRoutes);
     }
     await options.onTrafficPublished();
+    const committedVersionId = uploadedVersionId;
     const rollback = () =>
       rollbackPlatformWorker({
         accountId,
         activatedDeploymentId,
-        activatedVersionId: uploadedVersionId!,
+        activatedVersionId: committedVersionId,
         config,
         nextTriggers,
         previousConfig: options.previousConfig,
@@ -1009,7 +1037,7 @@ export async function deployPlatformWorker(
 export async function uploadPlatformWorkerForReview(
   config: Record<string, unknown>,
   options: Readonly<{
-    readCloudflare: (path: string) => Promise<unknown>;
+    readCloudflare: ReadCloudflare;
     runner: typeof runPlatformWrangler;
   }>,
 ): Promise<CloudflareCommandResult> {

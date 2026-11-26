@@ -1,0 +1,10 @@
+{
+  "agent_sdk": {
+    "repository": "ghcr.io/voidzero-dev/void-security-scanner-engine-a",
+    "digest": null
+  },
+  "codex_sdk": {
+    "repository": "ghcr.io/voidzero-dev/void-security-scanner-engine-c",
+    "digest": null
+  }
+}

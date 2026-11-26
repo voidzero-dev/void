@@ -6,10 +6,11 @@ import {
   uploadAssetBuckets,
   buildAssetMetadata,
   resolveAssetContentTypes,
-  type AssetManifestEntry,
 } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
-import { getProjectResources, type Db } from '../db.ts';
+import { getProjectResources } from '../db.ts';
+import type { Db } from '../db.ts';
 import { projectObservability } from '../deploy/shared.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
@@ -27,8 +28,8 @@ import {
   withKnownLength,
   workerUploadBody,
   workerUploadDeadline,
-  type WorkerModule,
 } from '../worker-upload.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
 import { putDurableSnapshotModule, putDurableSnapshotObject } from './durable-snapshot.ts';
 
@@ -212,7 +213,7 @@ async function upload(
     }
     let result: { success: boolean };
     try {
-      result = (await response.json()) as { success: boolean };
+      result = await response.json<{ success: boolean }>();
     } catch (error) {
       throw failed(error);
     }
@@ -225,12 +226,9 @@ async function upload(
   }
 }
 
-function idle(
-  env: Env,
-  projectId: string,
-  className: string,
-  create = false,
-): { metadata: Record<string, unknown>; modules: Array<WorkerModule> } {
+type IdleWorkerUpload = { metadata: Record<string, unknown>; modules: Array<WorkerModule> };
+
+function idle(env: Env, projectId: string, className: string, create = false): IdleWorkerUpload {
   return {
     metadata: {
       main_module: ENTRY,
@@ -271,7 +269,7 @@ export async function prepareManagedDurableObjects(
   deploymentId: string,
   manifest: DeployManifest,
 ): Promise<DeployManifest['durableObjects']> {
-  const namespaces: Record<string, string> = Object.create(null);
+  const namespaces = Object.create(null) as Record<string, string>;
   for (const binding of manifest.durableObjects?.bindings ?? []) {
     const worker = await durableObjectWorkerName(projectId, binding.className);
     await db.transaction(async (tx) => {
@@ -316,8 +314,12 @@ export async function prepareManagedDurableObjects(
       }
       const resource = (await getProjectResources(tx, projectId)).find(
         (value) => value.type === 'durable-object' && value.binding_name === binding.className,
-      )!;
-      if (resource.cf_id !== worker || resource.metadata.dispatchNamespace !== namespace(env)) {
+      );
+      if (
+        !resource ||
+        resource.cf_id !== worker ||
+        resource.metadata.dispatchNamespace !== namespace(env)
+      ) {
         throw new Error('Custom Durable Object resource identity differs from this installation.');
       }
       let bindings = await readBindings(env, worker);
@@ -365,7 +367,7 @@ export async function verifyManagedDurableObjectApplicationBindings(
   manifest: DeployManifest,
   {
     deadline,
-    delaysMs = [250, 500, 1_000],
+    delaysMs = [250, 500, 1000],
   }: { deadline?: number; delaysMs?: ReadonlyArray<number> } = {},
 ): Promise<void> {
   const expectedBindings = managedDurableObjectBindings(manifest);
@@ -479,8 +481,26 @@ export async function storeDurableObjectSnapshot(
     .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId)));
 }
 
+/**
+ * The application modules a stored release snapshot holds (`bundle_stored`).
+ * Security scans read a recovered inline deploy from here (design doc 0095, M10).
+ */
+export async function loadStoredWorkerModules(
+  env: Pick<
+    Env,
+    'STATIC_ASSETS_R2' | 'PROJECT_SECRET_KEYS_JSON' | 'PROJECT_SECRET_ACTIVE_KEY_VERSION'
+  >,
+  projectId: string,
+  deploymentId: string,
+): Promise<Array<WorkerModule>> {
+  return (await loadSnapshot(env, projectId, deploymentId)).modules;
+}
+
 async function loadSnapshot(
-  env: Env,
+  env: Pick<
+    Env,
+    'STATIC_ASSETS_R2' | 'PROJECT_SECRET_KEYS_JSON' | 'PROJECT_SECRET_ACTIVE_KEY_VERSION'
+  >,
   projectId: string,
   deploymentId: string,
 ): Promise<{ snapshot: Snapshot; modules: Array<WorkerModule> }> {
@@ -616,7 +636,7 @@ async function restoreObject(
         }
         bytesByHash.set(hash, {
           bytes: new Uint8Array(await object.arrayBuffer()),
-          contentType: contentTypes.get(hash)!,
+          contentType: contentTypes.get(hash) ?? 'application/octet-stream',
         });
       }
       const jwt = await uploadAssetBuckets(

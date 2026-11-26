@@ -33,11 +33,11 @@ process.exitCode = process.argv.includes('--version') ? 0 : ${status};
   }
 }
 
-function calls(): Array<{ command: string; args: Array<string>; cwd: string }> {
+function calls(): Array<unknown> {
   return readFileSync(callsFile, 'utf8')
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }
 
 /** What init has printed in this test, without colors. */
@@ -361,7 +361,7 @@ setInterval(beat, 10);
       // The stopped installer fails the install, which the end of the test checks.
       const outcome = install(root).then(
         () => 'installed',
-        (error: Error) => error.message,
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
       );
       try {
         await vi.waitFor(() => expect(readFileSync(beats, 'utf8')).toContain('postinstall'), {
@@ -372,7 +372,9 @@ setInterval(beat, 10);
 
         // Both processes had ended when the listeners returned.
         const atExit = readFileSync(beats, 'utf8');
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 150);
+        });
         expect(readFileSync(beats, 'utf8')).toBe(atExit);
         expect(await outcome).toBe('vp install failed with exit code unknown');
       } finally {

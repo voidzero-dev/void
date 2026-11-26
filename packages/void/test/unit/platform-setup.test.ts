@@ -45,7 +45,10 @@ function plan(domain = ''): PlatformInstallPlan {
 }
 
 function permissionGroupKeys(url: string): Array<{ key: string; type: string }> {
-  return JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!);
+  return JSON.parse(new URL(url).searchParams.get('permissionGroupKeys')!) as Array<{
+    key: string;
+    type: string;
+  }>;
 }
 
 describe('platform credential setup links', () => {
@@ -104,8 +107,9 @@ describe('platform credential setup links', () => {
     expect(url.searchParams.get('to')).toBe('/account/api-tokens');
     expect(url.searchParams.get('name')).toBe('Test & Team Management');
     const permissions = permissionGroupKeys(page.url);
+    expect(permissions).toContainEqual({ key: '98d78cd2433d4c3687191bc0244ef948', type: 'edit' });
+    expect(permissions.some(({ key }) => key === 'workers_scripts')).toBe(false);
     for (const key of [
-      'workers_scripts',
       'workers_kv_storage',
       'workers_r2',
       'd1',
@@ -125,6 +129,7 @@ describe('platform credential setup links', () => {
       [
         'This token lets the Void CLI install your platform. Void will now open a pre-configured token creation site. Please review the permissions and then paste the token here.',
         'Scope it to Account.',
+        'Confirm Workers → Admin is selected for the account.',
         'Change the zone policy from All Domains to Specified Domains → example.com.',
       ].join('\n'),
     );
@@ -228,7 +233,7 @@ describe('platform credential setup links', () => {
       yes: true,
     });
     const quotedName =
-      process.platform === 'win32' ? "'Team''s Platform'" : "'Team'\\''s Platform'";
+      process.platform === 'win32' ? "'Team''s Platform'" : String.raw`'Team'\''s Platform'`;
     expect(command).toBe(
       `void-dev platform install --name team --account account --display-name ${quotedName} --application-domain apps.example.com --zone example.com --dedicated-zone --custom-domains --control-plane-domain api.example.com --auth-config './auth config.json' --dashboard-url https://dash.example.com:8443 --runtime './build output' --yes`,
     );
@@ -259,7 +264,7 @@ describe('platform credential setup links', () => {
     );
     expect(platformSetupFieldHelp('cloudflareApiToken')).toBeUndefined();
   });
-  it('scopes the runtime form to the account and preselects every required permission', () => {
+  it('scopes the runtime form to the account and preselects Workers Admin', () => {
     const pages = platformSetupPages(plan());
     const url = new URL(pages.runtime.url);
     expect(url.origin).toBe('https://dash.cloudflare.com');
@@ -268,7 +273,7 @@ describe('platform credential setup links', () => {
     const permissions = permissionGroupKeys(pages.runtime.url);
     expect(permissions).toEqual([
       { key: 'account_settings', type: 'read' },
-      { key: 'workers_scripts', type: 'edit' },
+      { key: '98d78cd2433d4c3687191bc0244ef948', type: 'edit' },
       { key: 'workers_kv_storage', type: 'edit' },
       { key: 'workers_r2', type: 'edit' },
       { key: 'd1', type: 'edit' },
@@ -284,7 +289,7 @@ describe('platform credential setup links', () => {
       ),
     ).toBe(false);
     expect(pages.runtime.instructions).toBe(
-      'Create a Cloudflare runtime token that Void can use to manage the platform. Please review the permissions and then paste the token here.',
+      'Create a Cloudflare runtime token that Void can use to manage the platform. Please review the permissions and then paste the token here.\nConfirm Workers → Admin is selected for the account.',
     );
   });
   it('prefills an R2 upload token with object write access to all current and future buckets', () => {

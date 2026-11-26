@@ -10,13 +10,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, hostname } from 'node:os';
-import {
-  parsePlatformInstallationManifest,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { parsePlatformInstallationManifest } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { join, resolve } from 'pathslash';
 import { writeFileAtomic } from '../shared/atomic-write.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
+import { Buffer } from './node-buffer.ts';
 
 const PLATFORM_REGISTRY_SCHEMA_VERSION = 1 as const;
 
@@ -88,6 +87,9 @@ export function platformCredentialAccount(apiUrl: string): string {
   return `platform:${createHash('sha256').update(normalizePlatformApiUrl(apiUrl)).digest('hex')}`;
 }
 
+const optionalString = (input: unknown): string | null =>
+  typeof input === 'string' && input !== '' ? input : null;
+
 function parseConnection(value: unknown): PlatformConnection {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('platform: Invalid connection entry in the local registry.');
@@ -105,8 +107,6 @@ function parseConnection(value: unknown): PlatformConnection {
   if (!Number.isFinite(Date.parse(lastUsedAt))) {
     throw new Error('platform: Invalid connection timestamp in the local registry.');
   }
-  const optionalString = (input: unknown): string | null =>
-    typeof input === 'string' && input !== '' ? input : null;
   const proxyUrl = optionalString(entry.proxyUrl);
   return {
     accountId: optionalString(entry.accountId),
@@ -150,6 +150,7 @@ function readRegistry(directory: string): PlatformConnectionRegistry {
     }
     throw new Error(
       `platform: Could not read ${join(directory, 'registry.json')}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
     );
   }
 }
@@ -166,7 +167,9 @@ function withRegistryLock<T>(directory: string, operation: () => T): T {
     }
     const age = Date.now() - statSync(lockPath).mtimeMs;
     if (age < 10 * 60 * 1000) {
-      throw new Error('platform: Another process is updating the platform registry.');
+      throw new Error('platform: Another process is updating the platform registry.', {
+        cause: error,
+      });
     }
     rmSync(lockPath, { force: true });
     descriptor = openSync(lockPath, 'wx', 0o600);
@@ -220,7 +223,8 @@ export function acquirePlatformLifecycleLock(
             stale = (ownerError as NodeJS.ErrnoException).code === 'ESRCH';
           }
         } else {
-          const startedAt = typeof owner.startedAt === 'string' ? Date.parse(owner.startedAt) : NaN;
+          const startedAt =
+            typeof owner.startedAt === 'string' ? Date.parse(owner.startedAt) : Number.NaN;
           stale = Number.isFinite(startedAt) && Date.now() - startedAt > 2 * 60 * 60 * 1000;
         }
       } catch {
@@ -229,6 +233,7 @@ export function acquirePlatformLifecycleLock(
       if (!stale) {
         throw new Error(
           `platform: Another lifecycle operation is active for ${installationSlug} in account ${accountId}.`,
+          { cause: error },
         );
       }
       rmSync(lockPath, { force: true });
@@ -275,7 +280,7 @@ export function getActivePlatformConnection(
   const registry = readRegistry(directory);
   return (
     registry.connections.find((connection) => connection.id === registry.activeConnectionId) ??
-    (registry.connections.length === 1 ? registry.connections[0]! : null)
+    (registry.connections.length === 1 ? registry.connections[0] : null)
   );
 }
 
@@ -289,7 +294,7 @@ export function platformConnectionSlug(
       manifest.id === connection.installationId &&
       (connection.accountId === null || connection.accountId === manifest.account.id),
   );
-  return matches.length === 1 ? matches[0]!.deployment.installationSlug : null;
+  return matches.length === 1 ? matches[0].deployment.installationSlug : null;
 }
 
 /** Resolve saved platforms without selecting one or changing its credentials. */
@@ -353,7 +358,7 @@ export function selectPlatformConnection(
           : `platform: More than one platform matches ${JSON.stringify(selector)}. Use its id or URL.`,
       );
     }
-    const selected = { ...matches[0]!, lastUsedAt: new Date().toISOString() };
+    const selected = { ...matches[0], lastUsedAt: new Date().toISOString() };
     const connections = current.connections.map((entry) =>
       entry.id === selected.id ? selected : entry,
     );
@@ -414,6 +419,7 @@ export function listInstallationManifests(
       } catch (error) {
         throw new Error(
           `platform: Invalid installation manifest ${path}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
         );
       }
     }
@@ -447,7 +453,7 @@ export function resolveInstallationManifest(
         : 'platform: Multiple local installations match; specify an installation id.',
     );
   }
-  return manifests[0]!;
+  return manifests[0];
 }
 
 export function writePendingInstallationSecrets(
@@ -625,6 +631,7 @@ function readRecoveryMaterial(
     return parseRecoveryValues(JSON.parse(plaintext.toString('utf8')), `${kind} recovery material`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      // oxlint-disable-next-line preserve-caught-error -- Do not attach the original error from reading credential material.
       throw new Error(
         `platform: Could not read encrypted ${kind} material: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -644,6 +651,7 @@ function readRecoveryMaterial(
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return null;
     }
+    // oxlint-disable-next-line preserve-caught-error -- Do not attach the original error from reading credential material.
     throw new Error(
       `platform: Could not migrate legacy ${kind} material: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -657,7 +665,7 @@ function writeEncryptedRecoveryMaterial(
   values: Record<string, string>,
   directory: string,
 ): void {
-  const key = platformRecoveryKey(directory, true)!;
+  const key = platformRecoveryKey(directory, true);
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(recoveryAad(manifest, kind));
@@ -681,6 +689,8 @@ function recoveryAad(manifest: PlatformInstallationManifest, kind: 'pending' | '
   );
 }
 
+function platformRecoveryKey(directory: string, create: true): Buffer;
+function platformRecoveryKey(directory: string, create: false): Buffer | null;
 function platformRecoveryKey(directory: string, create: boolean): Buffer | null {
   const fromEnvironment = process.env.VOID_PLATFORM_RECOVERY_KEY;
   if (fromEnvironment) {

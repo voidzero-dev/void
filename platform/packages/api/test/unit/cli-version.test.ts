@@ -96,7 +96,7 @@ describe('checkCliVersionOrRespond', () => {
       body: '{}',
     });
     expect(res.status).toBe(426);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await res.json<Record<string, unknown>>();
     expect(body.error).toBe('cli_outdated');
     expect(body.minVersion).toBe(MIN_CLI_VERSION);
     expect(body.clientVersion).toBe('0.6.0');
@@ -113,7 +113,7 @@ describe('checkCliVersionOrRespond', () => {
       body: '------example\r\nContent-Disposition: form-data; name="x"\r\n\r\nhi\r\n------example--\r\n',
     });
     expect(res.status).toBe(426);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await res.json<Record<string, unknown>>();
     expect(body.error).toBe('cli_outdated');
     expect(body.message).toMatch(/multipart/i);
     expect(body.minVersion).toBe(MIN_CLI_VERSION);
@@ -147,7 +147,7 @@ describe('checkCliVersionOrRespond', () => {
           body: '{}',
         });
         expect(res.status).toBe(426);
-        const body = (await res.json()) as Record<string, unknown>;
+        const body = await res.json<Record<string, unknown>>();
         expect(body.error).toBe('cli_outdated');
         expect(body.message).toMatch(/unrecognized/i);
         expect(body.clientVersion).toBe(badVersion);

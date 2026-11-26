@@ -1,5 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
-import { isPlatformAccessEmailDomain, type PlatformInstallationManifest } from '@void/platform';
+import { isPlatformAccessEmailDomain } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { confirm, log, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { note, pc } from './output.ts';
@@ -10,8 +11,10 @@ import {
   platformAccessNonce,
   provisionPlatformAccess,
   verifySelectedAccessPolicies,
-  type PlatformAccessCheckpoint,
-  type PlatformAccessProvisionResult,
+} from './platform-access-provision.ts';
+import type {
+  PlatformAccessCheckpoint,
+  PlatformAccessProvisionResult,
 } from './platform-access-provision.ts';
 import { PlatformCloudflareApiError, PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
@@ -114,7 +117,10 @@ export async function selectCompanyAccessPolicies(
                 : 'Enter up to 10 email domains, such as example.com.',
           }),
         ),
-      )!;
+      );
+      if (!domains) {
+        throw new Error('platform: Enter up to 10 email domains, such as example.com.');
+      }
       const name = `Emails ending in @${domains[0]}${domains.length > 1 ? ` and ${domains.length - 1} more` : ''}`;
       try {
         // A lost response can lead to a second policy with the same name on retry. It
@@ -346,9 +352,7 @@ export function parsePlatformAccessSetupSpec(input: unknown): PlatformAccessSetu
       !fields.id ||
       fields.id.length > 256 ||
       ['clientIdEnv', 'clientSecretEnv'].some(
-        (key) =>
-          typeof fields[key] !== 'string' ||
-          !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fields[key] as string),
+        (key) => typeof fields[key] !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(fields[key]),
       )
     ) {
       throw new Error('platform: Invalid Access service token environment references.');
@@ -361,7 +365,7 @@ function secretReference(name: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !process.env[name]) {
     throw new Error('platform: Supply the referenced Access credential in the environment.');
   }
-  return process.env[name]!;
+  return process.env[name];
 }
 
 /** Only scoped credentials for the reviewed platform origins enter the process environment. */
@@ -377,7 +381,7 @@ export function activatePlatformAccessCredentials(
     throw new Error('platform: Invalid saved Access credentials.');
   }
   const allowed = new Set(origins.map((origin) => new URL(origin).origin));
-  for (const [origin, value] of Object.entries(entries)) {
+  for (const [origin, value] of Object.entries(entries as Record<string, unknown>)) {
     if (!allowed.has(origin) || !value || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error(
         'platform: Access credentials must be scoped to this platform’s API or proxy.',
@@ -600,7 +604,9 @@ export async function preparePlatformAccessSetup(input: {
     : undefined;
   if (!serviceToken && spec.mode === 'existing' && input.protection) {
     if (input.checkpoint.accessExistingServiceTokenJson) {
-      serviceToken = JSON.parse(input.checkpoint.accessExistingServiceTokenJson);
+      serviceToken = JSON.parse(input.checkpoint.accessExistingServiceTokenJson) as NonNullable<
+        typeof serviceToken
+      >;
     } else if (process.stdin.isTTY) {
       log.info(
         'This lets the installer reach the protected platform during setup. Use a service token allowed by the existing Access application.',
