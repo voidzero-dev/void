@@ -58,7 +58,7 @@ export {
   deleteCloudflarePreview,
   cloudflarePreviewNameProblem,
   deployCloudflarePreview,
-  validateCloudflarePreviewName,
+  previewStaticWorkerConfig,
   type CloudflarePreviewDeleteResult,
   type CloudflarePreviewDeployResult,
 } from './preview.ts';

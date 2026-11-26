@@ -195,7 +195,7 @@ export function operationFixtureArgs(operation: CloudflareOperation): Array<stri
         ...(operation.type === 'worker.deploy' ? ['--autoconfig=false'] : []),
       ];
     case 'previews.deploy':
-      return ['preview', ...target, '--preview-name', operation.previewName, '--json'];
+      return ['previews', 'deploy', '--prebuilt', `--preview-name=${operation.previewName}`];
     case 'previews.delete':
       return [
         'previews',

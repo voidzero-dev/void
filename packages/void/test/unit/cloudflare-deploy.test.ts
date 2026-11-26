@@ -12770,6 +12770,13 @@ describe('runCloudflareDeploy — `addresses` is whole-object pinned across the 
 });
 
 describe('runCloudflareDeploy — previews', () => {
+  /** Join the lines the terminal renderer wrapped, so long messages can be matched whole. */
+  const unwrap = (text: string) =>
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .join(' ');
+
   // What the cf runner decodes from `cf previews deploy`.
   const previewRecord: Record<string, string> = {
     previewId: 'prv_1',
@@ -12788,7 +12795,7 @@ describe('runCloudflareDeploy — previews', () => {
       if (args[0] === 'whoami') {
         return { ...cleanExit, stdout: '{"loggedIn":true,"accounts":[]}' };
       }
-      if (args[0] === 'preview') {
+      if (args[0] === 'previews') {
         return { ...cleanExit, stdout: JSON.stringify(record) };
       }
       return cleanExit;
@@ -12801,11 +12808,11 @@ describe('runCloudflareDeploy — previews', () => {
     };
   }
 
-  const spa = () =>
+  const spa = (config: Record<string, unknown> = { name: 'spaapp', account_id: 'acc123' }) =>
     makeProject({
       'package.json': JSON.stringify({ name: 'spaapp' }),
       'void.json': JSON.stringify({ inference: { appType: 'spa' } }),
-      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123' }),
+      'wrangler.jsonc': JSON.stringify(config),
       'dist/index.html': '<!doctype html><div id="app"></div>',
     });
 
@@ -12818,14 +12825,17 @@ describe('runCloudflareDeploy — previews', () => {
 
     expect(exitCalls).toEqual([]);
     expect(activateVersion).not.toHaveBeenCalled();
-    // Only the session check and the Preview deploy reach Cloudflare: no version upload,
-    // deployment, traffic split, trigger or secret operation.
-    expect(wranglerArgs.map((args) => args.slice(0, 1))).toEqual([['whoami'], ['preview']]);
-    expect(wranglerArgs[1]).toEqual(
-      expect.arrayContaining(['--preview-name', 'pr-64', '--name', 'spaapp']),
-    );
+    // Only the session check, the Worker check and the Preview deploy reach Cloudflare: no
+    // version upload, traffic split, trigger or secret operation.
+    expect(wranglerArgs.map((args) => args.slice(0, 2))).toEqual([
+      ['whoami', '--json'],
+      ['deployments', 'status'],
+      ['previews', 'deploy'],
+    ]);
+    expect(wranglerArgs[2]).toEqual(['previews', 'deploy', '--prebuilt', '--preview-name=pr-64']);
     expect(existsSync(join(root, '.void/cloudflare-candidate.json'))).toBe(false);
     expect(parseRootWranglerConfig(join(root, 'wrangler.jsonc'))).toEqual({
+      name: 'spaapp',
       account_id: 'acc123',
     });
     expect(output).toContain('spaapp → Cloudflare Preview pr-64');
@@ -12864,6 +12874,54 @@ describe('runCloudflareDeploy — previews', () => {
     });
   });
 
+  it('stages a config without the Worker bindings, vars or migrations', async () => {
+    const root = spa({
+      name: 'spaapp',
+      account_id: 'acc123',
+      kv_namespaces: [{ binding: 'KV', id: 'kv' }],
+      d1_databases: [{ binding: 'DB', database_name: 'db', database_id: 'db' }],
+      vars: { MODE: 'production' },
+      migrations: [{ tag: 'v1', new_sqlite_classes: ['Room'] }],
+    });
+    const { deps, exitCalls } = previewHarness();
+    await captureDeployOutput(() =>
+      runCloudflareDeploy(root, { platform: 'cloudflare', preview: 'pr-64' }, silentCliLog, deps),
+    );
+    expect(exitCalls).toEqual([]);
+    const staged = parseRootWranglerConfig(
+      join(root, '.void/deploy/cloudflare/wrangler-static.json'),
+    );
+    expect(staged).toMatchObject({ name: 'spaapp', account_id: 'acc123' });
+    for (const key of ['kv_namespaces', 'd1_databases', 'vars', 'migrations']) {
+      expect(staged).not.toHaveProperty(key);
+    }
+  });
+
+  it('stops before uploading when the Worker has no production deployment', async () => {
+    const root = spa();
+    const base = previewHarness();
+    const runWrangler = operationFixture((args) => {
+      base.wranglerArgs.push(args);
+      if (args[0] === 'whoami') {
+        return { ...cleanExit, stdout: '{"loggedIn":true,"accounts":[]}' };
+      }
+      return args[0] === 'deployments' ? { ...cleanExit, status: 1, errorCode: 10_007 } : cleanExit;
+    });
+    const output = await captureDeployOutput(() =>
+      expect(
+        runCloudflareDeploy(root, { platform: 'cloudflare', preview: 'pr-64' }, silentCliLog, {
+          ...base.deps,
+          runWrangler,
+        }),
+      ).rejects.toThrow(ExitError),
+    );
+    expect(base.exitCalls).toEqual([1]);
+    expect(unwrap(output)).toContain(
+      'deploy: Worker "spaapp" has no production deployment in Cloudflare account acc123. Nothing was uploaded.',
+    );
+    expect(base.wranglerArgs.some((args) => args[0] === 'previews')).toBe(false);
+  });
+
   it('fails clearly when the Worker has Preview URLs turned off', async () => {
     const root = spa();
     const { previewUrl: _, ...withoutUrl } = previewRecord;
@@ -12874,26 +12932,44 @@ describe('runCloudflareDeploy — previews', () => {
       ).rejects.toThrow(ExitError),
     );
     expect(exitCalls).toEqual([1]);
-    expect(output).toContain('Preview URLs are turned off');
-    expect(output).toContain('preview_urls: true in the cloudflare field of void.config.ts');
+    expect(unwrap(output)).toContain(
+      'Cloudflare created deployment dep_1 for preview "pr-64", but Preview URLs are off for Worker "spaapp", so it has no URL.',
+    );
+    expect(unwrap(output)).toContain('Set preview_urls: true (preview_urls in wrangler.jsonc)');
   });
 
-  it('rejects a name too long for the Worker before building or uploading', async () => {
-    const root = spa();
+  it.each([
+    ['a bad name', 'PR_64', undefined, '"PR_64" is not a valid preview name'],
+    [
+      'no Worker name',
+      'pr-64',
+      { account_id: 'acc123' },
+      '--preview needs the Worker name (name in wrangler.jsonc)',
+    ],
+    [
+      'no pinned account',
+      'pr-64',
+      { name: 'spaapp' },
+      '--preview needs a pinned Cloudflare account',
+    ],
+    [
+      'a name too long for the Worker',
+      `pr-${'1'.repeat(60)}`,
+      undefined,
+      'must be at most 63 characters, so use at most 56',
+    ],
+  ])('refuses %s before any Cloudflare call', async (_case, preview, config, message) => {
+    vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', undefined);
+    const root = spa(config);
     const { deps, exitCalls, wranglerArgs } = previewHarness();
     const output = await captureDeployOutput(() =>
       expect(
-        runCloudflareDeploy(
-          root,
-          { platform: 'cloudflare', preview: `pr-${'1'.repeat(60)}` },
-          silentCliLog,
-          deps,
-        ),
+        runCloudflareDeploy(root, { platform: 'cloudflare', preview }, silentCliLog, deps),
       ).rejects.toThrow(ExitError),
     );
     expect(exitCalls).toEqual([1]);
-    expect(output).toContain('63 characters');
-    expect(wranglerArgs.some((args) => args[0] === 'preview')).toBe(false);
+    expect(unwrap(output)).toContain(message);
+    expect(wranglerArgs).toEqual([]);
   });
 
   it('refuses an app that needs a Worker before any Cloudflare operation', async () => {

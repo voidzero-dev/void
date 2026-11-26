@@ -175,6 +175,9 @@ describe('parseDeployArgs --preview', () => {
     expect(() => parseDeployArgs(['--platform', 'cloudflare', '--preview'])).toThrow(
       '--preview requires a name',
     );
+    expect(() => parseDeployArgs(['--platform', 'cloudflare', '--preview='])).toThrow(
+      '--preview requires a name',
+    );
     expect(() =>
       parseDeployArgs(['--platform', 'cloudflare', '--preview', 'a', '--preview', 'b']),
     ).toThrow('only be specified once');

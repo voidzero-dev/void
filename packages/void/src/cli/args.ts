@@ -121,10 +121,13 @@ export function parseDeployArgs(
   const preview = typeof parsed.values.preview === 'string' ? parsed.values.preview : undefined;
   const json = parsed.values.json === true ? true : undefined;
   if (preview !== undefined) {
+    if (preview === '') {
+      throw new Error('deploy: --preview requires a name (for example --preview pr-64).');
+    }
     if (platform !== 'cloudflare') {
       throw new Error('deploy: --preview requires --platform cloudflare.');
     }
-    // The name itself is checked against the Worker name before the build.
+    // The name and the Worker it targets are checked before connecting to Cloudflare.
     for (const [flag, set] of [
       ['--atomic', atomic],
       ['--provision', provision],

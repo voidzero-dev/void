@@ -4,11 +4,6 @@ import { isCleanCommandExit, isCompletedCommand, isWorkerNotFound } from './exec
 import type { CloudflareCommandRunner } from './execute.ts';
 import type { CloudflarePreviewUploadResult } from './operations.ts';
 
-/**
- * A Preview name becomes the first label of `<name>-<worker>.<subdomain>.workers.dev`. Accept only
- * names Cloudflare uses unchanged, so the URL Void prints is the one CI expects.
- */
-const PREVIEW_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** A DNS label holds at most 63 characters. */
 const MAX_HOST_LABEL = 63;
 /** Cloudflare's "Preview not found" API error. */
@@ -47,15 +42,28 @@ function isDigit(character: string): boolean {
   return character >= '0' && character <= '9';
 }
 
-/** Return why `name` cannot name a Preview of `workerName`, or null when it can. */
-export function validateCloudflarePreviewName(name: string, workerName?: string): string | null {
-  if (!PREVIEW_NAME.test(name)) {
-    return `"${name}" is not a valid preview name. Use lowercase letters, digits and hyphens, starting and ending with a letter or digit (for example "pr-64").`;
-  }
-  if (workerName !== undefined && name.length + 1 + workerName.length > MAX_HOST_LABEL) {
-    return `The preview name "${name}" is too long for the Worker "${workerName}": "${name}-${workerName}" must fit in ${MAX_HOST_LABEL} characters to be a workers.dev hostname.`;
-  }
-  return null;
+/** Root config keys a static Preview keeps. Bindings, vars, migrations and triggers are dropped. */
+const PREVIEW_CONFIG_KEYS = [
+  'name',
+  'account_id',
+  'compliance_region',
+  'compatibility_date',
+  'compatibility_flags',
+  'assets',
+  'observability',
+  'version_metadata',
+];
+
+/**
+ * The config a static site Preview is staged from. cf sends every binding in the Build Output to
+ * the Preview, so this copies only an allow-list: a binding kind added later never reaches it.
+ */
+export function previewStaticWorkerConfig(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    PREVIEW_CONFIG_KEYS.flatMap((key) => (config[key] === undefined ? [] : [[key, config[key]]])),
+  );
 }
 
 export type CloudflarePreviewDeployResult =
@@ -66,21 +74,23 @@ export type CloudflarePreviewDeployResult =
       /** The stable URL that always serves this Preview's latest deployment. */
       previewUrl: string;
       /** The URL of this deployment only. */
-      deploymentUrl: string | undefined;
+      deploymentUrl: string | null;
     }
+  | { ok: false; reason: 'worker-not-found' | 'uploader-changed' | 'output-invalid' }
   | {
       ok: false;
-      reason: 'uploader-changed' | 'invalid-name' | 'output-invalid';
+      reason: 'worker-check-failed' | 'deploy-failed';
+      status: number;
       diagnostic?: string;
     }
-  | { ok: false; reason: 'deploy-failed'; status: number; diagnostic?: string }
   /** Cloudflare created the deployment but returned no Preview URL: `preview_urls` is off. */
-  | { ok: false; reason: 'preview-urls-disabled' };
+  | { ok: false; reason: 'preview-urls-disabled'; deploymentId: string };
 
 /**
- * Create or update a named Workers Preview from the prepared output. This only ever sends
- * `previews.deploy`: production versions, deployments, traffic and triggers are not read or
- * changed, and no migration, provisioning or secret operation runs.
+ * Create or update a named Workers Preview from the prepared output. It reads the Worker's
+ * deployment status first, because cf would create a missing Worker without asking. Production
+ * versions, deployments, traffic and triggers are not changed, and no migration, provisioning or
+ * secret operation runs.
  */
 export async function deployCloudflarePreview(options: {
   runWrangler: CloudflareCommandRunner;
@@ -89,20 +99,30 @@ export async function deployCloudflarePreview(options: {
   verifyUploader: () => boolean;
   configPath?: string;
 }): Promise<CloudflarePreviewDeployResult> {
-  const invalid = validateCloudflarePreviewName(options.previewName, options.workerName);
-  if (invalid) {
-    return { ok: false, reason: 'invalid-name', diagnostic: invalid };
+  const target = {
+    workerName: options.workerName,
+    ...(options.configPath ? { configPath: options.configPath } : {}),
+  };
+  const status = await options.runWrangler(
+    { type: 'deployments.status', ...target },
+    { capture: true },
+  );
+  if (isWorkerNotFound(status)) {
+    return { ok: false, reason: 'worker-not-found' };
+  }
+  if (!isCleanCommandExit(status)) {
+    return {
+      ok: false,
+      reason: 'worker-check-failed',
+      status: status.status,
+      ...commandDiagnosticFields(status),
+    };
   }
   if (!options.verifyUploader()) {
     return { ok: false, reason: 'uploader-changed' };
   }
   const result = await options.runWrangler(
-    {
-      type: 'previews.deploy',
-      workerName: options.workerName,
-      previewName: options.previewName,
-      ...(options.configPath ? { configPath: options.configPath } : {}),
-    },
+    { type: 'previews.deploy', previewName: options.previewName, ...target },
     { capture: true },
   );
   if (!isCleanCommandExit(result)) {
@@ -118,14 +138,14 @@ export async function deployCloudflarePreview(options: {
     return { ok: false, reason: 'output-invalid' };
   }
   if (!uploaded.previewUrl) {
-    return { ok: false, reason: 'preview-urls-disabled' };
+    return { ok: false, reason: 'preview-urls-disabled', deploymentId: uploaded.deploymentId };
   }
   return {
     ok: true,
     previewId: uploaded.previewId,
     deploymentId: uploaded.deploymentId,
     previewUrl: uploaded.previewUrl,
-    deploymentUrl: uploaded.deploymentUrl,
+    deploymentUrl: uploaded.deploymentUrl ?? null,
   };
 }
 

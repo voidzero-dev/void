@@ -5,7 +5,7 @@ import {
   cloudflarePreviewNameProblem,
   deleteCloudflarePreview,
   deployCloudflarePreview,
-  validateCloudflarePreviewName,
+  previewStaticWorkerConfig,
 } from '../../src/preview.ts';
 
 const uploaded = {
@@ -16,11 +16,20 @@ const uploaded = {
   deploymentUrl: 'https://dep1-site.team.workers.dev',
 };
 
-function runner(answer: Partial<CloudflareCommandResult>) {
+/** Answer each operation type on its own; the Worker exists unless `status` says otherwise. */
+function runner(
+  answer: Partial<CloudflareCommandResult>,
+  status: Partial<CloudflareCommandResult> = {},
+) {
   const calls: Array<CloudflareOperation> = [];
   const runWrangler: CloudflareCommandRunner = vi.fn((operation: CloudflareOperation) => {
     calls.push(operation);
-    return { status: 0, stdout: '', stderr: '', ...answer };
+    return {
+      status: 0,
+      stdout: '',
+      stderr: '',
+      ...(operation.type === 'deployments.status' ? status : answer),
+    };
   });
   return { calls, runWrangler };
 }
@@ -46,26 +55,39 @@ describe('cloudflarePreviewNameProblem', () => {
   });
 });
 
-describe('validateCloudflarePreviewName', () => {
-  it.each(['pr-64', 'a', 'feature-login', '0'])('accepts %s', (name) => {
-    expect(validateCloudflarePreviewName(name, 'site')).toBeNull();
-  });
-
-  it.each(['', 'PR-64', 'pr_64', 'feature/login', '-pr', 'pr-', '--flag', 'pr 64'])(
-    'rejects %j',
-    (name) => {
-      expect(validateCloudflarePreviewName(name, 'site')).toContain('not a valid preview name');
-    },
-  );
-
-  it('rejects a name whose workers.dev label would exceed 63 characters', () => {
-    expect(validateCloudflarePreviewName('pr-64', 'w'.repeat(58))).toContain('63 characters');
-    expect(validateCloudflarePreviewName('pr-64', 'w'.repeat(57))).toBeNull();
+describe('previewStaticWorkerConfig', () => {
+  it('keeps only the allow-listed keys', () => {
+    expect(
+      previewStaticWorkerConfig({
+        name: 'site',
+        account_id: 'acc',
+        compatibility_date: '2026-01-01',
+        compatibility_flags: ['nodejs_compat'],
+        assets: { html_handling: 'auto-trailing-slash' },
+        observability: { enabled: true },
+        version_metadata: { binding: 'CF_VERSION_METADATA' },
+        kv_namespaces: [{ binding: 'KV', id: 'kv' }],
+        d1_databases: [{ binding: 'DB', database_id: 'db' }],
+        vars: { SECRET_LOOKING: 'x' },
+        migrations: [{ tag: 'v1', new_sqlite_classes: ['Room'] }],
+        triggers: { crons: ['* * * * *'] },
+        routes: ['example.com/*'],
+        preview_urls: true,
+      }),
+    ).toEqual({
+      name: 'site',
+      account_id: 'acc',
+      compatibility_date: '2026-01-01',
+      compatibility_flags: ['nodejs_compat'],
+      assets: { html_handling: 'auto-trailing-slash' },
+      observability: { enabled: true },
+      version_metadata: { binding: 'CF_VERSION_METADATA' },
+    });
   });
 });
 
 describe('deployCloudflarePreview', () => {
-  it('sends only previews.deploy and returns the stable Preview URL', async () => {
+  it('checks the Worker, then deploys the Preview and returns its URL', async () => {
     const { calls, runWrangler } = runner({ data: uploaded });
     expect(
       await deployCloudflarePreview({ ...target, runWrangler, configPath: '/app/wrangler.json' }),
@@ -76,8 +98,9 @@ describe('deployCloudflarePreview', () => {
       previewUrl: 'https://pr-64-site.team.workers.dev',
       deploymentUrl: 'https://dep1-site.team.workers.dev',
     });
-    // Production is never read or changed: no versions, deployments, traffic or triggers.
+    // Production is never changed: no versions, traffic or triggers.
     expect(calls).toEqual([
+      { type: 'deployments.status', workerName: 'site', configPath: '/app/wrangler.json' },
       {
         type: 'previews.deploy',
         workerName: 'site',
@@ -87,32 +110,64 @@ describe('deployCloudflarePreview', () => {
     ]);
   });
 
-  it('rejects an invalid name or a changed uploader before running anything', async () => {
+  it.each([
+    [
+      { status: 1, errorCode: 10_007 },
+      { ok: false, reason: 'worker-not-found' },
+    ],
+    [
+      { status: 1, failure: 'not-found' as const },
+      { ok: false, reason: 'worker-not-found' },
+    ],
+    [
+      { status: 1, stderr: 'Authentication error' },
+      {
+        ok: false,
+        reason: 'worker-check-failed',
+        status: 1,
+        diagnostic: 'Authentication error',
+      },
+    ],
+  ])('uploads nothing when the Worker check gives %j', async (status, expected) => {
+    const { calls, runWrangler } = runner({ data: uploaded }, status);
+    expect(await deployCloudflarePreview({ ...target, runWrangler })).toEqual(expected);
+    expect(calls.map((call) => call.type)).toEqual(['deployments.status']);
+  });
+
+  it('uploads nothing when the uploader changed', async () => {
     const { calls, runWrangler } = runner({ data: uploaded });
-    expect(
-      await deployCloudflarePreview({ ...target, runWrangler, previewName: '--force' }),
-    ).toMatchObject({ ok: false, reason: 'invalid-name' });
     expect(
       await deployCloudflarePreview({ ...target, runWrangler, verifyUploader: () => false }),
     ).toEqual({ ok: false, reason: 'uploader-changed' });
-    expect(calls).toEqual([]);
+    expect(calls.map((call) => call.type)).toEqual(['deployments.status']);
   });
 
   it('reports a failed deploy', async () => {
-    const { runWrangler } = runner({ status: 1, errors: [{ message: 'Authentication error' }] });
-    expect(await deployCloudflarePreview({ ...target, runWrangler })).toMatchObject({
+    const { runWrangler } = runner({ status: 1, stderr: 'Authentication error' });
+    expect(await deployCloudflarePreview({ ...target, runWrangler })).toEqual({
       ok: false,
       reason: 'deploy-failed',
       status: 1,
+      diagnostic: 'Authentication error',
     });
   });
 
-  it('reports disabled Preview URLs when Cloudflare returns none', async () => {
+  it('reports disabled Preview URLs with the deployment Cloudflare created', async () => {
     const { previewUrl: _, ...withoutUrl } = uploaded;
     const { runWrangler } = runner({ data: withoutUrl });
     expect(await deployCloudflarePreview({ ...target, runWrangler })).toEqual({
       ok: false,
       reason: 'preview-urls-disabled',
+      deploymentId: 'dep_1',
+    });
+  });
+
+  it('returns a null deployment URL when Cloudflare gives none', async () => {
+    const { deploymentUrl: _, ...withoutUrl } = uploaded;
+    const { runWrangler } = runner({ data: withoutUrl });
+    expect(await deployCloudflarePreview({ ...target, runWrangler })).toMatchObject({
+      ok: true,
+      deploymentUrl: null,
     });
   });
 

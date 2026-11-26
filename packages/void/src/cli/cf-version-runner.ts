@@ -745,14 +745,14 @@ export function createCfVersionRunner(options: {
         return verified;
       }
       // One argv item, so a name that starts with "-" is never read as a flag.
-      const deployed = await runCf(
+      const deployed = await run(
         ['previews', 'deploy', '--prebuilt', `--preview-name=${operation.previewName}`],
-        { cwd: output.directory, capture: command.capture },
+        command.capture,
       );
       if (!isCleanCloudflareExit(deployed)) {
         return deployed;
       }
-      return { ...deployed, data: readCfPreviewDeployOutput(deployed.stdout) };
+      return { ...deployed, data: readCfPreviewDeployOutput(deployed.data) };
     }
 
     if (operation.type === 'versions.deploy') {

@@ -2,7 +2,6 @@ import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import {
   activateCloudflareVersion,
-  deployCloudflarePreview,
   encodeCloudflareVersionMessage,
   parseRootWranglerConfig,
   readCloudflareTriggerConfig,
@@ -12,9 +11,8 @@ import {
   writeCloudflareFrameworkDeployConfig,
   writeCloudflareStaticDeployConfig,
   assertExistingCloudflareConfig,
-  validateCloudflarePreviewName,
+  previewStaticWorkerConfig,
 } from '@void/deploy-cloudflare';
-import type { CloudflarePreviewDeployResult } from '@void/deploy-cloudflare';
 import { dirname, join, relative } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
 import { analyzeApplication } from '../application-routing.ts';
@@ -33,6 +31,7 @@ import type { CloudflareCandidateReceipt } from './cloudflare-candidate.ts';
 import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import { readCloudflareLink } from './cloudflare-link.ts';
 import type { CloudflareLink } from './cloudflare-link.ts';
+import { checkCloudflarePreviewRequest, runCloudflareStaticPreview } from './cloudflare-preview.ts';
 import { deduplicateGeneratedCompatibilityFlags } from './deploy-artifact-validation.ts';
 import { deployPointerPath } from './deploy-binding-snapshot.ts';
 import { prepareExistingCloudflareDeployWithAuth } from './deploy-cloudflare-auth.ts';
@@ -68,7 +67,7 @@ import {
 import type { RunDeployOptions, CloudflareDeployDeps } from './deploy-types.ts';
 import { readGeneratedAssetHeadersFile } from './headers.ts';
 import type { CliLogger } from './log-file.ts';
-import { getErrorMessage, note, printSuccess } from './output.ts';
+import { getErrorMessage, note } from './output.ts';
 import { buildStaticManifest, readWranglerHtmlHandling } from './package.ts';
 import { detectPreset } from './preset.ts';
 import type { StaticPreset, FrameworkPreset } from './preset.ts';
@@ -341,14 +340,23 @@ export async function runCloudflareStaticDeploy(
 ): Promise<void> {
   const exit = deps.exit ?? ((code: number): never => process.exit(code));
   const configPath = discoverRootWranglerConfig(root);
+  if (options.preview !== undefined) {
+    const problem = checkCloudflarePreviewRequest({
+      previewName: options.preview,
+      rootConfig: parseRootWranglerConfig(configPath),
+      configPath,
+    });
+    if (problem) {
+      log.error(problem);
+      return exit(1);
+    }
+  }
   const connection = await connectCloudflareDeployAccount({
     root,
     configPath,
     rootConfig: parseRootWranglerConfig(configPath),
     deps,
-    // A preview never saves an account for the project, as `void preview delete` does not.
-    persistAccount:
-      options.preview === undefined && !(options.reuseExistingWorker || initialCloudflareLink),
+    persistAccount: !(options.reuseExistingWorker || initialCloudflareLink),
     readinessAccessOrigin: options.readinessAccessOrigin,
     reporter,
   });
@@ -389,13 +397,6 @@ export async function runCloudflareStaticDeploy(
     workerName,
     options.preview === undefined ? 'Cloudflare' : `Cloudflare Preview ${options.preview}`,
   );
-  if (options.preview !== undefined) {
-    const invalid = validateCloudflarePreviewName(options.preview, workerName);
-    if (invalid) {
-      log.error(`deploy: ${invalid}`);
-      return exit(1);
-    }
-  }
   const rootConfigBeforeBuild = existsSync(configPath) ? readFileSync(configPath, 'utf8') : null;
   if (preset.buildCommand && !options.skipBuild) {
     log.step('Building...');
@@ -447,7 +448,12 @@ export async function runCloudflareStaticDeploy(
   // Write the static config separately so the root config, with its Worker-only bindings and
   // comments, stays untouched for a later switch back to a Worker app.
   const staticConfigPath = join(dirname(entryPath), 'wrangler-static.json');
-  writeFileSync(staticConfigPath, `${JSON.stringify(rootConfig, null, 2)}\n`, { mode: 0o600 });
+  // A preview gets none of the Worker's bindings, vars or migrations.
+  writeFileSync(
+    staticConfigPath,
+    `${JSON.stringify(options.preview === undefined ? rootConfig : previewStaticWorkerConfig(rootConfig), null, 2)}\n`,
+    { mode: 0o600 },
+  );
   writeCloudflareStaticDeployConfig({
     configPath: staticConfigPath,
     name: workerName,
@@ -493,6 +499,7 @@ export async function runCloudflareStaticDeploy(
     headers: edgeRouting.assetHeaders,
   });
 
+  const queueConsumerCleanup = readWranglerManagedQueueCleanupCandidates(configPath);
   assertCloudflareDeployTargetUnchanged({
     root,
     existingWorker,
@@ -530,17 +537,15 @@ export async function runCloudflareStaticDeploy(
   });
   const typeLabel = preset.appType === 'spa' ? 'Static SPA' : 'Static Site';
   if (options.preview !== undefined) {
-    log.step(`Deploying Preview ${options.preview}...`);
-    const result = await deployCloudflarePreview({
+    return runCloudflareStaticPreview({
       runWrangler: activationRunner,
+      cfOutput,
       workerName,
       previewName: options.preview,
+      accountId,
+      configPath,
+      staticConfigPath,
       verifyUploader: cfOutput ? cfUploaderIsPinned : assertUploaderStillPinned,
-      configPath: staticConfigPath,
-    }).finally(() => cfOutput?.dispose());
-    return reportCloudflareStaticPreview(result, {
-      previewName: options.preview,
-      workerName,
       typeLabel,
       writeResult: options.writeResult,
       reporter,
@@ -548,7 +553,6 @@ export async function runCloudflareStaticDeploy(
       exit,
     });
   }
-  const queueConsumerCleanup = readWranglerManagedQueueCleanupCandidates(configPath);
   const execution = await activateCloudflareVersionWithProgress(
     deps.activateVersion ?? activateCloudflareVersion,
     {
@@ -603,77 +607,4 @@ export async function runCloudflareStaticDeploy(
   });
   note(formatDeploySummary({ workerName, typeLabel }), execution.previewUrl);
   printDeploySuccess();
-}
-
-/** Print a preview deploy's result: the URL, or a JSON record with `--json`, or the failure. */
-function reportCloudflareStaticPreview(
-  result: CloudflarePreviewDeployResult,
-  options: {
-    previewName: string;
-    workerName: string;
-    typeLabel: string;
-    writeResult: RunDeployOptions['writeResult'];
-    reporter: CloudflareChildReporter;
-    cliLog: CliLogger;
-    exit: (code: number) => never;
-  },
-): void {
-  const { previewName, workerName } = options;
-  if (!result.ok) {
-    const message = options.reporter.redactor.redact(
-      formatCloudflarePreviewError(result, workerName),
-    );
-    options.cliLog.error('cloudflare_preview_failed', new Error(message), {
-      reason: result.reason,
-    });
-    log.error(message);
-    return options.exit(1);
-  }
-  options.cliLog.info('cloudflare_preview_deployed', {
-    previewName,
-    previewId: result.previewId,
-    deploymentId: result.deploymentId,
-  });
-  const record = {
-    type: 'preview',
-    workerName,
-    previewName,
-    previewUrl: result.previewUrl,
-    deploymentId: result.deploymentId,
-    deploymentUrl: result.deploymentUrl ?? null,
-  };
-  options.writeResult?.(`${JSON.stringify(record)}\n`);
-  note(
-    [
-      formatDeploySummary({ workerName, typeLabel: options.typeLabel }),
-      `Preview: ${previewName}`,
-      ...(result.deploymentUrl ? [`This deployment: ${result.deploymentUrl}`] : []),
-    ].join('\n'),
-    result.previewUrl,
-  );
-  printSuccess(`Preview ${previewName} deployed. Production is unchanged.`);
-}
-
-function formatCloudflarePreviewError(
-  result: Extract<CloudflarePreviewDeployResult, { ok: false }>,
-  workerName: string,
-): string {
-  switch (result.reason) {
-    case 'invalid-name':
-      return `deploy: ${result.diagnostic}`;
-    case 'uploader-changed':
-      return 'deploy: the Cloudflare uploader changed during the preview deploy. Nothing was deployed.';
-    case 'output-invalid':
-      return 'deploy: Cloudflare accepted the preview but did not return a readable Preview record. Check the Worker in the Cloudflare dashboard before retrying.';
-    case 'preview-urls-disabled':
-      return [
-        `deploy: the preview was deployed, but Preview URLs are turned off for the Worker "${workerName}", so it has no URL.`,
-        'Set preview_urls: true in the cloudflare field of void.config.ts and run a production deploy (void deploy --platform cloudflare), or turn on Preview under Domains for the Worker in the Cloudflare dashboard. Then deploy the preview again.',
-      ].join('\n');
-    case 'deploy-failed':
-      return [
-        'deploy: Cloudflare could not deploy the preview. Production is unchanged.',
-        ...(result.diagnostic ? [result.diagnostic] : []),
-      ].join('\n');
-  }
 }

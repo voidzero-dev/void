@@ -38,43 +38,29 @@ export function readCfUploadOutput(result: {
 }
 
 /**
- * Decode the Preview record `cf previews deploy` prints as JSON: the stable Preview URL and the
- * URL of this deployment. Earlier provider lines may precede the record, so read the last line that
- * starts a JSON object together with everything after it.
+ * Map the Preview record `cf previews deploy` prints as JSON on stdout to the stable Preview URL
+ * and the URL of this deployment. Anything unreadable gives undefined, so the deploy fails closed.
  */
 export function readCfPreviewDeployOutput(
-  stdout: string,
+  data: unknown,
 ): CloudflarePreviewUploadResult | undefined {
-  const lines = stdout.trim().split('\n');
-  for (let index = lines.length - 1; index >= 0; index--) {
-    if (lines[index]?.startsWith('{') !== true) {
-      continue;
-    }
-    let record: unknown;
-    try {
-      record = JSON.parse(lines.slice(index).join('\n'));
-    } catch {
-      continue;
-    }
-    if (!isRecord(record)) {
-      return undefined;
-    }
-    const value = record;
-    const previewUrl = firstUrl(value.preview_urls);
-    const deploymentUrl = firstUrl(value.deployment_urls);
-    return typeof value.preview_id === 'string' &&
-      typeof value.preview_name === 'string' &&
-      typeof value.deployment_id === 'string'
-      ? {
-          previewId: value.preview_id,
-          previewName: value.preview_name,
-          deploymentId: value.deployment_id,
-          ...(previewUrl ? { previewUrl } : {}),
-          ...(deploymentUrl ? { deploymentUrl } : {}),
-        }
-      : undefined;
+  if (
+    !isRecord(data) ||
+    typeof data.preview_id !== 'string' ||
+    typeof data.preview_name !== 'string' ||
+    typeof data.deployment_id !== 'string'
+  ) {
+    return undefined;
   }
-  return undefined;
+  const previewUrl = firstUrl(data.preview_urls);
+  const deploymentUrl = firstUrl(data.deployment_urls);
+  return {
+    previewId: data.preview_id,
+    previewName: data.preview_name,
+    deploymentId: data.deployment_id,
+    ...(previewUrl ? { previewUrl } : {}),
+    ...(deploymentUrl ? { deploymentUrl } : {}),
+  };
 }
 
 /** The first URL of a cf URL list, without a trailing slash. */

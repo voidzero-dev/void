@@ -3405,9 +3405,9 @@ it('deploys a named Preview from the prebuilt output without touching versions o
         calls.push({ args, cwd: run.cwd });
         return {
           status: 0,
-          // Provider lines may precede the JSON record.
-          stdout: `Uploading assets\n${JSON.stringify(preview, null, 2)}\n`,
-          stderr: '',
+          // cf prints the record as JSON on stdout and its progress on stderr.
+          stdout: `${JSON.stringify(preview, null, 2)}\n`,
+          stderr: 'Uploading assets\n',
         };
       },
     });
