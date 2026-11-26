@@ -332,16 +332,23 @@ describe('Pages build recovery', () => {
     expect(document.body.replaceChildren).toHaveBeenCalled();
   });
 
+  /** The transport's redirect handshake, then the destination's answer. */
+  function redirectThen(status: 303 | 307, answer: Response) {
+    return vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          headers: { 'X-VoidPages-Redirect': String(status), Location: '/items/1' },
+        }),
+      )
+      .mockResolvedValueOnce(answer);
+  }
+
   it('reloads the page a mutation redirected to when another build rendered it', async () => {
     stubClientGlobals();
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
     stubReloadGuard();
-    const redirected = staleJson({ ...stalePage, url: '/items/1' });
-    Object.defineProperties(redirected, {
-      redirected: { value: true },
-      url: { value: 'http://localhost/items/1' },
-    });
-    const fetch = vi.fn().mockResolvedValueOnce(redirected);
+    const fetch = redirectThen(303, staleJson({ ...stalePage, url: '/items/1' }));
     vi.stubGlobal('fetch', fetch);
     const applyUpdate = vi.fn();
     const { router } = await createTestRouter({ adapter: { applyUpdate } });
@@ -349,9 +356,25 @@ describe('Pages build recovery', () => {
     await router.visit('/items', { method: 'POST' });
 
     // The action ran once; only the page it redirected to is loaded again.
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: 'GET' });
     expect(window.location.href).toBe('/items/1');
     expect(applyUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps a mutation response that a 307 redirect answered, from any build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    vi.stubGlobal('fetch', redirectThen(307, staleJson({ ...stalePage, url: '/items/1' })));
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/items', { method: 'POST' });
+
+    // The POST ran at the new URL, so reloading would lose its result.
+    expect(window.location.href).toBeUndefined();
+    expect(applyUpdate).toHaveBeenCalled();
   });
 
   it('applies a mutation answered by another build and never reloads', async () => {

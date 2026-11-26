@@ -115,7 +115,11 @@ function clientBuildInputs(root: string, userConfig: UserConfig, mode: string): 
       userConfig.base ?? null,
       process.env.NODE_ENV ?? null,
     ]),
-    define: JSON.stringify(sortedEntries(userConfig.define ?? {})),
+    // The client environment can add or override defines of its own.
+    define: JSON.stringify([
+      sortedEntries(userConfig.define ?? {}),
+      sortedEntries(userConfig.environments?.client?.define ?? {}),
+    ]),
   };
 }
 

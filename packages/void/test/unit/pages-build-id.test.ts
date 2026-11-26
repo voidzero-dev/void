@@ -390,6 +390,18 @@ describe('createPagesPlugin build id', () => {
     expect(await idFor('one')).not.toBe(await idFor('two'));
   });
 
+  it('changes the id for a define of the client environment', async () => {
+    const idFor = async (value: string) =>
+      idIn(
+        await createConfigHook(createFixture())(
+          { environments: { client: { define: { __API__: JSON.stringify(value) } } } },
+          { command: 'build' },
+        ),
+      );
+
+    expect(await idFor('one')).not.toBe(await idFor('two'));
+  });
+
   it('defines nothing when deploy recovery is off', async () => {
     const config = createConfigHook(undefined, { deployRecovery: false });
 

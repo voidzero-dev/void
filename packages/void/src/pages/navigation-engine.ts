@@ -878,6 +878,8 @@ export async function createPageNavigationEngine<Component>(
             : await fetchPages(url, fetchOptions)
           : null;
       let response = fetched?.response ?? null;
+      // A 307 or 308 answers a mutation with a mutation, whatever URL it lands on.
+      const answeredMethod = fetched?.method ?? method;
 
       if (pageData === undefined && !response) {
         loadDocument(url);
@@ -903,11 +905,11 @@ export async function createPageNavigationEngine<Component>(
       // The destination was rendered by another deployment, so this tab's chunks
       // are gone. Treat the payload as absent: the document load below lands on the
       // requested destination with its query and hash. A mutation has already run,
-      // so only a GET is allowed here, which includes the page a mutation redirected
-      // to. A response that names no build, from an older Void, is not evidence of a
-      // new one.
+      // so only a GET answer is allowed here, which includes the page a mutation was
+      // redirected to with a 303. A response that names no build, from an older
+      // Void, is not evidence of a new one.
       const servedBy = response?.headers.get(PAGES_BUILD_HEADER) ?? null;
-      if (method === 'GET' && servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+      if (answeredMethod === 'GET' && servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
         if (claimDeployReload(servedBy, url)) {
           response = null;
           pageData = undefined;
