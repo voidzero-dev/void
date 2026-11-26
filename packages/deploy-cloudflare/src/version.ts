@@ -121,6 +121,8 @@ export type CloudflareVersionActivation =
       diagnostic?: string;
       /** Wrangler reached Cloudflare's Containers entitlement endpoint and received a 403. */
       containersUnavailable?: boolean;
+      /** The final status check stopped activation after the version was uploaded. */
+      beforeActivation?: true;
       versionId?: string;
       previousVersionId?: string | null;
       rollback?: 'not-needed' | 'succeeded' | 'failed' | 'unavailable' | 'unsafe';
@@ -878,7 +880,7 @@ export type CloudflareVersionActivationOptions = {
   fetch?: typeof globalThis.fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   /**
-   * Waits between reads of Cloudflare's Worker version list while it lags behind a write.
+   * Waits between reads while Cloudflare's Worker version list or staged deployment status lags.
    * Defaults to {@link STALE_VERSION_HISTORY_DELAYS_MS}.
    */
   versionHistoryRetryDelaysMs?: ReadonlyArray<number>;
@@ -1709,44 +1711,84 @@ async function activateCloudflareVersionWithSecretsFile(
 
   // Readiness can take long enough for another deploy or rollback to finish. Never flatten that
   // newer operation using the stale `previous` snapshot captured before this upload began.
-  const ownerBeforeActivation = await readCurrentProductionVersion(options);
-  if (ownerBeforeActivation.kind === 'failed') {
-    return {
-      ok: false,
-      reason: 'status-failed',
-      status: ownerBeforeActivation.status,
-      versionId,
-      previousVersionId: previous.versionId,
-    };
+  const previousTraffic = previous.versionId
+    ? [{ versionId: previous.versionId, percentage: 100 }]
+    : [];
+  const stagedTraffic = stagedVersionOverride
+    ? stagedVersionPercentages(previous.versionId, versionId)
+    : undefined;
+  const isLaggingStagingStatus = (owner: CurrentProductionVersion) =>
+    stagedTraffic !== undefined &&
+    previous.versionId !== null &&
+    owner.kind === 'ok' &&
+    productionVersionPercentagesEqual(owner.versions, previousTraffic);
+  let ownerBeforeActivation = await readCurrentProductionVersion(options);
+  const statusDelays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
+  for (
+    let attempt = 0;
+    attempt < statusDelays.length && isLaggingStagingStatus(ownerBeforeActivation);
+    attempt++
+  ) {
+    if (attempt === 0) {
+      options.onProgress?.(
+        "Waiting for Cloudflare's deployment status to show the staged version...",
+      );
+    }
+    await (options.sleep ?? delay)(statusDelays[attempt]);
+    if (!options.verifyUploader()) {
+      return {
+        ok: false,
+        reason: 'uploader-changed',
+        versionId,
+        previousVersionId: previous.versionId,
+      };
+    }
+    ownerBeforeActivation = await readCurrentProductionVersion(options);
   }
   if (ownerBeforeActivation.kind === 'split') {
     return {
       ok: false,
       reason: 'traffic-split-unsupported',
+      beforeActivation: true,
       versionId,
       previousVersionId: previous.versionId,
+      rollback: 'not-needed',
     };
   }
-  const expectedTrafficBeforeActivation = stagedVersionOverride
-    ? stagedVersionPercentages(previous.versionId, versionId)
-    : previous.versionId
-      ? [{ versionId: previous.versionId, percentage: 100 }]
-      : [];
   if (
+    ownerBeforeActivation.kind === 'failed' ||
     ownerBeforeActivation.versionId !== previous.versionId ||
     !productionVersionPercentagesEqual(
       ownerBeforeActivation.versions,
-      expectedTrafficBeforeActivation,
+      stagedTraffic ?? previousTraffic,
     )
   ) {
+    const failure =
+      ownerBeforeActivation.kind === 'failed'
+        ? { reason: 'status-failed' as const, status: ownerBeforeActivation.status }
+        : { reason: 'deployment-changed' as const };
+    const restore =
+      stagedTraffic?.length &&
+      (ownerBeforeActivation.kind === 'failed' || isLaggingStagingStatus(ownerBeforeActivation))
+        ? await restorePreviousVersion(
+            options,
+            previous.versionId,
+            'pre-activation status check failed',
+            [stagedTraffic],
+          )
+        : {
+            rollback: 'not-needed' as const,
+            ...(ownerBeforeActivation.kind === 'ok'
+              ? { activeVersionId: ownerBeforeActivation.versionId }
+              : {}),
+          };
     return {
       ok: false,
-      reason: 'deployment-changed',
+      ...failure,
+      beforeActivation: true,
       versionId,
       previousVersionId: previous.versionId,
-      activeVersionId: ownerBeforeActivation.versionId,
-      rollback: 'not-needed',
-      triggerRepair: 'succeeded',
+      ...restore,
       ...cloudflareStagingPairGuidance(ownerBeforeActivation.deployment, options),
     };
   }

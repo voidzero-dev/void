@@ -554,6 +554,19 @@ export function formatCloudflareActivationError(
     : message;
 }
 
+function formatStagingCleanup(result: Exclude<CloudflareActivationResult, { ok: true }>): string {
+  switch (result.rollback) {
+    case 'succeeded':
+      return ` Void removed the staged version. Worker version ${result.activeVersionId ?? '(unknown)'} continues serving 100% of traffic.`;
+    case 'failed':
+      return ' Cloudflare did not confirm removal of the staged version.';
+    case 'unsafe':
+      return ' Void could not safely remove its staged version.';
+    default:
+      return '';
+  }
+}
+
 function formatCloudflareActivationFailure(
   result: Exclude<CloudflareActivationResult, { ok: true }>,
 ): string {
@@ -563,6 +576,7 @@ function formatCloudflareActivationFailure(
       ? ''
       : ` Cloudflare error code: ${String(result.cloudflareErrorCode)}.`;
   const diagnostic = result.diagnostic ? `\n\n${result.diagnostic}` : '';
+  const stagingCleanup = result.beforeActivation ? formatStagingCleanup(result) : '';
   switch (result.reason) {
     case 'uploader-changed':
       if (result.rollback === 'succeeded') {
@@ -580,8 +594,8 @@ function formatCloudflareActivationFailure(
       return 'deploy: the verified Wrangler uploader changed before version activation.';
     case 'status-failed':
       if (result.versionId) {
-        if (result.rollback === 'not-needed') {
-          return `deploy: Worker version ${result.versionId} was uploaded, but Cloudflare deployment status could not be verified before activation${status}. Inspect \`void project status\` before retrying.`;
+        if (result.beforeActivation || result.rollback === 'not-needed') {
+          return `deploy: Worker version ${result.versionId} was uploaded, but Cloudflare deployment status could not be verified before activation${status}.${stagingCleanup} Inspect \`void project status\` before retrying.`;
         }
         return `deploy: Worker version ${result.versionId} was published, but current deployment status could not be verified${status}. Inspect \`void project status\` before retrying.`;
       }
@@ -589,6 +603,9 @@ function formatCloudflareActivationFailure(
     case 'deployment-changed':
       if (result.diagnostic) {
         return result.diagnostic;
+      }
+      if (result.beforeActivation) {
+        return `deploy: Cloudflare deployment status did not match the expected traffic.${stagingCleanup} Inspect the active Worker version ${result.activeVersionId ?? '(unknown)'} before retrying.`;
       }
       return result.triggerRepair === 'succeeded'
         ? `deploy: another Cloudflare operation superseded this deployment. Void restored triggers for the active version ${result.activeVersionId ?? '(unknown)'}; retry from fresh deployment status.`
@@ -616,7 +633,9 @@ function formatCloudflareActivationFailure(
       return [
         'deploy: the current Cloudflare deployment splits traffic across multiple Worker Versions.',
         'Void will not flatten an existing gradual rollout to 100%. Finish or cancel that rollout',
-        'in Cloudflare, then retry; no version was uploaded.',
+        result.beforeActivation && result.versionId
+          ? `in Cloudflare, then retry. Worker version ${result.versionId} was uploaded but not activated.`
+          : 'in Cloudflare, then retry; no version was uploaded.',
       ].join('\n');
     case 'upload-failed':
       return `deploy: Cloudflare Worker Version upload failed${status}; production traffic is unchanged.${cloudflareCode}${diagnostic}`;

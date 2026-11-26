@@ -3929,6 +3929,174 @@ describe('Cloudflare version activation', () => {
     );
   });
 
+  describe('staged deployment status', () => {
+    const status = (...versions: Array<VersionTraffic>) => ok(JSON.stringify({ versions }));
+    const previous = status({ version_id: CURRENT, percentage: 100 });
+    const concurrent = status({ version_id: CONCURRENT, percentage: 100 });
+    const staging = [`${CURRENT}@100`, `${NEXT}@0`];
+
+    function stagedActivation(...statusReads: Array<CloudflareCommandResult>) {
+      const base = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+      let staged = false;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (staged && args[0] === 'deployments') {
+          const read = statusReads.shift();
+          if (read) {
+            return read;
+          }
+        }
+        staged ||= args.includes(`${NEXT}@0`);
+        return base(args);
+      });
+      const sleep = vi.fn(async (_milliseconds: number) => {});
+      return {
+        runWrangler,
+        sleep,
+        options: {
+          runWrangler,
+          verifyUploader: () => true,
+          workerName: 'my-worker',
+          workersDevSubdomain: 'example',
+          message: encodeCloudflareVersionMessage([]),
+          fetch: async () => Response.json({ ready: true }),
+          versionHistoryRetryDelaysMs: [17, 29],
+          sleep,
+        },
+      };
+    }
+
+    it('waits for Cloudflare to show its 0% staging deployment before activating', async () => {
+      const { options, runWrangler, sleep } = stagedActivation(previous);
+
+      await expect(activateCloudflareVersion(options)).resolves.toMatchObject({
+        ok: true,
+        versionId: NEXT,
+      });
+      expect(sleep.mock.calls).toEqual([[17]]);
+      expect(deployRequests(runWrangler)).toEqual([staging, [`${NEXT}@100`]]);
+    });
+
+    it.each([
+      ['a different active version', concurrent, CONCURRENT],
+      [
+        'a different staged version',
+        status({ version_id: CURRENT, percentage: 100 }, { version_id: CONCURRENT, percentage: 0 }),
+        CURRENT,
+      ],
+    ] as const)(
+      'stops at %s during the wait without another traffic write',
+      async (_kind, read, activeVersionId) => {
+        const { options, runWrangler, sleep } = stagedActivation(previous, read);
+
+        await expect(activateCloudflareVersion(options)).resolves.toEqual({
+          ok: false,
+          reason: 'deployment-changed',
+          beforeActivation: true,
+          versionId: NEXT,
+          previousVersionId: CURRENT,
+          activeVersionId,
+          rollback: 'not-needed',
+        });
+        expect(sleep.mock.calls).toEqual([[17]]);
+        expect(deployRequests(runWrangler)).toEqual([staging]);
+        expect(runWrangler.mock.calls.some(([args]) => args[0] === 'triggers')).toBe(false);
+      },
+    );
+
+    it('clears its staging deployment if the status only catches up during the final ownership check', async () => {
+      const { options, runWrangler, sleep } = stagedActivation(previous, previous, previous);
+
+      await expect(activateCloudflareVersion(options)).resolves.toEqual({
+        ok: false,
+        reason: 'deployment-changed',
+        beforeActivation: true,
+        versionId: NEXT,
+        previousVersionId: CURRENT,
+        activeVersionId: CURRENT,
+        rollback: 'succeeded',
+      });
+      expect(sleep.mock.calls).toEqual([[17], [29]]);
+      expect(deployRequests(runWrangler)).toEqual([staging, [`${CURRENT}@100`]]);
+    });
+
+    it.each([
+      ['another deployment', concurrent, CONCURRENT],
+      ['the pre-staging deployment', previous, CURRENT],
+    ] as const)(
+      'leaves production alone when the final ownership check sees %s',
+      async (_kind, read, activeVersionId) => {
+        const { options, runWrangler, sleep } = stagedActivation(
+          previous,
+          previous,
+          previous,
+          read,
+        );
+
+        await expect(activateCloudflareVersion(options)).resolves.toEqual({
+          ok: false,
+          reason: 'deployment-changed',
+          beforeActivation: true,
+          versionId: NEXT,
+          previousVersionId: CURRENT,
+          activeVersionId,
+          rollback: 'unsafe',
+        });
+        expect(sleep.mock.calls).toEqual([[17], [29]]);
+        expect(deployRequests(runWrangler)).toEqual([staging]);
+      },
+    );
+
+    it('clears its staging deployment after a failed read if the ownership check confirms it', async () => {
+      const { options, runWrangler, sleep } = stagedActivation(previous, { ...ok(), status: 1 });
+
+      await expect(activateCloudflareVersion(options)).resolves.toEqual({
+        ok: false,
+        reason: 'status-failed',
+        beforeActivation: true,
+        status: 1,
+        versionId: NEXT,
+        previousVersionId: CURRENT,
+        activeVersionId: CURRENT,
+        rollback: 'succeeded',
+      });
+      expect(sleep.mock.calls).toEqual([[17]]);
+      expect(deployRequests(runWrangler)).toEqual([staging, [`${CURRENT}@100`]]);
+    });
+
+    it('stops at a split during the wait without writing traffic', async () => {
+      const { options, runWrangler, sleep } = stagedActivation(
+        previous,
+        status({ version_id: CURRENT, percentage: 50 }, { version_id: CONCURRENT, percentage: 50 }),
+      );
+
+      await expect(activateCloudflareVersion(options)).resolves.toEqual({
+        ok: false,
+        reason: 'traffic-split-unsupported',
+        beforeActivation: true,
+        versionId: NEXT,
+        previousVersionId: CURRENT,
+        rollback: 'not-needed',
+      });
+      expect(sleep.mock.calls).toEqual([[17]]);
+      expect(deployRequests(runWrangler)).toEqual([staging]);
+    });
+
+    it('does not read or write through an uploader that changes during the wait', async () => {
+      const { options, runWrangler, sleep } = stagedActivation(previous);
+      let trusted = true;
+      sleep.mockImplementation(async () => {
+        trusted = false;
+      });
+
+      await expect(
+        activateCloudflareVersion({ ...options, verifyUploader: () => trusted }),
+      ).resolves.toMatchObject({ ok: false, reason: 'uploader-changed' });
+      expect(sleep.mock.calls).toEqual([[17]]);
+      expect(runWrangler.mock.calls.filter(([args]) => args[0] === 'deployments')).toHaveLength(3);
+      expect(deployRequests(runWrangler)).toEqual([staging]);
+    });
+  });
+
   it('does not stage over a production owner that changed after upload', async () => {
     let statusCalls = 0;
     const runWrangler = operationFixture(async (args: Array<string>) => {
