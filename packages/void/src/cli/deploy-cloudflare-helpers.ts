@@ -557,11 +557,11 @@ export function formatCloudflareActivationError(
 function formatStagingCleanup(result: Exclude<CloudflareActivationResult, { ok: true }>): string {
   switch (result.rollback) {
     case 'succeeded':
-      return ` Void removed the staged version. Worker version ${result.activeVersionId ?? '(unknown)'} continues serving 100% of traffic.`;
+      return ' Void redeployed the previous version at 100% of traffic.';
     case 'failed':
-      return ' Cloudflare did not confirm removal of the staged version.';
+      return ' Void tried to redeploy the previous version at 100% of traffic, but Cloudflare did not confirm it.';
     case 'unsafe':
-      return ' Void could not safely remove its staged version.';
+      return ' Void left its 0% staging deployment in place because it could not confirm that deployment is still its own.';
     default:
       return '';
   }
@@ -605,7 +605,7 @@ function formatCloudflareActivationFailure(
         return result.diagnostic;
       }
       if (result.beforeActivation) {
-        return `deploy: Cloudflare deployment status did not match the expected traffic.${stagingCleanup} Inspect the active Worker version ${result.activeVersionId ?? '(unknown)'} before retrying.`;
+        return `deploy: Cloudflare deployment status did not show the expected deployment before activation.${stagingCleanup} Inspect \`void project status\` before retrying.`;
       }
       return result.triggerRepair === 'succeeded'
         ? `deploy: another Cloudflare operation superseded this deployment. Void restored triggers for the active version ${result.activeVersionId ?? '(unknown)'}; retry from fresh deployment status.`
@@ -633,8 +633,8 @@ function formatCloudflareActivationFailure(
       return [
         'deploy: the current Cloudflare deployment splits traffic across multiple Worker Versions.',
         'Void will not flatten an existing gradual rollout to 100%. Finish or cancel that rollout',
-        result.beforeActivation && result.versionId
-          ? `in Cloudflare, then retry. Worker version ${result.versionId} was uploaded but not activated.`
+        result.versionId
+          ? `in Cloudflare, then retry. Void uploaded Worker version ${result.versionId} and stopped before activating it.`
           : 'in Cloudflare, then retry; no version was uploaded.',
       ].join('\n');
     case 'upload-failed':

@@ -528,19 +528,26 @@ describe('Cloudflare activation diagnostics', () => {
   );
 
   it.each([
-    ['succeeded', 'continues serving 100% of traffic'],
-    ['unsafe', 'Void could not safely remove its staged version'],
-    ['failed', 'Cloudflare did not confirm removal of the staged version'],
+    ['succeeded', ' Void redeployed the previous version at 100% of traffic.'],
+    [
+      'unsafe',
+      ' Void left its 0% staging deployment in place because it could not confirm that deployment is still its own.',
+    ],
+    [
+      'failed',
+      ' Void tried to redeploy the previous version at 100% of traffic, but Cloudflare did not confirm it.',
+    ],
+    ['not-needed', ''],
   ] as const)('reports staging cleanup outcome %s', (rollback, details) => {
     const message = formatCloudflareActivationError({
       ok: false,
       reason: 'deployment-changed',
       beforeActivation: true,
       rollback,
-      activeVersionId: '11111111-1111-4111-8111-111111111111',
     });
-    expect(message).toContain(details);
-    expect(message).not.toContain('restored triggers');
+    expect(message).toBe(
+      `deploy: Cloudflare deployment status did not show the expected deployment before activation.${details} Inspect \`void project status\` before retrying.`,
+    );
   });
 
   it('reports the uploaded version when the final deployment status read fails', () => {
@@ -551,23 +558,35 @@ describe('Cloudflare activation diagnostics', () => {
       beforeActivation: true,
       versionId,
       rollback: 'succeeded',
-      activeVersionId: '11111111-1111-4111-8111-111111111111',
     });
-    expect(message).toContain(`Worker version ${versionId} was uploaded`);
-    expect(message).toContain('Void removed the staged version');
+    expect(message).toBe(
+      `deploy: Worker version ${versionId} was uploaded, but Cloudflare deployment status could not be verified before activation. Void redeployed the previous version at 100% of traffic. Inspect \`void project status\` before retrying.`,
+    );
   });
 
-  it('reports the uploaded version when the final deployment status shows a traffic split', () => {
-    const versionId = '22222222-2222-4222-8222-222222222222';
-    const message = formatCloudflareActivationError({
-      ok: false,
-      reason: 'traffic-split-unsupported',
-      beforeActivation: true,
-      versionId,
-    });
-    expect(message).toContain(`Worker version ${versionId} was uploaded but not activated`);
-    expect(message).not.toContain('no version was uploaded');
-  });
+  it.each([
+    [
+      '22222222-2222-4222-8222-222222222222',
+      'in Cloudflare, then retry. Void uploaded Worker version 22222222-2222-4222-8222-222222222222 and stopped before activating it.',
+    ],
+    [undefined, 'in Cloudflare, then retry; no version was uploaded.'],
+  ] as const)(
+    'describes the upload state when the deployment status shows a traffic split (%s)',
+    (versionId, lastLine) => {
+      const message = formatCloudflareActivationError({
+        ok: false,
+        reason: 'traffic-split-unsupported',
+        versionId,
+      });
+      expect(message).toBe(
+        [
+          'deploy: the current Cloudflare deployment splits traffic across multiple Worker Versions.',
+          'Void will not flatten an existing gradual rollout to 100%. Finish or cancel that rollout',
+          lastLine,
+        ].join('\n'),
+      );
+    },
+  );
 
   it('does not suggest an account subdomain when workers.dev is off', () => {
     const versionId = '22222222-2222-4222-8222-222222222222';
