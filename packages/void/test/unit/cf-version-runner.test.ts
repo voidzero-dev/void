@@ -3438,6 +3438,6 @@ it('deploys a named Preview from the prebuilt output without touching versions o
     expect(moved.status).not.toBe(0);
     expect(calls).toHaveLength(1);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });

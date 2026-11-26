@@ -2,8 +2,8 @@ import {
   deleteCloudflarePreview,
   parseRootWranglerConfig,
   readWranglerTopLevelString,
-  type CloudflarePreviewDeleteResult,
 } from '@void/deploy-cloudflare';
+import type { CloudflarePreviewDeleteResult } from '@void/deploy-cloudflare';
 import { createCloudflareChildReporter } from './cloudflare-child-report.ts';
 import {
   confirmCloudflareDeployAuthentication,

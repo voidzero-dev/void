@@ -13,8 +13,8 @@ import {
   writeCloudflareStaticDeployConfig,
   assertExistingCloudflareConfig,
   validateCloudflarePreviewName,
-  type CloudflarePreviewDeployResult,
 } from '@void/deploy-cloudflare';
+import type { CloudflarePreviewDeployResult } from '@void/deploy-cloudflare';
 import { dirname, join, relative } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
 import { analyzeApplication } from '../application-routing.ts';

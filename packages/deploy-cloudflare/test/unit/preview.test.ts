@@ -121,7 +121,7 @@ describe('deleteCloudflarePreview', () => {
   });
 
   // 10025: "Preview not found", as Cloudflare answered in a live run. 10007: no such Worker.
-  it.each([10025, 10007])('treats error %i as already deleted', async (errorCode) => {
+  it.each([10_025, 10_007])('treats error %i as already deleted', async (errorCode) => {
     const { runWrangler } = runner({ status: 1, errorCode });
     expect(await deleteCloudflarePreview({ ...target, runWrangler })).toEqual({
       ok: true,
@@ -130,7 +130,7 @@ describe('deleteCloudflarePreview', () => {
   });
 
   it('reports other failures', async () => {
-    const { runWrangler } = runner({ status: 1, errorCode: 10000 });
+    const { runWrangler } = runner({ status: 1, errorCode: 10_000 });
     expect(await deleteCloudflarePreview({ ...target, runWrangler })).toMatchObject({
       ok: false,
       reason: 'delete-failed',

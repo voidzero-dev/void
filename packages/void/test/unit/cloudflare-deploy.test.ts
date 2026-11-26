@@ -12782,7 +12782,7 @@ describe('runCloudflareDeploy — previews', () => {
   function previewHarness(record: unknown = previewRecord) {
     const base = harness();
     const wranglerArgs: Array<Array<string>> = [];
-    const activateVersion = vi.fn(base.deps.activateVersion!);
+    const activateVersion = vi.fn(base.deps.activateVersion);
     const runWrangler = operationFixture((args) => {
       wranglerArgs.push(args);
       if (args[0] === 'whoami') {
@@ -12864,7 +12864,7 @@ describe('runCloudflareDeploy — previews', () => {
 
     expect(exitCalls).toEqual([]);
     expect(stdout).toHaveLength(1);
-    expect(JSON.parse(stdout[0]!)).toEqual({
+    expect(JSON.parse(stdout[0] ?? '')).toEqual({
       workerName: 'spaapp',
       previewName: 'pr-64',
       previewUrl: 'https://pr-64-spaapp.team.workers.dev',

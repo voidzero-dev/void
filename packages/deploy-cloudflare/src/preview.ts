@@ -1,11 +1,7 @@
 import { isRecord } from '@void/deploy-core';
 import { commandDiagnosticFields } from './diagnostics.ts';
-import {
-  isCleanCommandExit,
-  isCompletedCommand,
-  isWorkerNotFound,
-  type CloudflareCommandRunner,
-} from './execute.ts';
+import { isCleanCommandExit, isCompletedCommand, isWorkerNotFound } from './execute.ts';
+import type { CloudflareCommandRunner } from './execute.ts';
 import type { CloudflarePreviewUploadResult } from './operations.ts';
 
 /**
@@ -16,7 +12,7 @@ const PREVIEW_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 /** A DNS label holds at most 63 characters. */
 const MAX_HOST_LABEL = 63;
 /** Cloudflare's "Preview not found" API error. */
-const PREVIEW_NOT_FOUND = 10025;
+const PREVIEW_NOT_FOUND = 10_025;
 
 /** Return why `name` cannot name a Preview of `workerName`, or null when it can. */
 export function validateCloudflarePreviewName(name: string, workerName?: string): string | null {
@@ -156,8 +152,6 @@ function readPreviewUploadResult(value: unknown): CloudflarePreviewUploadResult 
     return null;
   }
   const { previewId, previewName, deploymentId, previewUrl, deploymentUrl } = value;
-  const optionalUrl = (url: unknown) =>
-    url === undefined || (typeof url === 'string' && url.startsWith('https://'));
   if (
     typeof previewId !== 'string' ||
     !previewId ||
@@ -173,7 +167,15 @@ function readPreviewUploadResult(value: unknown): CloudflarePreviewUploadResult 
     previewId,
     previewName,
     deploymentId,
-    ...(previewUrl ? { previewUrl: previewUrl as string } : {}),
-    ...(deploymentUrl ? { deploymentUrl: deploymentUrl as string } : {}),
+    ...(isHttpsUrl(previewUrl) ? { previewUrl } : {}),
+    ...(isHttpsUrl(deploymentUrl) ? { deploymentUrl } : {}),
   };
+}
+
+function isHttpsUrl(url: unknown): url is string {
+  return typeof url === 'string' && url.startsWith('https://');
+}
+
+function optionalUrl(url: unknown): boolean {
+  return url === undefined || isHttpsUrl(url);
 }

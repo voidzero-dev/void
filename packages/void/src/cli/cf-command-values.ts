@@ -47,7 +47,7 @@ export function readCfPreviewDeployOutput(
 ): CloudflarePreviewUploadResult | undefined {
   const lines = stdout.trim().split('\n');
   for (let index = lines.length - 1; index >= 0; index--) {
-    if (!lines[index]!.startsWith('{')) {
+    if (lines[index]?.startsWith('{') !== true) {
       continue;
     }
     let record: unknown;
@@ -60,10 +60,8 @@ export function readCfPreviewDeployOutput(
       return undefined;
     }
     const value = record;
-    const first = (urls: unknown) =>
-      Array.isArray(urls) && typeof urls[0] === 'string' ? urls[0].replace(/\/$/, '') : undefined;
-    const previewUrl = first(value.preview_urls);
-    const deploymentUrl = first(value.deployment_urls);
+    const previewUrl = firstUrl(value.preview_urls);
+    const deploymentUrl = firstUrl(value.deployment_urls);
     return typeof value.preview_id === 'string' &&
       typeof value.preview_name === 'string' &&
       typeof value.deployment_id === 'string'
@@ -77,4 +75,13 @@ export function readCfPreviewDeployOutput(
       : undefined;
   }
   return undefined;
+}
+
+/** The first URL of a cf URL list, without a trailing slash. */
+function firstUrl(urls: unknown): string | undefined {
+  const url: unknown = Array.isArray(urls) ? urls[0] : undefined;
+  if (typeof url !== 'string') {
+    return undefined;
+  }
+  return url.endsWith('/') ? url.slice(0, -1) : url;
 }
