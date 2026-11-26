@@ -37,6 +37,8 @@ export default defineConfig({
 });
 ```
 
+For React Router v7, set `future.v8_viteEnvironmentApi` to `true` in `react-router.config.ts` to enable the Vite Environment API.
+
 ### 4. Deploy
 
 ```bash

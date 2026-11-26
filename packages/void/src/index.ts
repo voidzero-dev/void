@@ -60,6 +60,7 @@ import {
   generateClassATriggerWrapper,
   hasVinextMiddleware,
   getOriginalFrameworkEntry,
+  reactRouterEdgeEntryPlugin,
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
 import { createFrameworkPlugins } from './plugin-framework.ts';
@@ -800,6 +801,7 @@ export function voidPlugin(options?: {
       frameworkBuildWrapperPlugin,
       frameworkTriggersPlugin(root, { devTriggerToken }),
       devTriggersHintPlugin(root, devTriggerToken),
+      ...(framework === 'react-router' ? [reactRouterEdgeEntryPlugin()] : []),
       ...cloudflare({
         configPath: cloudflareConfigPath,
         ...inspectorPortOption,
