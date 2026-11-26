@@ -3,7 +3,6 @@ import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { readKeyringPassword, writeKeyringPassword } from './keyring.ts';
 import { Buffer } from './node-buffer.ts';
 import { normalizePlatformApiUrl, platformCredentialAccount } from './platform-registry.ts';
-import { isStdoutReservedForResults } from './stdout-results.ts';
 
 const ACCESS_KEYRING_SERVICE = 'dev.void.cli.access';
 const keyringTokens = new Map<string, string | null>();
@@ -137,15 +136,14 @@ export function ensurePlatformAccessToken(
 }
 
 /**
- * The terminal a browser sign-in writes to: stdout, or stderr while stdout is redirected or kept
- * for a command's result (`void db execute --json | jq`). Undefined when neither is a terminal
- * it may use, or stdin is not one, so no sign-in can run.
+ * Browser sign-in needs stdin and an output terminal. For JSON database execution, the child
+ * process's stdout already goes to the caller's stderr.
  */
 function signInOutput(): 1 | 2 | undefined {
   if (!process.stdin.isTTY) {
     return undefined;
   }
-  if (process.stdout.isTTY && !isStdoutReservedForResults()) {
+  if (process.stdout.isTTY) {
     return 1;
   }
   return process.stderr.isTTY ? 2 : undefined;

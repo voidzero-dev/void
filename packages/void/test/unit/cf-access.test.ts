@@ -287,37 +287,26 @@ describe('origin-scoped self-hosted Access login', () => {
     expect(keyring.write).toHaveBeenCalledWith('dev.void.cli.access', expect.any(String), fresh);
   });
 
-  it('signs in on stdout, or on stderr while stdout is redirected or kept for results', async () => {
+  it('signs in on stdout, or on stderr while stdout is redirected', async () => {
     const fresh = jwt(Math.floor(Date.now() / 1000) + 900);
     const cases: Array<{
       terminals: Record<'stdin' | 'stdout' | 'stderr', boolean>;
-      reserved: boolean;
       output: 1 | 2 | undefined;
     }> = [
       // An interactive command with its messages in a file (`void db execute ... 2>log`).
-      { terminals: { stdin: true, stdout: true, stderr: false }, reserved: false, output: 1 },
-      { terminals: { stdin: true, stdout: true, stderr: true }, reserved: false, output: 1 },
-      { terminals: { stdin: true, stdout: false, stderr: true }, reserved: false, output: 2 },
-      // `void db execute --remote --json` in a terminal keeps stdout for its results.
-      { terminals: { stdin: true, stdout: true, stderr: true }, reserved: true, output: 2 },
-      {
-        terminals: { stdin: true, stdout: true, stderr: false },
-        reserved: true,
-        output: undefined,
-      },
+      { terminals: { stdin: true, stdout: true, stderr: false }, output: 1 },
+      { terminals: { stdin: true, stdout: true, stderr: true }, output: 1 },
+      { terminals: { stdin: true, stdout: false, stderr: true }, output: 2 },
       {
         terminals: { stdin: false, stdout: true, stderr: true },
-        reserved: false,
         output: undefined,
       },
       {
         terminals: { stdin: true, stdout: false, stderr: false },
-        reserved: false,
         output: undefined,
       },
     ];
-    const write = process.stdout.write;
-    for (const { terminals, reserved, output } of cases) {
+    for (const { terminals, output } of cases) {
       keyring.read.mockReturnValue(jwt(Math.floor(Date.now() / 1000) + 600));
       spawnSyncMock
         .mockReset()
@@ -325,23 +314,15 @@ describe('origin-scoped self-hosted Access login', () => {
           args[1] === 'login' ? { status: 0, stdout: '' } : { status: 0, stdout: fresh },
         );
       vi.resetModules();
-      if (reserved) {
-        const { reserveStdoutForResults } = await import('../../src/cli/stdout-results.ts');
-        reserveStdoutForResults();
-      }
-      try {
-        await withTerminals(terminals, async () => {
-          const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
-          const renew = () => ensurePlatformAccessToken('https://api.example.com', true);
-          if (output === undefined) {
-            expect(renew).toThrow('Re-run this command in an interactive terminal to renew it.');
-          } else {
-            renew();
-          }
-        });
-      } finally {
-        process.stdout.write = write;
-      }
+      await withTerminals(terminals, async () => {
+        const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
+        const renew = () => ensurePlatformAccessToken('https://api.example.com', true);
+        if (output === undefined) {
+          expect(renew).toThrow('Re-run this command in an interactive terminal to renew it.');
+        } else {
+          renew();
+        }
+      });
       if (output === undefined) {
         expect(spawnSyncMock).not.toHaveBeenCalled();
       } else {

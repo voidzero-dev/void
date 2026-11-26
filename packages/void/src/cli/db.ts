@@ -72,7 +72,6 @@ import { formatTimestamp } from './gen.ts';
 import { Buffer } from './node-buffer.ts';
 import { printSuccess, dim, formatCount, formatUrl, getErrorMessage, pc } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
-import { reserveStdoutForResults } from './stdout-results.ts';
 import { drizzleKitBin } from './yarn-pnp.ts';
 
 const DEFAULT_SEED_FILES = [
@@ -203,10 +202,12 @@ function validatePendingMigrations(
   validateMigrations(pending);
 }
 
-export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
+export async function runDbCommand(
+  root: string,
+  args: DbArgs,
+  writeResults: (text: string) => void = (text) => process.stdout.write(text),
+): Promise<void> {
   if (args.action === 'execute' && args.json) {
-    // Before the config loads, which may write to stdout or start a process that does.
-    const writeResults = reserveStdoutForResults();
     const printResults: PrintResults = (results) => {
       writeResults(`${formatStatementResults(results)}\n`);
     };

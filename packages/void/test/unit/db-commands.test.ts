@@ -831,7 +831,6 @@ describe('void db execute', () => {
   });
 
   describe('SQLite --json', () => {
-    // The command puts a write of its own in stdout's place, so the spy is kept here.
     let stdoutWrite: MockInstance<typeof process.stdout.write>;
     beforeEach(() => {
       stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -886,35 +885,6 @@ describe('void db execute', () => {
       expect(mockLog.info).not.toHaveBeenCalled();
       const { outro } = await import('@voidzero-dev/vite-plus-prompts');
       expect(outro).not.toHaveBeenCalled();
-    });
-
-    it('sends what void.config.ts writes to stdout to stderr, every time it loads and after', async () => {
-      const root = await createLocalSqliteProject();
-      rmSync(join(root, 'void.json'));
-      writeFileSync(
-        join(root, 'void.config.ts'),
-        "process.stdout.write('config loaded\\n');\nexport default {};\n",
-      );
-      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
-      await runDbCommand(root, { action: 'execute', command: 'SELECT 1 AS one', json: true });
-
-      expect(jsonOutput()).toEqual([
-        { results: [{ one: 1 }], success: true, meta: expect.any(Object) },
-      ]);
-      const loads = stderr.mock.calls.filter(([text]) => text === 'config loaded\n');
-      expect(loads.length).toBeGreaterThan(1);
-
-      // A failing statement leaves stdout empty, config output included.
-      stdoutWrite.mockClear();
-      await expect(
-        runDbCommand(root, { action: 'execute', command: 'SELECT * FROM missing', json: true }),
-      ).rejects.toThrow('no such table: missing');
-      expect(stdoutWrite).not.toHaveBeenCalled();
-      // What the config started may write once the results are out, and that goes to stderr too.
-      process.stdout.write('later\n');
-      expect(stderr).toHaveBeenLastCalledWith('later\n');
-      expect(stdoutWrite).not.toHaveBeenCalled();
     });
 
     it('keeps a column named __proto__', async () => {

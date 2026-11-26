@@ -151,7 +151,6 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-// The command puts a write of its own in stdout's place, so the spy is kept here.
 let stdoutWrite: MockInstance<typeof process.stdout.write>;
 
 /** The results `void db execute --json` wrote to stdout, in one write and nothing else. */
