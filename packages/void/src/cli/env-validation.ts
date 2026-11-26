@@ -1,16 +1,13 @@
 /** Env-schema validation for `void env check`, `void secret`, and both deploy paths. */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import {
-  parseRootWranglerConfig,
-  readWranglerTopLevelString,
-  type CloudflareOperation,
-} from '@void/deploy-cloudflare';
+import { parseRootWranglerConfig, readWranglerTopLevelString } from '@void/deploy-cloudflare';
+import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import { dirname, join, resolve } from 'pathslash';
 import { findEnvFile } from '../codegen/env-types.ts';
 import { loadUserEnvFile } from '../host/load-user-env.ts';
 import { voidWarn } from '../log.ts';
-import type { EnvValidationReport } from '../runtime/env-public.ts';
+import type { EnvValidationReport } from '../runtime/env/public.ts';
 import { scanWranglerDotenvKeys } from '../shared/dotenv.ts';
 import {
   findLegacyEnvFiles,
@@ -31,7 +28,7 @@ import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts'
 import { resolveCloudflareOperationArgv } from './preset.ts';
 
 type EnvPublicModule = Pick<
-  typeof import('../runtime/env-public.ts'),
+  typeof import('../runtime/env/public.ts'),
   '_getRegisteredSchema' | '_hasRegisteredSchema' | '_getSchemaDefaults' | 'validateAllEnv'
 >;
 
@@ -74,7 +71,7 @@ export async function validateSecretValues(
 /** Load the registered schema by importing the user's env.ts. */
 async function loadSchema(envFile: string): Promise<EnvPublicModule | null> {
   await loadUserEnvFile(envFile);
-  const mod = await import('../runtime/env-public.ts');
+  const mod = await import('../runtime/env/public.ts');
   if (!mod._hasRegisteredSchema()) {
     return null;
   }
@@ -150,7 +147,7 @@ export async function validateProdEnv(
   const shell = options.productionOnly
     ? Object.fromEntries(Object.entries(process.env).filter(([key]) => isClientEnvKey(key)))
     : process.env;
-  const merged: Record<string, unknown> = { ...local, ...shell };
+  const merged = { ...local, ...shell };
 
   const report = await mod.validateAllEnv(merged);
   // Remote secret values are unreadable here, so a missing server key that exists
@@ -225,7 +222,11 @@ async function requiredSchemaKeys(schema: Record<string, unknown>): Promise<Set<
 export type SecretListRunResult = {
   data?: unknown;
   errorCode?: number;
-  failure?: 'not-found' | 'durable-migration' | 'containers-unavailable';
+  failure?:
+    | 'not-found'
+    | 'durable-migration'
+    | 'containers-unavailable'
+    | 'version-history-changed';
   stdout: string;
   stderr: string;
   status: number;
@@ -319,7 +320,7 @@ export type SelfHostSchemaFacts = {
 /** Imports the user's env.ts, so callers run it in the env-schema probe child. */
 export async function deriveSelfHostSchemaFacts(root: string): Promise<SelfHostSchemaFacts> {
   const envFile = findEnvFile(root);
-  if (envFile == null) {
+  if (envFile === null || envFile === undefined) {
     return { hasSchema: false, serverKeys: [], requiredKeys: [] };
   }
   const mod = await withSchemaBoundary('schema-load-failed', () => loadSchema(envFile));
@@ -373,7 +374,7 @@ function readGeneratedWranglerConfig(
   }
   let redirectedPath: string;
   try {
-    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf-8')) as { configPath?: unknown };
+    const parsed = JSON.parse(readFileSync(deployConfigPath, 'utf8')) as { configPath?: unknown };
     if (typeof parsed.configPath !== 'string' || parsed.configPath.length === 0) {
       return { ok: false, reason: `${deployConfigPath} has no "configPath" pointer.` };
     }
@@ -427,7 +428,7 @@ export async function computeInvalidEmittedKeys(
   emittedVars: Record<string, unknown>,
 ): Promise<Array<string>> {
   const envFile = findEnvFile(root);
-  if (envFile == null) {
+  if (envFile === null || envFile === undefined) {
     return [];
   }
   const mod = await withSchemaBoundary('schema-load-failed', () => loadSchema(envFile));
@@ -526,12 +527,13 @@ function reconcileSelfHostWorkerName(
 /** Shown instead of validator messages, which can embed the rejected value. */
 const SELF_HOST_INVALID_REASON = 'failed schema validation';
 
+const sortNames = (names: Array<string>): Array<string> =>
+  [...names].sort((a, b) => a.localeCompare(b));
+
 function selfHostEnvError(
   missingKeys: Array<string>,
   invalidKeys: Array<string>,
 ): SelfHostEnvValidationError {
-  const sortNames = (names: Array<string>): Array<string> =>
-    [...names].sort((a, b) => a.localeCompare(b));
   const missing = sortNames(missingKeys);
   const invalid = sortNames(invalidKeys);
 
@@ -626,10 +628,10 @@ async function fetchSelfHostSecretNames(
   } catch {
     throw secretListError('spawn-error');
   }
-  if (result.error != null && result.error !== '') {
+  if (result.error !== null && result.error !== undefined && result.error !== '') {
     throw secretListError('spawn-error');
   }
-  if (result.signal != null) {
+  if (result.signal !== null && result.signal !== undefined) {
     throw secretListError('signal', { signal: String(result.signal) });
   }
   if (typeof result.status !== 'number' || result.status !== 0) {
@@ -637,8 +639,8 @@ async function fetchSelfHostSecretNames(
     // Only a completed provider failure may identify a missing Worker.
     if (
       Number.isSafeInteger(result.status) &&
-      result.status! > 0 &&
-      ([10007, 10090].includes(result.errorCode ?? 0) || result.failure === 'not-found')
+      result.status > 0 &&
+      ([10_007, 10_090].includes(result.errorCode ?? 0) || result.failure === 'not-found')
     ) {
       throw new SelfHostFirstDeployError(firstDeployMessage(missingKeys));
     }
@@ -704,7 +706,7 @@ export function createDefaultSecretListRunner(
   const [command, ...prefix] = launcher;
   return (args) =>
     new Promise<SecretListRunResult>((resolvePromise) => {
-      const child = spawn(command as string, [...prefix, ...encodeCloudflareOperation(args)], {
+      const child = spawn(command, [...prefix, ...encodeCloudflareOperation(args)], {
         cwd: root,
         shell: false,
         env: secretListEnv(options?.accountId),
@@ -716,8 +718,8 @@ export function createDefaultSecretListRunner(
       let settled = false;
       let timedOut = false;
       let killFallbackTimer: ReturnType<typeof setTimeout> | undefined;
-      child.stdout?.setEncoding('utf-8');
-      child.stderr?.setEncoding('utf-8');
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
       child.stdout?.on('data', (chunk: string) => {
         stdout += chunk;
       });
@@ -751,7 +753,7 @@ export function createDefaultSecretListRunner(
             signal: 'SIGKILL',
             error: 'timed out and termination could not be confirmed',
           });
-        }, 5_000);
+        }, 5000);
       }, timeoutMs);
       child.on('error', (error: Error) => {
         settle({ stdout, stderr, status: -1, signal: null, error: error.message });

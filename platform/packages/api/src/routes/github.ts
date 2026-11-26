@@ -46,7 +46,7 @@ import {
 import { localhostRedirectResponse } from '../html-redirect.ts';
 import { authMiddleware } from '../middleware/auth.ts';
 import { githubConnections, githubInstallations, oauthAccounts, projects } from '../schema.ts';
-import type { Build, GitHubConnection, GitHubInstallation } from '../types.ts';
+import type { GitHubConnection, GitHubInstallation } from '../types.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
 const GITHUB_API_BASE = 'https://api.github.com';
@@ -372,7 +372,7 @@ async function resolveRepositoryId(
   if (!res.ok) {
     return null;
   }
-  const data = (await res.json()) as { id?: number };
+  const data = await res.json<{ id?: number }>();
   return typeof data.id === 'number' ? data.id : null;
 }
 
@@ -1621,7 +1621,6 @@ export const githubProjectRoutes = new Hono<ApiEnv>()
     return context.json(publicGitHubConnection(result.connection));
   })
 
-  // Read the project's connection.
   .get('/:id/github', async (context) => {
     const projectId = context.req.param('id');
     const access = await requireProjectRouteCapability(context, projectId, 'read');
@@ -1637,7 +1636,6 @@ export const githubProjectRoutes = new Hono<ApiEnv>()
     return context.json(publicGitHubConnection(connection));
   })
 
-  // Update branch / build executor.
   .patch('/:id/github', async (context) => {
     const projectId = context.req.param('id');
     const access = await requireProjectRouteCapability(context, projectId, 'settings');
@@ -1672,7 +1670,7 @@ export const githubProjectRoutes = new Hono<ApiEnv>()
       return context.json({ error: 'invalid workflowPath' }, 400);
     }
     const newBranch: string | undefined = body.branch;
-    const newExecutor = body.buildExecutor as Build['executor'] | undefined;
+    const newExecutor = body.buildExecutor;
     const newWorkflowPath: string | undefined = body.workflowPath;
 
     // A branch or executor change orphans any in-flight build for the OLD config:

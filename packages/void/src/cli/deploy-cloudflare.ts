@@ -1,5 +1,6 @@
 import { readConfig, isNodeTarget } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { readCloudflareCandidate } from './cloudflare-candidate.ts';
 import { createCloudflareChildReporter } from './cloudflare-child-report.ts';
 import { readCloudflareLink } from './cloudflare-link.ts';
@@ -23,9 +24,9 @@ import {
 import { log } from './deploy-helpers.ts';
 import { logD1RestoreAfterDeployFailure } from './deploy-migrations.ts';
 import { printDeploySuccess } from './deploy-summary.ts';
-import { type RunDeployOptions, type CloudflareDeployDeps } from './deploy-types.ts';
+import type { RunDeployOptions, CloudflareDeployDeps } from './deploy-types.ts';
 import { renderAddressMap } from './email-cloudflare.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { FRAMEWORK_PRESETS } from './preset.ts';
 
 /** Deploy to the user's own Cloudflare account through the guarded native Worker flow. */
@@ -70,7 +71,10 @@ export async function runCloudflareDeploy(
     return exit(1);
   }
   const detectedFramework = detectFramework(root);
-  const frameworkPreset = detectedFramework ? FRAMEWORK_PRESETS[detectedFramework.name] : undefined;
+  const frameworkPreset =
+    detectedFramework && hasOwnKey(FRAMEWORK_PRESETS, detectedFramework.name)
+      ? FRAMEWORK_PRESETS[detectedFramework.name]
+      : undefined;
   cliLog.info('cloudflare_deploy_start', {
     provision: options.provision === true ? true : undefined,
   });

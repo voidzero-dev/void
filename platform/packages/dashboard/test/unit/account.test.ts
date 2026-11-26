@@ -2,7 +2,13 @@ import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { action, head, loader } from '../../pages/account.server.ts';
 
-const app = new Hono().post('/account', async (context) => action(context as never));
+const app = new Hono().post('/account', async (context) => {
+  const response = await action(context as never);
+  if (!(response instanceof Response)) {
+    throw new Error('Expected the account action to return a Response');
+  }
+  return response;
+});
 
 const accountPage = new Hono().get('/account', async (context) =>
   context.json(await loader(context as never)),

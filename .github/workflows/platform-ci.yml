@@ -38,6 +38,37 @@ jobs:
       - name: Build API build container
         run: docker build --pull --tag void-api-build-container:ci --file platform/packages/api/container/Dockerfile .
 
+  build-security-scanner-images:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0
+        with:
+          cache: true
+          node-version-file: .node-version
+      - run: vp install
+      - run: vp run --filter ./platform/packages/security-scanner build
+      - name: Build Engine A scanner image
+        run: docker build --platform linux/amd64 --tag void-scanner-claude:ci --file platform/packages/security-scanner/image/Dockerfile.claude .
+      - name: Build Engine C scanner image
+        run: docker build --platform linux/amd64 --tag void-scanner-codex:ci --file platform/packages/security-scanner/image/Dockerfile.codex .
+      - name: Check the Engine C image pins its Codex version and keeps only our models
+        run: |
+          docker run --rm --entrypoint /opt/void-scanner/codex-bin void-scanner-codex:ci --version
+          docker run --rm --entrypoint node void-scanner-codex:ci -e "const m=require('/opt/void-scanner/codex-models.json').models.map(x=>x.slug);console.log(m.join());if(m.length!==2)process.exit(1)"
+      # Both images run a whole scan with no network against a scripted fake model (design
+      # doc 0095 M13b). The builds above leave the layers cached for this run.
+      - name: Run a recorded scan in both scanner images
+        env:
+          VOID_SCANNER_E2E: '1'
+        run: vp test run platform/packages/security-scanner/test/e2e/recorded-run.e2e.test.ts
+
   lint-build-check:
     runs-on: ${{ github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     permissions:
@@ -50,13 +81,10 @@ jobs:
         with:
           cache: true
           node-version-file: .node-version
-      - run: vp fmt --check
-      - run: vp lint
       - run: vp run build
       - run: vp run --filter './platform/packages/**' build
-      # After the builds: the type-aware platform lint reads the dashboard's generated
-      # `.void/tsconfig.json`, which only exists once the dashboard has been built.
-      - run: vp run lint:platform
+      # These projects need SDK declarations and the dashboard's generated tsconfig.
+      - run: vp check packages platform
       # Platform packages only. The framework and the playgrounds are typechecked by ci.yml, and
       # the playground typechecks need the playground builds, which this job does not run.
       - run: vp run check:platform

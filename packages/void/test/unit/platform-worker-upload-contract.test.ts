@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { toSlash } from 'pathslash';
 import { expect, it } from 'vite-plus/test';
 import { encodeCloudflareOperation } from '../../src/cli/cloudflare-process.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { withConditionalPlatformWorkerCreate } from '../../src/cli/platform-installer-process.ts';
 import { resolveCloudflareOperationArgv } from '../../src/cli/preset.ts';
 
@@ -78,13 +79,15 @@ it.each(['none', 'batch', 'single-file'] as const)(
           response.end(
             JSON.stringify({
               success: false,
-              errors: [{ code: 10007, message: 'Worker not found.' }],
+              errors: [{ code: 10_007, message: 'Worker not found.' }],
             }),
           );
         }
       });
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', resolve);
+    });
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}/client/v4`;
     try {
       writeFileSync(
@@ -119,7 +122,7 @@ it.each(['none', 'batch', 'single-file'] as const)(
         async (apiBase) => {
           await new Promise<void>((resolve) => {
             const child = execFile(
-              command!,
+              command,
               [
                 ...prefix,
                 ...encodeCloudflareOperation({ type: 'worker.deploy', configPath: config }),

@@ -60,14 +60,11 @@ r2.post('/get', async (context) => {
   // Stream the object body back, preserve metadata in headers
   const headers = new Headers();
   headers.set('content-type', cfRes.headers.get('content-type') ?? 'application/octet-stream');
-  if (cfRes.headers.has('content-length')) {
-    headers.set('content-length', cfRes.headers.get('content-length')!);
-  }
-  if (cfRes.headers.has('etag')) {
-    headers.set('etag', cfRes.headers.get('etag')!);
-  }
-  if (cfRes.headers.has('last-modified')) {
-    headers.set('last-modified', cfRes.headers.get('last-modified')!);
+  for (const name of ['content-length', 'etag', 'last-modified']) {
+    const value = cfRes.headers.get(name);
+    if (value !== null) {
+      headers.set(name, value);
+    }
   }
 
   return new Response(cfRes.body, { headers });
@@ -123,7 +120,7 @@ r2.on('POST', ['/put', '/put-conditional'], async (context) => {
   // Decode base64 value from JSON body, or use text value
   const data = base64
     ? Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0))
-    : new TextEncoder().encode((body.value as string) ?? '');
+    : new TextEncoder().encode(String(body.value ?? ''));
 
   const cfRes = await fetch(
     `${CF_API}/accounts/${context.env.CF_ACCOUNT_ID}/r2/buckets/${bucket}/objects/${encodeURIComponent(key)}`,
@@ -258,10 +255,10 @@ r2.post('/list', async (context) => {
     return context.json({ error: 'R2 list failed', status: cfRes.status }, 502);
   }
 
-  const data = (await cfRes.json()) as {
+  const data = await cfRes.json<{
     result?: ReadonlyArray<{ key: string; size: number; last_modified?: string }>;
     result_info?: { cursor?: string };
-  };
+  }>();
 
   return context.json({
     objects: (data.result ?? []).map((object) => ({
@@ -324,7 +321,7 @@ r2.post('/head', async (context) => {
 
   return context.json({
     key,
-    size: parseInt(cfRes.headers.get('content-length') ?? '0'),
+    size: Number.parseInt(cfRes.headers.get('content-length') ?? '0'),
     etag: cfRes.headers.get('etag') ?? '',
     lastModified: cfRes.headers.get('last-modified') ?? '',
     contentType: cfRes.headers.get('content-type') ?? 'application/octet-stream',

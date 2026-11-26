@@ -91,6 +91,8 @@ export default defineRoom({
 - `ctx.connection.close(code?, reason?)`
 - `ctx.connection.setState(data)`
 
+Add `actions` when other server code should reach the room. See [Server-side actions](#server-side-actions).
+
 ## `defineWebSocket()`
 
 Use `defineWebSocket()` when each connection is handled independently instead of as a shared room.
@@ -156,7 +158,76 @@ When Void auth is enabled, every WebSocket hook receives the current user as `ct
 
 Connections from another origin are anonymous unless that origin is in your auth `trustedOrigins`. If you read your own cookies from `ctx.request` in `onBeforeConnect`, check its `Origin` header yourself.
 
-`ctx.user` is resolved when the socket connects and stays the same for that connection, even if the user later signs out or the session is revoked. For actions that must respect a ban or role change, re-check your own records in `onMessage` and close the connection with `ctx.connection.close()` in rooms or `ctx.socket.close()` in `defineWebSocket()`.
+`ctx.user` is resolved when the socket connects and stays the same for that connection, even if the user later signs out or the session is revoked. For actions that must respect a ban or role change, re-check your own records in `onMessage` and close the connection with `ctx.connection.close()` in rooms or `ctx.socket.close()` in `defineWebSocket()`. To close idle sockets as soon as a session is revoked, declare a [room action](#server-side-actions) and call it from the code that revokes the session.
+
+## Server-side actions
+
+A room can declare named actions that other server code calls with typed arguments. An action runs inside the room's Durable Object, so it can close connections or broadcast without waiting for a client frame.
+
+```ts
+// routes/relay/[accountId].ws.ts
+import * as v from 'valibot';
+import { getSession } from 'void/auth';
+import { defineRoom } from 'void/ws';
+
+const ClientMessage = v.object({ type: v.literal('relay.ping') });
+const ServerMessage = v.object({ type: v.literal('relay.message'), text: v.string() });
+
+export default defineRoom({
+  messages: { client: ClientMessage, server: ServerMessage },
+  onConnect(ctx) {
+    // The id comes from the authenticated session, never from client input.
+    const session = getSession()?.session;
+    if (session) {
+      ctx.connection.setState({ sessionId: session.id });
+    }
+  },
+  actions: {
+    async revokeSession(ctx, sessionId: string, code: number) {
+      let closed = 0;
+      for (const connection of ctx.room.getConnections()) {
+        const state = connection.state as { sessionId?: string } | undefined;
+        if (state?.sessionId !== sessionId) continue;
+        connection.close(code, 'session revoked');
+        closed += 1;
+      }
+      return { closed };
+    },
+    async announce(ctx, text: string) {
+      await ctx.room.broadcast({ type: 'relay.message', text });
+    },
+  },
+});
+```
+
+Call an action from a route handler, an auth hook, a queue consumer or a cron job with `getRoom()` from `void/ws/server`:
+
+```ts
+import { getRoom } from 'void/ws/server';
+
+// Better Auth's databaseHooks.session.delete.after, or any other server code
+const room = getRoom('/relay/[accountId]', { params: { accountId } });
+const { closed } = await room.actions.revokeSession(session.id, 4001);
+```
+
+`getRoom()` addresses the same instance `connect()` reaches. Pass the route pattern and the same params, and a custom `key` is applied too.
+
+Match connections on server-verified state. A session id read from the URL, a query string or a client message can be any value a client sends, so the revocation would close the wrong sockets. Derive the id from `getSession()` or your own records, store it in `onConnect`, and pass that same id from the code that revokes it.
+
+- Annotate each action parameter. Arguments and results are typed from the definition, and an unannotated parameter is `never`.
+- Actions receive `ctx.id`, `ctx.params`, `ctx.env`, `ctx.storage` and `ctx.room`. There is no `ctx.request` or `ctx.user`: other server code is the caller, so authorize the decision where you make it.
+- `ctx.room.broadcast()` and connection `send()` accept any event inside an action. The server message schema still validates it at runtime.
+- Arguments cross a Durable Object boundary, so pass structured-clone data, not callbacks or class instances.
+- An unknown action name or a handler error rejects the call. An unknown route, a `defineWebSocket()` route or a missing param throws before any Durable Object is contacted.
+- Do not call an action from the same room's own hooks. Use `ctx.room` there; a call from inside the room waits on the room itself.
+
+Actions are not an endpoint. They run over Durable Object RPC from your Worker, so a browser request or a WebSocket message cannot call one.
+
+`getRoom()` reads the current runtime env, so it works in any handler Void runs. Outside one, pass the bindings object you already hold:
+
+```ts
+getRoom('/relay/[accountId]', { params: { accountId }, env: bindings });
+```
 
 ## Hooks
 

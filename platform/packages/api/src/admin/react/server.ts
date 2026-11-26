@@ -4,10 +4,14 @@ import type { PageObject } from 'void/pages-protocol';
 import type { ApiEnv } from '../../env.ts';
 import { formatPlatformPageTitle } from '../../platform-identity.ts';
 import type { createAdminFateClient } from '../fate/client.ts';
-import { adminComponents, adminLayoutTree, type AdminPageId } from './pages.ts';
+import { loadSecurityChrome } from '../security-data.ts';
+import { adminComponents, adminLayoutTree } from './pages.ts';
+import type { AdminPageId } from './pages.ts';
 
 export async function renderAdminPage(
-  context: Context<ApiEnv>,
+  context: Pick<Context<ApiEnv>, 'env' | 'get'> & {
+    req: Pick<Context<ApiEnv>['req'], 'url' | 'header'>;
+  },
   component: AdminPageId,
   title: string,
   props: Record<string, unknown>,
@@ -17,6 +21,8 @@ export async function renderAdminPage(
   } = {},
 ): Promise<Response> {
   const platformName = String(props.platformName ?? 'Void');
+  // Banners and the nav badge for security audits; `null` while the capability is off.
+  const securityChrome = context.get('user') ? await loadSecurityChrome(context) : null;
   const { pathname, search } = new URL(context.req.url);
   const pageObj: PageObject = {
     component,
@@ -25,6 +31,7 @@ export async function renderAdminPage(
     shared: {
       platformName,
       adminPageUrl: pathname + search,
+      ...(securityChrome ? { securityChrome } : {}),
       adminFateSession: `${context.get('user')?.id ?? 'guest'}:${context.get('humanSession')?.id ?? 'none'}`,
       ...(options.fateSnapshot ? { adminFateSnapshot: options.fateSnapshot } : {}),
     },
@@ -34,6 +41,7 @@ export async function renderAdminPage(
       title: formatPlatformPageTitle(title, platformName),
       htmlAttrs: { lang: 'en', 'data-astryx-theme': 'neutral' },
       meta: [
+        // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       ],

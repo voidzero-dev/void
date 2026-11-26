@@ -24,14 +24,12 @@ Use the preconfigured auth client from `void/client`:
 ```tsx
 import { auth } from 'void/client';
 
-// sign up
 await auth.signUp.email({
   email: 'alice@example.com',
   password: 'example-password-123',
   name: 'Alice',
 });
 
-// sign in
 await auth.signIn.email({
   email: 'alice@example.com',
   password: 'example-password-123',
@@ -53,7 +51,7 @@ export const GET = defineHandler((c) => {
 });
 ```
 
-In a page loader, pass `throwRedirect` to send unauthenticated visitors to your login page instead of a plain-text `401`:
+For a page that requires sign-in, pass `throwRedirect` with your login URL:
 
 ```ts
 // pages/dashboard.server.ts
@@ -70,9 +68,7 @@ export const loader = defineHandler((c) => {
 });
 ```
 
-The same option works in actions and middleware. It throws a redirect, stopping execution: `302` for GET/HEAD requests and `303` for other methods. Document requests follow the redirect normally; Pages client navigation follows it without reloading the document.
-
-Signing in does not replay a rejected action.
+An unauthenticated visitor is sent to `/login`, and the rest of the loader does not run. The same option works in actions and middleware. Signing in does not repeat the action that required it.
 
 To allow unauthenticated access, use `getUser()` and return the nullable user. For custom guards, you can also [throw a redirect](../integrations/hono.md#redirects) from a helper.
 
@@ -93,12 +89,13 @@ Auth turns on automatically when you:
 
 Email/password is enabled by default. To add social providers:
 
-```json
-{
-  "auth": {
-    "providers": ["email", "google", "github"]
-  }
-}
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  auth: { providers: ['email', 'google', 'github'] },
+});
 ```
 
 Provider credentials come from `AUTH_<PROVIDER>_CLIENT_ID` and `AUTH_<PROVIDER>_CLIENT_SECRET`. `cognito` also needs a domain, region, and user pool ID: set `AUTH_COGNITO_DOMAIN`, `AUTH_COGNITO_REGION`, and `AUTH_COGNITO_USER_POOL_ID`, or set them in `auth.ts`.
@@ -128,29 +125,23 @@ import { getSession, getUser, requireAuth } from 'void/auth';
 - `getSession()` returns `{ user, session } | null`
 - `requireAuth(c)` returns the authenticated user or throws `401`
 - `requireAuth(c, { throwRedirect: '/login' })` returns the user or throws a login redirect
-- [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, with plugin APIs inferred from `auth.ts`, for use with Better Auth helpers.
+- [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, including plugin APIs inferred from `auth.ts`.
 
 Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. They include the fields your Better Auth plugins and `user.additionalFields` add, such as `role` from `admin()`. See their fields in the [API reference](../reference/api/auth.md#authuser).
 
+### Calling Better Auth APIs
+
+Use `getAuth(c).api` to call Better Auth from a handler. Void sends any cookies it sets with the response, so changes to the browser's session take effect on its next request.
+
+`getUser()` and `getSession()` return the session from the start of the request. After an action changes the signed-in user, redirect to load the page with the updated session.
+
+Calls such as `signUpEmail` sign the current browser in as the new user. To create an account for someone else, use the admin plugin's `createUser` instead.
+
 ## Querying Authentication Tables
 
-To query users or reference them from your own tables, import Void's generated authentication schema. It exports `userTable`, `sessionTable`, `accountTable`, `verificationTable`, and any tables added by your Better Auth plugins.
+To query users or reference them from your own tables, import Void's generated authentication schema from `@auth-schema`. It exports `userTable`, `sessionTable`, `accountTable`, `verificationTable`, and any tables added by your Better Auth plugins. Like `@schema`, it needs no setup when your root `tsconfig.json` extends `.void/tsconfig.json`.
 
-Add an alias to your root `tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@auth-schema": ["./.void/better-auth-schema.ts"]
-    }
-  }
-}
-```
-
-Keep your other path aliases, including any you use from `.void/tsconfig.json`, such as `@schema`.
-
-You can now query users with Drizzle:
+Query users with Drizzle:
 
 ```ts
 import { userTable } from '@auth-schema';
@@ -240,7 +231,7 @@ export default defineAuth(({ defaults }) => ({
 
 `defaults` already includes Void's conventions. Extend it explicitly instead of expecting a deep merge.
 
-In `auth.ts`, load helpers that import `@auth-schema` inside the hook that uses them, with `await import('./server/users')`. This lets `void prepare` generate the authentication schema on a fresh clone. The same applies when a helper imports your app's database schema and that schema references authentication tables.
+If an auth hook uses a helper that imports `@auth-schema`, load that helper inside the hook with `await import('./server/users')`. The generated schema does not exist yet on a fresh clone. This also applies to helpers that import your own tables when those tables reference the auth schema.
 
 For the full set of available options, see the official [Better Auth options reference](https://www.better-auth.com/docs/reference/options).
 

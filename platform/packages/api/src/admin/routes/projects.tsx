@@ -71,10 +71,8 @@ function projectZeroTrustError(error: unknown): never {
   throw zeroTrustOperatorError(error, 'admin project operation failed');
 }
 
-// GET /projects
 app.get('/', (context) => renderFateListPage(context, 'projects'));
 
-// GET /projects/:id
 app.get('/:id', (context) => renderFateDetailPage(context, 'projectDetail'));
 
 app.post('/:id/team/add', async (context) => {
@@ -227,11 +225,13 @@ app.post('/:id/zero-trust', async (context) => {
     operatorAuditIntent(`zero-trust/projects/${projectId}`, { protected: protectedProject }),
     async () => {
       try {
+        // With the public gate on this stores a public request instead of going public.
         await setProjectZeroTrustProtection(
           context.env,
           context.get('db'),
           projectId,
           protectedProject,
+          { requester: { userId: context.get('user').id, via: 'admin' } },
         );
       } catch (error) {
         projectZeroTrustError(error);
@@ -263,7 +263,6 @@ app.post('/:id/zero-trust/reconcile', async (context) => {
   );
 });
 
-// POST /projects/:id/owner/preview
 app.post('/:id/owner/preview', async (context) => {
   const projectId = context.req.param('id');
   const body = await context.req.parseBody();
@@ -290,7 +289,6 @@ app.post('/:id/owner/preview', async (context) => {
   );
 });
 
-// POST /projects/:id/owner
 app.post('/:id/owner', async (context) => {
   const projectId = context.req.param('id');
   const body = await context.req.parseBody();
@@ -305,7 +303,6 @@ app.post('/:id/owner', async (context) => {
   );
 });
 
-// POST /projects/:id/delete
 app.post('/:id/delete', async (context) => {
   const projectId = context.req.param('id');
   return executeAuditedMutation(

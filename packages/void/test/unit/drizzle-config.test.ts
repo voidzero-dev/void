@@ -13,6 +13,7 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toSlash } from 'pathslash';
 import { describe, it, expect, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateVoidAuthDrizzleSchema } from '../../src/auth/drizzle.ts';
 import { validateAuthMigrationSchema } from '../../src/cli/deploy-migrations.ts';
 import { withPrivateDrizzleConfig, writeDrizzleConfig } from '../../src/drizzle/config.ts';
@@ -35,7 +36,7 @@ describe('writeDrizzleConfig', () => {
   it('writes a valid JSON config to .void/', () => {
     const configPath = writeDrizzleConfig(root, '/tmp/test.sqlite');
     expect(configPath).toBe(toSlash(join(root, '.void', 'drizzle.config.json')));
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(config.dialect).toBe('sqlite');
     expect(config.schema).toBe('./db/schema.ts');
     expect(config.out).toBe('./db/migrations');
@@ -47,12 +48,12 @@ describe('writeDrizzleConfig', () => {
   it.each(['snake_case', 'camelCase'])('passes database.casing %s to drizzle-kit', (casing) => {
     writeFileSync(join(root, 'void.json'), JSON.stringify({ database: { dialect: 'pg', casing } }));
     const configPath = writeDrizzleConfig(root, 'postgresql://dummy', 'postgresql');
-    expect(JSON.parse(readFileSync(configPath, 'utf-8')).casing).toBe(casing);
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).casing).toBe(casing);
   });
 
   it('generates PostgreSQL config', () => {
     const configPath = writeDrizzleConfig(root, 'postgresql://localhost/test', 'postgresql');
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(config.dialect).toBe('postgresql');
     expect(config.schema).toBe('./db/schema.ts');
     expect(config.out).toBe('./db/migrations');
@@ -61,7 +62,7 @@ describe('writeDrizzleConfig', () => {
 
   it('generates MySQL config', () => {
     const configPath = writeDrizzleConfig(root, 'mysql://localhost/test', 'mysql');
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(config.dialect).toBe('mysql');
     expect(config.schema).toBe('./db/schema.ts');
     expect(config.dbCredentials.url).toBe('mysql://localhost/test');
@@ -75,7 +76,7 @@ describe('writeDrizzleConfig', () => {
       additionalSchemas: [authSchema],
     });
 
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(config.schema).toEqual(['./db/schema.ts', './.void/better-auth-schema.ts']);
   });
 
@@ -88,7 +89,7 @@ describe('writeDrizzleConfig', () => {
       additionalSchemas: [authSchema],
     });
 
-    const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(config.schema).toBe('./.void/better-auth-schema.ts');
   });
 });
@@ -110,7 +111,7 @@ describe('withPrivateDrizzleConfig', () => {
   it('passes a config outside the project that holds the database URL', () => {
     const result = withPrivateDrizzleConfig(root, dbUrl, 'postgresql', (configPath) => {
       expect(relative(root, configPath).startsWith('..')).toBe(true);
-      const config = JSON.parse(readFileSync(configPath, 'utf-8'));
+      const config = JSON.parse(readFileSync(configPath, 'utf8'));
       expect(config.dbCredentials.url).toBe(dbUrl);
       expect(config.dialect).toBe('postgresql');
       expect(config.schema).toBe('./db/schema.ts');
@@ -203,7 +204,9 @@ describe(
 
     beforeEach(() => {
       // drizzle-kit loads the schema, which must resolve drizzle-orm from the package.
-      root = mkdtempSync(join(packageRoot, '.tmp-drizzle-casing-'));
+      root = mkdtempSync(
+        packageFixturePath(join(packageRoot, 'test/unit'), '.tmp-drizzle-casing-'),
+      );
       mkdirSync(join(root, 'db'));
     });
 

@@ -8,7 +8,7 @@ import { join } from 'node:path/posix';
 import { test } from 'node:test';
 import { packedServerUrl } from './packed-server.mjs';
 
-test('waits for the bound Local URL, including colored output', () => {
+void test('waits for the bound Local URL, including colored output', () => {
   assert.equal(packedServerUrl('RPC listening on http://127.0.0.1:36939/'), undefined);
   assert.equal(packedServerUrl('Local: http://127.0.0.1:0/'), undefined);
   assert.equal(
@@ -18,7 +18,7 @@ test('waits for the bound Local URL, including colored output', () => {
 });
 
 for (const mode of ['dev', 'preview']) {
-  test(`discovers Vite's actual ${mode} port without probing a competing listener`, async () => {
+  void test(`discovers Vite's actual ${mode} port without probing a competing listener`, async () => {
     const directory = mkdtempSync(join(tmpdir(), 'void-packed-server-'));
     const competing = createServer();
     let probes = 0;
@@ -78,7 +78,9 @@ for (const mode of ['dev', 'preview']) {
     } finally {
       child.kill('SIGTERM');
       await closed;
-      await new Promise((resolve) => competing.close(resolve));
+      await new Promise((resolve) => {
+        competing.close(resolve);
+      });
       rmSync(directory, { recursive: true, force: true });
     }
   });

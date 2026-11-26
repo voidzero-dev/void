@@ -2,21 +2,17 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'pathslash';
 import { readConfig } from '../config.ts';
 import { getMiniflareDatabasePath } from '../migrations/runner.ts';
+import type { VoidAuthDialect, VoidAuthEnv } from '../runtime/auth/better-auth-shared.ts';
 import {
   applyMySqlAuthMigrations,
   applyPgAuthMigrations,
   applySqliteAuthMigrations,
   mysqlMigrationRunner,
   pgMigrationRunner,
-} from '../runtime/auth-migrations.ts';
-import type { VoidAuthDialect, VoidAuthEnv } from '../runtime/better-auth-shared.ts';
+} from '../runtime/auth/migrations.ts';
 import { loadLocalEnv } from '../shared/env.ts';
-import {
-  findVoidAuthConfig,
-  loadVoidAuthConfig,
-  projectAuthConfigImporter,
-  type ModuleImporter,
-} from './config.ts';
+import { findVoidAuthConfig, loadVoidAuthConfig, projectAuthConfigImporter } from './config.ts';
+import type { ModuleImporter } from './config.ts';
 import { resolveVoidAuthMigrationSchema } from './drizzle.ts';
 
 export async function runLocalVoidAuthMigrations(
@@ -50,7 +46,7 @@ export async function runLocalVoidAuthMigrations(
     ...localEnv,
     ...process.env,
     ...(connectionString !== undefined ? { DATABASE_URL: connectionString } : {}),
-  } as unknown as VoidAuthEnv;
+  } as VoidAuthEnv;
   const migrationSchema = resolveVoidAuthMigrationSchema(runtime, env);
 
   if (dialect === 'sqlite') {

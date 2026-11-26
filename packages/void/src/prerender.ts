@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { PAGES_PROTOCOL_VERSION } from '@void/edge';
+import type { V4WorkerOptionsShape } from 'miniflare';
 import { dirname, join, relative } from 'pathslash';
 import pc from 'picocolors';
 import { getApiUrl, getProxyUrl, getToken } from './cli/auth.ts';
@@ -14,10 +15,10 @@ import {
   readPrerenderPathsResponse,
   renderPrerenderPaths,
   renderBoundary404,
-  type PrerenderResult,
 } from './prerender-render.ts';
+import type { PrerenderResult } from './prerender-render.ts';
 export type { PrerenderResult } from './prerender-render.ts';
-import { renderDefaultErrorPage } from './runtime/error-pages/index.ts';
+import { renderDefaultErrorPage } from './runtime/routing/error-pages/index.ts';
 import { scopedAccessCredentials } from './shared/cf-access.ts';
 import { collectFiles } from './shared/collect-files.ts';
 import { stripInternalEnvKeys } from './shared/env.ts';
@@ -42,7 +43,7 @@ export type PrerenderRunResult = PrerenderResult & {
 };
 
 function normalizeWorkerModulePath(path: string): string {
-  return path.replace(/\\/g, '/').replace(/^\.\//, '');
+  return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
 function resolveWorkerModuleType(relativePath: string): PrerenderWorkerModuleType | null {
@@ -92,7 +93,7 @@ export function collectPrerenderWorkerModules(
 
       const file = readFileSync(filePath);
       const contents: PrerenderWorkerModule['contents'] =
-        type === 'CompiledWasm' || type === 'Data' ? new Uint8Array(file) : file.toString('utf-8');
+        type === 'CompiledWasm' || type === 'Data' ? new Uint8Array(file) : file.toString('utf8');
 
       return [{ path: filePath, relativePath, type, contents }];
     },
@@ -115,6 +116,16 @@ export function collectPrerenderWorkerModules(
   return modules.map(({ relativePath: _relativePath, ...module }) => module);
 }
 
+type PrerenderPlatformBindings = {
+  __VOID_TOKEN?: string;
+  __VOID_PROJECT_ID?: string;
+  __VOID_PROXY_URL?: string;
+  __VOID_ACCESS_CREDENTIALS?: string;
+  __VOID_REMOTE?: '1';
+};
+
+type PrerenderBindings = Record<string, unknown> & PrerenderPlatformBindings;
+
 export type PrerenderBindingsInput = {
   wranglerVars: Record<string, unknown> | undefined;
   voidToken: string | null | undefined;
@@ -124,7 +135,7 @@ export type PrerenderBindingsInput = {
   remoteMode: boolean | undefined;
 };
 
-export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<string, unknown> {
+export function buildPrerenderBindings(input: PrerenderBindingsInput): PrerenderBindings {
   const { sanitized: wranglerVars, stripped } = stripInternalEnvKeys(input.wranglerVars);
   if (stripped.length > 0) {
     voidWarn(
@@ -132,7 +143,7 @@ export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<st
     );
   }
 
-  const voidBindings: Record<string, string> = {};
+  const voidBindings: PrerenderPlatformBindings = {};
   if (input.voidToken && input.voidProjectId) {
     voidBindings.__VOID_TOKEN = input.voidToken;
     voidBindings.__VOID_PROJECT_ID = input.voidProjectId;
@@ -142,7 +153,7 @@ export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<st
       );
     }
     voidBindings.__VOID_PROXY_URL = input.voidProxyUrl;
-    const access = scopedAccessCredentials(input.accessEnv ?? {}, voidBindings.__VOID_PROXY_URL!);
+    const access = scopedAccessCredentials(input.accessEnv ?? {}, voidBindings.__VOID_PROXY_URL);
     if (access) {
       voidBindings.__VOID_ACCESS_CREDENTIALS = access;
     }
@@ -152,6 +163,19 @@ export function buildPrerenderBindings(input: PrerenderBindingsInput): Record<st
   }
   return { ...wranglerVars, ...voidBindings };
 }
+
+type PrerenderMiniflareOptions = Pick<
+  V4WorkerOptionsShape,
+  'd1Databases' | 'kvNamespaces' | 'r2Buckets'
+> & {
+  modules: Array<PrerenderWorkerModule>;
+  modulesRoot: string;
+  compatibilityDate: string;
+  compatibilityFlags: Array<string>;
+  bindings: PrerenderBindings;
+  serviceBindings?: Record<string, (request: Request) => Response>;
+  resourcePersistencePath?: string;
+};
 
 async function createCloudflarePrerenderRunner(options: {
   root: string;
@@ -168,7 +192,14 @@ async function createCloudflarePrerenderRunner(options: {
   if (!existsSync(wranglerPath)) {
     throw new Error(`prerender: wrangler.json not found in '${workerDir}'.`);
   }
-  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf-8'));
+  const wranglerConfig = JSON.parse(readFileSync(wranglerPath, 'utf8')) as {
+    main?: string;
+    vars?: Record<string, unknown>;
+    assets?: { binding?: string };
+    d1_databases?: Array<{ binding: string; database_id: string }>;
+    kv_namespaces?: Array<{ binding: string; id: string }>;
+    r2_buckets?: Array<{ binding: string; bucket_name: string }>;
+  };
   const wranglerCompat = ensureWranglerCompat(root, readConfig(root), workerDir);
   const workerMain = wranglerConfig.main ?? 'index.js';
 
@@ -214,15 +245,16 @@ async function createCloudflarePrerenderRunner(options: {
   // config shape; the flat single-worker options below are the v4 shape, which it
   // still exports a converter for. `@cloudflare/vite-plugin` 1.54 builds its own
   // Miniflare instances the same way (`new Miniflare(convertV4MiniflareOptions(...))`).
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- Miniflare dispatchFetch and the worker share the Fetch API at runtime.
   const { Miniflare, convertV4MiniflareOptions } = (await import('miniflare')) as unknown as {
     Miniflare: new (options: Record<string, unknown>) => {
       dispatchFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
       dispose(): Promise<void>;
     };
-    convertV4MiniflareOptions: (options: Record<string, unknown>) => Record<string, unknown>;
+    convertV4MiniflareOptions: (options: PrerenderMiniflareOptions) => Record<string, unknown>;
   };
 
-  const mfOptions: Record<string, unknown> = {
+  const mfOptions: PrerenderMiniflareOptions = {
     modules: collectPrerenderWorkerModules(workerDir, workerMain),
     modulesRoot: workerDir,
     compatibilityDate: wranglerCompat.compatibilityDate,
@@ -459,7 +491,8 @@ if (mode === "collect") {
             return;
           }
           try {
-            resolve(JSON.parse(stdout));
+            // The generated child writes the result for this runner operation.
+            resolve(JSON.parse(stdout) as T);
           } catch {
             reject(new Error(`Failed to parse prerender output: ${stdout}`));
           }

@@ -42,26 +42,27 @@ Compare each token's form with the permission checklist below. The installer sav
 
 ::: details Permissions to select for each token
 
-Use the following permissions for the core platform. Cloudflare may label write access as **Edit** or **Write**, depending on the token screen; see its [permission reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/).
+Use the following permissions for the core platform. Confirm **Workers → Admin** for the account on both forms. The installer creates platform Workers, and the runtime token deploys apps into the platform's dispatch namespace. Cloudflare may label write access as **Edit** or **Write**, depending on the token screen. See its [permission reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/).
 
-| Scope   | Permission         | Management | Runtime                                 |
-| ------- | ------------------ | ---------- | --------------------------------------- |
-| Account | Account Settings   | Read       | Read                                    |
-| Account | Workers Scripts    | Edit       | Edit                                    |
-| Account | Workers Tail       | Read       | Read                                    |
-| Account | D1                 | Edit       | Edit                                    |
-| Account | Workers KV Storage | Edit       | Edit                                    |
-| Account | Workers R2 Storage | Edit       | Edit                                    |
-| Account | Queues             | Edit       | Edit                                    |
-| Account | Hyperdrive         | Write      | Write                                   |
-| Account | Account Analytics  | Read       | Read                                    |
-| Account | AI Gateway         | Edit       | Edit when installing with browser login |
-| Account | Containers         | —          | Edit                                    |
-| Account | Cloudchamber       | —          | Edit                                    |
-| Zone    | Zone               | Read       | —                                       |
-| Zone    | DNS                | Edit       | —                                       |
-| Zone    | Workers Routes     | Edit       | —                                       |
-| Zone    | Cache Purge        | —          | Purge                                   |
+| Scope   | Permission         | Management | Runtime                                                                                                                               |
+| ------- | ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Account | Account Settings   | Read       | Read                                                                                                                                  |
+| Account | Workers            | Admin      | Admin                                                                                                                                 |
+| Account | Workers Tail       | Read       | Read                                                                                                                                  |
+| Account | D1                 | Edit       | Edit                                                                                                                                  |
+| Account | Workers KV Storage | Edit       | Edit                                                                                                                                  |
+| Account | Workers R2 Storage | Edit       | Edit                                                                                                                                  |
+| Account | Queues             | Edit       | Edit                                                                                                                                  |
+| Account | Hyperdrive         | Write      | Write                                                                                                                                 |
+| Account | Account Analytics  | Read       | Read                                                                                                                                  |
+| Account | AI Gateway         | Edit       | Edit when installing with browser login                                                                                               |
+| Account | Containers         | —          | Edit                                                                                                                                  |
+| Account | Cloudchamber       | —          | Edit                                                                                                                                  |
+| Account | Workers AI         | —          | Read, for [security audit](/guide/platform/administration/security-audits#models-and-the-provider-notice) models run by third parties |
+| Zone    | Zone               | Read       | —                                                                                                                                     |
+| Zone    | DNS                | Edit       | —                                                                                                                                     |
+| Zone    | Workers Routes     | Write      | —                                                                                                                                     |
+| Zone    | Cache Purge        | —          | Purge                                                                                                                                 |
 
 When Void configures Access in the installation account, the initial management-token link also selects **Account → Access: Apps and Policies → Edit** and **Account → Access: Organizations, Identity Providers, and Groups → Read**. Protection adds **Account → Access: Service Tokens → Edit**. When the authentication configuration or saved setup selects existing applications, the link requests Read access instead of Edit. These permissions belong to the management token; the runtime token does not need them.
 
@@ -112,6 +113,8 @@ The installer configures the email gateway and shared mail route. If setup fails
 `void deploy --platform void` uploads your app's static files straight to R2 instead of through the platform API. The API signs short-lived upload links for them with an R2 key pair.
 
 The installer opens the **R2 token creation** form with a token name based on your platform's display name, **Object Read & Write**, and **Apply to all buckets in this account (including newly created buckets)** preselected. Review the settings and create an account token, or a user token if your role requires it. Save its **Access Key ID** and **Secret Access Key** in your password manager, then paste both into the installer. These differ from the management and runtime API tokens. See [R2’s token instructions](https://developers.cloudflare.com/r2/api/tokens/).
+
+If you create the token with the Cloudflare API instead, the Access Key ID is the token's ID and the Secret Access Key is the SHA-256 hex digest of the token value. Paste the Secret Access Key, not the token value.
 
 ## Signing and Encryption Keys {#signing-and-encryption-keys}
 

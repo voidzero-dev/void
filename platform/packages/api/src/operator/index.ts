@@ -10,6 +10,7 @@ import { OperatorError } from './common.ts';
 import { emailOperatorRoutes } from './email-routes.ts';
 import { operationsRoutes } from './operations-routes.ts';
 import { planOperatorRoutes } from './plans-routes.ts';
+import { securityOperatorRoutes } from './security-routes.ts';
 import { tenantRoutes } from './tenant-routes.ts';
 import { zeroTrustOperatorRoutes } from './zero-trust-routes.ts';
 
@@ -67,6 +68,7 @@ operatorApi.route('/', authenticationConfigRoutes);
 operatorApi.route('/', planOperatorRoutes);
 operatorApi.route('/', emailOperatorRoutes);
 operatorApi.route('/', zeroTrustOperatorRoutes);
+operatorApi.route('/', securityOperatorRoutes);
 operatorApi.notFound((context) =>
   context.json({ error: 'not_found', message: 'Unknown operator API endpoint.' }, 404),
 );

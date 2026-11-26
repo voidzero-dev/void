@@ -13,13 +13,12 @@ import {
   markSharedCachePolicy,
   normalizeIsrPath,
   packIsrValue,
+  populateJsonEdgeCache,
   readIsrCache,
   SHARED_CACHE_POLICY_VERSION,
   writeIsrCache,
-  type IsrCacheEnv,
-  type IsrCacheMetadata,
-  type RenderFn,
 } from '@void/isr/runtime';
+import type { IsrCacheEnv, IsrCacheMetadata, RenderFn } from '@void/isr/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 
@@ -77,7 +76,7 @@ function makeEnv(kv: KVNamespace): IsrCacheEnv {
 }
 
 function packEntry(headers: Record<string, string>, body: string): ArrayBuffer {
-  return packIsrValue(headers, new TextEncoder().encode(body).buffer as ArrayBuffer);
+  return packIsrValue(headers, new TextEncoder().encode(body).buffer);
 }
 
 function seedEntry(
@@ -112,17 +111,17 @@ function seedEntry(
 function createEdgeMock() {
   const store = new Map<string, Response>();
   const match = vi.fn(async (key: string | Request) => {
-    const k = typeof key === 'string' ? key : (key as Request).url;
+    const k = typeof key === 'string' ? key : key.url;
     const res = store.get(k);
     // Real Cache.match hands back a fresh Response each call.
     return res ? res.clone() : undefined;
   });
   const put = vi.fn(async (key: string | Request, response: Response) => {
-    const k = typeof key === 'string' ? key : (key as Request).url;
+    const k = typeof key === 'string' ? key : key.url;
     store.set(k, response);
   });
   const del = vi.fn(async (key: string | Request) => {
-    const k = typeof key === 'string' ? key : (key as Request).url;
+    const k = typeof key === 'string' ? key : key.url;
     return store.delete(k);
   });
   const cache = { match, put, delete: del } as unknown as Cache;
@@ -202,7 +201,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'createdAt NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: Number.NaN, t: 60, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {
@@ -223,7 +222,7 @@ const corruptCases: Array<{ name: string; seed: () => KvRecord }> = [
     name: 'ttl NaN',
     seed: () => ({
       value: packEntry({}, 'x'),
-      metadata: { s: 200, c: BASE, t: NaN, p: SHARED_CACHE_POLICY_VERSION },
+      metadata: { s: 200, c: BASE, t: Number.NaN, p: SHARED_CACHE_POLICY_VERSION },
     }),
   },
   {
@@ -599,8 +598,8 @@ describe('handleIsr', () => {
     await flush();
 
     expect(requests).toHaveLength(1);
-    expect(requests[0]!.url).toBe(`https://${HOST}/blog/post`);
-    expect(requests[0]!.headers.get('X-Test-Marker')).toBe('keep');
+    expect(requests[0].url).toBe(`https://${HOST}/blog/post`);
+    expect(requests[0].headers.get('X-Test-Marker')).toBe('keep');
     const entry = await readIsrCache(env, HOST, '/blog/post');
     expect(isStale(entry!)).toBe(false);
     expect(await new Response(entry!.body).text()).toBe('<html>clean</html>');
@@ -773,7 +772,7 @@ describe('handleIsr', () => {
     await flush();
 
     expect(spy).toHaveBeenCalledTimes(1);
-    const rerender = requests[0]!;
+    const rerender = requests[0];
     expect(rerender.headers.get('X-Test-Marker')).toBe('keep');
     expect(rerender.method).toBe('GET');
     expect(rerender.url).toBe(`https://${HOST}/blog/post`);
@@ -878,7 +877,7 @@ describe('handleIsr', () => {
 
     expect(res!.status).toBe(200);
     expect(await res!.text()).toBe('{"component":"Blog"}');
-    expect(requests[0]!.headers.has('X-VoidPages')).toBe(true);
+    expect(requests[0].headers.has('X-VoidPages')).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(tasks).toHaveLength(0);
     expect(edge.store.size).toBe(0);
@@ -927,12 +926,230 @@ describe('handleIsr', () => {
     expect(await res!.text()).toBe('{"component":"Blog","props":{}}');
   });
 
+  it('bypasses a cached JSON variant that belongs to another build', async () => {
+    const { kv } = createKvMock();
+    const env = makeEnv(kv);
+    const { render } = createRender(
+      () =>
+        new Response('<html>live</html>', {
+          headers: {
+            'content-type': 'text/html',
+            'x-void-page-data': '{"component":"Blog","props":{}}',
+            'X-VoidPages-Build': 'build-1',
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+    await handleIsr(htmlRequest(), env, ctx, OPTS, render);
+    await flush();
+    expect(edge.store.has(jsonEdgeKey(HOST, '/blog/post', DPL))).toBe(true);
+
+    const pagesHeaders = (build: string) => ({
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      'X-VoidPages-Build': build,
+    });
+
+    // Same build: the cached payload answers and names the build it came from.
+    const { render: hitRender, spy: hitSpy } = createRender(
+      () => new Response('SHOULD-NOT-RENDER'),
+    );
+    const hit = await handleIsr(
+      htmlRequest('/blog/post', pagesHeaders('build-1')),
+      env,
+      createCtx().ctx,
+      OPTS,
+      hitRender,
+    );
+    expect(hitSpy).not.toHaveBeenCalled();
+    expect(hit!.headers.get('X-VoidPages-Build')).toBe('build-1');
+
+    // A client that sends no build id cannot be shown a reload; the payload stays.
+    const { render: legacyRender, spy: legacySpy } = createRender(
+      () => new Response('SHOULD-NOT-RENDER'),
+    );
+    const legacy = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      }),
+      env,
+      createCtx().ctx,
+      OPTS,
+      legacyRender,
+    );
+    expect(legacySpy).not.toHaveBeenCalled();
+    expect(legacy!.headers.get('X-VoidPages-Build')).toBe('build-1');
+
+    // Another build: the app answers instead, which reloads the stale tab.
+    const { render: liveRender, spy: liveSpy } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"fresh":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'X-VoidPages-Build': 'build-2',
+          },
+        }),
+    );
+    const live = await handleIsr(
+      htmlRequest('/blog/post', pagesHeaders('build-2')),
+      env,
+      createCtx().ctx,
+      OPTS,
+      liveRender,
+    );
+    expect(liveSpy).toHaveBeenCalledTimes(1);
+    expect(live!.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('still evicts shared copies when the app answers a bypassed entry with no-store', async () => {
+    const { kv } = createKvMock();
+    const env = makeEnv(kv);
+    const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
+    const jsonKey = jsonEdgeKey(HOST, '/blog/post', DPL);
+    edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));
+    edge.store.set(
+      jsonKey,
+      currentSharedCacheResponse(
+        new Response('{"component":"Blog","props":{}}', {
+          headers: { 'content-type': 'application/json', 'X-VoidPages-Build': 'build-1' },
+        }),
+      ),
+    );
+    // The app now answers this page privately, with page data for this client.
+    const { render } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"me":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'Cache-Control': 'private, no-store',
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+
+    await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-2',
+      }),
+      env,
+      ctx,
+      OPTS,
+      render,
+    );
+    await flush();
+
+    expect(edge.store.has(htmlKey)).toBe(false);
+  });
+
+  it('leaves an entry with no build id to the app when the client names one', async () => {
+    // An entry from before ids existed cannot answer a client that has one.
+    await populateJsonEdgeCache(
+      edge.cache,
+      jsonEdgeKey(HOST, '/blog/post', DPL),
+      new Response('<html></html>', {
+        headers: { 'x-void-page-data': '{"component":"Blog","props":{}}' },
+      }),
+      60,
+      'HIT',
+    );
+    const env = makeEnv(createKvMock().kv);
+    const { render, spy } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"fresh":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'X-VoidPages-Build': 'build-2',
+          },
+        }),
+    );
+
+    const res = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-2',
+      }),
+      env,
+      createCtx().ctx,
+      OPTS,
+      render,
+    );
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(res!.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it.each([
+    [
+      'keeps',
+      'the reload response for a client from another build',
+      'build-2',
+      'text/plain; charset=utf-8',
+      true,
+    ],
+    [
+      'evicts',
+      'an ordinary answer that opts out of sharing',
+      null,
+      'text/plain; charset=utf-8',
+      false,
+    ],
+    [
+      'evicts',
+      'a rendered page from another build that opts out of sharing',
+      'build-2',
+      'text/html',
+      false,
+    ],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, contentType, kept) => {
+    const { store, kv } = createKvMock();
+    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0].seed());
+    const env = makeEnv(kv);
+    const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
+    edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));
+    const { render } = createRender(
+      () =>
+        new Response(null, {
+          headers: {
+            'Cache-Control': 'no-store',
+            'Content-Type': contentType,
+            ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+
+    const res = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-1',
+      }),
+      env,
+      ctx,
+      OPTS,
+      render,
+    );
+    await flush();
+
+    // A reload answer belongs to one stale tab; other tabs still hold this HTML.
+    expect(res!.headers.get('Cache-Control')).toBe('no-store');
+    expect(edge.store.has(htmlKey)).toBe(kept);
+    expect(store.has(isrKey(DPL, HOST, '/blog/post'))).toBe(kept);
+  });
+
   it.each([
     ['getWithMetadata throws', true],
     ['the KV entry is from an older cache policy', false],
   ])('fails open to a LIVE render (not a 500) when %s', async (_, throwOnGet) => {
     const { store, kv } = createKvMock({ throwOnGet });
-    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0]!.seed());
+    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0].seed());
     const env = makeEnv(kv);
     const { render, spy } = createRender(
       () => new Response('<html>live</html>', { headers: { 'content-type': 'text/html' } }),

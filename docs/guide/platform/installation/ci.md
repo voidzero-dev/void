@@ -17,16 +17,19 @@ Inject the following values from protected CI secrets. Do not commit them in a w
 | `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` | Runtime API token                                                                           |
 | `VOID_PLATFORM_DATABASE_URL`                 | Dedicated PostgreSQL URL                                                                    |
 | `VOID_PLATFORM_HYPERDRIVE_ID`                | Existing externally managed Hyperdrive ID, when applicable                                  |
-| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST`       | Origin host of that Hyperdrive; set with its ID and user                                    |
-| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER`       | Runtime database user of that Hyperdrive; set with its ID and host                          |
+| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST`       | Hyperdrive origin hostname, for a public database origin                                    |
+| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER`       | Hyperdrive runtime database user                                                            |
+| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_SERVICE_ID` | Workers VPC service ID, for a private database origin                                       |
 | `VOID_PLATFORM_R2_ACCESS_KEY_ID`             | R2 Access Key ID                                                                            |
-| `VOID_PLATFORM_R2_SECRET_ACCESS_KEY`         | R2 Secret Access Key                                                                        |
+| `VOID_PLATFORM_R2_SECRET_ACCESS_KEY`         | R2 Secret Access Key (not the token value)                                                  |
 | `VOID_PLATFORM_JWT_SECRET`                   | Original JWT signing secret                                                                 |
 | `VOID_PLATFORM_EMAIL_SIGNING_SECRET`         | Dedicated email signing secret when email is enabled                                        |
 | `VOID_PLATFORM_PROJECT_SECRET_KEY`           | Original base64-encoded project-encryption key                                              |
 | `VOID_PLATFORM_RECOVERY_KEY`                 | Base64-encoded 32-byte key for local encrypted recovery state when no keychain is available |
 | `VOID_EMAIL_SENDER_DOMAIN`                   | Optional shared mail domain; requires `VOID_EMAIL_SHARED_ZONE_ID`                           |
 | `VOID_EMAIL_SHARED_ZONE_ID`                  | Cloudflare zone ID for that mail domain; requires `VOID_EMAIL_SENDER_DOMAIN`                |
+
+For an existing Hyperdrive, set its ID and runtime user, plus either the origin host or the Workers VPC service ID. Do not set both host and service ID. Supply a database owner connection separately in `VOID_PLATFORM_DATABASE_URL` so Void can apply migrations.
 
 For the default GitHub-only login, also set `VOID_PLATFORM_GITHUB_CLIENT_ID`,
 `VOID_PLATFORM_GITHUB_CLIENT_SECRET`, and `VOID_PLATFORM_ADMIN_GITHUB_LOGIN`.

@@ -1,10 +1,11 @@
 import { type } from 'arktype';
 import { Hono } from 'hono';
-import * as v from 'valibot';
+import { email as valibotEmail, minLength, object, pipe, string } from 'valibot';
 import { describe, expect, it } from 'vite-plus/test';
 import { z } from 'zod';
-import { defineHandler, type CloudContext } from '../../src/runtime/handler.ts';
-import { convertReturnValue } from '../../src/runtime/response.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
+import { convertReturnValue } from '../../src/runtime/handler/response.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {
@@ -38,9 +39,9 @@ const libraries: Array<{ library: string; CreateUser: StandardSchemaV1 }> = [
   },
   {
     library: 'valibot',
-    CreateUser: v.object({
-      name: v.pipe(v.string(), v.minLength(1)),
-      email: v.pipe(v.string(), v.email()),
+    CreateUser: object({
+      name: pipe(string(), minLength(1)),
+      email: pipe(string(), valibotEmail()),
     }),
   },
   {
@@ -65,7 +66,7 @@ describe.each(libraries)('withValidator + $library', ({ CreateUser }) => {
     const res = await app.request(postJson({ name: '', email: 'not-an-email' }));
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as ValidationIssueBody;
+    const json = await res.json<ValidationIssueBody>();
     expect(json.error).toBe('Validation failed');
     expect(json.issues[0].slot).toBe('body');
     expect(json.issues[0].issues.length).toBeGreaterThanOrEqual(1);
@@ -83,7 +84,7 @@ it('does not validate inherited array length as a query parameter', async () => 
   );
 
   expect(res.status).toBe(400);
-  const json = (await res.json()) as ValidationIssueBody;
+  const json = await res.json<ValidationIssueBody>();
   expect(json.error).toBe('Validation failed');
   expect(json.issues[0].slot).toBe('query');
   expect(json.issues[0].issues[0].path).toBe('length');

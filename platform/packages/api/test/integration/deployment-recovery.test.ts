@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
-import { getDeployment, getProject, type Db } from '../../src/db.ts';
+import { getDeployment, getProject } from '../../src/db.ts';
 import { replayDeploymentCutover } from '../../src/deploy/recovery.ts';
 import { settleExpiredDeployment } from '../../src/deployment-recovery.ts';
 import type { ApiEnv } from '../../src/env.ts';
@@ -16,8 +16,9 @@ import {
   mockCfApi,
   setupEnv,
   teardownEnv,
-  type TestEnv,
+  withTestTransaction,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 let project: Awaited<ReturnType<typeof createTestProject>>;
@@ -215,20 +216,13 @@ test('reconciles a lost cleanup commit acknowledgement without another deploymen
   const candidate = await createTestDeployment(env.db, project.id, 'uploading');
   const realTransaction = env.db.transaction.bind(env.db);
   let injected = false;
-  const wrappedDb = new Proxy(env.db, {
-    get(target, property, receiver) {
-      if (property === 'transaction') {
-        return async (callback: Parameters<Db['transaction']>[0]) => {
-          const result = await realTransaction(callback);
-          if (!injected && (await getDeployment(env.db, candidate.id))?.status === 'failed') {
-            injected = true;
-            throw new Error('cleanup COMMIT acknowledgement lost');
-          }
-          return result;
-        };
-      }
-      return Reflect.get(target, property, receiver);
-    },
+  const wrappedDb = withTestTransaction(env.db, async (callback) => {
+    const result = await realTransaction(callback);
+    if (!injected && (await getDeployment(env.db, candidate.id))?.status === 'failed') {
+      injected = true;
+      throw new Error('cleanup COMMIT acknowledgement lost');
+    }
+    return result;
   });
   const fetch = providerDelete(404);
   await expect(
@@ -365,12 +359,12 @@ test('preserves retained historical deployment artifacts while terminalizing its
 });
 
 test.each([
-  { issued: 1, held: 0 },
-  { issued: 1, held: 1 },
-  { issued: 0, held: 0 },
+  { issued: 1, held: 0, maxConcurrency: 2 },
+  { issued: 1, held: 1, maxConcurrency: 1 },
+  { issued: 0, held: 0, maxConcurrency: undefined },
 ])(
   'cutover replay to a Worker on generation $held while generation $issued is issued writes only its token',
-  async ({ issued, held }) => {
+  async ({ issued, held, maxConcurrency }) => {
     await env.db
       .update(projects)
       .set({ proxy_token_gen: issued })
@@ -384,7 +378,7 @@ test.each([
           type: 'void',
           bindings: {},
           schedules: [{ cron: '*/5 * * * *', filePath: 'crons/tick.ts' }],
-          queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS' }],
+          queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS', maxConcurrency }],
         }),
       })
       .where(eq(deployments.id, deployment.id));
@@ -396,9 +390,14 @@ test.each([
       binding_name: 'emails',
     });
     const heldToken = await deriveProxyToken(env.JWT_SECRET, project.id, held);
+    const consumerBodies: Array<unknown> = [];
     mockCfApi({
       listWorkerBindings: () =>
         cfSuccess([{ type: 'plain_text', name: '__VOID_PROXY_TOKEN', text: heldToken }]),
+      addQueueConsumer: (_url, init) => {
+        consumerBodies.push(JSON.parse(String(init?.body)));
+        return cfSuccess({ consumer_id: 'consumer-1' });
+      },
     });
     const syncBodies: Array<string> = [];
     const originalGet = env.CRON_SCHEDULER.get.bind(env.CRON_SCHEDULER);
@@ -412,7 +411,7 @@ test.each([
           }
           return new Response('{}', { status: 200 });
         },
-      } as unknown as DurableObjectStub;
+      };
     });
 
     const lockedProject = (await getProject(env.db, project.id))!;
@@ -434,9 +433,16 @@ test.each([
       proxyToken: heldToken,
     });
     expect(syncBodies).toHaveLength(1);
-    const sync = JSON.parse(syncBodies[0]!) as Record<string, unknown>;
+    const sync = JSON.parse(syncBodies[0]) as Record<string, unknown>;
     // Exactly one token: the one the Worker holds.
     expect(Object.keys(sync).filter((key) => key.startsWith('proxyToken'))).toEqual(['proxyToken']);
     expect(sync.proxyToken).toBe(heldToken);
+    expect(consumerBodies).toEqual([
+      {
+        script_name: 'void-dispatch',
+        type: 'worker',
+        settings: maxConcurrency === undefined ? {} : { max_concurrency: maxConcurrency },
+      },
+    ]);
   },
 );

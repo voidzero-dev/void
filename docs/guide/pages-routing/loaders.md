@@ -31,6 +31,25 @@ Return data directly to preserve values such as `Date`, `Map`, `Set`, `bigint`, 
 
 Returning `Response.json()` uses JSON conversion instead. Functions and custom class instances can't be sent as page data.
 
+## Response Status
+
+Use `c.status()` to render the current page with an HTTP error status, such as `403` or `503`. Return the page's props as usual:
+
+```ts
+// pages/maintenance.server.ts
+import { defineHandler } from 'void/handler';
+
+export const loader = defineHandler((c) => {
+  c.status(503);
+  c.header('Retry-After', '120');
+  return { message: 'Down for maintenance' };
+});
+```
+
+The browser receives HTTP `503` and a `Retry-After` header, while the page renders with `{ message: 'Down for maintenance' }`. Client-side navigation uses the same status, props, and layouts.
+
+You can also set the status in middleware before `await next()`. Set it before deferred streaming starts. To show an error component instead of the requested page, [throw an `HTTPException`](./errors.md#http-exceptions).
+
 ## Using the Data in Page Components
 
 The page component receives the loader's result as props. Export the inferred type from the server file so the component stays in sync:

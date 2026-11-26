@@ -78,6 +78,41 @@ function installed(source: PlatformRuntime) {
 }
 
 describe('platform post-success rollback', () => {
+  it('requires a storage-aware runtime while a default location hint is configured', () => {
+    const target = runtime({
+      digest: 'a'.repeat(64),
+      migrations: [firstMigration],
+      platformVersion: '1.0.0',
+      schemaDigest: 'c'.repeat(64),
+    });
+    const source = runtime({
+      digest: 'b'.repeat(64),
+      migrations: [firstMigration, secondMigration],
+      platformVersion: '1.0.0',
+      rollbackSafeFrom: [{ platformVersion: '1.0.0', schemaDigest: 'c'.repeat(64) }],
+      schemaDigest: 'd'.repeat(64),
+    });
+    const installation = installed(source);
+    const configured = {
+      ...installation,
+      deployment: {
+        ...installation.deployment,
+        storageLocationHint: 'apac' as const,
+        schemaVersion: 6 as const,
+      },
+    };
+    expect(() => assertPlatformRollbackCompatibility(configured, target, source)).toThrow(
+      '--storage-location automatic',
+    );
+    expect(() =>
+      assertPlatformRollbackCompatibility(
+        configured,
+        { ...target, manifest: { ...target.manifest, storageLocationHint: 1 } },
+        source,
+      ),
+    ).not.toThrow();
+    expect(() => assertPlatformRollbackCompatibility(installation, target, source)).not.toThrow();
+  });
   it('blocks rollback to a four-Worker runtime after the email gateway was installed', () => {
     const target = runtime({
       digest: 'a'.repeat(64),

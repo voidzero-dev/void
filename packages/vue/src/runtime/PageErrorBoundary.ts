@@ -1,4 +1,5 @@
-import { clientPageError, type ClientPageBoundary, type PageError } from 'void/pages-client';
+import { clientPageError } from 'void/pages-client';
+import type { ClientPageBoundary, PageError } from 'void/pages-client';
 import {
   computed,
   defineAsyncComponent,
@@ -7,9 +8,8 @@ import {
   onErrorCaptured,
   shallowRef,
   watch,
-  type Component,
-  type PropType,
 } from 'vue';
+import type { Component, PropType } from 'vue';
 
 export const PageErrorBoundary: Component = defineComponent({
   props: {

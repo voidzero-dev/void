@@ -4,7 +4,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import mime from 'mime';
 import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
-import { isFileServingAllowed, type Plugin } from 'vite';
+import { isFileServingAllowed } from 'vite';
+import type { Plugin } from 'vite';
 import { findVoidDependentPackages } from './installed-packages.ts';
 import { readProjectPaths } from './project-paths.ts';
 
@@ -20,7 +21,7 @@ export const CF_ONLY_IMPORTS: Array<string> = [
 ];
 
 const CF_ONLY_REGEX = new RegExp(
-  `^(${CF_ONLY_IMPORTS.map((s) => s.replace('/', '\\/')).join('|')})$`,
+  `^(${CF_ONLY_IMPORTS.map((s) => s.replace('/', String.raw`\/`)).join('|')})$`,
 );
 
 type NodeTarget = 'node' | 'bun' | 'deno';
@@ -52,7 +53,6 @@ function honoMiddleware(
         return;
       }
 
-      // Build a Request from the incoming Node.js http.IncomingMessage
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
@@ -62,13 +62,14 @@ function honoMiddleware(
       }
 
       const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
-      const request = new Request(url.toString(), {
+      const init: RequestInit & { duplex?: 'half' } = {
         method: req.method,
         headers,
+        // oxlint-disable-next-line quality/no-chained-type-assertions -- Node fetch accepts async iterable request streams in duplex mode.
         body: hasBody ? (req as unknown as BodyInit) : undefined,
-        // @ts-ignore Node.js specific
         duplex: hasBody ? 'half' : undefined,
-      });
+      };
+      const request = new Request(url.toString(), init);
 
       const response = await app.fetch(request);
 
@@ -84,7 +85,6 @@ function honoMiddleware(
         return;
       }
 
-      // Write the Response back to Node.js http.ServerResponse
       res.statusCode = response.status;
       response.headers.forEach((value: string, key: string) => {
         res.setHeader(key, value);
@@ -94,7 +94,7 @@ function honoMiddleware(
       res.setHeader('set-cookie', response.headers.getSetCookie());
 
       if (response.body) {
-        const reader = response.body.getReader();
+        const reader = (response.body as ReadableStream<Uint8Array>).getReader();
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
@@ -269,7 +269,11 @@ export function nodeTargetPlugin(
       server.middlewares.use(
         honoMiddleware(
           async () => {
-            const mod = await server.ssrLoadModule('virtual:void-routes');
+            const mod = (await server.ssrLoadModule('virtual:void-routes')) as {
+              default: {
+                fetch(request: Request, env: { ASSETS: typeof assets }): Promise<Response>;
+              };
+            };
             return { fetch: (request: Request) => mod.default.fetch(request, { ASSETS: assets }) };
           },
           async (request) => {
@@ -295,7 +299,7 @@ export function nodeTargetPlugin(
           if (!appPromise) {
             const entryUrl = pathToFileURL(entryPath).href;
             appPromise = import(/* @vite-ignore */ entryUrl).then(
-              (m) => m.default,
+              (m: { default: { fetch: (req: Request) => Promise<Response> } }) => m.default,
               () => null,
             );
           }

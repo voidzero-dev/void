@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { voidAuthPassword } from '../../src/runtime/better-auth-shared.ts';
-import { resolveVoidAuthOptions } from '../../src/runtime/better-auth.ts';
+import { resolveVoidAuthOptions } from '../../src/runtime/auth/better-auth-d1.ts';
+import { voidAuthPassword } from '../../src/runtime/auth/better-auth-shared.ts';
 
 describe('resolveVoidAuthOptions', () => {
   it('defaults to email auth when no providers are configured', async () => {
@@ -13,7 +13,7 @@ describe('resolveVoidAuthOptions', () => {
         dialect: 'sqlite',
         providers: null,
       },
-      {} as never,
+      {},
     );
 
     expect(options.emailAndPassword).toEqual({
@@ -37,7 +37,7 @@ describe('resolveVoidAuthOptions', () => {
         dialect: 'sqlite',
         providers: ['email', 'discord', 'github'],
       },
-      {} as never,
+      {},
     );
 
     expect(options.emailAndPassword).toEqual({
@@ -72,7 +72,7 @@ describe('resolveVoidAuthOptions', () => {
           },
         },
       },
-      {} as never,
+      {},
     );
 
     expect(options.emailAndPassword).toEqual({
@@ -94,7 +94,7 @@ describe('resolveVoidAuthOptions', () => {
           new Request('https://example.com/api/auth'),
           { BETTER_AUTH_SECRET: 'secret', ...credentials },
           { dialect: 'sqlite', providers: ['github'] },
-          {} as never,
+          {},
         ),
       ).rejects.toThrow(
         "auth: Missing credentials for provider 'github'. Set AUTH_GITHUB_CLIENT_ID and AUTH_GITHUB_CLIENT_SECRET",
@@ -114,7 +114,7 @@ describe('resolveVoidAuthOptions', () => {
         AUTH_COGNITO_USER_POOL_ID: 'us-east-1_abc',
       },
       { dialect: 'sqlite', providers: ['email', 'cognito'] },
-      {} as never,
+      {},
     );
 
     expect(options.socialProviders).toEqual({
@@ -152,7 +152,7 @@ describe('resolveVoidAuthOptions', () => {
             ...settings,
           },
           { dialect: 'sqlite', providers: ['cognito'] },
-          {} as never,
+          {},
         ),
       ).rejects.toThrow(message);
     }
@@ -186,7 +186,7 @@ describe('resolveVoidAuthOptions', () => {
           },
         }),
       },
-      {} as never,
+      {},
     );
 
     expect(options.socialProviders).toEqual({
@@ -225,7 +225,7 @@ describe('resolveVoidAuthOptions', () => {
           },
         },
       },
-      {} as never,
+      {},
     );
 
     expect(options.emailAndPassword).toEqual({
@@ -245,7 +245,7 @@ describe('resolveVoidAuthOptions', () => {
           dialect: 'sqlite',
           providers: null,
         },
-        {} as never,
+        {},
       ),
     ).rejects.toThrow('auth: Missing Better Auth secret. Set BETTER_AUTH_SECRET.');
   });
@@ -259,7 +259,7 @@ describe('resolveVoidAuthOptions', () => {
         providers: null,
         dev: true,
       },
-      {} as never,
+      {},
     );
 
     expect(options.secret).toBe('void-dev-better-auth-secret-1234567890');
@@ -270,7 +270,7 @@ describe('resolveVoidAuthOptions', () => {
       new Request('http://localhost:3000/api/auth'),
       { BETTER_AUTH_SECRET: 'configured-secret' },
       { dialect: 'sqlite', providers: null, dev: true },
-      {} as never,
+      {},
     );
 
     expect(options.secret).toBe('configured-secret');
@@ -341,7 +341,7 @@ describe('resolveVoidAuthOptions auth rate limits', () => {
       request,
       { BETTER_AUTH_SECRET: 'secret' },
       { dialect: 'sqlite', providers: null, ...runtime },
-      {} as never,
+      {},
     );
   }
 

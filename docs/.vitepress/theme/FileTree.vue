@@ -114,12 +114,11 @@ export const selectedAdapter = ref(
 export function syncCodeGroups(title: string) {
   document.querySelectorAll('.vp-code-group').forEach((group) => {
     const label = group.querySelector(`.tabs label[data-title="${title}"]`);
-    if (!label) {
+    const target = label?.getAttribute('for');
+    if (!target) {
       return;
     }
-    const input = group.querySelector(
-      `#${CSS.escape(label.getAttribute('for')!)}`,
-    ) as HTMLInputElement | null;
+    const input = group.querySelector(`#${CSS.escape(target)}`) as HTMLInputElement | null;
     if (!input || input.checked) {
       return;
     }
@@ -198,6 +197,17 @@ function getFileIcon(name: string, dark: boolean): string {
   return 'lucide:file';
 }
 
+const nodeStyle = (level: number, folder: boolean) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  padding: '7px 8px',
+  paddingLeft: `${level * 20 + 6}px`,
+  borderRadius: '4px',
+  cursor: folder ? 'pointer' : 'default',
+  whiteSpace: 'nowrap' as const,
+});
+
 const TreeNode = defineComponent({
   name: 'TreeNode',
   props: {
@@ -206,17 +216,6 @@ const TreeNode = defineComponent({
     dark: { type: Boolean, default: false },
   },
   setup(props) {
-    const nodeStyle = (level: number, folder: boolean) => ({
-      display: 'flex',
-      alignItems: 'center',
-      gap: '6px',
-      padding: '7px 8px',
-      paddingLeft: `${level * 20 + 6}px`,
-      borderRadius: '4px',
-      cursor: folder ? 'pointer' : 'default',
-      whiteSpace: 'nowrap' as const,
-    });
-
     const nameStyle = {
       color: 'var(--vp-c-text-1)',
       fontSize: '14px',
@@ -264,7 +263,6 @@ const TreeNode = defineComponent({
                     onClick: folder ? handleToggle : undefined,
                   },
                   [
-                    // Expand/collapse chevron (folders only)
                     folder
                       ? h(Icon, {
                           icon: 'lucide:chevron-right',
@@ -274,7 +272,6 @@ const TreeNode = defineComponent({
                           },
                         })
                       : h('span', { style: spacerStyle }),
-                    // Icon
                     folder
                       ? h(Icon, {
                           icon: isExpanded ? 'lucide:folder-open' : 'lucide:folder',
@@ -284,7 +281,6 @@ const TreeNode = defineComponent({
                           icon: getFileIcon(item.name, props.dark),
                           style: iconSize,
                         }),
-                    // Name
                     item.link
                       ? h(
                           'a',
@@ -298,11 +294,9 @@ const TreeNode = defineComponent({
                           item.name,
                         )
                       : h('span', { style: nameStyle }, item.name),
-                    // Description
                     item.description ? h('span', { style: descStyle }, item.description) : null,
                   ],
                 ),
-                // Children
                 isExpanded && item.children
                   ? h(
                       'ul',

@@ -6,8 +6,8 @@ import {
   ProjectNotFoundError,
   projectAccessErrorBody,
   requireProjectCapability,
-  type ProjectAccess,
 } from '../project-access.ts';
+import type { ProjectAccess } from '../project-access.ts';
 import type { ProjectCapability } from '../types.ts';
 
 export async function requireProjectRouteCapability(

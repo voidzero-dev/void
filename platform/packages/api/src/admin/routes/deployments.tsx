@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getDeployment } from '../../db.ts';
-import { type ApiEnv } from '../../env.ts';
+import type { ApiEnv } from '../../env.ts';
 import { executeAuditedMutation, operatorAuditIntent } from '../../operator/audit.ts';
 import { OperatorError } from '../../operator/common.ts';
 import {
@@ -11,13 +11,10 @@ import { renderFateDetailPage, renderFateListPage } from '../fate/render.ts';
 
 const app = new Hono<ApiEnv>();
 
-// GET /deployments
 app.get('/', (context) => renderFateListPage(context, 'deployments'));
 
-// GET /deployments/:id
 app.get('/:id', (context) => renderFateDetailPage(context, 'deploymentDetail'));
 
-// POST /deployments/:id/cancel
 app.post('/:id/cancel', async (context) => {
   const deploymentId = context.req.param('id');
   return executeAuditedMutation(

@@ -57,7 +57,7 @@ export class ErrorAlertMonitor extends DurableObject<ApiEnv['Bindings']> {
   }
 
   private async handleRecord(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
+    const body = await request.json<{
       projectId: string;
       count: number;
       userId: string;
@@ -66,7 +66,7 @@ export class ErrorAlertMonitor extends DurableObject<ApiEnv['Bindings']> {
       // queue. Absent only on legacy in-flight calls — fall back to ingest time.
       firstAt?: number;
       lastAt?: number;
-    };
+    }>();
 
     const state = await this.getState();
     const now = Date.now();
@@ -100,7 +100,6 @@ export class ErrorAlertMonitor extends DurableObject<ApiEnv['Bindings']> {
       return Response.json({ ok: true });
     }
 
-    // Count cap — fire immediately
     if (state.count >= COUNT_CAP) {
       await this.fireAlert(state);
       return Response.json({ ok: true });

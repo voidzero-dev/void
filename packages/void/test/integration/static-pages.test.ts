@@ -1,15 +1,18 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { createIsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
 import { collectPrerenderPaths } from '../../src/prerender.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/static-pages';
-const DIST = join(ROOT, PLAYGROUND, 'dist');
+let fixture: IsolatedPlayground;
+let DIST: string;
 
 function removeWranglerConfig(root: string) {
   rmSync(join(root, 'wrangler.jsonc'), { force: true });
@@ -18,11 +21,14 @@ function removeWranglerConfig(root: string) {
 
 describe('playground/static-pages build (output: static)', () => {
   beforeAll(() => {
-    const pg = join(ROOT, PLAYGROUND);
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    rmSync(join(pg, '.void'), { recursive: true, force: true });
-    removeWranglerConfig(pg);
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+    DIST = join(fixture.root, 'dist');
+    removeWranglerConfig(fixture.root);
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
+  });
+
+  afterAll(() => {
+    fixture?.cleanup();
   });
 
   it('emits worker entry and client manifest', () => {
@@ -66,7 +72,7 @@ describe('playground/static-pages build (output: static)', () => {
     const indexPath = join(DIST, 'client/index.html');
     expect(existsSync(indexPath)).toBe(true);
 
-    const html = readFileSync(indexPath, 'utf-8');
+    const html = readFileSync(indexPath, 'utf8');
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('data-testid="home-title"');
     expect(html).toContain('Home');
@@ -82,7 +88,7 @@ describe('playground/static-pages build (output: static)', () => {
     const aboutPath = join(DIST, 'client/about.html');
     expect(existsSync(aboutPath)).toBe(true);
 
-    const html = readFileSync(aboutPath, 'utf-8');
+    const html = readFileSync(aboutPath, 'utf8');
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('data-testid="about-title"');
     expect(html).toContain('About');
@@ -95,12 +101,16 @@ describe('playground/static-pages build (output: static)', () => {
   });
 
   it('emits static page data for prerendered routes', () => {
-    const indexData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf-8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
-    const aboutData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf-8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
+    const indexData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf8'));
+    const aboutData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf8'));
 
     expect(indexData.component).toBe('index');
     expect(indexData.url).toBe('/');
@@ -114,7 +124,7 @@ describe('playground/static-pages build (output: static)', () => {
     const clientOnlyPath = join(DIST, 'client/client-only.html');
     expect(existsSync(clientOnlyPath)).toBe(true);
 
-    const html = readFileSync(clientOnlyPath, 'utf-8');
+    const html = readFileSync(clientOnlyPath, 'utf8');
     expect(html).toContain('<!doctype html>');
     expect(html).toContain('__VOID_PAGE_DATA__');
     expect(html).toContain('data-void-ssr="false"');
@@ -122,9 +132,11 @@ describe('playground/static-pages build (output: static)', () => {
     expect(html).not.toContain('data-testid="client-only-title"');
     expect(html).not.toContain('client-only static page component rendered on the server');
 
-    const pageData = deserializePageData(
-      readFileSync(join(DIST, 'client/_void/pages/client-only.json'), 'utf-8'),
-    ) as { component: string; props: Record<string, unknown>; url: string };
+    const pageData = deserializePageData<{
+      component: string;
+      props: Record<string, unknown>;
+      url: string;
+    }>(readFileSync(join(DIST, 'client/_void/pages/client-only.json'), 'utf8'));
     expect(pageData.component).toBe('client-only');
     expect(pageData.url).toBe('/client-only');
     expect(pageData.props.title).toBe('Client-only Static Page');
@@ -138,17 +150,17 @@ describe('playground/static-pages build (output: static)', () => {
     expect(existsSync(helloPath)).toBe(true);
     expect(existsSync(worldPath)).toBe(true);
 
-    const html = readFileSync(helloPath, 'utf-8');
+    const html = readFileSync(helloPath, 'utf8');
     expect(html).toContain('data-testid="post-title"');
     expect(html).toContain('Post hello');
   });
 
   it('collects prerender paths from the built worker endpoint', async () => {
     const paths = await collectPrerenderPaths({
-      root: join(ROOT, PLAYGROUND),
+      root: fixture.root,
       workerDir: join(DIST, 'ssr'),
       clientDir: join(DIST, 'client'),
-      persistDir: join(ROOT, PLAYGROUND, '.void'),
+      persistDir: join(fixture.root, '.void'),
     });
 
     expect(paths).toEqual(
@@ -177,7 +189,7 @@ describe('playground/static-pages build (output: static)', () => {
     expect(existsSync(vuePath)).toBe(true);
     expect(existsSync(vitePath)).toBe(true);
 
-    const html = readFileSync(vuePath, 'utf-8');
+    const html = readFileSync(vuePath, 'utf8');
     expect(html).toContain('data-testid="tag-title"');
     expect(html).toContain('Tag vue');
   });
@@ -189,7 +201,7 @@ describe('playground/static-pages build (output: static)', () => {
     expect(existsSync(gettingStartedPath)).toBe(true);
     expect(existsSync(sidebarNestingPath)).toBe(true);
 
-    const html = readFileSync(gettingStartedPath, 'utf-8');
+    const html = readFileSync(gettingStartedPath, 'utf8');
     expect(html).toContain('data-testid="doc-title"');
     expect(html).toContain('Doc getting-started');
 
@@ -204,7 +216,7 @@ describe('playground/static-pages build (output: static)', () => {
   });
 
   it('wrangler.json has correct asset config', () => {
-    const wranglerConfig = JSON.parse(readFileSync(join(DIST, 'ssr/wrangler.json'), 'utf-8')) as {
+    const wranglerConfig = JSON.parse(readFileSync(join(DIST, 'ssr/wrangler.json'), 'utf8')) as {
       assets?: {
         directory?: string;
         not_found_handling?: string;
@@ -228,11 +240,11 @@ describe('playground/static-pages build (output: static)', () => {
   });
 
   it('serves a page without a server module from its prerendered file', async () => {
-    const wranglerConfig = JSON.parse(readFileSync(join(DIST, 'ssr/wrangler.json'), 'utf-8')) as {
+    const wranglerConfig = JSON.parse(readFileSync(join(DIST, 'ssr/wrangler.json'), 'utf8')) as {
       assets: { run_worker_first: Array<string> };
     };
     // Hashed files keep the immutable policy without the Worker.
-    const headers = readFileSync(join(DIST, 'client/_headers'), 'utf-8');
+    const headers = readFileSync(join(DIST, 'client/_headers'), 'utf8');
     expect(headers.startsWith(GENERATED_ASSET_HEADERS_MARKER)).toBe(true);
     expect(headers).toContain('/assets/');
     expect(headers).toContain('immutable');

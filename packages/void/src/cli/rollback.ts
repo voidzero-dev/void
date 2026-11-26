@@ -36,7 +36,6 @@ export async function runRollbackCommand(
   const client = new PlatformClient(token, { root });
   const { deployments, activeDeploymentId } = await client.listDeployments(linked.projectId);
 
-  // Filter to retained deployments that aren't the active one
   const candidates = deployments.filter(
     (d) => d.retained && d.status === 'live' && d.id !== activeDeploymentId,
   );
@@ -72,17 +71,21 @@ export async function runRollbackCommand(
       cancel('Rollback cancelled.');
       process.exit(0);
     }
-    targetId = result as string;
+    targetId = result;
   }
 
   // Compute migration diff client-side for warning
   const active = deployments.find((d) => d.id === activeDeploymentId);
-  const target = candidates.find((d) => d.id === targetId)!;
+  const target = candidates.find((d) => d.id === targetId);
+  if (!target) {
+    log.error(`Deployment ${targetId} is not available for rollback.`);
+    process.exit(1);
+  }
   const currentMigrations: Array<string> = active?.applied_migrations
-    ? JSON.parse(active.applied_migrations)
+    ? (JSON.parse(active.applied_migrations) as Array<string>)
     : [];
   const targetMigrations: Array<string> = target.applied_migrations
-    ? JSON.parse(target.applied_migrations)
+    ? (JSON.parse(target.applied_migrations) as Array<string>)
     : [];
   const migrationDiff = currentMigrations.filter((m) => !targetMigrations.includes(m));
   await confirmUnrevertedMigrations(migrationDiff, 'deployment');
@@ -163,7 +166,12 @@ async function runCloudflareRollback(
       cancel('Rollback cancelled.');
       process.exit(0);
     }
-    target = candidates.find((version) => version.id === result)!;
+    const selected = candidates.find((version) => version.id === result);
+    if (!selected) {
+      log.error(`Version ${result} is not available for rollback.`);
+      process.exit(1);
+    }
+    target = selected;
   }
 
   const current = status.versions.find((version) => version.id === status.activeVersionId);

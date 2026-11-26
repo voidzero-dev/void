@@ -63,7 +63,7 @@ describe('Cloudflare readiness state', () => {
       'developer-platform-experience',
     );
     expect(resolveCloudflareWorkersDevSubdomain(root, 'account-b', {})).toBeUndefined();
-    expect(JSON.parse(readFileSync(join(root, '.void', 'cloudflare.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(readFileSync(join(root, '.void', 'cloudflare.json'), 'utf8'))).toEqual({
       workersDevSubdomains: { 'account-a': 'developer-platform-experience' },
     });
   });

@@ -5,20 +5,14 @@ import type { ApiEnv } from '../env.ts';
 import { projects, projectZeroTrust } from '../schema.ts';
 import { candidateQuery } from './candidates.ts';
 import type { ZeroTrustCloudflareClient } from './cloudflare.ts';
-import {
-  type ZeroTrustConfiguration,
-  readZeroTrustConfigurationStrict,
-  zeroTrustConfigurationStatus,
-} from './configuration.ts';
+import { readZeroTrustConfigurationStrict, zeroTrustConfigurationStatus } from './configuration.ts';
+import type { ZeroTrustConfiguration } from './configuration.ts';
 import { ZeroTrustUnavailableError } from './errors.ts';
 import { resumePlatformZeroTrustOperation } from './installation.ts';
 import { withProjectZeroTrustLock } from './lock.ts';
 import { reconcileProjectZeroTrust } from './project.ts';
-import {
-  MAX_ROUTING_KEYS_PER_RUN,
-  publishProjectZeroTrustRoutingLocked,
-  type RoutingBudget,
-} from './routing.ts';
+import { MAX_ROUTING_KEYS_PER_RUN, publishProjectZeroTrustRoutingLocked } from './routing.ts';
+import type { RoutingBudget } from './routing.ts';
 import {
   clientForConfiguration,
   getProjectZeroTrustState,
@@ -82,6 +76,7 @@ async function retirePendingDisabledProjectZeroTrust(
   db: Db,
   configuration: ZeroTrustConfiguration,
   limit: number,
+  routingBudget: RoutingBudget,
 ): Promise<void> {
   const rows = await candidateQuery(db)
     .where(
@@ -104,13 +99,12 @@ async function retirePendingDisabledProjectZeroTrust(
     return;
   }
   const client = await clientForConfiguration(env, configuration);
-  const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   for (const row of rows) {
     if (routingBudget.exhausted || routingBudget.remaining < 1) {
       break;
     }
     await retireDisabledProjectZeroTrust(env, db, row.project.id, client, routingBudget).catch(
-      (error) =>
+      (error: unknown) =>
         console.error('[zero-trust] scheduled project cleanup failed', {
           projectId: row.project.id,
           error,
@@ -123,6 +117,8 @@ export async function reconcilePendingProjectZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
   limit = 20,
+  /** The cron run's routing budget; the public gate backstop spends the rest of it. */
+  routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN },
 ): Promise<void> {
   const configuration = await readZeroTrustConfigurationStrict(db);
   if (!configuration) {
@@ -135,7 +131,7 @@ export async function reconcilePendingProjectZeroTrust(
   }
   if (!configuration.enabled) {
     // Projects skipped by a completed disable operation still hold protection.
-    await retirePendingDisabledProjectZeroTrust(env, db, configuration, limit);
+    await retirePendingDisabledProjectZeroTrust(env, db, configuration, limit, routingBudget);
     return;
   }
   if (zeroTrustConfigurationStatus(configuration) !== 'ready') {
@@ -156,7 +152,6 @@ export async function reconcilePendingProjectZeroTrust(
     return;
   }
   const client = await clientForConfiguration(env, configuration);
-  const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   for (const row of rows) {
     if (
       routingBudget.exhausted ||
@@ -168,7 +163,7 @@ export async function reconcilePendingProjectZeroTrust(
       configuration,
       client,
       routingBudget,
-    }).catch(async (error) => {
+    }).catch(async (error: unknown) => {
       console.error('[zero-trust] scheduled project reconciliation failed', {
         projectId: row.project.id,
         error,
@@ -181,7 +176,7 @@ export async function reconcilePendingProjectZeroTrust(
         row.project.id,
         error,
         initialProjectProtection(configuration, row.project),
-      ).catch((markError) =>
+      ).catch((markError: unknown) =>
         console.error('[zero-trust] could not record scheduled reconciliation failure', {
           projectId: row.project.id,
           error: markError,

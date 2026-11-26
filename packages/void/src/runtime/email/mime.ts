@@ -7,7 +7,7 @@
  */
 
 import { validate as isValidEmailSyntax } from 'email-validator';
-import { bytesToBase64 } from '../base64.ts';
+import { bytesToBase64 } from '../../shared/base64.ts';
 import { indexOfControl, threadingId, threadingReferences, trimFws } from './threading.ts';
 import type {
   Address,
@@ -44,7 +44,7 @@ const MAX_CUSTOM_HEADER_BYTES: number = 16 * 1024;
 export const MAX_ADDRESS_LENGTH: number = 320;
 
 const CRLF = '\r\n';
-const ASCII_PRINTABLE = /^[\x20-\x7e]*$/;
+const ASCII_PRINTABLE = /^[\u0020-\u007e]*$/;
 const HEADER_NAME = /^[!-9;-~]+$/;
 
 function rejectCRLF(field: string, value: string): void {
@@ -70,7 +70,7 @@ function rejectControls(field: string, value: string): void {
 }
 
 /** RFC 2045 §5.1 `tspecials`: what a `token` may not contain besides SPACE and CTLs. */
-const TSPECIALS = '()<>@,;:\\"/[]?=';
+const TSPECIALS = String.raw`()<>@,;:\"/[]?=`;
 
 /** RFC 2045 §5.1 `token` character: printable US-ASCII less SPACE and `tspecials`. */
 function isTokenChar(c: number): boolean {
@@ -226,7 +226,11 @@ function validateContentId(field: string, value: string): void {
   }
 }
 
-const COMMON_TYPES: Record<string, string> = {
+interface MimeTypes {
+  [key: string]: string;
+}
+
+const COMMON_TYPES: MimeTypes = {
   txt: 'text/plain',
   html: 'text/html',
   htm: 'text/html',
@@ -348,13 +352,15 @@ function unquotePairs(text: string): string {
   return codeUnitsToString(out);
 }
 
+type ParsedAddress = { email: string; name?: string };
+
 /**
  * Parse one address — a bare `email@domain` or `Display Name <email@domain>`
  * — into its parts, throwing a `MimeError` for `field` on anything else.
  * Exported so `void.config.ts` `email.from` is validated by the same rules
  * the runtime applies to `from` at send time.
  */
-export function parseAddress(value: Address, field: string): { email: string; name?: string } {
+export function parseAddress(value: Address, field: string): ParsedAddress {
   if (typeof value === 'string') {
     rejectCRLF(`${field} address`, value);
     // `Display Name <email@domain>`, quotes paired or absent. The unquoted
@@ -518,9 +524,25 @@ export async function normalizeEmail(opts: {
   headers?: Record<string, string>;
   attachments?: Array<Attachment>;
   threading?: SendEmailOptions['threading'];
+  calendar?: SendEmailOptions['calendar'];
 }): Promise<NormalizedEmail> {
   if (!opts.text && !opts.html) {
     throw new MimeError('MIME_ERROR', "email: at least one of 'text' or 'html' is required.");
+  }
+  let calendar: SendEmailOptions['calendar'];
+  if (opts.calendar !== undefined) {
+    const { method, content } = opts.calendar ?? {};
+    if (
+      (method !== 'REQUEST' && method !== 'CANCEL') ||
+      typeof content !== 'string' ||
+      content.trim() === ''
+    ) {
+      throw new MimeError(
+        'MIME_ERROR',
+        'email: calendar needs a REQUEST or CANCEL method and iCalendar content.',
+      );
+    }
+    calendar = { method, content };
   }
   if (opts.subject !== undefined) {
     rejectCRLF('subject', opts.subject);
@@ -633,6 +655,7 @@ export async function normalizeEmail(opts: {
     headers: opts.headers ? { ...opts.headers } : {},
     attachments,
     threading,
+    ...(calendar === undefined ? {} : { calendar }),
   };
 }
 
@@ -872,11 +895,11 @@ function findOverlongLine(text: string): { index: number; octets: number } | und
       i++;
     } else if (c < 0x80) {
       octets += 1;
-    } else if (c < 0x800) {
+    } else if (c < 0x8_00) {
       octets += 2;
-    } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+    } else if (c >= 0xd8_00 && c <= 0xdb_ff && i + 1 < text.length) {
       const d = text.charCodeAt(i + 1);
-      if (d >= 0xdc00 && d <= 0xdfff) {
+      if (d >= 0xdc_00 && d <= 0xdf_ff) {
         octets += 4; // the pair is one code point
         i++;
       } else {
@@ -891,7 +914,7 @@ function findOverlongLine(text: string): { index: number; octets: number } | und
 
 /** Escape `\` and `"` as quoted-pairs (RFC 5322 §3.2.4), backslash first. */
 function quoteParam(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return value.replaceAll('\\', String.raw`\\`).replaceAll('"', String.raw`\"`);
 }
 
 /** `<prefix>_<base36 time><16 random hex>`. */
@@ -985,7 +1008,7 @@ function quotedPrintable(text: string): string {
 /** One character per code unit, in 32K chunks to stay under the call-argument limit. */
 function codeUnitsToString(units: Uint8Array | Uint16Array): string {
   let s = '';
-  const chunk = 0x8000;
+  const chunk = 0x80_00;
   for (let i = 0; i < units.length; i += chunk) {
     s += String.fromCharCode(...units.subarray(i, i + chunk));
   }
@@ -1059,11 +1082,11 @@ function minBodyOctets(text: string): number {
     const c = text.charCodeAt(i);
     if (c < 0x80) {
       octets += 1;
-    } else if (c < 0x800) {
+    } else if (c < 0x8_00) {
       octets += 6; // 2 UTF-8 bytes, each `=XX`
-    } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+    } else if (c >= 0xd8_00 && c <= 0xdb_ff && i + 1 < text.length) {
       const d = text.charCodeAt(i + 1);
-      if (d >= 0xdc00 && d <= 0xdfff) {
+      if (d >= 0xdc_00 && d <= 0xdf_ff) {
         octets += 12; // 4 UTF-8 bytes for the pair
         i++;
         continue;
@@ -1119,7 +1142,7 @@ function makeBoundary(prefix: string): string {
   // 16 random bytes → 24-char base64. Workers + browsers expose crypto.
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
-  return `=_void_${prefix}_${bytesToBase64(bytes).replace(/[+/=]/g, '')}`;
+  return `=_void_${prefix}_${bytesToBase64(bytes).replaceAll(/[+/=]/g, '')}`;
 }
 
 function wrapMultipart(
@@ -1178,11 +1201,11 @@ function minHeaderValueOctets(value: string): number {
       visible += 1;
     } else {
       encoded = true;
-      if (c < 0x800) {
+      if (c < 0x8_00) {
         utf8 += 2;
-      } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < value.length) {
+      } else if (c >= 0xd8_00 && c <= 0xdb_ff && i + 1 < value.length) {
         const d = value.charCodeAt(i + 1);
-        if (d >= 0xdc00 && d <= 0xdfff) {
+        if (d >= 0xdc_00 && d <= 0xdf_ff) {
           utf8 += 4; // the pair is one code point
           i++;
           continue;
@@ -1290,15 +1313,17 @@ function generateMessageId(fromEmail: string): string {
   const domain = fromEmail.split('@')[1] ?? 'localhost';
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
-  const id = bytesToBase64(bytes).replace(/[+/=]/g, '');
+  const id = bytesToBase64(bytes).replaceAll(/[+/=]/g, '');
   return `<${id}@${domain}>`;
 }
+
+type BuiltMime = { raw: Uint8Array; messageId: string };
 
 /**
  * Build the raw RFC 5322 message body. Returns the message bytes plus the
  * generated Message-ID header so callers can surface it in the result.
  */
-export function buildMime(email: NormalizedEmail): { raw: Uint8Array; messageId: string } {
+export function buildMime(email: NormalizedEmail): BuiltMime {
   // Project the size before rendering, which holds several copies of the
   // message: an oversize body or header must fail with `MIME_ERROR`, not
   // exhaust the isolate. Each term is a lower bound; the final check rules.
@@ -1306,6 +1331,7 @@ export function buildMime(email: NormalizedEmail): { raw: Uint8Array; messageId:
     minHeaderOctets(email) +
     (email.text ? minBodyOctets(email.text) : 0) +
     (email.html ? minBodyOctets(email.html) : 0) +
+    (email.calendar ? minBodyOctets(email.calendar.content) : 0) +
     email.attachments.reduce((sum, a) => sum + base64Octets(a.bytes.byteLength), 0);
   if (projected > MAX_MESSAGE_BYTES) {
     throw new MimeError(
@@ -1332,8 +1358,7 @@ export function buildMime(email: NormalizedEmail): { raw: Uint8Array; messageId:
   if (email.replyTo) {
     topHeaders.push(['Reply-To', formatAddress(email.replyTo)]);
   }
-  topHeaders.push(['Subject', encodeWord(email.subject)]);
-  topHeaders.push(['Message-ID', messageId]);
+  topHeaders.push(['Subject', encodeWord(email.subject)], ['Message-ID', messageId]);
   // Reserved against user-supplied `headers` (RESERVED_HEADERS), so these
   // land in the wire MIME only through the checked `email.threading`.
   if (email.threading?.inReplyTo) {
@@ -1354,12 +1379,15 @@ export function buildMime(email: NormalizedEmail): { raw: Uint8Array; messageId:
   const textPart = email.text ? buildBodyPart('text/plain', email.text) : undefined;
   const htmlPart = email.html ? buildBodyPart('text/html', email.html) : undefined;
 
-  let bodyPart: MimePart;
-  if (textPart && htmlPart) {
-    bodyPart = wrapMultipart('alternative', [textPart, htmlPart]);
-  } else {
-    bodyPart = (textPart ?? htmlPart) as MimePart;
+  const calendarPart = email.calendar
+    ? buildBodyPart(`text/calendar; method=${email.calendar.method}`, email.calendar.content)
+    : undefined;
+  const alternatives = [textPart, htmlPart, calendarPart].filter((part) => part !== undefined);
+  const [firstPart] = alternatives;
+  if (!firstPart) {
+    throw new MimeError('MIME_ERROR', "email: at least one of 'text' or 'html' is required.");
   }
+  let bodyPart = alternatives.length > 1 ? wrapMultipart('alternative', alternatives) : firstPart;
 
   if (email.attachments.length > 0) {
     const inlineAttachments = email.attachments.filter((a) => a.disposition === 'inline');

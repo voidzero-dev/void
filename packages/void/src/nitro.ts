@@ -1,7 +1,8 @@
 import { resolve as resolveWindowsPath } from 'node:path/win32';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
 import { bundleWorkerSqlDriver } from './cli/wrapper.ts';
 import { getDatabaseDialect, readConfig } from './config.ts';
 import { voidDbBundlerPlugin } from './plugin-drizzle.ts';
@@ -23,7 +24,10 @@ type NitroInstance = {
     rollupConfig?: { plugins?: unknown };
     buildPlugins?: Array<unknown>;
     noExternals?: boolean | Array<string | RegExp>;
-    cloudflare?: { nodeCompat?: boolean };
+    cloudflare?: {
+      nodeCompat?: boolean;
+      wrangler?: { compatibility_flags?: Array<string> };
+    };
     devServer?: { runner?: string };
   };
 };
@@ -84,6 +88,14 @@ const nativeAsyncHooksPlugin: Plugin = {
   },
 };
 
+// Nitro uses workerd's own Node modules instead of its stubs only when it finds nodejs_compat
+// in a Wrangler config, and Void's Cloudflare config is not one it reads. Deploys add the flag
+// for PostgreSQL and MySQL, whose drivers need it. Otherwise the Worker gets the Cloudflare
+// config's flags, or in a managed deploy `worker.compatibility_flags` when those are set: a
+// Worker built for native modules does not start without the flag.
+const nodeCompat = (flags: Array<string> | undefined) =>
+  flags?.some((flag) => NODEJS_COMPAT_FLAGS.has(flag)) === true;
+
 /**
  * Nitro module for apps whose server routes Nitro bundles (Nuxt and Analog). Nitro's bundler
  * does not run Vite plugins, so without this module `void/db` in a server route, page server
@@ -97,9 +109,9 @@ const voidNitroModule = {
     const config = readConfig(options.rootDir);
     const dialect = getDatabaseDialect(config);
     // Nitro 2 develops in Node; Nitro 3's Cloudflare dev runner uses workerd too.
+    const miniflareDev = options.dev && options.devServer?.runner === 'miniflare';
     const workerd =
-      options.devServer?.runner === 'miniflare' ||
-      (!options.dev && options.exportConditions?.includes('workerd') === true);
+      miniflareDev || (!options.dev && options.exportConditions?.includes('workerd') === true);
     const plugins: Array<Plugin> = [
       voidDbBundlerPlugin(options.rootDir, {
         config,
@@ -111,14 +123,22 @@ const voidNitroModule = {
         }),
       }),
     ];
-    // Nitro uses workerd's own Node modules instead of its stubs only when it finds nodejs_compat
-    // in a Wrangler config, and Void's Cloudflare config is not one it reads. Deploys add the flag
-    // for PostgreSQL and MySQL, whose drivers need it. Otherwise the Worker gets the Cloudflare
-    // config's flags, or in a managed deploy `worker.compatibility_flags` when those are set: a
-    // Worker built for native modules does not start without the flag.
-    const nodeCompat = (flags: Array<string> | undefined) =>
-      flags?.some((flag) => NODEJS_COMPAT_FLAGS.has(flag)) === true;
     const cloudflareFlags = config.cloudflare?.compatibility_flags;
+    if (miniflareDev) {
+      // Nitro's dev runner selects the installed workerd's latest date. Its eval-based
+      // wrapper still needs the legacy registry: https://github.com/unjs/env-runner/pull/114.
+      // This inline overlay is merged with the app's Wrangler file by env-runner.
+      options.cloudflare ??= {};
+      const flags = options.cloudflare.wrangler?.compatibility_flags ?? [];
+      if (
+        !flags.some((flag) => flag === 'new_module_registry' || flag === 'legacy_module_registry')
+      ) {
+        options.cloudflare.wrangler = {
+          ...options.cloudflare.wrangler,
+          compatibility_flags: [...flags, 'legacy_module_registry'],
+        };
+      }
+    }
     if (
       workerd &&
       (dialect !== 'sqlite' ||
@@ -156,7 +176,7 @@ const voidNitroModule = {
     // Nitro adds its own resolvers after these, so `void/db` never reaches them.
     rollupConfig.plugins = [
       ...plugins,
-      ...(Array.isArray(existing) ? existing : existing ? [existing] : []),
+      ...(Array.isArray(existing) ? (existing as Array<unknown>) : existing ? [existing] : []),
     ];
   },
 };

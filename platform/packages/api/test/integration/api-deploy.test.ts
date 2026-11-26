@@ -21,12 +21,13 @@ import {
   removeProjectMember,
   updateDeploymentStatus,
   updateUserPlan,
-  type Db,
 } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { createIsrStore } from '../../src/isr-store.ts';
 import { writePlanCatalog } from '../../src/plans.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectIngress from '../../src/project-ingress.ts';
 import { deriveProxyToken } from '../../src/proxy-token.ts';
 import { validateManifestShape } from '../../src/routes/deploy.ts';
@@ -59,9 +60,9 @@ import {
   readAllEvents,
   CF_ACCOUNT_ID,
   JWT_SECRET,
-  type MockCfApiHandle,
-  type TestEnv,
+  withTestTransaction,
 } from './helpers.ts';
+import type { MockCfApiHandle, TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
@@ -122,32 +123,24 @@ function injectLostGoLiveCommitAcknowledgement(projectId: string): {
   const realDb = env.db;
   const realTransaction = realDb.transaction.bind(realDb);
   let injected = false;
-  const wrappedDb = new Proxy(realDb, {
-    get(target, prop, receiver) {
-      if (prop === 'transaction') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return (async (fn: any) => {
-          const result = await realTransaction(fn);
-          if (!injected) {
-            const [project] = await realDb
-              .select({ activeDeploymentId: projects.active_deployment_id })
-              .from(projects)
-              .where(eq(projects.id, projectId))
-              .limit(1);
-            const active = project?.activeDeploymentId
-              ? await getDeployment(realDb, project.activeDeploymentId)
-              : null;
-            if (active?.status === 'live') {
-              injected = true;
-              throw new Error('database connection lost after COMMIT');
-            }
-          }
-          return result;
-        }) as unknown as typeof realDb.transaction;
+  const wrappedDb = withTestTransaction(realDb, async (fn) => {
+    const result = await realTransaction(fn);
+    if (!injected) {
+      const [project] = await realDb
+        .select({ activeDeploymentId: projects.active_deployment_id })
+        .from(projects)
+        .where(eq(projects.id, projectId))
+        .limit(1);
+      const active = project?.activeDeploymentId
+        ? await getDeployment(realDb, project.activeDeploymentId)
+        : null;
+      if (active?.status === 'live') {
+        injected = true;
+        throw new Error('database connection lost after COMMIT');
       }
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as Db;
+    }
+    return result;
+  });
   setTestDb(wrappedDb);
   return {
     wasInjected: () => injected,
@@ -179,13 +172,13 @@ async function buildDeployRequest(
 ): Promise<Request> {
   const baseManifest = opts?.manifest ?? { version: 3, bindings: {} };
   // JSON-mode requires assetManifestVersion: 2.
-  const manifest: Record<string, unknown> = {
+  const manifest = {
     assetManifestVersion: 2,
     ...baseManifest,
   };
 
   // Decide whether worker files are appropriate for this manifest type.
-  const manifestType = (manifest as { type?: unknown }).type;
+  const manifestType = 'type' in manifest ? manifest.type : undefined;
   const isStaticManifest = manifestType === 'spa' || manifestType === 'static';
 
   // Default worker file for non-static manifests so callers can use the
@@ -218,10 +211,7 @@ async function buildDeployRequest(
       const md5 = blake3;
       assetManifest['/' + path] = { blake3, md5, size: bytes.length };
       // Pre-upload to R2 under the content-addressed key the handler checks.
-      await env.STATIC_ASSETS_R2.put(
-        `assets/${projectId}/${blake3}`,
-        bytes as unknown as ArrayBuffer,
-      );
+      await env.STATIC_ASSETS_R2.put(`assets/${projectId}/${blake3}`, bytes);
     }
   }
 
@@ -271,7 +261,7 @@ function parseDeployStream(text: string): Array<unknown> {
   return text
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line));
+    .map((line): unknown => JSON.parse(line));
 }
 
 type DeployEvent = { event: string } & Record<string, unknown>;
@@ -495,7 +485,7 @@ describe('POST /projects/:id/deploy', () => {
     mockCfApi();
     const originalDispatch = env.DISPATCH;
     const dispatch = vi.fn();
-    env.DISPATCH = { get: dispatch } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatch };
     try {
       const response = await app.fetch(
         await buildDeployRequest(env, project.id, user.jwt, {
@@ -553,7 +543,7 @@ describe('POST /projects/:id/deploy', () => {
       const ingress = vi.spyOn(projectIngress, 'ensureProjectIngress');
       const originalDispatch = env.DISPATCH;
       const dispatch = vi.fn();
-      env.DISPATCH = { get: dispatch } as unknown as DispatchNamespace;
+      env.DISPATCH = { get: dispatch };
       try {
         const response = await app.fetch(
           await buildDeployRequest(env, project.id, user.jwt, {
@@ -789,7 +779,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(done.deployment).toMatch(/^dpl_/);
     expect(done.url).toBe('https://minimal-app.void.app');
 
-    // Verify deployment is marked live in DB
     const [dpl] = await env.db
       .select({ status: deployments.status })
       .from(deployments)
@@ -1001,13 +990,13 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Find the worker upload call
     const uploadCall = fetchMock.mock.calls.find((call: Array<unknown>) => {
       const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
       return url.includes('/workers/dispatch/') && (call[1] as RequestInit)?.method === 'PUT';
     });
     expect(uploadCall).toBeDefined();
     const uploadUrl =
+      // oxlint-disable-next-line typescript/no-unsafe-call -- The upload spy records a string or a byte buffer for the local request.
       typeof uploadCall![0] === 'string' ? uploadCall![0] : uploadCall![0].toString();
     expect(uploadUrl).toContain(
       `/accounts/${CF_ACCOUNT_ID}/workers/dispatch/namespaces/void-users/scripts/user-worker-app-dpl_`,
@@ -1050,7 +1039,6 @@ describe('POST /projects/:id/deploy', () => {
     await res.text();
     await Promise.all(pending);
 
-    // Verify DO received /sync with correct payload
     const syncCall = cronDoFetches.find((f) => f.url.includes('/sync'));
     expect(syncCall).toBeDefined();
     const payload = JSON.parse(syncCall!.body);
@@ -1092,7 +1080,7 @@ describe('POST /projects/:id/deploy', () => {
           if (new URL(request.url).pathname === '/snapshot') {
             return Response.json({ state: previousCronState });
           }
-          const state = (await request.json()) as typeof previousCronState;
+          const state = await request.json<typeof previousCronState>();
           syncedStates.push(state);
           if (state.workerName !== previousCronState.workerName) {
             return new Response('unavailable', { status: 503 });
@@ -1166,7 +1154,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify DO received /clear
     const clearCall = cronDoFetches.find((f) => f.url.includes('/clear'));
     expect(clearCall).toBeDefined();
   });
@@ -1366,6 +1353,39 @@ describe('POST /projects/:id/deploy', () => {
     expect(cronDoFetches.find((f) => f.url.includes('/sync'))).toBeUndefined();
   });
 
+  it.each([
+    { projectHint: 'apac', platformHint: 'weur', expected: 'apac' },
+    { projectHint: undefined, platformHint: 'weur', expected: 'weur' },
+    { projectHint: undefined, platformHint: undefined, expected: undefined },
+  ])(
+    'creates project R2 buckets with resolved location $expected',
+    async ({ projectHint, platformHint, expected }) => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'r2-app');
+      const fetchMock = mockCfApi();
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          manifest: {
+            version: projectHint ? 5 : 3,
+            bindings: { r2: ['STORAGE'] },
+            ...(projectHint ? { storage: { locationHint: projectHint } } : {}),
+          },
+        }),
+        { ...env, ...(platformHint ? { R2_LOCATION_HINT: platformHint } : {}) },
+      );
+      expect(res.status).toBe(200);
+      await res.text();
+      const create = fetchMock.mock.calls.find(
+        ([url, init]) => String(url).endsWith('/r2/buckets') && init?.method === 'POST',
+      );
+      expect(create).toBeDefined();
+      expect(JSON.parse(String(create![1]!.body))).toEqual({
+        name: `${project.id.replaceAll('_', '-')}-storage`,
+        ...(expected ? { locationHint: expected } : {}),
+      });
+    },
+  );
+
   it('provisions D1 when manifest requires it', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'd1-app');
@@ -1380,14 +1400,13 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify resource row was created in DB
     const [resource] = await env.db
       .select({ cf_id: resources.cf_id, binding_name: resources.binding_name })
       .from(resources)
       .where(eq(resources.project_id, project.id));
     expect(resource).toBeDefined();
-    expect(resource!.cf_id).toBe('d1-test-uuid');
-    expect(resource!.binding_name).toBe('DB');
+    expect(resource.cf_id).toBe('d1-test-uuid');
+    expect(resource.binding_name).toBe('DB');
   });
 
   it('skips provisioning when resource already exists', async () => {
@@ -1413,7 +1432,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify no D1 creation call was made
     const createD1Call = fetchMock.mock.calls.find((call: Array<unknown>) => {
       const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
       return (
@@ -1524,6 +1542,11 @@ describe('POST /projects/:id/deploy', () => {
     expect(await response.json()).toMatchObject({ skipMigrations: true });
   });
 
+  it('advertises D1 read replication support', async () => {
+    const response = await app.fetch(new Request('https://api.test/capabilities'), env);
+    expect(await response.json()).toMatchObject({ d1ReadReplication: true });
+  });
+
   it('runs migrations via worker after upload (v3 flow)', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'migrate-app');
@@ -1615,7 +1638,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(done.urls).toContain('https://deploy.example.com');
     expect(done.urls).toContain('https://domain-deploy.void.app');
 
-    // Verify domain KV routing was written
     const domainRouting = await env.ROUTING.get('domain:deploy.example.com', 'json');
     expect(domainRouting).toEqual({
       workerName: expect.stringMatching(/^user-domain-deploy-dpl_/),
@@ -1626,7 +1648,6 @@ describe('POST /projects/:id/deploy', () => {
       limits: { cpuMs: 10, subRequests: 50 },
     });
 
-    // Verify pending domain was NOT written
     const pendingRouting = await env.ROUTING.get('domain:pending.example.com');
     expect(pendingRouting).toBeNull();
   });
@@ -1727,7 +1748,7 @@ describe('POST /projects/:id/deploy', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { event: string; message: string };
+    const body = await res.json<{ event: string; message: string }>();
     expect(body.event).toBe('error');
     expect(body.message).toBe('limits.cpuMs 60000 exceeds your plan maximum of 30000');
 
@@ -1967,43 +1988,53 @@ describe('POST /projects/:id/deploy', () => {
     );
   });
 
-  it('provisions queue and adds consumer on deploy with queues manifest', async () => {
-    const user = await createTestUser(env.db);
-    const project = await createTestProject(env.db, user.id, 'queue-app');
-    const fetchMock = mockCfApi();
+  it.each([undefined, 2])(
+    'provisions queue and adds consumer (maxConcurrency: %s)',
+    async (maxConcurrency) => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'queue-app');
+      const fetchMock = mockCfApi();
 
-    const res = await app.fetch(
-      await buildDeployRequest(env, project.id, user.jwt, {
-        manifest: {
-          version: 3,
-          bindings: {},
-          queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS' }],
-        },
-      }),
-      env,
-    );
-    expect(res.status).toBe(200);
-    await res.text();
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          manifest: {
+            version: 3,
+            bindings: {},
+            queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS', maxConcurrency }],
+          },
+        }),
+        env,
+      );
+      expect(res.status).toBe(200);
+      await res.text();
 
-    // Verify queue resource was created in DB with queue_id (UUID), not queue_name
-    const [resource] = await env.db
-      .select({ cf_id: resources.cf_id, binding_name: resources.binding_name })
-      .from(resources)
-      .where(eq(resources.project_id, project.id));
-    expect(resource).toBeDefined();
-    expect(resource!.cf_id).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
-    expect(resource!.binding_name).toBe('emails');
+      // Verify queue resource was created in DB with queue_id (UUID), not queue_name
+      const [resource] = await env.db
+        .select({ cf_id: resources.cf_id, binding_name: resources.binding_name })
+        .from(resources)
+        .where(eq(resources.project_id, project.id));
+      expect(resource).toBeDefined();
+      expect(resource.cf_id).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      expect(resource.binding_name).toBe('emails');
 
-    // Verify addQueueConsumer was called with queue_id (UUID), not queue_name
-    const consumerCall = fetchMock.mock.calls.find((call: Array<unknown>) => {
-      const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
-      return url.includes('/queues/') && url.includes('/consumers');
-    });
-    expect(consumerCall).toBeDefined();
-    const consumerUrl =
-      typeof consumerCall![0] === 'string' ? consumerCall![0] : String(consumerCall![0]);
-    expect(consumerUrl).toContain('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
-  });
+      // Verify addQueueConsumer was called with queue_id (UUID), not queue_name
+      const consumerCall = fetchMock.mock.calls.find((call: Array<unknown>) => {
+        const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
+        return (
+          url.includes('/queues/') &&
+          url.includes('/consumers') &&
+          (call[1] as RequestInit | undefined)?.method === 'POST'
+        );
+      });
+      expect(consumerCall).toBeDefined();
+      const consumerUrl =
+        typeof consumerCall![0] === 'string' ? consumerCall![0] : String(consumerCall![0]);
+      expect(consumerUrl).toContain('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      expect(JSON.parse(String(consumerCall![1]?.body)).settings).toEqual(
+        maxConcurrency === undefined ? {} : { max_concurrency: maxConcurrency },
+      );
+    },
+  );
 
   it('includes queue producer binding in worker upload metadata', async () => {
     const user = await createTestUser(env.db);
@@ -2071,12 +2102,12 @@ describe('POST /projects/:id/deploy', () => {
     // proxyToken must be present so void-dispatch can authenticate the relay
     // against the user worker's framework-generated /__void/queue endpoint.
     const expectedQueueName = `${project.id}-emails`.toLowerCase().replaceAll('_', '-');
-    const queueRouting = (await env.ROUTING.get(`queue:${expectedQueueName}`, 'json')) as {
+    const queueRouting = await env.ROUTING.get<{
       workerName: string;
       projectId: string;
       queueName: string;
       proxyToken: string;
-    } | null;
+    } | null>(`queue:${expectedQueueName}`, 'json');
     expect(queueRouting).toEqual({
       workerName: expect.stringMatching(/^user-queue-kv-app-dpl_/),
       projectId: project.id,
@@ -2121,16 +2152,16 @@ describe('POST /projects/:id/deploy', () => {
     });
 
     const expectedQueueName = `${project.id}-emails`.toLowerCase().replaceAll('_', '-');
-    const queueRouting = (await env.ROUTING.get(`queue:${expectedQueueName}`, 'json')) as {
+    const queueRouting = await env.ROUTING.get<{
       proxyToken: string;
-    } | null;
+    } | null>(`queue:${expectedQueueName}`, 'json');
     expect(queueRouting?.proxyToken).toBe(expected);
 
     const [row] = await env.db
       .select({ gen: projects.proxy_token_gen })
       .from(projects)
       .where(eq(projects.id, project.id));
-    expect(row!.gen).toBe(1);
+    expect(row.gen).toBe(1);
     // The deployment records the generation its Worker was uploaded with.
     expect(
       await env.db
@@ -2168,7 +2199,7 @@ describe('POST /projects/:id/deploy', () => {
       .select({ gen: projects.proxy_token_gen })
       .from(projects)
       .where(eq(projects.id, project.id));
-    expect(row!.gen).toBe(1);
+    expect(row.gen).toBe(1);
     expect(
       await env.db
         .select()
@@ -2361,7 +2392,7 @@ describe('POST /projects/:id/deploy', () => {
     const eventNames = events.filter(isDeployEvent).map((event) => event.event);
 
     expect(eventNames[0]).toBe('start');
-    expect(eventNames[eventNames.length - 1]).toBe('done');
+    expect(eventNames.at(-1)).toBe('done');
     expect(eventNames).toContain('worker_upload');
     expect(eventNames).toContain('worker_upload_done');
   });
@@ -2633,7 +2664,6 @@ describe('POST /projects/:id/deploy', () => {
       expect(uploadCalls).toBe(4);
       expect(dispatchScriptReads(cf)).toBe(1);
 
-      // Verify deployment is marked failed with error message
       const [dpl] = await env.db
         .select({ status: deployments.status, error_message: deployments.error_message })
         .from(deployments)
@@ -2863,9 +2893,9 @@ describe('POST /projects/:id/deploy', () => {
       }).migration_tag;
     }
 
-    const tokenConsumed = () => cfError('Completion token has already been consumed', 400, 100312);
+    const tokenConsumed = () => cfError('Completion token has already been consumed', 400, 100_312);
     const tagMoved = () =>
-      cfError("Actor migration tag precondition failed, got tag ''", 412, 10079);
+      cfError("Actor migration tag precondition failed, got tag ''", 412, 10_079);
 
     const websocketManifest = {
       version: 3,
@@ -2921,7 +2951,7 @@ describe('POST /projects/:id/deploy', () => {
           maxAttempts: 4,
           latencyMs: expect.any(Number),
           status: 400,
-          cfCode: 100312,
+          cfCode: 100_312,
           bodyPreview: expect.stringContaining('100312'),
         }),
       ]);
@@ -3298,7 +3328,7 @@ describe('POST /projects/:id/deploy', () => {
           uploadCalls++;
           return uploadCalls === 1
             ? new Response('service unavailable', { status: 503 })
-            : cfError('Uncaught SyntaxError', 400, 10021);
+            : cfError('Uncaught SyntaxError', 400, 10_021);
         },
       });
 
@@ -3762,7 +3792,7 @@ describe('POST /projects/:id/deploy', () => {
           .orderBy(desc(deployments.created_at))
           .limit(1);
         expect(failedDeployment?.status).toBe('failed');
-        expect(JSON.parse(failedDeployment!.appliedMigrations!)).toEqual(['001_create_table.sql']);
+        expect(JSON.parse(failedDeployment.appliedMigrations!)).toEqual(['001_create_table.sql']);
       } finally {
         env.DISPATCH = originalDispatch;
       }
@@ -4348,7 +4378,7 @@ describe('Deploy serialization (concurrent deploy guard)', () => {
 
     const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string; deployment: string };
+    const body = await res.json<{ error: string; deployment: string }>();
     expect(body.error).toBe('deploy in progress');
     expect(body.deployment).toBe('dpl_active');
   });
@@ -4548,7 +4578,7 @@ describe('Deploy serialization (concurrent deploy guard)', () => {
     const project = await createTestProject(env.db, user.id, 'wfp-final-asset-fence');
     const content = '<html>worker fallback must survive</html>';
     const bytes = new TextEncoder().encode(content);
-    const hash = computeAssetHash(bytes.buffer as ArrayBuffer, '/index.html');
+    const hash = computeAssetHash(bytes.buffer, '/index.html');
     mockCfApi();
 
     const response = await app.fetch(
@@ -4668,7 +4698,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     const source = await createTestDeployment(env.db, project.id, 'live');
     const content = '<html>same asset, new backend</html>';
     const bytes = new TextEncoder().encode(content);
-    const hash = computeAssetHash(bytes.buffer as ArrayBuffer, '/index.html');
+    const hash = computeAssetHash(bytes.buffer, '/index.html');
     await env.db
       .update(deployments)
       .set({
@@ -4793,7 +4823,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     const project = await createTestProject(env.db, user.id, 'static-final-asset-fence');
     const content = '<html>must survive until commit</html>';
     const bytes = new TextEncoder().encode(content);
-    const hash = computeAssetHash(bytes.buffer as ArrayBuffer, '/index.html');
+    const hash = computeAssetHash(bytes.buffer, '/index.html');
     mockCfApi();
 
     const response = await app.fetch(
@@ -4853,22 +4883,16 @@ describe('POST /projects/:id/deploy (static)', () => {
 
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
-    const wrappedDb = new Proxy(realDb, {
-      get(target, property, receiver) {
-        if (property === 'transaction') {
-          return (async (callback: Parameters<typeof realTransaction>[0]) =>
-            realTransaction(async (tx) => {
-              transactionDepth++;
-              try {
-                return await callback(tx);
-              } finally {
-                transactionDepth--;
-              }
-            })) as typeof realDb.transaction;
+    const wrappedDb = withTestTransaction(realDb, async (callback) =>
+      realTransaction(async (tx) => {
+        transactionDepth++;
+        try {
+          return await callback(tx);
+        } finally {
+          transactionDepth--;
         }
-        return Reflect.get(target, property, receiver);
-      },
-    }) as Db;
+      }),
+    );
     setTestDb(wrappedDb);
 
     mockCfApi();
@@ -4940,10 +4964,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'static-retention-rollback-race');
     const rollbackAssetBody = new TextEncoder().encode('live rollback asset');
-    const rollbackAssetHash = computeAssetHash(
-      rollbackAssetBody.buffer as ArrayBuffer,
-      '/rollback.txt',
-    );
+    const rollbackAssetHash = computeAssetHash(rollbackAssetBody.buffer, '/rollback.txt');
     const retainedRows = Array.from({ length: 100 }, (_, index) => {
       const timestamp = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
       return {
@@ -4965,10 +4986,7 @@ describe('POST /projects/:id/deploy (static)', () => {
     });
     const rollbackTarget = retainedRows[0];
     await env.db.insert(deployments).values(retainedRows);
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${project.id}/${rollbackAssetHash}`,
-      rollbackAssetBody as unknown as ArrayBuffer,
-    );
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${rollbackAssetHash}`, rollbackAssetBody);
     await env.db
       .update(projects)
       .set({ active_deployment_id: rollbackTarget.id, type: 'void' })
@@ -5391,27 +5409,20 @@ describe('ambiguous go-live commit outcomes', () => {
     const realDb = env.db;
     const realTransaction = realDb.transaction.bind(realDb);
     let rejectedFinalCommit = false;
-    const wrappedDb = new Proxy(realDb, {
-      get(target, prop, receiver) {
-        if (prop === 'transaction') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return (async (fn: any) =>
-            realTransaction(async (tx) => {
-              const result = await fn(tx);
-              const [lockedProject] = await tx
-                .select({ activeDeploymentId: projects.active_deployment_id })
-                .from(projects)
-                .where(eq(projects.id, project.id));
-              if (!rejectedFinalCommit && lockedProject?.activeDeploymentId) {
-                rejectedFinalCommit = true;
-                throw new Error('injected final commit rejection');
-              }
-              return result;
-            })) as unknown as typeof realDb.transaction;
+    const wrappedDb = withTestTransaction(realDb, async (fn) =>
+      realTransaction(async (tx) => {
+        const result = await fn(tx);
+        const [lockedProject] = await tx
+          .select({ activeDeploymentId: projects.active_deployment_id })
+          .from(projects)
+          .where(eq(projects.id, project.id));
+        if (!rejectedFinalCommit && lockedProject?.activeDeploymentId) {
+          rejectedFinalCommit = true;
+          throw new Error('injected final commit rejection');
         }
-        return Reflect.get(target, prop, receiver);
-      },
-    }) as Db;
+        return result;
+      }),
+    );
     setTestDb(wrappedDb);
 
     let cutoverDeploymentId: string;
@@ -5432,7 +5443,7 @@ describe('ambiguous go-live commit outcomes', () => {
         .from(deployments)
         .where(eq(deployments.status, 'cutover'));
       expect(cutover).toBeDefined();
-      cutoverDeploymentId = cutover!.id;
+      cutoverDeploymentId = cutover.id;
       expect(await env.ROUTING.get(project.slug)).toContain(cutoverDeploymentId);
     } finally {
       setTestDb(realDb);
@@ -5597,7 +5608,7 @@ describe('failed deploy compensation provenance', () => {
       value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
       options?: KVNamespacePutOptions,
     ) => {
-      const result = await originalPut(key, value as never, options as never);
+      const result = await originalPut(key, value as never, options);
       if (key === project.slug && !overtakePromise) {
         // Queue a newer cutover behind the failed deploy's project lock.
         // Once the lock releases, it becomes authoritative before the catch
@@ -5680,7 +5691,7 @@ describe('failed deploy compensation provenance', () => {
         });
         throw new Error('injected failure after late domain activation');
       }
-      return originalPut(key, value as never, options as never);
+      return originalPut(key, value as never, options);
     }) as typeof env.ROUTING.put);
 
     try {
@@ -5776,7 +5787,7 @@ describe('POST /projects/:id/deploy (streaming response headers / heartbeat)', (
     const order = nonHeartbeat.map((e) => e.event);
     expect(order).toContain('asset_upload');
     expect(order).toContain('asset_upload_done');
-    expect(order[order.length - 1]).toBe('done');
+    expect(order.at(-1)).toBe('done');
 
     // Sanity: the deploy actually succeeded with the right asset count.
     const doneEvent = nonHeartbeat.find((e) => e.event === 'done') as {
@@ -5796,7 +5807,6 @@ describe('Deploy with prerendering', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'prerender-app');
 
-    // Mock DISPATCH.get() to return a fetchable worker
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockImplementation(
         () =>
@@ -5806,7 +5816,7 @@ describe('Deploy with prerendering', () => {
           }),
       ),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -5837,7 +5847,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/__index__`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/__index__`, 'arrayBuffer');
     expect(homeValue).not.toBeNull();
     // Unpack: [4-byte header len][headers JSON][body]
     const homeView = new DataView(homeValue!);
@@ -5848,12 +5858,11 @@ describe('Deploy with prerendering', () => {
     expect(homeMeta?.t).toBe(3600);
 
     const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
     expect(aboutValue).not.toBeNull();
 
-    // Verify deployment is live
     expect(deployment?.status).toBe('live');
   });
 
@@ -5864,7 +5873,7 @@ describe('Deploy with prerendering', () => {
       get: vi
         .fn()
         .mockReturnValue({ fetch: vi.fn().mockResolvedValue(Response.json({ data: true })) }),
-    } as unknown as DispatchNamespace;
+    };
     mockCfApi();
 
     const response = await app.fetch(
@@ -5888,7 +5897,7 @@ describe('Deploy with prerendering', () => {
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
     const { value } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/data`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/data`,
       'arrayBuffer',
     );
     expect(value).toBeNull();
@@ -5909,7 +5918,7 @@ describe('Deploy with prerendering', () => {
           }),
       ),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -5939,7 +5948,7 @@ describe('Deploy with prerendering', () => {
     expect(
       (
         await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-          `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+          `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/about`,
         )
       ).value,
     ).not.toBeNull();
@@ -5957,7 +5966,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -5986,14 +5995,14 @@ describe('Deploy with prerendering', () => {
 
     // /about should have ISR entry
     const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
     expect(aboutValue).not.toBeNull();
 
     // /private should NOT have ISR entry
     const { value: privateValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/private`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/private`,
       'arrayBuffer',
     );
     expect(privateValue).toBeNull();
@@ -6036,7 +6045,7 @@ describe('Deploy with prerendering', () => {
       });
     });
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6062,7 +6071,7 @@ describe('Deploy with prerendering', () => {
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
-    const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
+    const base = `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app`;
 
     // The normal 200 render is warmed.
     const { value: warmValue, metadata: warmMetadata } = await createIsrStore(
@@ -6109,7 +6118,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6138,7 +6147,7 @@ describe('Deploy with prerendering', () => {
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
-    const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
+    const base = `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app`;
 
     const { value: otherValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/blog/other`,
@@ -6169,7 +6178,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6199,14 +6208,14 @@ describe('Deploy with prerendering', () => {
 
     // /blog/hello should have an ISR entry.
     const { value: helloValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/hello`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/blog/hello`,
       'arrayBuffer',
     );
     expect(helloValue).not.toBeNull();
 
     // /blog/a/b must NOT have an ISR entry (single-segment anchor).
     const { value: nestedValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/a/b`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/blog/a/b`,
       'arrayBuffer',
     );
     expect(nestedValue).toBeNull();
@@ -6230,7 +6239,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6269,7 +6278,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/intro`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/docs/intro`, 'arrayBuffer');
     expect(introValue).not.toBeNull();
     expect(introMeta).toMatchObject({ s: 200, t: 3600 });
     expect(typeof introMeta?.c).toBe('number');
@@ -6279,7 +6288,7 @@ describe('Deploy with prerendering', () => {
     const { value: nestedCatchAllValue, metadata: nestedMeta } = await createIsrStore(
       env.STATIC_ASSETS_R2,
     ).getWithMetadata<{ s: number; c: number; t: number }>(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/guide/setup`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/docs/guide/setup`,
       'arrayBuffer',
     );
     expect(nestedCatchAllValue).not.toBeNull();
@@ -6294,7 +6303,7 @@ describe('Deploy with prerendering', () => {
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockRejectedValue(new Error('Worker crashed')),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6327,7 +6336,6 @@ describe('Deploy with prerendering', () => {
     let statusDuringPrerender: string | undefined;
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockImplementation(async () => {
-        // Check deployment status during prerender
         const [dpl] = await env.db
           .select({ status: deployments.status })
           .from(deployments)
@@ -6336,7 +6344,7 @@ describe('Deploy with prerendering', () => {
         return new Response('<html>ok</html>', { status: 200 });
       }),
     });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6371,7 +6379,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6405,7 +6413,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/p`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/p`, 'arrayBuffer');
     expect(pValue).not.toBeNull();
     expect(pMeta).toMatchObject({ s: 200, t: 60 });
     expect(typeof pMeta?.c).toBe('number');
@@ -6429,7 +6437,7 @@ describe('Deploy with prerendering', () => {
         }),
     );
     const dispatchGet = vi.fn().mockReturnValue({ fetch: dispatchFetch });
-    env.DISPATCH = { get: dispatchGet } as unknown as DispatchNamespace;
+    env.DISPATCH = { get: dispatchGet };
 
     mockCfApi();
 
@@ -6461,7 +6469,7 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
 
     const { value: specificValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
-      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/specific`,
+      `${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/specific`,
       'arrayBuffer',
     );
     expect(specificValue).toBeNull();
@@ -6472,7 +6480,7 @@ describe('Deploy with prerendering', () => {
       s: number;
       c: number;
       t: number;
-    }>(`${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/other`, 'arrayBuffer');
+    }>(`${project.id}/isr/v3/${deployment.id}/${project.slug}.void.app/other`, 'arrayBuffer');
     expect(otherValue).not.toBeNull();
     expect(otherMeta).toMatchObject({ s: 200, t: 3600 });
   });
@@ -6501,7 +6509,7 @@ describe('asset_hashes storage', () => {
       .where(eq(deployments.id, data.deployment));
 
     expect(row?.asset_hashes).toBeTruthy();
-    const hashes = JSON.parse(row!.asset_hashes!);
+    const hashes = JSON.parse(row.asset_hashes!);
     expect(hashes['/index.html']).toBeDefined();
     expect(hashes['/index.html'].hash).toHaveLength(32);
     expect(hashes['/index.html'].size).toBeGreaterThan(0);
@@ -6579,7 +6587,7 @@ describe('asset_hashes storage', () => {
       // corroborate against it.
       expect(dpl?.retained).toBe(false);
       expect(dpl?.asset_hashes).toBeTruthy();
-      const persisted = JSON.parse(dpl!.asset_hashes!);
+      const persisted = JSON.parse(dpl.asset_hashes!);
       expect(persisted['/index.html']).toBeDefined();
     } finally {
       env.DISPATCH = originalDispatch;
@@ -6596,21 +6604,15 @@ describe('asset_hashes storage', () => {
     mockCfApi();
 
     const carriedBytes = new TextEncoder().encode('<h1>carried</h1>');
-    const carriedHash = computeAssetHash(carriedBytes.buffer as ArrayBuffer, '/index.html');
+    const carriedHash = computeAssetHash(carriedBytes.buffer, '/index.html');
     const newBytes = new TextEncoder().encode('body { color: blue }');
-    const newHash = computeAssetHash(newBytes.buffer as ArrayBuffer, '/style.css');
+    const newHash = computeAssetHash(newBytes.buffer, '/style.css');
 
     // Pre-upload BOTH paths to R2 — the carry-forward (preflight-skipped)
     // path's bytes are already present from a hypothetical earlier deploy,
     // and the new path's bytes were just uploaded direct-to-R2 by the CLI.
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${project.id}/${carriedHash}`,
-      carriedBytes as unknown as ArrayBuffer,
-    );
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${project.id}/${newHash}`,
-      newBytes as unknown as ArrayBuffer,
-    );
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${carriedHash}`, carriedBytes);
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${newHash}`, newBytes);
 
     const res = await app.fetch(
       await buildDeployRequest(env, project.id, user.jwt, {
@@ -6642,7 +6644,7 @@ describe('asset_hashes storage', () => {
       .where(eq(deployments.id, done.deployment));
 
     expect(row?.asset_hashes).toBeTruthy();
-    const persisted = JSON.parse(row!.asset_hashes!);
+    const persisted = JSON.parse(row.asset_hashes!);
     expect(persisted['/index.html']).toBeDefined();
     expect(persisted['/index.html'].hash).toBe(carriedHash);
     expect(persisted['/style.css']).toBeDefined();
@@ -6685,7 +6687,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
     );
 
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+    const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
     expect(data.needed.sort()).toEqual(['/app.js', '/index.html']);
     expect(data.total).toBe(2);
     expect(data.skipped).toBe(0);
@@ -6695,7 +6697,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id);
 
-    // Create a previous deployment with known asset hashes
     const prevManifest = {
       '/index.html': { hash: 'a'.repeat(32), size: 100 },
       '/app.js': { hash: 'b'.repeat(32), size: 200 },
@@ -6745,7 +6746,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
     );
 
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+    const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
     expect(data.needed.sort()).toEqual(['/app.js', '/new.js']);
     expect(data.total).toBe(3);
     expect(data.skipped).toBe(1);
@@ -7070,7 +7071,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id);
 
-      // Create a previous STATIC deployment with known asset hashes
       const prevManifest = {
         '/index.html': { hash: 'a'.repeat(32), size: 100 },
         '/app.js': { hash: 'b'.repeat(32), size: 200 },
@@ -7118,7 +7118,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+      const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
       // Every asset is absent from the scoped R2 store.
       expect(data.needed.sort()).toEqual(['/app.js', '/index.html', '/style.css']);
       expect(data.total).toBe(3);
@@ -7129,7 +7129,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id);
 
-      // Create a previous STATIC deployment
       const prevManifest = {
         '/index.html': { hash: 'a'.repeat(32), size: 100 },
         '/app.js': { hash: 'b'.repeat(32), size: 200 },
@@ -7174,7 +7173,7 @@ describe('POST /projects/:id/deploy/preflight', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as { needed: Array<string>; total: number; skipped: number };
+      const data = await res.json<{ needed: Array<string>; total: number; skipped: number }>();
       // static→static should still dedup
       expect(data.needed.sort()).toEqual(['/app.js']);
       expect(data.total).toBe(2);
@@ -7228,11 +7227,11 @@ describe('POST /projects/:id/deploy/preflight', () => {
         env,
       );
       expect(preflightRes.status).toBe(200);
-      const pfData = (await preflightRes.json()) as {
+      const pfData = await preflightRes.json<{
         needed: Array<string>;
         total: number;
         skipped: number;
-      };
+      }>();
       expect(pfData.skipped).toBe(2);
       expect(pfData.needed).toEqual([]);
 

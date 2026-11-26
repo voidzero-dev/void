@@ -15,14 +15,8 @@ import type { Db } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { githubRoutes } from '../../src/routes/github.ts';
 import { githubInstallationMembers } from '../../src/schema.ts';
-import {
-  JWT_SECRET,
-  clearTables,
-  createTestUser,
-  setupEnv,
-  teardownEnv,
-  type TestEnv,
-} from './helpers.ts';
+import { JWT_SECRET, clearTables, createTestUser, setupEnv, teardownEnv } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -163,7 +157,7 @@ async function mintConnectState(payload: {
 // `wrangler dev` mangles `Location: http://localhost:*` headers.
 function extractRedirectTarget(body: string): string | null {
   const match = /location\.replace\("([^"]+)"\)/.exec(body);
-  return match ? match[1]! : null;
+  return match ? match[1] : null;
 }
 
 // Drive the callback for a freshly-minted valid state + a stubbed exchange, and
@@ -223,7 +217,7 @@ describe('GET /github/connect-authorize-url', () => {
     );
 
     expect(res.status).toBe(200);
-    const { url } = (await res.json()) as { url: string };
+    const { url } = await res.json<{ url: string }>();
     expect(url.startsWith('https://github.com/login/oauth/authorize?')).toBe(true);
     expect(url).toContain(`client_id=${GITHUB_APP_USER_OAUTH_ENV.GITHUB_APP_CLIENT_ID}`);
 
@@ -273,7 +267,7 @@ describe('GET /github/connect-authorize-url', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('installationId is required');
+    expect((await res.json<{ error: string }>()).error).toBe('installationId is required');
   });
 
   it('rejects a missing repoFullName', async () => {
@@ -290,7 +284,7 @@ describe('GET /github/connect-authorize-url', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('repoFullName is required');
+    expect((await res.json<{ error: string }>()).error).toBe('repoFullName is required');
   });
 
   it('rejects a missing code_challenge', async () => {
@@ -306,7 +300,7 @@ describe('GET /github/connect-authorize-url', () => {
     );
 
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toBe('code_challenge is required');
+    expect((await res.json<{ error: string }>()).error).toBe('code_challenge is required');
   });
 
   it('rejects a non-S256 code_challenge_method', async () => {
@@ -340,7 +334,7 @@ describe('GET /github/connect-authorize-url', () => {
     );
 
     expect(res.status).toBe(503);
-    expect(((await res.json()) as { error: string }).error).toBe('github_oauth_not_configured');
+    expect((await res.json<{ error: string }>()).error).toBe('github_oauth_not_configured');
   });
 
   it('requires auth', async () => {

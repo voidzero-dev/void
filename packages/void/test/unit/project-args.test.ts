@@ -126,20 +126,30 @@ describe('parseProjectArgs', () => {
         subcommand: 'zero-trust',
         action: '',
         projectSlug: '',
+        json: false,
       });
       for (const action of ['status', 'protect', 'public', 'reconcile'] as const) {
         expect(parseProjectArgs(['zero-trust', action, '--project', 'my-app'])).toEqual({
           subcommand: 'zero-trust',
           action,
           projectSlug: 'my-app',
+          json: false,
         });
       }
+      expect(
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', ' Down ', '--yes']),
+      ).toMatchObject({
+        action: 'bypass',
+        reason: 'Down',
+        yes: true,
+      });
+      expect(() => parseProjectArgs(['zero-trust', 'bypass'])).toThrow('A reason is required');
     });
 
     it('rejects unknown operations and malformed project selection', () => {
       for (const action of ['remove', 'enable', 'disable']) {
         expect(() => parseProjectArgs(['zero-trust', action])).toThrow(
-          'status|protect|public|reconcile',
+          'status|protect|public|bypass|reconcile',
         );
       }
       expect(() => parseProjectArgs(['zero-trust', 'status', '--project'])).toThrow(
@@ -374,5 +384,24 @@ describe('parseProjectArgs', () => {
         name: 'my-app',
       });
     });
+  });
+});
+
+describe('security', () => {
+  it('parses an action and refuses a resolve without a comment', () => {
+    expect(
+      parseProjectArgs([
+        'security',
+        'resolve',
+        'F-12,13',
+        '--reason',
+        'false-positive',
+        '--comment',
+        'ok',
+      ]),
+    ).toMatchObject({ ids: ['F-12', 'F-13'], reason: 'false_positive', comment: 'ok' });
+    expect(() => parseProjectArgs(['security', 'resolve', 'F-1', '--reason', 'fixed'])).toThrow(
+      'comment is required',
+    );
   });
 });

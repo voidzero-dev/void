@@ -5,7 +5,7 @@
   "scripts": {
     "build": "vp build",
     "dev": "vp dev",
-    "typecheck": "void prepare && svelte-kit sync && tsc --noEmit"
+    "typecheck": "void prepare && svelte-kit sync && tsrs --noEmit"
   },
   "dependencies": {
     "@sveltejs/adapter-cloudflare": "catalog:",
@@ -13,7 +13,8 @@
     "svelte": "catalog:"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@sveltejs/vite-plugin-svelte": "^7.3.2",
+    "tsrs": "catalog:",
     "typescript": "catalog:sveltekit",
     "vite": "catalog:",
     "vite-plus": "catalog:",

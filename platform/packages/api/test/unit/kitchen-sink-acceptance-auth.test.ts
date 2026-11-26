@@ -1,6 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { CloudEnv } from 'void/handler';
 import { prepareKitchenSinkPlatformFixture } from '../../../../scripts/kitchen-sink-platform-fixture.ts';
@@ -25,6 +26,8 @@ vi.mock('void/sandbox', () => ({
   SandboxLimitError: class extends Error {},
 }));
 
+type TestRoute = (context: Context<CloudEnv>) => Promise<Response>;
+
 let fixture: ReturnType<typeof prepareKitchenSinkPlatformFixture>;
 let app: Hono<CloudEnv>;
 beforeAll(async () => {
@@ -32,24 +35,44 @@ beforeAll(async () => {
   // These handler tests use mocked bindings before `void init` has generated
   // .void/tsconfig.json. The separate fixture build test checks generated types.
   writeFileSync(join(fixture.root, 'tsconfig.json'), '{}');
-  const email = await import(join(fixture.root, 'routes/api/acceptance/email.ts'));
-  const sandbox = await import(join(fixture.root, 'routes/api/acceptance/sandbox.ts'));
-  const queue = await import(join(fixture.root, 'routes/api/acceptance/queue.ts'));
-  const runtime = await import(join(fixture.root, 'routes/api/acceptance/runtime.ts'));
-  const websocket = (await import(join(fixture.root, 'routes/ws/acceptance.ws.ts'))).default;
+  const email = (await import(join(fixture.root, 'routes/api/acceptance/email.ts'))) as {
+    GET: TestRoute;
+    POST: TestRoute;
+  };
+  const sandbox = (await import(join(fixture.root, 'routes/api/acceptance/sandbox.ts'))) as {
+    POST: TestRoute;
+  };
+  const queue = (await import(join(fixture.root, 'routes/api/acceptance/queue.ts'))) as {
+    GET: TestRoute;
+    POST: TestRoute;
+  };
+  const runtime = (await import(join(fixture.root, 'routes/api/acceptance/runtime.ts'))) as {
+    GET: TestRoute;
+    POST: TestRoute;
+  };
+  const { default: websocket } = (await import(
+    join(fixture.root, 'routes/ws/acceptance.ws.ts')
+  )) as {
+    default: {
+      onBeforeConnect(input: {
+        env: typeof mocks.env;
+        request: Request;
+      }): Promise<Response | undefined>;
+    };
+  };
   app = new Hono<CloudEnv>()
-    .get('/email', (c) => email.GET(c) as Promise<Response>)
-    .post('/email', (c) => email.POST(c) as Promise<Response>)
-    .post('/sandbox', (c) => sandbox.POST(c) as Promise<Response>)
-    .get('/queue', (c) => queue.GET(c) as Promise<Response>)
-    .post('/queue', (c) => queue.POST(c) as Promise<Response>)
-    .get('/runtime', (c) => runtime.GET(c) as Promise<Response>)
-    .post('/runtime', (c) => runtime.POST(c) as Promise<Response>)
+    .get('/email', (c) => email.GET(c))
+    .post('/email', (c) => email.POST(c))
+    .post('/sandbox', (c) => sandbox.POST(c))
+    .get('/queue', (c) => queue.GET(c))
+    .post('/queue', (c) => queue.POST(c))
+    .get('/runtime', (c) => runtime.GET(c))
+    .post('/runtime', (c) => runtime.POST(c))
     .get('/socket-auth', async (c) => {
       const denied = await websocket.onBeforeConnect({
         env: mocks.env,
         request: c.req.raw,
-      } as never);
+      });
       return denied ?? c.json({ ok: true });
     });
 });
@@ -130,7 +153,7 @@ describe('acceptance auth with a configured secret', () => {
     const response = await app.request('/runtime', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-void-e2e-token': 'configured-secret' },
-      body: JSON.stringify({ action: 'ai', model: 'arbitrary', max_tokens: 10000 }),
+      body: JSON.stringify({ action: 'ai', model: 'arbitrary', max_tokens: 10_000 }),
     });
     expect(response.status).toBe(200);
     expect(mocks.aiRun).toHaveBeenCalledWith('@cf/meta/llama-3.2-1b-instruct', {

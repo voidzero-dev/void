@@ -6,7 +6,7 @@ export default function InitialRedirectPage({ title }: Props) {
   const router = useRouter();
 
   useLayoutEffect(() => {
-    router.visit('/users');
+    void router.visit('/users');
   }, [router]);
 
   return (

@@ -7,22 +7,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { runDeploy } from '../../src/cli/deploy.ts';
 import { buildEnv } from '../../src/shared/untrusted-env.ts';
 
-const mockError = vi.fn();
-const mockInfo = vi.fn();
-const mockStep = vi.fn();
-const mockWarn = vi.fn();
-const mockSuccess = vi.fn();
-const mockGetToken = vi.fn();
-const mockGetTokenSource = vi.fn();
-const mockGetApiUrl = vi.fn();
-const mockProjectLookup = vi.fn();
-const mockIsExpiredTokenError = vi.fn();
-const mockPromptForLoginToken = vi.fn();
-const mockIsOidcAvailable = vi.fn();
-const mockExchangeOidc = vi.fn();
-const mockMaskSecret = vi.fn();
-const mockClientCtor = vi.fn();
-const mockMigrationSkipSupport = vi.fn();
+const mockError = vi.fn<(...args: Array<unknown>) => void>();
+const mockInfo = vi.fn<(...args: Array<unknown>) => void>();
+const mockStep = vi.fn<(...args: Array<unknown>) => void>();
+const mockWarn = vi.fn<(...args: Array<unknown>) => void>();
+const mockSuccess = vi.fn<(...args: Array<unknown>) => void>();
+const mockGetToken = vi.fn<typeof import('../../src/cli/auth.ts').getToken>();
+const mockGetTokenSource = vi.fn<typeof import('../../src/cli/auth.ts').getTokenSource>();
+const mockGetApiUrl = vi.fn<typeof import('../../src/cli/auth.ts').getApiUrl>();
+const mockProjectLookup =
+  vi.fn<() => Promise<Array<{ id: string; slug: string; role?: string }>>>();
+const mockIsExpiredTokenError =
+  vi.fn<typeof import('../../src/cli/client.ts').isExpiredTokenError>();
+const mockPromptForLoginToken =
+  vi.fn<typeof import('../../src/cli/login.ts').promptForLoginToken>();
+const mockIsOidcAvailable =
+  vi.fn<typeof import('../../src/cli/github-oidc.ts').isGithubActionsOidcAvailable>();
+const mockExchangeOidc =
+  vi.fn<typeof import('../../src/cli/github-oidc.ts').exchangeGithubOidcForDeployToken>();
+const mockMaskSecret =
+  vi.fn<typeof import('../../src/cli/github-oidc.ts').maskGithubActionsSecret>();
+const mockClientCtor = vi.fn<(...args: Array<unknown>) => void>();
+const mockMigrationSkipSupport =
+  vi.fn<import('../../src/cli/client.ts').PlatformClient['requireMigrationSkipSupport']>();
 
 const originalIsTTY = process.stdin.isTTY;
 let savedVoidToken: string | undefined;
@@ -37,24 +44,26 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   confirm: vi.fn(),
   isCancel: () => false,
   log: {
-    error: (...args: Array<unknown>) => mockError(...args),
-    info: (...args: Array<unknown>) => mockInfo(...args),
-    step: (...args: Array<unknown>) => mockStep(...args),
-    warn: (...args: Array<unknown>) => mockWarn(...args),
-    success: (...args: Array<unknown>) => mockSuccess(...args),
+    error: (...args: Parameters<typeof mockError>) => mockError(...args),
+    info: (...args: Parameters<typeof mockInfo>) => mockInfo(...args),
+    step: (...args: Parameters<typeof mockStep>) => mockStep(...args),
+    warn: (...args: Parameters<typeof mockWarn>) => mockWarn(...args),
+    success: (...args: Parameters<typeof mockSuccess>) => mockSuccess(...args),
   },
 }));
 
 vi.mock('../../src/cli/auth', () => ({
-  getToken: (...args: Array<unknown>) => mockGetToken(...args),
-  getTokenSource: (...args: Array<unknown>) => mockGetTokenSource(...args),
-  getApiUrl: (...args: Array<unknown>) => mockGetApiUrl(...args),
+  getToken: (...args: Parameters<typeof mockGetToken>) => mockGetToken(...args),
+  getTokenSource: (...args: Parameters<typeof mockGetTokenSource>) => mockGetTokenSource(...args),
+  getApiUrl: (...args: Parameters<typeof mockGetApiUrl>) => mockGetApiUrl(...args),
 }));
 
 vi.mock('../../src/cli/github-oidc', () => ({
-  isGithubActionsOidcAvailable: (...args: Array<unknown>) => mockIsOidcAvailable(...args),
-  exchangeGithubOidcForDeployToken: (...args: Array<unknown>) => mockExchangeOidc(...args),
-  maskGithubActionsSecret: (...args: Array<unknown>) => mockMaskSecret(...args),
+  isGithubActionsOidcAvailable: (...args: Parameters<typeof mockIsOidcAvailable>) =>
+    mockIsOidcAvailable(...args),
+  exchangeGithubOidcForDeployToken: (...args: Parameters<typeof mockExchangeOidc>) =>
+    mockExchangeOidc(...args),
+  maskGithubActionsSecret: (...args: Parameters<typeof mockMaskSecret>) => mockMaskSecret(...args),
 }));
 
 vi.mock('../../src/cli/client', () => ({
@@ -77,11 +86,13 @@ vi.mock('../../src/cli/client', () => ({
       return projects.find((project: { id: string }) => project.id === projectId) ?? null;
     }
   },
-  isExpiredTokenError: (...args: Array<unknown>) => mockIsExpiredTokenError(...args),
+  isExpiredTokenError: (...args: Parameters<typeof mockIsExpiredTokenError>) =>
+    mockIsExpiredTokenError(...args),
 }));
 
 vi.mock('../../src/cli/login', () => ({
-  promptForLoginToken: (...args: Array<unknown>) => mockPromptForLoginToken(...args),
+  promptForLoginToken: (...args: Parameters<typeof mockPromptForLoginToken>) =>
+    mockPromptForLoginToken(...args),
 }));
 
 beforeEach(() => {
@@ -360,7 +371,7 @@ describe('runDeploy GitHub Actions OIDC exchange', () => {
         kind: 'connected',
         proxyUrl: 'https://proxy.example.test',
       });
-      mockGetToken.mockImplementation((tokenRoot: string) => realGetToken(tokenRoot));
+      mockGetToken.mockImplementation(realGetToken);
 
       await expect(runDeploy(root, { platform: 'void', projectSlug: 'my-app' })).rejects.toThrow(
         'Set VOID_API_URL alongside VOID_TOKEN',

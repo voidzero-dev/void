@@ -164,7 +164,11 @@ export async function runAiSetupPrompt(
     projectId = created.id;
     slug = created.slug;
   } else {
-    const project = projects.find((p) => p.id === result)!;
+    const project = projects.find((p) => p.id === result);
+    if (!project) {
+      voidError('project: Selected project is unavailable.');
+      return;
+    }
     projectId = project.id;
     slug = project.slug;
   }

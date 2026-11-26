@@ -31,7 +31,7 @@ function createPackage(t, overrides = {}, includeLicense = true) {
   return tarball;
 }
 
-test('accepts complete metadata and license in a real package tarball', (t) => {
+void test('accepts complete metadata and license in a real package tarball', (t) => {
   const inspected = inspectPackage(createPackage(t));
   assert.equal(inspected.manifest.name, '@void/test');
   assert.match(inspected.integrity, /^sha512-/);
@@ -43,12 +43,12 @@ for (const [field, error] of [
   ['homepage', /homepage must be an HTTPS URL/],
   ['bugs', /bugs.url must be an HTTPS URL/],
 ]) {
-  test(`rejects a packed manifest missing ${field}`, (t) => {
+  void test(`rejects a packed manifest missing ${field}`, (t) => {
     assert.throws(() => inspectPackage(createPackage(t, { [field]: undefined })), error);
   });
 }
 
-test('rejects blank descriptions and invalid package links', (t) => {
+void test('rejects blank descriptions and invalid package links', (t) => {
   for (const overrides of [
     { description: '  ' },
     { homepage: 'void.cloud' },
@@ -59,6 +59,6 @@ test('rejects blank descriptions and invalid package links', (t) => {
   }
 });
 
-test('requires the license file as well as its manifest field', (t) => {
+void test('requires the license file as well as its manifest field', (t) => {
   assert.throws(() => inspectPackage(createPackage(t, {}, false)), /missing packaged LICENSE/);
 });

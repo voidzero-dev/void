@@ -128,10 +128,14 @@ export class ProjectOwnerSuspendedError extends ProjectAccessDeniedError {
   }
 }
 
-export function projectAccessErrorBody(error: ProjectNotFoundError | ProjectAccessDeniedError): {
+type ProjectAccessErrorBody = {
   error: string;
   message: string;
-} {
+};
+
+export function projectAccessErrorBody(
+  error: ProjectNotFoundError | ProjectAccessDeniedError,
+): ProjectAccessErrorBody {
   return { error: error.message, message: error.userMessage };
 }
 

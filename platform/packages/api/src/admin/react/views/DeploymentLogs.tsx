@@ -4,7 +4,8 @@ import { Button } from '@astryxdesign/core/Button';
 import { Selector } from '@astryxdesign/core/Selector';
 import { isRecord } from '@void/deploy-core';
 import { useCallback, useEffect, useState } from 'react';
-import { useFateClient, useView, type ViewRef } from 'react-fate';
+import { useFateClient, useView } from 'react-fate';
+import type { ViewRef } from 'react-fate';
 import {
   DeploymentLogSettingsView,
   DeploymentLogsView,
@@ -24,7 +25,11 @@ type LogEntry = {
   exceptions?: ReadonlyArray<unknown>;
 };
 
-const LEVEL_COLORS: Record<string, string> = {
+interface LogLevelColors {
+  [key: string]: string | undefined;
+}
+
+const LEVEL_COLORS: LogLevelColors = {
   error: '#dc2626',
   warn: '#d97706',
   info: '#6b7280',
@@ -213,6 +218,7 @@ export function DeploymentLogs({
   }, [fetchEntries, since, count]);
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- Restart loading when the external log query changes.
     void loadLogs();
   }, [loadLogs]);
 
@@ -237,7 +243,7 @@ export function DeploymentLogs({
       }
     };
     void poll();
-    const timer = setInterval(() => void poll(), 3_000);
+    const timer = setInterval(() => void poll(), 3000);
     return () => {
       active = false;
       clearInterval(timer);

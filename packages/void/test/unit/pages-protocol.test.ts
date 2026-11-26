@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { describe, expect, it, vi, afterEach } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { defer } from '../../src/pages/defer.ts';
 import {
@@ -14,8 +14,9 @@ import {
   decodePageData,
   serializePageData,
 } from '../../src/pages/serialize.ts';
-import { defineHandler, type CloudContext, type CloudEnv } from '../../src/runtime/handler.ts';
-import { createRoutingRuntime } from '../../src/runtime/routing.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
+import type { CloudContext, CloudEnv } from '../../src/runtime/handler/index.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 type RenderPage = { component: string };
 type PageResponse = {
@@ -58,13 +59,13 @@ function createTestContext(
   });
 
   app.all(options.routePattern ?? '*', (c) => {
-    resolveContext!(c as unknown as CloudContext);
+    resolveContext(c);
     return c.text('ok');
   });
 
   const url = `http://localhost${path}`;
   const req = new Request(url, { method, headers: options.headers });
-  app.fetch(req);
+  void app.fetch(req);
 
   return contextPromise;
 }
@@ -413,7 +414,7 @@ describe('handlePageGet', () => {
     const html = await response.text();
     expect(html).toContain('data-vite-dev-id="/pages/styled.tsx?x=1"');
     expect(html).toContain('nonce="');
-    expect(html).toContain('<\\/style>');
+    expect(html).toContain(String.raw`<\/style>`);
     expect(html).not.toContain('</STYLE>');
   });
 
@@ -771,7 +772,7 @@ describe('handlePageMutation', () => {
     'allows same-origin browser actions and requests without browser metadata: %j',
     async (headers) => {
       const c = await createTestContext('POST', '/settings', {
-        headers: headers,
+        headers,
       });
       const action = vi.fn(() => Response.redirect('http://localhost/settings', 303));
       const response = await handlePageMutation(
@@ -1600,6 +1601,96 @@ describe('handlePageGet with deferred props', () => {
     expect(deferredLine.__deferred).toBe('analytics');
     expect(deferredLine.data).toHaveProperty('metrics');
     expect(deferredLine.data).toHaveProperty('chart');
+  });
+});
+
+describe('Pages build recovery', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  function pagesContext(method: 'GET' | 'POST', build: string | null) {
+    return createTestContext(method, '/blog/post', {
+      headers: {
+        'x-voidpages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        ...(build === null ? {} : { 'X-VoidPages-Build': build }),
+      },
+    });
+  }
+
+  it('answers a tab from another build with a reload instead of page props', async () => {
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    const handler = vi.fn(() => ({ title: 'post' }));
+    const render = vi.fn(async () => 'rendered');
+
+    const response = await handlePageGet(
+      handler,
+      undefined,
+      await pagesContext('GET', 'build-1'),
+      'blog/post',
+      render,
+      mockGetAssetTags,
+    );
+
+    // Nothing from this build may reach a client that cannot import it.
+    expect(handler).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(response.headers.get('X-VoidPages')).toBeNull();
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    // The client reloads because this build differs from its own.
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('serves the payload to the build that rendered it', async () => {
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+
+    const response = await handlePageGet(
+      () => ({ title: 'post' }),
+      undefined,
+      await pagesContext('GET', 'build-2'),
+      'blog/post',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(response.headers.get('X-VoidPages')).toBe('true');
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('names its build on the HTML document, which ISR copies into its JSON cache', async () => {
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+
+    const response = await handlePageGet(
+      () => ({ title: 'post' }),
+      undefined,
+      await createTestContext('GET', '/blog/post'),
+      'blog/post',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('keeps its response for a stale mutation, so the action never replays', async () => {
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    const action = vi.fn();
+
+    const response = await handlePageMutation(
+      action,
+      () => ({ title: 'post' }),
+      undefined,
+      await pagesContext('POST', 'build-1'),
+      'blog/post',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(action).toHaveBeenCalledOnce();
+    expect(response.headers.get('X-VoidPages')).toBe('true');
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
   });
 });
 

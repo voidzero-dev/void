@@ -1,7 +1,7 @@
 import { hostRegistryKey, htmlEdgeKey, isrKey, isrPrefix, jsonEdgeKey } from '@void/isr/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { envContext } from '../../src/runtime/env-raw.ts';
-import { revalidate } from '../../src/runtime/isr.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
+import { revalidate } from '../../src/runtime/isr/index.ts';
 
 const DPL = 'dpl_1';
 const HOST = 'app.example.com';
@@ -38,7 +38,7 @@ function createKvMock(pageSize = 1000) {
 function createEdgeMock() {
   const store = new Map<string, Response>();
   const del = vi.fn(async (key: string | Request) => {
-    const k = typeof key === 'string' ? key : (key as Request).url;
+    const k = typeof key === 'string' ? key : key.url;
     return store.delete(k);
   });
   const cache = { delete: del } as unknown as Cache;
@@ -58,7 +58,7 @@ describe('revalidate — managed (platform proxy)', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://proxy/revalidate');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({
@@ -78,7 +78,7 @@ describe('revalidate — managed (platform proxy)', () => {
         await revalidate({ all: true });
       },
     );
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(init.body as string)).toEqual({
       projectId: 'proj_1',
       aiToken: 'tok_1',

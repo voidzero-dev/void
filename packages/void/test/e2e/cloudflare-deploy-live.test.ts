@@ -146,6 +146,7 @@ async function fetchWithRetry(
   if (lastResponse) {
     return lastResponse;
   }
+  // oxlint-disable-next-line typescript/only-throw-error -- Report the original fetch rejection after exhausting retries.
   throw lastError ?? new Error(`worker at ${url} never answered`);
 }
 
@@ -375,7 +376,7 @@ describe('void deploy --platform cloudflare (live account)', () => {
     const served = await fetchWithRetry(`${root}/api/hello`, {}, 15, 2000, ctx.signal);
     expect(served.status).toBe(200);
     const dbRoute = await fetchWithRetry(`${root}/api/users`, {}, 15, 2000, ctx.signal);
-    const users = (await dbRoute.json()) as Array<{ email: string }>;
+    const users = await dbRoute.json<Array<{ email: string }>>();
     expect(dbRoute.status).toBe(200);
     expect(users.some((user) => user.email === createdEmail)).toBe(true);
     const kv = await fetchWithRetry(`${root}/api/kv/${kvKey}`, {}, 40, 2000, ctx.signal);

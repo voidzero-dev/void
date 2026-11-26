@@ -7,8 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/sveltekit';
@@ -38,7 +38,7 @@ describe.each([2, 3])('SvelteKit %i compatibility', (major) => {
         );
         const pkg = JSON.parse(readFileSync(join(pg, 'package.json'), 'utf8'));
         pkg.dependencies['@sveltejs/kit'] = '2.62.0';
-        pkg.dependencies['@sveltejs/adapter-cloudflare'] = '7.2.9';
+        pkg.dependencies['@sveltejs/adapter-cloudflare'] = '7.2.10';
         writeFileSync(join(pg, 'package.json'), JSON.stringify(pkg));
         const viteConfig = readFileSync(join(pg, 'vite.config.ts'), 'utf8');
         writeFileSync(
@@ -121,7 +121,7 @@ export function checkSchema() {
 
   it('syncs the generated Cloudflare config with inferred bindings', () => {
     const wranglerConfig = JSON.parse(
-      readFileSync(join(fixture.root, '.void-wrangler.jsonc'), 'utf-8'),
+      readFileSync(join(fixture.root, '.void-wrangler.jsonc'), 'utf8'),
     ) as {
       d1_databases?: Array<{ binding: string }>;
       kv_namespaces?: Array<{ binding: string }>;
@@ -136,7 +136,7 @@ export function checkSchema() {
     const started = performance.now();
     const result = spawn.sync(
       process.execPath,
-      [join(fixture.root, 'node_modules/typescript/bin/tsc'), '--noEmit'],
+      [join(fixture.root, 'node_modules/tsrs/bin/tsrs'), '--noEmit'],
       { cwd: fixture.root, encoding: 'utf8', timeout: TYPECHECK_TIMEOUT },
     );
     const diagnostics = [

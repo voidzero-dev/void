@@ -69,7 +69,7 @@ describe('resolveResource', () => {
     const api = createMockApi({ 'proj_000000000001:d1:DB': 'd1-uuid-123' });
     await resolveResource(api, JWT_SECRET, 'proj_000000000001', 'd1', 'DB');
 
-    const [, init] = (api.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const [, init] = (api.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const headers = (init as RequestInit).headers as Record<string, string>;
     expect(headers['x-void-proxy-internal']).toBe(
       await deriveProxyInternalAuth(JWT_SECRET, 'resolve-resource', 'proj_000000000001'),
@@ -87,7 +87,7 @@ describe('verifyPrerenderAuthority', () => {
       }),
     ).resolves.toBe(true);
 
-    const [url, init] = (api.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const [url, init] = (api.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(url).toBe('https://api/internal/verify-prerender-build/proj_000000000001');
     const headers = (init as RequestInit).headers as Record<string, string>;
     expect(headers['x-void-proxy-internal']).toBe(
@@ -111,7 +111,7 @@ describe('verifyProjectDeployAccess', () => {
         'https://proxy.example.com',
       ),
     ).resolves.toBe(true);
-    const [, init] = (api.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const [, init] = (api.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({
       userId: 'user_1',
       proxyOrigin: 'https://proxy.example.com',

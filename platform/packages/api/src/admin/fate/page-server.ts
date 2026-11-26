@@ -1,14 +1,9 @@
-import {
-  dataView,
-  FateRequestError,
-  resolveSourceById,
-  type Entity,
-  type SourceDefinition,
-  type SourceRegistry,
-} from '@nkzw/fate/server';
+import { dataView, FateRequestError, resolveSourceById } from '@nkzw/fate/server';
+import type { Entity, SourceDefinition, SourceRegistry } from '@nkzw/fate/server';
 import type { Context } from 'hono';
 import type { ApiEnv } from '../../env.ts';
 import { OperatorError } from '../../operator/common.ts';
+import { loadSecurityAdminPage as loadSecurityPage } from '../security-data.ts';
 import {
   loadPlansPage,
   loadBuildDetailPage,
@@ -35,6 +30,8 @@ export const plansDataView = dataView<PlansRecord>('AdminPlans')({
   catalog: true,
   accounts: true,
   aiLogging: true,
+  securityCaps: true,
+  securityAudits: true,
   selectedPlanId: true,
 });
 export type AdminPlans = Entity<typeof plansDataView, 'AdminPlans'>;
@@ -57,6 +54,7 @@ type AuthEditRecord = Awaited<ReturnType<typeof loadAuthEditPage>>;
 type EmailSettingsRecord = Awaited<ReturnType<typeof loadEmailSettingsPage>>;
 type EmailProjectRecord = Awaited<ReturnType<typeof loadEmailProjectPage>>;
 type ZeroTrustRecord = Awaited<ReturnType<typeof loadZeroTrustPage>>;
+type SecurityRecord = Awaited<ReturnType<typeof loadSecurityPage>>;
 
 export const usersPageDataView = dataView<UsersPageRecord>('AdminUsersPage')({
   id: true,
@@ -105,6 +103,7 @@ export const projectDetailDataView = dataView<ProjectDetailRecord>('AdminProject
   domains: true,
   builds: true,
   zeroTrust: true,
+  security: true,
   aiLogging: true,
   cfAccountId: true,
   deployUrl: true,
@@ -195,8 +194,27 @@ export const emailProjectDataView = dataView<EmailProjectRecord>('AdminEmailProj
   senderDomain: true,
   tz: true,
 });
+export const securityDataView = dataView<SecurityRecord>('AdminSecurity')({
+  id: true,
+  section: true,
+  capability: true,
+  emailEnabled: true,
+  urgentTotal: true,
+  unseenBypasses: true,
+  seenAt: true,
+  revision: true,
+  tz: true,
+  page: true,
+  totalPages: true,
+  settings: true,
+  findings: true,
+  findingFilter: true,
+  scans: true,
+  requests: true,
+});
 export const zeroTrustDataView = dataView<ZeroTrustRecord>('AdminZeroTrust')({
   id: true,
+  publicGate: true,
   configured: true,
   enabled: true,
   status: true,
@@ -231,6 +249,7 @@ export type AdminAuthEdit = Entity<typeof authEditDataView, 'AdminAuthEdit'>;
 export type AdminEmailSettings = Entity<typeof emailSettingsDataView, 'AdminEmailSettings'>;
 export type AdminEmailProject = Entity<typeof emailProjectDataView, 'AdminEmailProject'>;
 export type AdminZeroTrust = Entity<typeof zeroTrustDataView, 'AdminZeroTrust'>;
+export type AdminSecurity = Entity<typeof securityDataView, 'AdminSecurity'>;
 
 const usersSource: SourceDefinition<UsersPageRecord> = { id: 'id', view: usersPageDataView };
 const projectsSource: SourceDefinition<ProjectsPageRecord> = {
@@ -278,6 +297,7 @@ const emailProjectSource: SourceDefinition<EmailProjectRecord> = {
   view: emailProjectDataView,
 };
 const zeroTrustSource: SourceDefinition<ZeroTrustRecord> = { id: 'id', view: zeroTrustDataView };
+const securitySource: SourceDefinition<SecurityRecord> = { id: 'id', view: securityDataView };
 
 export const pageSourceByType = new Map<string, SourceDefinition>([
   ['AdminPlans', plansSource],
@@ -297,6 +317,7 @@ export const pageSourceByType = new Map<string, SourceDefinition>([
   ['AdminEmailSettings', emailSettingsSource],
   ['AdminEmailProject', emailProjectSource],
   ['AdminZeroTrust', zeroTrustSource],
+  ['AdminSecurity', securitySource],
 ]);
 
 export const pageRegistry: SourceRegistry<AdminContext> = new Map();
@@ -343,6 +364,7 @@ registerPage(authEditSource, loadAuthEditPage);
 registerPage(emailSettingsSource, loadEmailSettingsPage);
 registerPage(emailProjectSource, loadEmailProjectPage);
 registerPage(zeroTrustSource, loadZeroTrustPage);
+registerPage(securitySource, loadSecurityPage);
 
 function pagePath(input: { args?: Record<string, unknown> }) {
   const path = input.args?.path;
@@ -370,6 +392,7 @@ export const PageRoot = {
   emailSettings: emailSettingsDataView,
   emailProject: emailProjectDataView,
   zeroTrust: zeroTrustDataView,
+  security: securityDataView,
 };
 
 function pageQuery(source: SourceDefinition) {
@@ -411,4 +434,5 @@ export const pageQueries = {
   emailSettings: pageQuery(emailSettingsSource),
   emailProject: pageQuery(emailProjectSource),
   zeroTrust: pageQuery(zeroTrustSource),
+  security: pageQuery(securitySource),
 };

@@ -1,16 +1,17 @@
 /// <reference lib="dom" />
 
-import { PAGES_PROTOCOL_VERSION } from '@void/edge';
+import { buildHeaders, isStaleBuild, PAGES_BUILD_HEADER, PAGES_PROTOCOL_VERSION } from '@void/edge';
 import { PRESERVED_QUERY_HEADER, searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
 import { pageBoundarySlots, clientPageError, showTerminalPageError } from './boundary-client.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
+import { pagesBuildId } from './build-id.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
-import type { HeadDescriptor } from './head.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
-import { fetchPages, type PagesFetchOptions, type PagesFetchResult } from './redirect.ts';
+import { fetchPages } from './redirect.ts';
+import type { PagesFetchOptions, PagesFetchResult } from './redirect.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
 import { decodePageData, deserializePageData, serializePageData } from './serialize.ts';
 import { decodePagePath, isSameOrigin } from './url.ts';
@@ -32,8 +33,8 @@ function withoutActionKey(fetchUrl: string, pageUrl: string): string {
     : fetchUrl;
 }
 
-export type PageComponentModule = {
-  default: unknown;
+export type PageComponentModule<Component = unknown> = {
+  default: Component;
 };
 
 export type PageData = PageObject;
@@ -84,11 +85,11 @@ export type VoidRouterAdapter = {
   onDeferredUpdate?(props: Record<string, unknown>): void;
 };
 
-export type PageNavigationEngineConfig = {
+export type PageNavigationEngineConfig<Component = unknown> = {
   boundaryManifest?: BoundaryManifest;
   dev?: boolean;
   adapter: VoidRouterAdapter;
-  components: Record<string, () => Promise<PageComponentModule>>;
+  components: Record<string, () => Promise<PageComponentModule<Component>>>;
   layoutTree: Record<string, Array<string>>;
   routeMeta: Record<string, { island?: boolean; prerender?: boolean; boundary?: boolean }>;
   /** Page id for a decoded pathname (see `decodePagePath`). */
@@ -104,13 +105,13 @@ export type PageNavigationEngineConfig = {
   cacheVisitedPageData?: boolean;
 };
 
-export type PageNavigationResult = {
+export type PageNavigationResult<Component = unknown> = {
   pageData: PageData;
-  component: unknown;
-  layouts: Array<unknown>;
+  component: Component;
+  layouts: Array<Component>;
 };
 
-export type PageNavigationResource = {
+export type PageNavigationResource<Component = unknown> = {
   id: number;
   url: string;
   fetchUrl: string;
@@ -120,27 +121,27 @@ export type PageNavigationResource = {
   method: string;
   options: VisitOptions;
   immediate: boolean;
-  shell: Promise<PageNavigationResult | undefined>;
+  shell: Promise<PageNavigationResult<Component> | undefined>;
   abort(): void;
   /** Resolves false when a newer visit has already set the URL, so nothing was committed. */
   commit(): Promise<boolean>;
   dispose(): void;
 };
 
-export type PageNavigationEngine = {
+export type PageNavigationEngine<Component = unknown> = {
   _hoverDelay: number;
   _prefetchDefaultStrategy: LinkPrefetchValue;
   initialPageData: PageData;
-  initialComponent: unknown;
-  initialLayouts: Array<unknown>;
-  prepareVisit(url: string, options?: VisitOptions): PageNavigationResource;
+  initialComponent: Component;
+  initialLayouts: Array<Component>;
+  prepareVisit(url: string, options?: VisitOptions): PageNavigationResource<Component>;
   prefetch(url: string, options?: PrefetchOptions): Promise<unknown>;
   flush(url: string, method?: string): void;
   flushAll(): void;
   setPopStateHandler(handler: (url: string, options: VisitOptions) => void): void;
-  start(): void;
+  start(this: void): void;
   /** Called after the adapter commits the initial page DOM. */
-  commitInitialRender(): void;
+  commitInitialRender(this: void): void;
 };
 
 const PAGE_DATA_SCRIPT_ID = '__VOID_PAGE_DATA__';
@@ -168,7 +169,7 @@ export function objectToFormData(
 ): FormData {
   form = form || new FormData();
   for (const key in source) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) {
+    if (!Object.hasOwn(source, key)) {
       continue;
     }
     const composed = parentKey ? parentKey + '[' + key + ']' : key;
@@ -229,8 +230,64 @@ function parsePageDataFromHtml(html: string): PageData | null {
   }
 }
 
+async function skipCommit(): Promise<boolean> {
+  return false;
+}
+
 function abortError(): DOMException {
   return new DOMException('Navigation aborted', 'AbortError');
+}
+
+const DEPLOY_RELOAD_KEY = '__void_pages_deploy_reload';
+/** A reload that lands on the same stale build must not reload again. */
+const DEPLOY_RELOAD_WINDOW_MS = 10_000;
+
+/**
+ * Claims the one reload this tab may spend to recover `url` from `build`. Returns
+ * false when that reload already happened: a cache can keep serving the document
+ * from the old build, and reloading it again would loop.
+ */
+function claimDeployReload(build: string, url: string): boolean {
+  try {
+    const now = Date.now();
+    const previous = JSON.parse(sessionStorage.getItem(DEPLOY_RELOAD_KEY) ?? 'null') as {
+      build?: unknown;
+      url?: unknown;
+      at?: unknown;
+    } | null;
+    if (
+      previous?.build === build &&
+      previous.url === url &&
+      typeof previous.at === 'number' &&
+      now - previous.at < DEPLOY_RELOAD_WINDOW_MS
+    ) {
+      return false;
+    }
+    sessionStorage.setItem(DEPLOY_RELOAD_KEY, JSON.stringify({ build, url, at: now }));
+  } catch {
+    // Storage may be blocked or full. A reload is still better than a dead page.
+  }
+  return true;
+}
+
+/**
+ * Loads `url` as a new document. Setting `location.href` to the current URL with
+ * a fragment only scrolls, and that is the URL a refresh or a back/forward visit
+ * asks for, so that case reloads the page instead.
+ */
+function loadDocument(url: string): void {
+  const { origin, pathname, search, hash } = window.location;
+  const target = new URL(url, `${origin}${pathname}${search}`);
+  const sameDocument =
+    isSameOrigin(target, origin) && target.pathname === pathname && target.search === search;
+  if (!sameDocument || target.hash === '') {
+    window.location.href = url;
+    return;
+  }
+  if (target.hash !== hash) {
+    history.replaceState(history.state, '', url);
+  }
+  window.location.reload();
 }
 
 function abortSignalPromise(signal: AbortSignal): Promise<never> {
@@ -256,9 +313,30 @@ async function fetchPageResponse(
   }
 }
 
-export async function createPageNavigationEngine(
-  config: PageNavigationEngineConfig,
-): Promise<PageNavigationEngine> {
+function restoreScroll(scrollPosition: VisitOptions['_scrollPosition'], hash: string): void {
+  if (scrollPosition) {
+    window.scrollTo(scrollPosition.x, scrollPosition.y);
+    return;
+  }
+  if (hash) {
+    const el = document.getElementById(hash.slice(1));
+    if (el) {
+      el.scrollIntoView();
+      return;
+    }
+  }
+  window.scrollTo(0, 0);
+}
+
+function getStaticPageDataUrl(url: string): string {
+  const { pathname } = new URL(url || '/', window.location.origin);
+  const filePath = pathname === '/' ? 'index' : pathname.replace(/^\/+/, '');
+  return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
+}
+
+export async function createPageNavigationEngine<Component>(
+  config: PageNavigationEngineConfig<Component>,
+): Promise<PageNavigationEngine<Component>> {
   const {
     adapter,
     components,
@@ -278,12 +356,15 @@ export async function createPageNavigationEngine(
   const hasBoundaries = Object.keys(config.boundaryManifest?.plans ?? {}).length > 0;
   const _prefetchCache = new PrefetchCache();
   const uncachedPayloads = new WeakSet<object>();
+  // Prefetched URLs that another deployment answered, with that build. The visit
+  // that consumes one spends the same single reload as an ordinary navigation.
+  const stalePrefetches = new Map<string, string>();
   let _nextNavigationId = 0;
   // The newest visit whose URL is in the address bar: the last commit, or a back/forward
   // visit, which the browser has already moved to. An older visit must not commit over it.
   let _urlNavigationId = 0;
-  let _pendingResource: PageNavigationResource | null = null;
-  let _committedResource: PageNavigationResource | null = null;
+  let _pendingResource: PageNavigationResource<Component> | null = null;
+  let _committedResource: PageNavigationResource<Component> | null = null;
   let _committedDeferredRegistry: DeferredRegistry | null = null;
   let _htmlDeferredRegistry: DeferredRegistry | null = null;
   let _currentFetchUrl = window.location.pathname + window.location.search;
@@ -292,7 +373,7 @@ export async function createPageNavigationEngine(
   const initialUrl = window.location.pathname + window.location.search + window.location.hash;
   const scrollRestoration = createScrollRestoration();
 
-  async function resolveComponent(id: string): Promise<unknown> {
+  async function resolveComponent(id: string): Promise<Component> {
     const loader = components[id];
     if (!loader) {
       throw new Error(`pages: Unknown page component '${id}'.`);
@@ -300,7 +381,7 @@ export async function createPageNavigationEngine(
     return (await loader()).default;
   }
 
-  async function resolveLayouts(componentId: string): Promise<Array<unknown>> {
+  async function resolveLayouts(componentId: string): Promise<Array<Component>> {
     const ids = layoutTree[componentId] || [];
     return Promise.all(ids.map(async (id: string) => (await components[id]()).default));
   }
@@ -308,7 +389,7 @@ export async function createPageNavigationEngine(
   async function recoverImportFailure(
     page: PageData,
     error: unknown,
-  ): Promise<PageNavigationResult> {
+  ): Promise<PageNavigationResult<Component>> {
     for (const boundary of pageBoundarySlots(config.boundaryManifest, page.component, components)) {
       const pageData: PageData = {
         ...page,
@@ -330,12 +411,6 @@ export async function createPageNavigationEngine(
       }
     }
     throw error;
-  }
-
-  function getStaticPageDataUrl(url: string): string {
-    const { pathname } = new URL(url || '/', window.location.origin);
-    const filePath = pathname === '/' ? 'index' : pathname.replace(/^\/+/, '');
-    return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
   }
 
   function isUsablePageData(pageData: unknown, matchedId: string): pageData is PageData {
@@ -371,7 +446,7 @@ export async function createPageNavigationEngine(
         return;
       }
 
-      for (const [key, group] of Object.entries(pageData.deferredKeys) as Array<[string, string]>) {
+      for (const [key, group] of Object.entries<string>(pageData.deferredKeys)) {
         let value = adapter.createDeferred();
         if (resolved) {
           const error = pageData.deferredErrors?.[group];
@@ -479,7 +554,7 @@ export async function createPageNavigationEngine(
     private resolveGroup(group: string, data: unknown): void {
       const keys = this.groups[group] ?? (this.keyRefs[group] ? [group] : []);
       if (keys.length === 1) {
-        this.resolveKey(keys[0]!, data);
+        this.resolveKey(keys[0], data);
         return;
       }
       const values =
@@ -512,8 +587,14 @@ export async function createPageNavigationEngine(
     }
   }
 
-  const _resourceDeferredRegistries = new WeakMap<PageNavigationResource, DeferredRegistry>();
-  const _preservedDeferredResources = new WeakMap<DeferredRegistry, PageNavigationResource>();
+  const _resourceDeferredRegistries = new WeakMap<
+    PageNavigationResource<Component>,
+    DeferredRegistry
+  >();
+  const _preservedDeferredResources = new WeakMap<
+    DeferredRegistry,
+    PageNavigationResource<Component>
+  >();
 
   /** Route id for a non-island page that static page data can serve, or null. */
   function matchStaticPageId(fetchUrl: string): string | null {
@@ -577,6 +658,7 @@ export async function createPageNavigationEngine(
 
     if (verifyPageResponse) {
       const pageData = parsePageDataFromHtml(await response.text());
+      // oxlint-disable-next-line quality/no-known-value-widening -- Validate the prefetched response before it can select a page.
       if (!isUsablePageData(pageData, matchedId)) {
         return null;
       }
@@ -592,6 +674,7 @@ export async function createPageNavigationEngine(
     }
 
     const pageData = parsePageDataFromHtml(await response.text());
+    // oxlint-disable-next-line quality/no-known-value-widening -- Cached data needs the same validation as a new response.
     if (!isUsablePageData(pageData, matchedId) || pageData.deferredKeys) {
       return null;
     }
@@ -603,6 +686,7 @@ export async function createPageNavigationEngine(
     const headers = {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       Accept: 'application/json',
       Purpose: 'prefetch',
     };
@@ -619,6 +703,13 @@ export async function createPageNavigationEngine(
         if (!r || result?.redirectedTo) {
           return null;
         }
+        // Another deployment answered: cache nothing, so the visit that follows a
+        // hover reloads instead of rendering props this build's chunks cannot show.
+        const servedBy = r.headers.get(PAGES_BUILD_HEADER);
+        if (servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+          stalePrefetches.set(url, servedBy);
+          return null;
+        }
         if (!r.headers.get('X-VoidPages')) {
           return (
             (await loadStaticPageData(url, r, undefined, !STATIC_PAGE_DATA_FAST_PATH))?.pageData ??
@@ -632,21 +723,6 @@ export async function createPageNavigationEngine(
         return data;
       });
     });
-  }
-
-  function restoreScroll(scrollPosition: VisitOptions['_scrollPosition'], hash: string): void {
-    if (scrollPosition) {
-      window.scrollTo(scrollPosition.x, scrollPosition.y);
-      return;
-    }
-    if (hash) {
-      const el = document.getElementById(hash.slice(1));
-      if (el) {
-        el.scrollIntoView();
-        return;
-      }
-    }
-    window.scrollTo(0, 0);
   }
 
   const deferredWindow = window as DeferredWindow;
@@ -678,7 +754,7 @@ export async function createPageNavigationEngine(
     signal: AbortSignal,
     commitTarget: NavigationCommitTarget,
     deferredRegistry: DeferredRegistry,
-  ): Promise<PageNavigationResult | undefined> {
+  ): Promise<PageNavigationResult<Component> | undefined> {
     // Page data only comes from this origin. Other http(s) URLs get a full page
     // load. Capacitor's iOS WebView uses capacitor: for local pages.
     // Unsafe schemes (javascript:, data:, ...) must never reach location.href.
@@ -714,9 +790,11 @@ export async function createPageNavigationEngine(
     // that component. Handle it while data is pending, even if the visit aborts.
     preloadComponentPromise?.catch(() => {});
 
-    const headers: Record<string, string> = {
+    const headers: Record<'X-VoidPages' | 'X-VoidPages-Version' | 'Accept', string> &
+      Partial<Record<typeof PRESERVED_QUERY_HEADER | 'Content-Type', string>> = {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       Accept: 'application/json',
     };
     if (options._preservedQuery && method !== 'GET') {
@@ -739,11 +817,23 @@ export async function createPageNavigationEngine(
     }
     const cacheEntry = method === 'GET' ? _prefetchCache.get(fetchUrl, method) : null;
 
-    if (cacheEntry) {
+    // Prefetch JSON waits for every deferred prop. An unfinished prefetch must
+    // not hold up the streamed shell from an ordinary navigation request.
+    if (cacheEntry && !cacheEntry.pending) {
       const cachedPageData = await cacheEntry.response;
       _prefetchCache.consume(fetchUrl, method);
       if (cachedPageData === null) {
-        window.location.href = url;
+        if (signal.aborted) {
+          throw abortError();
+        }
+        const staleBuild = stalePrefetches.get(fetchUrl);
+        stalePrefetches.delete(fetchUrl);
+        if (staleBuild !== undefined && !claimDeployReload(staleBuild, url)) {
+          // The last reload landed on the same old document; see the visit path below.
+          showTerminalPageError(url);
+          return undefined;
+        }
+        loadDocument(url);
         return undefined;
       }
       // Deferred initialization and adapters mutate props; retain the cached wire payload.
@@ -790,10 +880,12 @@ export async function createPageNavigationEngine(
             ? await fetchPageResponse(url, fetchOptions)
             : await fetchPages(url, fetchOptions)
           : null;
-      const response = fetched?.response ?? null;
+      let response = fetched?.response ?? null;
+      // A 307 or 308 answers a mutation with a mutation, whatever URL it lands on.
+      const answeredMethod = fetched?.method ?? method;
 
       if (pageData === undefined && !response) {
-        window.location.href = url;
+        loadDocument(url);
         return undefined;
       }
 
@@ -813,6 +905,36 @@ export async function createPageNavigationEngine(
         commitTarget.method = method;
       }
 
+      // The destination was rendered by another deployment, so this tab's chunks
+      // are gone. Treat the payload as absent: the document load below lands on the
+      // requested destination with its query and hash. A mutation has already run,
+      // so only a GET answer is allowed here, which includes the page a mutation was
+      // redirected to with a 303. A response that names no build, from an older
+      // Void, is not evidence of a new one.
+      const servedBy = response?.headers.get(PAGES_BUILD_HEADER) ?? null;
+      if (answeredMethod === 'GET' && servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+        // A newer visit owns the page now. Leaving it is not this visit's call, and
+        // neither is the reload this tab may spend.
+        if (signal.aborted) {
+          throw abortError();
+        }
+        if (claimDeployReload(servedBy, url)) {
+          response = null;
+          pageData = undefined;
+        } else {
+          // The last reload landed on the same old document, so this payload would
+          // replace the page with components that cannot load here, and reloading
+          // again would loop. Stop, and leave the tab a way out.
+          showTerminalPageError(url);
+          return undefined;
+        }
+      }
+
+      if (pageData === undefined && !response) {
+        loadDocument(url);
+        return undefined;
+      }
+
       if (response && method !== 'GET' && !response.ok) {
         throw await createActionErrorFromResponse(response, fetchUrl);
       }
@@ -829,7 +951,7 @@ export async function createPageNavigationEngine(
             pageData = staticPageData.pageData;
             deferredRegistry.setup(pageData, staticPageData.resolvedDeferred);
           } else {
-            window.location.href = url;
+            loadDocument(url);
             return undefined;
           }
         } else {
@@ -842,8 +964,14 @@ export async function createPageNavigationEngine(
 
       if (pageData !== undefined) {
         // Static page-data fallback already loaded the page object.
+      } else if (!response) {
+        loadDocument(url);
+        return undefined;
       } else if (contentType.includes('application/x-ndjson')) {
-        const reader = response!.body!.getReader();
+        if (!response.body) {
+          throw new Error('pages: Missing response body for streamed page data.');
+        }
+        const reader = (response.body as ReadableStream<Uint8Array>).getReader();
         const decoder = new TextDecoder();
         let buffer = '';
         let firstLine = true;
@@ -883,7 +1011,7 @@ export async function createPageNavigationEngine(
           processLines();
         }
 
-        (async () => {
+        void (async () => {
           try {
             while (!signal.aborted) {
               const { done, value } = await reader.read();
@@ -900,7 +1028,7 @@ export async function createPageNavigationEngine(
           }
         })();
       } else {
-        pageData = decodePageData<PageData>(await response!.json());
+        pageData = decodePageData<PageData>(await response.json());
         deferredRegistry.setup(pageData);
       }
 
@@ -934,11 +1062,11 @@ export async function createPageNavigationEngine(
     // Reuse the preload only if the response selects the matched page; redirects
     // or rewrites may select another. Cancellation stops waiting for the imports.
     if (!components[pageData.component]) {
-      window.location.href = url;
+      loadDocument(url);
       return undefined;
     }
-    let component: unknown;
-    let layouts: Array<unknown>;
+    let component: Component;
+    let layouts: Array<Component>;
     try {
       [component, layouts] = await Promise.race([
         matchedComponentId === pageData.component && preloadComponentPromise
@@ -976,10 +1104,10 @@ export async function createPageNavigationEngine(
   function makeCommit(
     commitTarget: NavigationCommitTarget,
     options: VisitOptions,
-    shell: Promise<PageNavigationResult | undefined>,
+    shell: Promise<PageNavigationResult<Component> | undefined>,
     deferredRegistry: DeferredRegistry,
     resourceId: number,
-    getResource: () => PageNavigationResource,
+    getResource: () => PageNavigationResource<Component>,
   ): () => Promise<boolean> {
     let committed = false;
     return async () => {
@@ -1066,7 +1194,7 @@ export async function createPageNavigationEngine(
       if (preservedDeferredRegistry && preservedDeferredRegistry !== deferredRegistry) {
         deferredRegistry.dispose();
       }
-      applyClientHead(result.pageData.head as HeadDescriptor | undefined);
+      applyClientHead(result.pageData.head);
       _currentFetchUrl = commitTarget.fetchUrl;
       scrollRestoration.commit();
 
@@ -1080,8 +1208,8 @@ export async function createPageNavigationEngine(
   }
 
   let initialPageData = readInitialPageData();
-  let initialComponent: unknown;
-  let initialLayouts: Array<unknown>;
+  let initialComponent: Component;
+  let initialLayouts: Array<Component>;
   try {
     [initialComponent, initialLayouts] = await Promise.all([
       resolveComponent(initialPageData.component),
@@ -1120,7 +1248,7 @@ export async function createPageNavigationEngine(
   _committedDeferredRegistry = initialDeferredRegistry;
   _htmlDeferredRegistry = initialDeferredRegistry;
 
-  const engine: PageNavigationEngine = {
+  const engine: PageNavigationEngine<Component> = {
     _hoverDelay: PREFETCH_HOVER_DELAY,
     _prefetchDefaultStrategy: PREFETCH_DEFAULT_STRATEGY,
     initialPageData,
@@ -1198,12 +1326,12 @@ export async function createPageNavigationEngine(
         deferredRegistry,
       );
 
-      let commitResource: () => Promise<boolean> = async () => false;
+      let commitResource = skipCommit;
       const stop = () => {
         controller.abort(abortError());
         deferredRegistry.dispose();
       };
-      const resource: PageNavigationResource = {
+      const resource: PageNavigationResource<Component> = {
         id,
         url,
         fetchUrl: effectiveFetchUrl,
@@ -1251,18 +1379,19 @@ export async function createPageNavigationEngine(
           link.rel = 'prefetch';
           link.href = url;
           link.as = 'document';
+          // oxlint-disable-next-line unicorn/prefer-dom-node-append -- Workers types give append a different signature.
           document.head.appendChild(link);
         }
         return Promise.resolve(undefined);
       }
 
       if (components[id]) {
-        components[id]();
+        void components[id]();
       }
       const layoutIds = layoutTree[id] || [];
       for (const lid of layoutIds) {
         if (components[lid]) {
-          components[lid]();
+          void components[lid]();
         }
       }
 
@@ -1313,7 +1442,7 @@ export async function createPageNavigationEngine(
     start() {
       initialScrollPosition = scrollRestoration.start();
 
-      initClientHead(initialPageData.head as HeadDescriptor | undefined);
+      initClientHead(initialPageData.head);
 
       if (deferredWindow.__deferredQueue) {
         for (const entry of deferredWindow.__deferredQueue) {

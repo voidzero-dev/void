@@ -1,5 +1,6 @@
 import { isRecord } from '@void/deploy-core';
-import { clientSchema, dataView, memo, type EntityOf } from 'react-fate';
+import { clientSchema, dataView, memo } from 'react-fate';
+import type { EntityOf } from 'react-fate';
 import { createFateClient } from './client.generated.ts';
 import type {
   AdminDeploymentDetail as ServerDeploymentDetail,
@@ -108,8 +109,8 @@ const logSettingsInput = {
 
 /** Register client fields before either SSR hydration or browser requests. */
 export const createAdminFateClient = (options: Parameters<typeof createFateClient>[0]) =>
-  createFateClient(options).registerClientSchema(schema, ({ mutation }) => ({
-    'deploymentLogs.configure': mutation('AdminDeploymentDetail', {
+  createFateClient(options).registerClientSchema(schema, (builder) => ({
+    'deploymentLogs.configure': builder.mutation('AdminDeploymentDetail', {
       input: logSettingsInput,
       resolve: ({ input: { id, ...settings }, store }) =>
         store.update('AdminDeploymentDetail', id, settings),

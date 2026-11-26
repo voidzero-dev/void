@@ -3,9 +3,19 @@
 import { Badge } from '@astryxdesign/core/Badge';
 import { Banner } from '@astryxdesign/core/Banner';
 import { Button } from '@astryxdesign/core/Button';
+import { FormTextArea } from './FormControls.tsx';
 import { SectionStack } from './SectionStack.tsx';
 
+type PublicGate = Readonly<{
+  on: boolean;
+  request: Readonly<{ state: string }> | null;
+  copy: string | null;
+  bypassable: boolean;
+  urgentIds: ReadonlyArray<string>;
+}>;
+
 type ProjectZeroTrust = Readonly<{
+  gate: PublicGate;
   configured: boolean;
   invalid: boolean;
   enabled: boolean;
@@ -63,7 +73,7 @@ export function ProjectZeroTrustSection({
   projectId: string;
   zeroTrust: ProjectZeroTrust;
 }) {
-  const { state } = zeroTrust;
+  const { state, gate } = zeroTrust;
   return (
     <SectionStack id="zero-trust" className="void-admin-project-zero-trust">
       <h2>Zero Trust</h2>
@@ -91,29 +101,52 @@ export function ProjectZeroTrustSection({
       {state?.last_error && (
         <Banner status="error" title="Last error" description={state.last_error} />
       )}
+      {gate.request && (
+        <SectionStack as="div" className="void-admin-security-request">
+          <Banner
+            status="info"
+            title="Public request"
+            description={gate.copy ?? gate.request.state}
+          />
+          {gate.request.state === 'held_findings' && (
+            <p>
+              Resolve the urgent findings first ({gate.urgentIds.join(', ')}), then the request
+              unlocks. <a href="#security">Open the Security section</a>.
+            </p>
+          )}
+        </SectionStack>
+      )}
       {zeroTrust.available ? (
         <div className="void-admin-team-actions">
-          <form
-            method="post"
-            action={`/admin/projects/${projectId}/zero-trust`}
-            {...(state?.desired_protected
-              ? {
-                  'data-confirm':
-                    'Make this project public? Anyone can reach its hostnames without signing in.',
-                }
-              : {})}
-          >
-            <input
-              type="hidden"
-              name="protected"
-              value={state?.desired_protected ? 'false' : 'true'}
-            />
-            <Button
-              type="submit"
-              label={state?.desired_protected ? 'Make project public' : 'Protect project'}
-              variant={state?.desired_protected ? 'destructive' : 'primary'}
-            />
-          </form>
+          {gate.request ? (
+            <form method="post" action={`/admin/projects/${projectId}/zero-trust`}>
+              <input type="hidden" name="protected" value="true" />
+              <Button type="submit" label="Cancel request" variant="secondary" />
+            </form>
+          ) : (
+            <form
+              method="post"
+              action={`/admin/projects/${projectId}/zero-trust`}
+              {...(state?.desired_protected
+                ? {
+                    'data-confirm': gate.on
+                      ? 'Make this project public? It stays protected until a security scan of the live deployment finds nothing urgent.'
+                      : 'Make this project public? Anyone can reach its hostnames without signing in.',
+                  }
+                : {})}
+            >
+              <input
+                type="hidden"
+                name="protected"
+                value={state?.desired_protected ? 'false' : 'true'}
+              />
+              <Button
+                type="submit"
+                label={state?.desired_protected ? 'Make project public' : 'Protect project'}
+                variant={state?.desired_protected ? 'destructive' : 'primary'}
+              />
+            </form>
+          )}
           <form method="post" action={`/admin/projects/${projectId}/zero-trust/reconcile`}>
             <Button type="submit" label="Reconcile" variant="secondary" />
           </form>
@@ -133,6 +166,17 @@ export function ProjectZeroTrustSection({
             variant="secondary"
             size="sm"
           />
+        </SectionStack>
+      )}
+      {gate.request && gate.bypassable && zeroTrust.available && (
+        <SectionStack
+          as="form"
+          method="post"
+          action={`/admin/projects/${projectId}/security/bypass`}
+          data-confirm="Bypass the scan? The project goes public without a clean security scan and without a check that fixed findings are really fixed. Every installation admin is told, and the reason is kept on record."
+        >
+          <FormTextArea label="Reason for bypassing the scan" name="reason" required width={420} />
+          <Button type="submit" label="Bypass scan" variant="destructive" />
         </SectionStack>
       )}
     </SectionStack>

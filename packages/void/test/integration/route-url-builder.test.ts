@@ -8,6 +8,7 @@ import { chromium } from 'playwright';
 import { build } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { analyzeApplication } from '../../src/application-routing.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { createProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { readConfig } from '../../src/config.ts';
@@ -72,17 +73,29 @@ const unknown: Href = '/unknown';
 const unchecked: Href = dynamic;
 // @ts-expect-error relative paths are rejected
 const relative: Href = '../about';
-// @ts-expect-error protocol-relative URLs are rejected when no root dynamic route matches them
+// @ts-expect-error protocol-relative URLs are rejected
 const protocolRelative: Href = '//example.com/about';
 // @ts-expect-error empty strings are rejected
 const empty: Href = '';
 // @ts-expect-error route URLs exclude external links
 const external: RouteUrl = 'https://vite.dev';
 void [plain, hrefs, unknown, unchecked, relative, protocolRelative, empty, external];
+// A query or hash appended to a built or declared route URL stays a route URL.
+const paged: RouteUrl = \`\${user}?page=2\`;
+const hashed: RouteUrl = \`\${user}#details\`;
+const builtPaged: RouteUrl = \`\${routeUrl('/about')}?page=2\`;
+// @ts-expect-error a suffix does not replace the route check
+const unknownPaged: RouteUrl = '/unknown?page=2';
+// @ts-expect-error a suffix needs its own separator
+const unseparated: RouteUrl = \`\${user}page=2\`;
 declare const router: VoidRouter;
 void router.visit('/users/42');
 void router.visit(routeUrl('/about'));
+void router.visit(\`\${routeUrl('/about')}?page=2\`);
+void router.visit(\`\${user}?page=2\`);
+void router.visit(\`\${user}#details\`);
 void router.visit({ pathname: '/users/:id', params: { id } });
+void [paged, hashed, builtPaged, unknownPaged, unseparated];
 void router.prefetch(new URL('https://example.com'));
 router.flush('#details');
 // @ts-expect-error router navigation is checked
@@ -176,7 +189,7 @@ defineConfig({
 });
 `;
 
-const linkHrefCheck = `import type { Href } from 'void/routes';
+const linkHrefCheck = `import { routeUrl, type Href } from 'void/routes';
 import type { LinkProps as ReactLinkProps } from ${adapterSource('react/src/runtime/link.tsx')};
 import type { Link as VueLink } from ${adapterSource('vue/src/runtime/link.ts')};
 import type { LinkProps as SvelteLinkProps } from ${adapterSource('svelte/src/runtime/link-props.ts')};
@@ -192,16 +205,21 @@ const known: [ReactLinkProps['href'], VueLinkProps['href'], SvelteLinkProps['hre
   '/users/42',
   '/users/42',
 ];
+const built: [ReactLinkProps['href'], VueLinkProps['href'], SvelteLinkProps['href']] = [
+  routeUrl('/users/[id]', { params: { id: 42 } }),
+  routeUrl('/users/[id]', { params: { id: 42 } }),
+  routeUrl('/users/[id]', { params: { id: 42 } }),
+];
 // @ts-expect-error React Link rejects unknown routes
 const react: ReactLinkProps['href'] = '/unknown';
 // @ts-expect-error Vue Link rejects unknown routes
 const vue: VueLinkProps['href'] = '/unknown';
 // @ts-expect-error Svelte Link rejects unknown routes
 const svelte: SvelteLinkProps['href'] = '/unknown';
-void [same, known, react, vue, svelte];
+void [same, known, built, react, vue, svelte];
 `;
 
-// Svelte's implementation uses runes, so this tsc fixture covers the other adapters.
+// Svelte's implementation uses runes, so this tsrs fixture covers the other adapters.
 // Svelte's `submit` takes the same `RouteUrl`, and `post`/`put`/`patch`/`delete` come from IslandFormState.
 const islandFormCheck = `import { useIslandForm as react } from ${adapterSource('react/src/runtime/use-island-form.ts')};
 import { useIslandForm as vue } from ${adapterSource('vue/src/runtime/use-island-form.ts')};
@@ -221,14 +239,15 @@ void solidForm.put('https://example.com');
 void vueForm.submit('/unknown', 'POST');
 `;
 
-const solidLinkHrefCheck = `import type { Href } from 'void/routes';
+const solidLinkHrefCheck = `import { routeUrl, type Href } from 'void/routes';
 import type { LinkProps } from ${adapterSource('solid/src/runtime/link.tsx')};
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const same: Same<LinkProps['href'], Href> = true;
 const known: LinkProps['href'] = '/users/42';
+const built: LinkProps['href'] = routeUrl('/users/[id]', { params: { id: 42 } });
 // @ts-expect-error Solid Link rejects unknown routes
 const unknown: LinkProps['href'] = '/unknown';
-void [same, known, unknown];
+void [same, known, built, unknown];
 `;
 
 // Page params typed through each adapter's useParams<Pattern>().
@@ -451,11 +470,11 @@ function typecheck(
       include,
     }),
   );
-  const tsc = join(
-    dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
-    'bin/tsc',
+  const tsrs = join(
+    dirname(createRequire(import.meta.url).resolve('tsrs/package.json')),
+    'bin/tsrs',
   );
-  const result = spawnSync(process.execPath, [tsc, '-p', join(root, config)], {
+  const result = spawnSync(process.execPath, [tsrs, '-p', join(root, config)], {
     encoding: 'utf8',
   });
   return { output: result.stdout + result.stderr, status: result.status };
@@ -561,23 +580,94 @@ action('/users/[id]?missing', { params: { id: '42' } });
     },
   );
 
-  it('lets a root dynamic page match any single-segment URL with routing.typedRoutes', async () => {
+  it.each([
+    { file: '[slug]', pattern: '/[slug]', legacy: '/:slug', param: 'slug' },
+    { file: '[...slug]', pattern: '/[...slug]', legacy: '/:slug{.+}', param: 'slug' },
+    { file: '[...]', pattern: '/[...]', legacy: '/*', param: '*' },
+  ])('keeps raw URL checks with a root $file page', async ({ file, pattern, legacy, param }) => {
     const root = await createFixture({
       typedRoutes: true,
       extraFiles: {
-        'pages/[slug].tsx': 'export default function Page() { return null; }',
-        // Template literal types cannot exclude empty or slash-leading segments.
-        'check-root-dynamic.ts': `import type { RouteUrl } from 'void/routes';
-const loose: Array<RouteUrl> = ['/anything', '/users/', '//example.com'];
-void loose;
+        [`pages/${file}.tsx`]: 'export default function Page() { return null; }',
+        'pages/[locale]/localized.tsx': 'export default function Page() { return null; }',
+        'check-root-dynamic.ts': `import { routeUrl, type Href, type RouteDestination, type RoutePath, type RouteUrl } from 'void/routes';
+import type { VoidRouter } from 'void/pages-client';
+import type { CloudContext } from 'void/handler';
+import { revalidate } from 'void/isr';
+import { connectEventStream } from 'void/sse/client';
+import { connectLiveStream } from 'void/live/client';
+const path: RoutePath = ${JSON.stringify(pattern)};
+const destination: RouteDestination = { pathname: path, params: { ${JSON.stringify(param)}: 'dashboard' } };
+const url: RouteUrl = routeUrl(path, { params: { ${JSON.stringify(param)}: 'dashboard' } });
+const alias: Href = routeUrl(${JSON.stringify(legacy)}, { params: { ${JSON.stringify(param)}: 'dashboard' } });
+const text: string = url;
+const known: Href[] = ['/about', '/about?tab=activity', '/users/42', '/files/docs/start', '/wild/a/b', '/fr/localized', url, alias];
+// @ts-expect-error root dynamic routes do not admit misspelled static URLs
+const typo: Href = '/abuot';
+// @ts-expect-error root dynamic routes require explicit URL construction
+const dynamic: RouteUrl = '/dashboard';
+// @ts-expect-error root dynamic routes do not admit arbitrary nested URLs
+const nested: Href = '/dashboard/settings';
+// @ts-expect-error root dynamic routes do not admit protocol-relative URLs
+const external: Href = '//example.com';
+// @ts-expect-error query strings do not bypass route checks
+const query: RouteUrl = '/dashboard?tab=activity';
+// @ts-expect-error hashes do not bypass route checks
+const hash: RouteUrl = '/dashboard#details';
+// @ts-expect-error params remain required for root dynamic routes
+routeUrl(${JSON.stringify(pattern)});
+// @ts-expect-error root dynamic parameter names remain checked
+routeUrl(${JSON.stringify(pattern)}, { params: { wrong: 'dashboard' } });
+// @ts-expect-error routeUrl still requires a registered pattern
+routeUrl('/abuot');
+declare const router: VoidRouter;
+declare const context: CloudContext;
+void router.visit(url);
+void router.prefetch(destination);
+context.redirect(url);
+void context.rewrite(url);
+void revalidate({ paths: [url] });
+connectEventStream(url);
+connectLiveStream(url);
+void [known, text, typo, dynamic, nested, external, query, hash];
 `,
       },
     });
-    expect(typecheck(root, 'generated', ['check-root-dynamic.ts'])).toEqual({
-      output: '',
-      status: 0,
-    });
+    for (const declarations of ['generated', 'package'] as const) {
+      expect(typecheck(root, declarations, ['check-typed.ts', 'check-root-dynamic.ts'])).toEqual({
+        output: '',
+        status: 0,
+      });
+    }
   });
+
+  it.each(['[slug]', '[...slug]', '[...]'])(
+    'keeps raw URL checks with a trailing-slash root %s page',
+    async (file) => {
+      const root = await createFixture({
+        typedRoutes: true,
+        extraFiles: {
+          'void.json': JSON.stringify({ routing: { trailingSlash: true } }),
+          [`pages/${file}.tsx`]: 'export default function Page() { return null; }',
+          'check-root-trailing.ts': `import { routeUrl, type Href } from 'void/routes';
+const url: Href = routeUrl('/${file}/', { params: { ${JSON.stringify(file === '[...]' ? '*' : 'slug')}: 'dashboard' } });
+const known: Href = '/about/';
+// @ts-expect-error root dynamic routes do not admit misspelled trailing-slash URLs
+const typo: Href = '/abuot/';
+// @ts-expect-error root dynamic routes do not admit nested trailing-slash URLs
+const nested: Href = '/dashboard/settings/';
+void [url, known, typo, nested];
+`,
+        },
+      });
+      for (const declarations of ['generated', 'package'] as const) {
+        expect(typecheck(root, declarations, ['check-root-trailing.ts'])).toEqual({
+          output: '',
+          status: 0,
+        });
+      }
+    },
+  );
 
   it('checks useIslandForm URLs in every adapter with routing.typedRoutes', async () => {
     const root = await createFixture({
@@ -592,7 +682,10 @@ void loose;
   });
 
   it('checks Link href in every adapter with routing.typedRoutes', async () => {
-    const root = await createFixture({ typedRoutes: true });
+    const root = await createFixture({
+      typedRoutes: true,
+      extraFiles: { 'pages/[...slug].tsx': 'export default function Page() { return null; }' },
+    });
     const tsSources = { allowImportingTsExtensions: true };
     expect(
       typecheck(root, 'generated', ['check-links.ts'], { ...tsSources, jsx: 'react-jsx' }),
@@ -667,11 +760,11 @@ void [hrefs, route, emptyCatchAll, nestedCatchAll, unknown, external];
         include: ['routes.d.ts', 'check.ts'],
       }),
     );
-    const tsc = join(
-      dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
-      'bin/tsc',
+    const tsrs = join(
+      dirname(createRequire(import.meta.url).resolve('tsrs/package.json')),
+      'bin/tsrs',
     );
-    const result = spawnSync(process.execPath, [tsc, '-p', join(root, 'tsconfig.json')], {
+    const result = spawnSync(process.execPath, [tsrs, '-p', join(root, 'tsconfig.json')], {
       encoding: 'utf8',
     });
     expect({ output: result.stdout + result.stderr, status: result.status }).toEqual({

@@ -50,12 +50,13 @@ Programmatic seed modules must export either a default function or a named `seed
 ## `void db execute` {#void-db-execute}
 
 ```
-void db execute <sql>
-void db execute --file <path>
-void db execute --remote <sql>
+void db execute <sql> [--json]
+void db execute --file <path> [--json]
+void db execute --remote <sql> [--yes] [--json]
+void db execute --remote --file <path> [--yes] [--json]
 ```
 
-Run ad-hoc SQL against the database. Provide SQL inline or from a file. SELECT queries display results as a formatted table; other statements execute silently.
+Run ad-hoc SQL against the database. Provide SQL inline or from a file. A statement that returns rows prints them as a formatted table, and statements that change data print nothing. SQL with several statements runs as a script without printed results. Pass `--json` to get every statement's rows.
 
 By default, targets the local database. Pass `--remote` to run against the deployed database selected in `.void/project.json`:
 
@@ -64,7 +65,45 @@ By default, targets the local database. Pass `--remote` to run against the deplo
 - **Hosted PostgreSQL and MySQL projects**: fetches the stored connection string from the platform and connects directly.
 - **Direct Cloudflare PostgreSQL and MySQL projects**: uses `DATABASE_URL` from the current shell; Cloudflare cannot return the password from Hyperdrive.
 
-For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. Non-TTY environments (CI) skip the prompt.
+On direct Cloudflare D1 deployments, a `--file` larger than 100 KB runs as a D1 import: Void waits for it to finish, the database cannot serve queries until then, and query rows are not printed. Smaller files print rows like inline SQL.
+
+For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. A TTY also asks before a D1 import, whatever the file contains. Pass `--yes` to skip the prompt. Non-TTY environments (CI) never prompt, so `--yes` is optional there.
+
+### JSON output {#void-db-execute-json}
+
+Pass `--json` to read results from a script. stdout receives only a JSON array with one entry per statement, including statements in SQL with several statements. Prompts, warnings, errors and any other output, such as messages that `void.config.ts` or a process it starts prints, go to stderr, and a failure exits with a non-zero status.
+
+```sh
+void db execute --json "select count(*) as total from users; select id from users limit 1"
+```
+
+```json
+[
+  {
+    "results": [{ "total": 2 }],
+    "success": true,
+    "meta": { "changes": 0, "last_row_id": 0, "duration": 0.04 }
+  },
+  {
+    "results": [{ "id": 1 }],
+    "success": true,
+    "meta": { "changes": 0, "last_row_id": 0, "duration": 0.02 }
+  }
+]
+```
+
+Each entry has the same shape as a D1 result and as an entry of `wrangler d1 execute --json`:
+
+- `results`: the rows the statement returned, or `[]`. `NULL` prints as `null`, numbers and text keep their types, and binary values print as arrays of bytes. An integer outside ±9007199254740991, which a JSON number cannot hold exactly, prints as a string of its digits, and infinite or not-a-number values print as `"Infinity"`, `"-Infinity"` and `"NaN"`. PostgreSQL `bigint` and `numeric` values print as strings, in arrays too, and numbers in `json` and `jsonb` values keep the digits the database returned. MySQL dates and times print as the text MySQL returns, such as `"2024-01-02 03:04:05.123456"`. A remote D1 database returns values as D1's API reports them. A MySQL `CALL` is one entry, with the rows of every result set the procedure returns. So are an `EXECUTE` of a prepared `CALL`, and a compound statement that MariaDB runs outside a stored program, such as `BEGIN NOT ATOMIC ... END` or `IF ... END IF`.
+- `success`: `true` for a statement that ran.
+- `meta`: what the database reports about the statement. D1 databases report D1's metadata, such as `changes` and `last_row_id` (locally `changes`, `last_row_id` and `duration`). PostgreSQL reports `command` and `rowCount`, and MySQL reports `affectedRows` and `insertId` for a statement that changes data.
+
+If a statement fails, stdout stays empty.
+
+`--json` is not available for a direct Cloudflare D1 import of a file larger than 100 KB, which returns no rows. On a Void platform D1 database, `--remote --json` runs one statement per command; a `CREATE TRIGGER` counts as one statement. On MySQL, `--json` stops without running anything when it cannot tell which results belong to which statement:
+
+- An `EXECUTE` runs a statement that the same SQL does not prepare from a quoted string, such as `PREPARE s FROM @sql`, and so may be a `CALL`. A procedure may prepare statements too, so after a `CALL`, prepare a statement again before you run it. Run SQL that prepares a statement from a variable without `--json`.
+- A `SET sql_mode` sets anything other than a quoted list of modes, such as `SET sql_mode = @saved`, and a quoted string with a backslash after it reads as different statements in different modes, with a `CALL` or another statement that returns several results among them. Set `sql_mode` to a quoted list such as `'ANSI_QUOTES'`, or run that statement in a separate command.
 
 ## `void db migrate` {#void-db-migrate}
 

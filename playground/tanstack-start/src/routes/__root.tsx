@@ -1,9 +1,10 @@
 import { HeadContent, Link, Scripts, createRootRoute } from '@tanstack/react-router';
-import * as React from 'react';
+import type { ReactNode } from 'react';
 
 export const Route = createRootRoute({
   head: () => ({
     meta: [
+      // oxlint-disable-next-line unicorn/text-encoding-identifier-case -- HTML declares the canonical UTF-8 encoding label.
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
     ],
@@ -11,7 +12,7 @@ export const Route = createRootRoute({
   shellComponent: RootDocument,
 });
 
-function RootDocument({ children }: { children: React.ReactNode }) {
+function RootDocument({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>

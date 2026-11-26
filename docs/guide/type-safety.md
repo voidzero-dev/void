@@ -102,8 +102,6 @@ export default function UsersPage(props: Props) {
 
 :::
 
-No manual interface is needed. Props stay in sync with whatever the loader returns.
-
 ## Action → useForm
 
 When a page action uses `withValidator()`, the body schema flows through to `useForm`. That gives you typed `data`, typed `errors` keys, and URL autocomplete:
@@ -130,7 +128,6 @@ form.errors.foo; // ✗ TypeScript error
 ```ts
 const updateForm = useForm('/users/[id]?update', { name: '' }, { params: { id } });
 const deleteForm = useForm('/users/[id]?delete', { id: '' }, { params: { id } });
-// Each form's data and errors are typed from their respective validators
 ```
 
 The `action()` helper gets the same type checking. See [Actions & Forms](./pages-routing/actions-and-forms) for the full API.
@@ -338,9 +335,11 @@ import { routeUrl } from 'void/routes';
 
 :::
 
-Links also accept same-page queries and hashes (`?page=2`, `#comments`), and `http://`, `https://`, `mailto:`, and `tel:` URLs. Use absolute paths within your app; relative paths such as `../settings` are rejected. Static path segments accept raw text such as `/café menu` or uppercase percent encoding such as `/caf%C3%A9%20menu`.
+Links also accept same-page queries and hashes (`?page=2`, `#comments`), and `http://`, `https://`, `mailto:`, and `tel:` URLs. A `routeUrl()` result takes the same query or hash suffix, so `` `${routeUrl('/users/[id]', { params: { id } })}?tab=activity` `` is checked too. Use absolute paths within your app; relative paths such as `../settings` are rejected. Static path segments accept raw text such as `/café menu` or uppercase percent encoding such as `/caf%C3%A9%20menu`.
 
-String checks use TypeScript patterns, which don't validate individual dynamic segments. For example, `/users/[id]` also accepts `/users/` and `/users/42/edit`. A root dynamic page can accept `//example.com`. Prefer `routeUrl()` to encode parameters, and validate untrusted URLs at runtime.
+With `routing.typedRoutes`, URLs handled only by root dynamic routes (`/[slug]`, `/[...slug]`, or `/[...]`) require `routeUrl()`, for example `routeUrl('/[...slug]', { params: { slug: 'dashboard' } })`. Other declared routes still accept checked URL strings. For a custom 404 page, use [`_not-found`](./pages-routing/errors.md#missing-pages).
+
+String checks use TypeScript patterns, which don't validate individual dynamic segments. For example, `/users/[id]` also accepts `/users/` and `/users/42/edit`. Prefer `routeUrl()` to encode parameters, and validate untrusted URLs at runtime.
 
 The [SSE](./sse.md#client) and [live stream](./live.md#subscribe-from-the-browser) clients accept route URLs and external `http://` or `https://` URLs. Same-page links, `mailto:`, `tel:`, and `ws://` aren't stream destinations.
 
@@ -439,15 +438,22 @@ The dev server keeps route types up to date. After changing `routing.typedRoutes
 
 ## Serialization
 
-The client types reflect JSON serialization through `Serialize<T>`:
+The [typed fetch client](./typed-fetch.md) infers types after JSON conversion. A `Date` on the server becomes a string in the client, including inside an array or tuple.
 
-| Source type                       | Serialized type                                        |
-| --------------------------------- | ------------------------------------------------------ |
-| `string`, `number`, `boolean`     | unchanged                                              |
-| `Date`                            | `string`                                               |
-| `Response`                        | excluded (passed through at runtime)                   |
-| `bigint`, `Function`, `undefined` | excluded                                               |
-| `Array<T>` / `{ key: T }`         | recursively serialized (function-valued keys stripped) |
+| Source type or value                                | Client type or behavior                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `string`, `number`, `boolean`, `null`               | unchanged                                                                |
+| `Date`                                              | `string`                                                                 |
+| Arrays and tuples                                   | elements converted; tuple positions and `readonly` preserved in the type |
+| `undefined`, functions, or symbols in an array      | `null`                                                                   |
+| `undefined`, functions, or symbols as object values | property omitted                                                         |
+| Symbol-keyed object properties                      | omitted                                                                  |
+| `Response`                                          | excluded from the inferred JSON type; passed through at runtime          |
+| `bigint`                                            | unsupported by JSON                                                      |
+
+Object properties whose values may be omitted become optional in the client type. For example, a handler returning `{ label: string | undefined }` produces `{ label?: string }`.
+
+[Page loaders](./pages-routing/loaders.md#defining-a-loader) preserve richer values, including `Date`, `Map`, `Set`, and `bigint`. Return props directly from a loader to keep those types in your page component.
 
 ## Context Variables
 

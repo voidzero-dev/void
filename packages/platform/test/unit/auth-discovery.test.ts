@@ -21,6 +21,7 @@ const base = {
     googleOAuth: false,
     managedBuilds: false,
     sandbox: false,
+    securityAudits: false,
   },
 };
 const modern = {
@@ -130,4 +131,12 @@ describe('direct Worker upload discovery', () => {
       'directWorkerUpload must be a boolean.',
     );
   });
+});
+
+it('reads a discovery document from before security audits as off', () => {
+  const discovery = createPlatformDiscoveryDocument(base);
+  const { securityAudits: _, ...olderCapabilities } = discovery.capabilities;
+  const parsed = parsePlatformDiscoveryDocument({ ...discovery, capabilities: olderCapabilities });
+  expect(parsed).toEqual(discovery);
+  expect(parsed.capabilities.securityAudits).toBe(false);
 });

@@ -1,4 +1,5 @@
 import analog from '@analogjs/platform';
+import type {} from 'nitro-cloudflare-dev';
 import { defineConfig } from 'vite-plus';
 import { voidPlugin } from 'void';
 

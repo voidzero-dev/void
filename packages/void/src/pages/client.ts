@@ -1,24 +1,24 @@
 /// <reference lib="dom" />
 
 import type { ActionUrl, ResolveActionBody, ResolveActionParams, RouteUrlInput } from 'void/routes';
-import { toUrlString } from '../runtime/route-url.ts';
-import { interpolateRouteParams } from '../runtime/route-url.ts';
+import { toUrlString } from '../runtime/routing/route-url.ts';
+import { interpolateRouteParams } from '../runtime/routing/route-url.ts';
 import { withPageQuery } from './action-key.ts';
 import {
   VoidActionError,
   isAbortError,
   isCallSiteActionError,
   isVoidActionError,
-  type ActionResult,
 } from './action-result.ts';
-import {
-  createPageNavigationEngine,
-  type PageData,
-  type PageNavigationEngineConfig,
-  type PageNavigationResult,
-  type VisitOptions,
-  type VoidRouterAdapter as PageNavigationAdapter,
-  type PrefetchOptions,
+import type { ActionResult } from './action-result.ts';
+import { createPageNavigationEngine } from './navigation-engine.ts';
+import type {
+  PageData,
+  PageNavigationEngineConfig,
+  PageNavigationResult,
+  VisitOptions,
+  VoidRouterAdapter as PageNavigationAdapter,
+  PrefetchOptions,
 } from './navigation-engine.ts';
 import type { LinkPrefetchValue } from './prefetch.ts';
 import { deserializePageData, ISLAND_FRONTMATTER_ID } from './serialize.ts';
@@ -259,7 +259,7 @@ export function createSsrRouter(
     },
   };
 
-  return router as VoidRouter;
+  return router;
 }
 
 // --- SSR proxy ---
@@ -335,8 +335,9 @@ type ActionOptions<U extends string> = {
 } & (HasParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never });
 
 export type ActionClient = {
-  setActionRouter(router: VoidRouter): void;
+  setActionRouter(this: void, router: VoidRouter): void;
   action<U extends ActionUrl & string>(
+    this: void,
     url: U,
     ...args: HasParams<U> extends true ? [options: ActionOptions<U>] : [options?: ActionOptions<U>]
   ): Promise<ActionResult>;
@@ -362,7 +363,7 @@ export function createActionClient(
       throw new Error('action(): called before router initialization.');
     }
 
-    const options = args[0] as ActionOptions<U> | undefined;
+    const options = args[0];
     const data = options?.data;
     const method = options?.method || 'POST';
 
@@ -562,7 +563,7 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
   };
 
   engine.setPopStateHandler((url, options) => {
-    router.visit(url, options);
+    void router.visit(url, options);
   });
 
   return {
@@ -587,12 +588,12 @@ export function scheduleHydration(
   const hydrate = () => loader().then((mod) => hydrateFn(el, mod, props));
 
   if (strategy === 'load') {
-    hydrate();
+    void hydrate();
   } else if (strategy === 'visible') {
     const observer = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
         observer.disconnect();
-        hydrate();
+        void hydrate();
       }
     });
     observer.observe(el);
@@ -606,7 +607,7 @@ export function scheduleHydration(
     const check = () => {
       if (mql.matches) {
         mql.removeEventListener('change', check);
-        hydrate();
+        void hydrate();
       }
     };
     mql.addEventListener('change', check);
@@ -632,7 +633,10 @@ export function initIslands(
   const hydrate = (el: Element, mod: unknown, props: Record<string, unknown>) =>
     hydrateFn(el, mod, props, frontmatter);
   document.querySelectorAll('[data-island]').forEach((el) => {
-    const id = el.getAttribute('data-island')!;
+    const id = el.getAttribute('data-island');
+    if (id === null) {
+      return;
+    }
     const props = deserializePageData<Record<string, unknown>>(
       el.getAttribute('data-props') || '{}',
     );
@@ -645,10 +649,15 @@ export function initIslands(
 }
 
 export {
+  changedFormErrorKeys,
+  formErrorKeysWithin,
   formErrorMessage,
   formRetryMessage,
   formSubmissionBlocked,
+  omitFormErrors,
   scheduleFormRetry,
+  type FormErrorPath,
+  type FormErrors,
   type FormModel,
   type FormMethod,
   type FormState,

@@ -10,8 +10,10 @@ import {
   setActiveDeployment,
   setAppliedMigrations,
 } from '../../src/db.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import app from '../../src/index.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as projectAccess from '../../src/project-access.ts';
 import {
   proxyTokenRotationStuckWarning,
@@ -44,8 +46,9 @@ import {
   mockCfApi,
   cfSuccess,
   cfError,
-  type TestEnv,
+  withTestTransaction,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 import { setTestDb } from './setup.ts';
 
 let env: TestEnv;
@@ -154,7 +157,7 @@ describe('GET /projects', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const projects = (await res.json()) as Array<{ slug: string }>;
+    const projects = await res.json<Array<{ slug: string }>>();
     expect(projects).toHaveLength(1);
     expect(projects[0].slug).toBe('alice-app');
   });
@@ -192,9 +195,7 @@ describe('GET /projects', () => {
     mockCfApi();
     const usageSuspended = await list();
     expect(usageSuspended.status).toBe(200);
-    expect((await usageSuspended.json()) as Array<{ id: string }>).toMatchObject([
-      { id: project.id },
-    ]);
+    expect(await usageSuspended.json<Array<{ id: string }>>()).toMatchObject([{ id: project.id }]);
   });
 
   it('returns deployment, traffic, and health summaries sorted by attention', async () => {
@@ -248,13 +249,15 @@ describe('GET /projects', () => {
     );
 
     expect(res.status).toBe(200);
-    const projects = (await res.json()) as Array<{
-      slug: string;
-      custom_domain: string | null;
-      latest_deployment: { id: string; status: string; source: string | null } | null;
-      traffic: { requests5m: number; lastSeenAt: string | null; sparkline5m: Array<number> };
-      health: { responses4xx15m: number; responses5xx15m: number; errorRate5xx15m: number };
-    }>;
+    const projects = await res.json<
+      Array<{
+        slug: string;
+        custom_domain: string | null;
+        latest_deployment: { id: string; status: string; source: string | null } | null;
+        traffic: { requests5m: number; lastSeenAt: string | null; sparkline5m: Array<number> };
+        health: { responses4xx15m: number; responses5xx15m: number; errorRate5xx15m: number };
+      }>
+    >();
 
     expect(projects.map((p) => p.slug)).toEqual(['beta', 'alpha']);
     expect(projects[0].latest_deployment).toMatchObject({
@@ -395,7 +398,7 @@ describe('GET /projects/choices', () => {
       env,
     );
     expect(response.status).toBe(200);
-    const choices = (await response.json()) as Array<{ id: string; role: string }>;
+    const choices = await response.json<Array<{ id: string; role: string }>>();
     expect(choices).toHaveLength(2);
     expect(choices).toEqual(
       expect.arrayContaining([
@@ -506,7 +509,7 @@ describe('GET /projects/:id', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { id: string; slug: string };
+    const body = await res.json<{ id: string; slug: string }>();
     expect(body.id).toBe(project.id);
     expect(body.slug).toBe('my-app');
   });
@@ -767,7 +770,7 @@ describe('POST /projects/:id/prerender-token', () => {
           toMarkdown: vi.fn(async () => ({ markdown: '' })),
           gateway: vi.fn(),
         },
-      } as never,
+      },
     );
   }
 
@@ -819,7 +822,7 @@ describe('POST /projects/:id/prerender-token', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const { token } = (await res.json()) as { token: string };
+    const { token } = await res.json<{ token: string }>();
     const payload = await verifyPrerenderToken(token, env.JWT_SECRET);
     expect(payload).toMatchObject({
       aud: 'prerender',
@@ -930,7 +933,7 @@ describe('POST /projects/:id/prerender-token', () => {
       );
     const minted = await mint();
     expect(minted.status).toBe(200);
-    const { token } = (await minted.json()) as { token: string };
+    const { token } = await minted.json<{ token: string }>();
     expect(await verifyPrerenderToken(token, env.JWT_SECRET)).toMatchObject({
       aud: 'prerender',
       project: project.id,
@@ -1054,7 +1057,7 @@ describe('POST /projects/:id/prerender-token', () => {
       const user = await createTestUser(env.db, 'prerender-expiry-boundary');
       const project = await createTestProject(env.db, user.id, 'prerender-expiry-boundary-app');
       const credentialId = crypto.randomUUID();
-      const expiresAt = new Date(startedAt + 2_000);
+      const expiresAt = new Date(startedAt + 2000);
       await env.db.insert(projectDeployCredentials).values({
         id: credentialId,
         project_id: project.id,
@@ -1077,7 +1080,7 @@ describe('POST /projects/:id/prerender-token', () => {
       vi.spyOn(projectAccess, 'requireProjectCapability').mockImplementation(async (...args) => {
         // authMiddleware has already verified the real JWT and credential row;
         // the route capability check crosses the JWT expiry boundary.
-        vi.setSystemTime(startedAt + 2_000);
+        vi.setSystemTime(startedAt + 2000);
         return requireCapability(...args);
       });
       const response = await app.fetch(
@@ -1324,7 +1327,7 @@ describe('PUT /projects/:id/database-url', () => {
             database: 'appdb',
             host: 'db.example.com',
             password: 'p@ss',
-            port: 25060,
+            port: 25_060,
             scheme: 'postgresql',
             user: 'void_user',
           },
@@ -1946,10 +1949,10 @@ describe('POST /projects', () => {
       env,
     );
     expect(res.status).toBe(201);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       slug: string;
       user_id: string;
-    };
+    }>();
     expect(body.slug).toBe('my-app');
     expect(body.user_id).toBe(user.id);
   });
@@ -2064,7 +2067,7 @@ describe('POST /projects', () => {
       env,
     );
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { slug: string };
+    const body = await res.json<{ slug: string }>();
     expect(body.slug).toBe(slug);
   });
 
@@ -2125,7 +2128,7 @@ describe('POST /projects', () => {
       env,
     );
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { slug: string };
+    const body = await res.json<{ slug: string }>();
     expect(body.slug).toBe('abc');
   });
 
@@ -2223,10 +2226,10 @@ describe('GET /projects/:id/deployments', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       deployments: Array<unknown>;
       activeDeploymentId: string | null;
-    };
+    }>();
     expect(body.deployments).toEqual([]);
     expect(body.activeDeploymentId).toBeNull();
   });
@@ -2251,7 +2254,7 @@ describe('GET /projects/:id/deployments', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       deployments: Array<{
         cli_version: string | null;
         commit: string | null;
@@ -2263,7 +2266,7 @@ describe('GET /projects/:id/deployments', () => {
         status: string;
       }>;
       activeDeploymentId: string | null;
-    };
+    }>();
     expect(body.deployments).toHaveLength(2);
 
     const byId = Object.fromEntries(body.deployments.map((d) => [d.id, d]));
@@ -2313,8 +2316,8 @@ describe('GET /projects/:id/deployments', () => {
         env,
       );
       expect(response.status).toBe(200);
-      const body = (await response.json()) as { deployments: Array<{ manifest: string }> };
-      return JSON.parse(body.deployments[0]!.manifest) as Record<string, unknown>;
+      const body = await response.json<{ deployments: Array<{ manifest: string }> }>();
+      return JSON.parse(body.deployments[0].manifest) as Record<string, unknown>;
     };
 
     expect(await listAs(reader.jwt)).toEqual({ version: 1, ssr: true });
@@ -2431,16 +2434,15 @@ describe('POST /projects/:id/rollback', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       ok: boolean;
       deploymentId: string;
       migrationDiff: Array<string>;
-    };
+    }>();
     expect(body.ok).toBe(true);
     expect(body.deploymentId).toBe(d1.id);
     expect(body.migrationDiff).toEqual([]);
 
-    // Verify KV routing updated
     const routing = (await env.ROUTING.get(project.slug, 'json')) as { workerName: string };
     expect(routing.workerName).toBe(`user-rollback-app-${d1.id}`);
   });
@@ -2766,7 +2768,7 @@ describe('POST /projects/:id/rollback', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { migrationDiff: Array<string> };
+    const body = await res.json<{ migrationDiff: Array<string> }>();
     expect(body.migrationDiff).toEqual(['002_add_email.sql', '003_add_roles.sql']);
   });
 
@@ -2813,7 +2815,6 @@ describe('POST /projects/:id/rollback', () => {
     );
     expect(res.status).toBe(200);
 
-    // Verify domain KV routing updated
     const domainRouting = (await env.ROUTING.get('domain:rollback.example.com', 'json')) as {
       workerName: string;
     };
@@ -2904,24 +2905,17 @@ describe('POST /projects/:id/rollback', () => {
     const realTransaction = realDb.transaction.bind(realDb);
     let transactionCount = 0;
     let injected = false;
-    const wrappedDb = new Proxy(realDb, {
-      get(targetDb, property, receiver) {
-        if (property === 'transaction') {
-          return (async (callback: Parameters<typeof realTransaction>[0]) => {
-            transactionCount++;
-            return realTransaction(async (tx) => {
-              const result = await callback(tx);
-              if (transactionCount === 2 && !injected) {
-                injected = true;
-                throw new Error('injected pre-commit rollback');
-              }
-              return result;
-            });
-          }) as typeof realDb.transaction;
+    const wrappedDb = withTestTransaction(realDb, async (callback) => {
+      transactionCount++;
+      return realTransaction(async (tx) => {
+        const result = await callback(tx);
+        if (transactionCount === 2 && !injected) {
+          injected = true;
+          throw new Error('injected pre-commit rollback');
         }
-        return Reflect.get(targetDb, property, receiver);
-      },
-    }) as db.Db;
+        return result;
+      });
+    });
     setTestDb(wrappedDb);
 
     try {
@@ -2965,7 +2959,9 @@ describe('POST /projects/:id/rollback', () => {
         version: 4,
         type: 'void',
         bindings: {},
-        queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 20 }],
+        queues: [
+          { name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 20, maxConcurrency: 2 },
+        ],
       }),
     );
     await updateDeploymentStatus(env.db, target.id, 'live');
@@ -2977,7 +2973,9 @@ describe('POST /projects/:id/rollback', () => {
         version: 4,
         type: 'void',
         bindings: {},
-        queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 5 }],
+        queues: [
+          { name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 5, maxConcurrency: 1 },
+        ],
       }),
     );
     await updateDeploymentStatus(env.db, current.id, 'live');
@@ -2988,9 +2986,9 @@ describe('POST /projects/:id/rollback', () => {
       consumer_id: 'consumer-1',
       script: 'void-dispatch',
       type: 'worker',
-      settings: { batch_size: 5, max_retries: 2 },
+      settings: { batch_size: 5, max_retries: 2, max_concurrency: 1 },
     };
-    const newConsumer = { ...oldConsumer, settings: { batch_size: 20 } };
+    const newConsumer = { ...oldConsumer, settings: { batch_size: 20, max_concurrency: 2 } };
     let listCalls = 0;
     const updateBodies: Array<unknown> = [];
     mockCfApi({
@@ -3033,11 +3031,11 @@ describe('POST /projects/:id/rollback', () => {
     expect(res.status).toBe(500);
     expect((await db.getProject(env.db, project.id))?.active_deployment_id).toBe(current.id);
     expect(updateBodies).toHaveLength(2);
-    expect(updateBodies[0]).toMatchObject({ settings: { batch_size: 20 } });
+    expect(updateBodies[0]).toMatchObject({ settings: { batch_size: 20, max_concurrency: 2 } });
     expect(updateBodies[1]).toEqual({
       script_name: 'void-dispatch',
       type: 'worker',
-      settings: { batch_size: 5, max_retries: 2 },
+      settings: { batch_size: 5, max_retries: 2, max_concurrency: 1 },
     });
   });
 
@@ -3086,7 +3084,7 @@ describe('POST /projects/:id/rollback', () => {
         return new Response(
           JSON.stringify({
             success: false,
-            errors: [{ code: 10013, message: 'rate limited' }],
+            errors: [{ code: 10_013, message: 'rate limited' }],
           }),
           { status: 429 },
         );
@@ -3104,7 +3102,7 @@ describe('POST /projects/:id/rollback', () => {
           doCalls.push({ url: url.pathname, body: req.body ? await req.text() : null });
           return new Response('{}', { status: 200 });
         },
-      } as unknown as DurableObjectStub;
+      };
     });
 
     const res = await app.fetch(
@@ -3170,7 +3168,7 @@ describe('POST /projects/:id/rollback', () => {
           doCalls.push({ url: url.pathname, body: req.body ? await req.text() : null });
           return new Response('{}', { status: 200 });
         },
-      } as unknown as DurableObjectStub;
+      };
     });
 
     const res = await app.fetch(
@@ -3314,7 +3312,7 @@ describe('POST /projects/:id/rollback', () => {
             }
             return new Response('{}', { status: 200 });
           },
-        } as unknown as DurableObjectStub;
+        };
       });
 
       const res = await app.fetch(
@@ -3334,7 +3332,7 @@ describe('POST /projects/:id/rollback', () => {
         proxyToken: heldToken,
       });
       expect(syncBodies).toHaveLength(1);
-      const sync = JSON.parse(syncBodies[0]!) as Record<string, unknown>;
+      const sync = JSON.parse(syncBodies[0]) as Record<string, unknown>;
       // Exactly one token: the one the Worker holds.
       expect(Object.keys(sync).filter((key) => key.startsWith('proxyToken'))).toEqual([
         'proxyToken',
@@ -3415,7 +3413,7 @@ describe('GET /projects/:id/logs', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { data: Array<{ outcome: string; url: string }> };
+    const json = await res.json<{ data: Array<{ outcome: string; url: string }> }>();
     expect(json.data).toHaveLength(1);
     expect(json.data[0]).toMatchObject({
       outcome: 'ok',
@@ -3452,7 +3450,7 @@ describe('GET /projects/:id/logs', () => {
         { ...env, ...extraEnv },
       );
 
-    const full = (await (await fetchLogs({})).json()) as Record<string, unknown>;
+    const full = await (await fetchLogs({})).json<Record<string, unknown>>();
     expect(full).not.toHaveProperty('runtimeLogs');
 
     const res = await fetchLogs({ PLATFORM_RUNTIME_LOGS: 'minimal' });
@@ -3485,7 +3483,7 @@ describe('GET /projects/:id/logs', () => {
     );
 
     expect(res.status).toBe(502);
-    const json = (await res.json()) as { error: string; status: number; detail: string };
+    const json = await res.json<{ error: string; status: number; detail: string }>();
     expect(json).toMatchObject({
       error: 'log query failed',
       status: 400,
@@ -3708,7 +3706,7 @@ describe('GET /projects/:id/logs', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: string };
+    const json = await res.json<{ error: string }>();
     expect(json.error).toMatch(/invalid level parameter/);
     expect(json.error).toMatch(/error, warn, info, log, debug/);
     expect(aeCalls).toBe(0);
@@ -3808,7 +3806,7 @@ describe('GET /projects/:id/requests', () => {
     // Keyed on blob1 to match the established requests-dataset convention used
     // by the billing/top-traffic queries in routes/usage.ts (meta/lessons.md).
     expect(capturedBody).toContain(`WHERE blob1 = '${project.id}'`);
-    const json = (await res.json()) as { data: Array<Record<string, unknown>> };
+    const json = await res.json<{ data: Array<Record<string, unknown>> }>();
     expect(json.data).toHaveLength(1);
     expect(json.data[0]).toMatchObject({
       type: 'ssr',
@@ -4040,10 +4038,10 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const res = await createProjectAs(user, 'auto-add-app', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as {
+    const project = await res.json<{
       id: string;
       owner_email_destination?: { address: string; verified?: unknown };
-    };
+    }>();
     // The response names the address being registered so the CLI can explain
     // the verification email that may follow. It carries no outcome: the add
     // runs after the response, so `verified` cannot be known here.
@@ -4075,7 +4073,7 @@ describe('POST /projects — owner email destination auto-add', () => {
         return Response.json(
           {
             success: false,
-            errors: [{ code: 10037, message: 'destination address already exists' }],
+            errors: [{ code: 10_037, message: 'destination address already exists' }],
             messages: [],
             result: null,
           },
@@ -4092,10 +4090,10 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const res = await createProjectAs(user, 'auto-add-second', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as {
+    const project = await res.json<{
       id: string;
       owner_email_destination?: { address: string };
-    };
+    }>();
     // Same notice as the fresh-address case: the response is built before
     // the add runs, so it cannot (and must not claim to) know CF adopted a
     // verified address.
@@ -4128,7 +4126,7 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const res = await createProjectAs(user, 'auto-add-cf-down', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
     const rows = await env.db
       .select()
       .from(emailDestinations)
@@ -4161,7 +4159,7 @@ describe('POST /projects — owner email destination auto-add', () => {
     // Best-effort and post-response: the create still succeeds.
     const res = await createProjectAs(user, 'auto-add-cascaded', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
 
     const rows = await env.db
       .select()
@@ -4171,7 +4169,7 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const deletes = calls.filter((call) => call.method === 'DELETE');
     expect(deletes).toHaveLength(1);
-    expect(deletes[0]!.url).toContain('/email/routing/addresses/cf-tag-cascaded');
+    expect(deletes[0].url).toContain('/email/routing/addresses/cf-tag-cascaded');
   });
 
   it('leaves the CF address alone when a sibling project still references it', async () => {
@@ -4197,7 +4195,7 @@ describe('POST /projects — owner email destination auto-add', () => {
         return Response.json(
           {
             success: false,
-            errors: [{ code: 10037, message: 'destination address already exists' }],
+            errors: [{ code: 10_037, message: 'destination address already exists' }],
             messages: [],
             result: null,
           },
@@ -4282,13 +4280,15 @@ describe('POST /projects — owner email destination auto-add', () => {
         originalTransaction((tx) =>
           cb(
             new Proxy(tx as object, {
-              get(target, key, receiver) {
+              get(target, key, receiver): unknown {
+                // oxlint-disable-next-line quality/no-reflect-get -- Forward the transaction query and preserve the receiver.
                 const value = Reflect.get(target, key, receiver);
                 if (key !== 'query' || typeof value !== 'function') {
                   return value;
                 }
-                return (...args: Array<unknown>) => {
+                return (...args: Array<unknown>): unknown => {
                   observe(textOf(args[0]));
+                  // oxlint-disable-next-line typescript/no-unsafe-call -- The proxy delegates the original method to its receiver with the fixture arguments.
                   return value.apply(target, args);
                 };
               },
@@ -4339,7 +4339,7 @@ describe('POST /projects — owner email destination auto-add', () => {
           .where(eq(projects.slug, 'auto-add-raced'));
         await env.db.insert(emailDestinations).values({
           id: 'edst_manual_raced',
-          project_id: project!.id,
+          project_id: project.id,
           address: ownerEmail,
           cf_destination_id: 'cf-tag-raced',
           status: 'pending',
@@ -4357,11 +4357,11 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const res = await createProjectAs(user, 'auto-add-raced', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
 
     // The interleaving was the documented one, not a foreign-key failure.
     expect(helper).toHaveBeenCalledTimes(1);
-    await expect(helper.mock.results[0]!.value).resolves.toEqual({ row: null, inserted: false });
+    await expect(helper.mock.results[0].value).resolves.toEqual({ row: null, inserted: false });
 
     const rows = await env.db
       .select()
@@ -4371,7 +4371,7 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const deletes = calls.filter((call) => call.method === 'DELETE');
     expect(deletes).toHaveLength(1);
-    expect(deletes[0]!.url).toContain('/email/routing/addresses/cf-tag-raced');
+    expect(deletes[0].url).toContain('/email/routing/addresses/cf-tag-raced');
   });
 
   it('leaves a vanished-row tag alone when a sibling project still references it', async () => {
@@ -4397,7 +4397,7 @@ describe('POST /projects — owner email destination auto-add', () => {
         return Response.json(
           {
             success: false,
-            errors: [{ code: 10037, message: 'destination address already exists' }],
+            errors: [{ code: 10_037, message: 'destination address already exists' }],
             messages: [],
             result: null,
           },
@@ -4411,7 +4411,7 @@ describe('POST /projects — owner email destination auto-add', () => {
         .where(eq(projects.slug, 'auto-add-raced-shared'));
       await env.db.insert(emailDestinations).values({
         id: 'edst_manual_raced_shared',
-        project_id: project!.id,
+        project_id: project.id,
         address: ownerEmail,
         cf_destination_id: 'cf-tag-raced-shared',
         status: 'verified',
@@ -4431,10 +4431,10 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const res = await createProjectAs(user, 'auto-add-raced-shared', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
 
     expect(helper).toHaveBeenCalledTimes(1);
-    await expect(helper.mock.results[0]!.value).resolves.toEqual({ row: null, inserted: false });
+    await expect(helper.mock.results[0].value).resolves.toEqual({ row: null, inserted: false });
     expect(
       await env.db
         .select()
@@ -4469,7 +4469,7 @@ describe('POST /projects — owner email destination auto-add', () => {
           .where(eq(projects.slug, 'auto-add-won'));
         await env.db.insert(emailDestinations).values({
           id: 'edst_manual_won',
-          project_id: project!.id,
+          project_id: project.id,
           address: ownerEmail,
           cf_destination_id: 'cf-tag-won',
           status: 'pending',
@@ -4486,10 +4486,10 @@ describe('POST /projects — owner email destination auto-add', () => {
 
     const res = await createProjectAs(user, 'auto-add-won', emailEnv());
     expect(res.status).toBe(201);
-    const project = (await res.json()) as { id: string };
+    const project = await res.json<{ id: string }>();
 
     expect(helper).toHaveBeenCalledTimes(1);
-    await expect(helper.mock.results[0]!.value).resolves.toMatchObject({
+    await expect(helper.mock.results[0].value).resolves.toMatchObject({
       row: { id: 'edst_manual_won' },
       inserted: false,
     });

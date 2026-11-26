@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { env } from '../../src/runtime/env-public.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
-import { basicAuth, type BasicAuthOptions, type CloudEnv } from '../../src/runtime/handler.ts';
+import { env } from '../../src/runtime/env/public.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
+import { basicAuth } from '../../src/runtime/handler/index.ts';
+import type { BasicAuthOptions, CloudEnv } from '../../src/runtime/handler/index.ts';
 
 function authorization(value: string) {
   const bytes = new TextEncoder().encode(value);
@@ -123,7 +124,7 @@ describe('basicAuth', () => {
     const res = await app.request('http://localhost/');
 
     expect(res.headers.get('WWW-Authenticate')).toBe(
-      'Basic realm="staging \\"preview\\"", charset="UTF-8"',
+      String.raw`Basic realm="staging \"preview\"", charset="UTF-8"`,
     );
   });
 

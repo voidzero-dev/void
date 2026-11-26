@@ -16,7 +16,7 @@ import { Heading } from '@astryxdesign/core/Text';
 import { useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import { ZeroTrustView, zeroTrustRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { AdminCard } from './AdminCard.tsx';
 import { FormCheckbox, FormTextInput } from './FormControls.tsx';
 import { Layout } from './Layout.tsx';
@@ -24,6 +24,7 @@ import { PageStack } from './PageStack.tsx';
 import { SectionStack } from './SectionStack.tsx';
 
 const HOME = '/admin/zero-trust';
+const GATE_ON_COPY = 'Turn off "Scan before a project goes public" first (Security → Settings).';
 
 type StatusBadge = Readonly<{
   label: string;
@@ -74,6 +75,7 @@ export function ZeroTrustPage({ path, platformName, username }: AdminPageProps) 
     throw new Error('Zero Trust settings are unavailable.');
   }
   const {
+    publicGate,
     configured,
     enabled,
     status,
@@ -283,9 +285,11 @@ export function ZeroTrustPage({ path, platformName, username }: AdminPageProps) 
                       type="submit"
                       label={enabled ? 'Disable Zero Trust' : 'Cancel setup and clean up'}
                       variant="destructive"
+                      isDisabled={publicGate}
                     />
                   </form>
                 )}
+                {publicGate && <p>{GATE_ON_COPY}</p>}
               </div>
             </AdminCard>
           </section>

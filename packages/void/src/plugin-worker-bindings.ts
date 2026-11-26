@@ -1,30 +1,31 @@
 import { appendSqliteClassMigration } from '@void/deploy-core';
-import { type ApplicationAnalysis } from './application-analysis.ts';
+import type { ApplicationAnalysis } from './application-analysis.ts';
 import { SEND_EMAIL_BINDING } from './cli/email-cloudflare.ts';
+import type { resolveLiveBindingConfig } from './cli/wrangler.ts';
 import {
   findBindingNameOwner,
   hasDurableObjectSqliteMigration,
   LIVE_MIGRATION_TAG,
   nextDurableObjectMigrationTag,
-  resolveLiveBindingConfig,
 } from './cli/wrangler.ts';
 import { finalizeDurableObjectPatch } from './cloudflare-durable-patch.ts';
-import { readConfig } from './config.ts';
+import type { readConfig } from './config.ts';
 import {
   resolveWorkersAiBindingName,
   shouldBindWorkersAi,
   readVoidDevCredentials,
 } from './plugin-ai-setup.ts';
 import { hasBinding, shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
-import { type WorkerConfig } from './plugin-cloudflare-config.ts';
-import { type EnvSchemaFacts } from './plugin-env-schema.ts';
+import type { WorkerConfig, WorkerConfigFields } from './plugin-cloudflare-config.ts';
+import type { EnvSchemaFacts } from './plugin-env-schema.ts';
 import { cloudflareQueueName, readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
-import { isRouteEnabledForEnvironment, type RouteEnvironment } from './router/parse-filename.ts';
+import { isRouteEnabledForEnvironment } from './router/parse-filename.ts';
+import type { RouteEnvironment } from './router/parse-filename.ts';
 import { DEV_INBOX_ENV_VAR, DEV_INBOX_TOKEN_ENV_VAR } from './runtime/email/dev-inbox.ts';
+import type { resolveSandboxConfig } from './sandbox/config.ts';
 import {
   SANDBOX_MIGRATION_TAG,
   hasSandboxSqliteMigration,
-  resolveSandboxConfig,
   sandboxContainerConfig,
   assertSandboxNamespaceConfig,
 } from './sandbox/config.ts';
@@ -62,12 +63,17 @@ function currentMigrations(
   return Array.isArray(current) ? (current as Array<DurableObjectMigration>) : [];
 }
 
+type WorkerBindingPatch = {
+  patch: Partial<WorkerConfig>;
+  versionMetadataBinding: string | undefined;
+};
+
 export function mergeWorkerBindings(
   resolved: WorkerConfig,
   input: {
     readonly websocketRoutes: ApplicationAnalysis['allWebsockets'];
     readonly routeEnvironment: RouteEnvironment;
-    readonly workerConfig: Record<string, unknown>;
+    readonly workerConfig: WorkerConfigFields;
     readonly envSchemaFacts: EnvSchemaFacts | undefined;
     readonly authEnabled: boolean;
     readonly viteCommand: 'serve' | 'build';
@@ -86,7 +92,7 @@ export function mergeWorkerBindings(
     readonly root: string;
     readonly remoteMode: boolean;
   },
-): { patch: Partial<WorkerConfig>; versionMetadataBinding: string | undefined } {
+): WorkerBindingPatch {
   const {
     websocketRoutes,
     routeEnvironment,
@@ -113,7 +119,7 @@ export function mergeWorkerBindings(
   const environmentWebsocketRoutes = websocketRoutes.filter((route) =>
     isRouteEnabledForEnvironment(route, routeEnvironment),
   );
-  const result: Record<string, unknown> = { ...workerConfig };
+  const result: WorkerConfigFields = { ...workerConfig };
 
   // The Cloudflare plugin defu-merges this patch over resolved, concatenating arrays.
   // Flags read from the root config therefore occur in both inputs. Emit their union
@@ -187,7 +193,6 @@ export function mergeWorkerBindings(
     result.kv_namespaces = kv;
   }
 
-  // R2
   const r2Name = bindingNames?.r2 ?? 'STORAGE';
   if (bindings.needsR2 && !hasBinding(resolved.r2_buckets, r2Name)) {
     result.r2_buckets = [{ binding: r2Name, bucket_name: 'default' }];
@@ -240,8 +245,7 @@ export function mergeWorkerBindings(
   // Vite process, so `sendEmail` loops back through the assets binding and
   // sends the dev-trigger token the inbox requires.
   const emailDevInboxBinding =
-    (workerConfig.assets as { binding?: string } | undefined)?.binding ??
-    (resolved.assets as { binding?: string } | undefined)?.binding;
+    (workerConfig.assets as { binding?: string } | undefined)?.binding ?? resolved.assets?.binding;
   if (shouldInjectEmailDevInboxVar(routeEnvironment, bindings.needsEmail, emailDevInboxBinding)) {
     const vars = (result.vars as Record<string, string>) ?? {};
     vars[DEV_INBOX_ENV_VAR] = emailDevInboxBinding as string;
@@ -285,10 +289,14 @@ export function mergeWorkerBindings(
       })),
       consumers: queues.map((q) => ({
         queue: cloudflareQueueName(q.name, cloudflareNames),
-        ...(q.maxBatchSize != null && { max_batch_size: q.maxBatchSize }),
-        ...(q.maxBatchTimeout != null && { max_batch_timeout: q.maxBatchTimeout }),
-        ...(q.maxRetries != null && { max_retries: q.maxRetries }),
-        ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
+        ...(q.maxBatchSize !== null &&
+          q.maxBatchSize !== undefined && { max_batch_size: q.maxBatchSize }),
+        ...(q.maxBatchTimeout !== null &&
+          q.maxBatchTimeout !== undefined && { max_batch_timeout: q.maxBatchTimeout }),
+        ...(q.maxConcurrency !== null &&
+          q.maxConcurrency !== undefined && { max_concurrency: q.maxConcurrency }),
+        ...(q.maxRetries !== null && q.maxRetries !== undefined && { max_retries: q.maxRetries }),
+        ...(q.retryDelay !== null && q.retryDelay !== undefined && { retry_delay: q.retryDelay }),
       })),
     };
   }
@@ -527,5 +535,5 @@ export function mergeWorkerBindings(
       ? [{ name: liveConfig.bindingName, class_name: liveConfig.className }]
       : []),
   ]);
-  return { patch: result as Partial<WorkerConfig>, versionMetadataBinding };
+  return { patch: result, versionMetadataBinding };
 }

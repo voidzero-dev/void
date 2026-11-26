@@ -1,11 +1,15 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import { normalizePath } from 'vite';
+import type { Plugin } from 'vite';
+import { Buffer } from './cli/node-buffer.ts';
 import { readRootWranglerConfig } from './cli/wrangler.ts';
-import { scanJobsSync, type JobDefinition } from './crons/scan.ts';
+import { scanJobsSync } from './crons/scan.ts';
+import type { JobDefinition } from './crons/scan.ts';
 import { voidWarn } from './log.ts';
 import { readProjectPaths } from './project-paths.ts';
-import { scanQueuesSync, type QueueDefinition } from './queues/scan.ts';
+import { scanQueuesSync } from './queues/scan.ts';
+import type { QueueDefinition } from './queues/scan.ts';
 import { ensureGitignoreLines } from './shared/gitignore.ts';
 
 type FrameworkTriggersOptions = {
@@ -263,7 +267,7 @@ function removeGitignoreLines(root: string, lines: ReadonlyArray<string>): void 
   if (lines.length === 0 || !existsSync(gitignorePath)) {
     return;
   }
-  const contents = readFileSync(gitignorePath, 'utf-8');
+  const contents = readFileSync(gitignorePath, 'utf8');
   const remove = new Set(lines);
   const next = contents
     .split('\n')
@@ -553,7 +557,7 @@ function astroMiddlewareClaims(): Map<string, AstroMiddlewareClaim> {
   const store = globalThis as typeof globalThis & {
     [ASTRO_MIDDLEWARE_CLAIMS]?: Map<string, AstroMiddlewareClaim>;
   };
-  return (store[ASTRO_MIDDLEWARE_CLAIMS] ??= new Map());
+  return (store[ASTRO_MIDDLEWARE_CLAIMS] ??= new Map<string, AstroMiddlewareClaim>());
 }
 
 /**

@@ -172,7 +172,7 @@ it('reports structured provider errors when stderr is empty using existing crede
         status: 1,
         stdout: 'env.PRIVATE_VALUE: "do-not-echo"',
         stderr: '',
-        errors: [{ code: 10000, message: 'Invalid Authorization: Bearer synthetic-token' }],
+        errors: [{ code: 10_000, message: 'Invalid Authorization: Bearer synthetic-token' }],
       },
       'upload test-worker',
     ),
@@ -192,8 +192,8 @@ it('replaces the Analytics Engine APIError token advice with account activation 
         status: 1,
         stdout: '',
         stderr: `\n┌ APIError\n│ [code: 10089] ${message}\n│ 403 Forbidden\n└\n\n→ Check your API token permissions\n`,
-        errorCode: 10089,
-        errors: [{ code: 10089, message }],
+        errorCode: 10_089,
+        errors: [{ code: 10_089, message }],
       },
       'bootstrap void-team-tail',
       accountId,
@@ -214,7 +214,7 @@ it('explains how to select the account when only a structured Analytics Engine e
         status: 1,
         stdout: '',
         stderr: '',
-        errors: [{ code: 10089, message: 'You need to enable Analytics Engine.' }],
+        errors: [{ code: 10_089, message: 'You need to enable Analytics Engine.' }],
       },
       'bootstrap void-team-tail',
     ),
@@ -236,8 +236,8 @@ it.each(['[code: 10089]', '[10089]'])(
 );
 
 it.each([
-  { errorCode: 10000, errors: undefined },
-  { errorCode: undefined, errors: [{ code: 12345, message: 'Unknown provider failure' }] },
+  { errorCode: 10_000, errors: undefined },
+  { errorCode: undefined, errors: [{ code: 12_345, message: 'Unknown provider failure' }] },
 ])('preserves other structured provider errors and their token advice: %j', (codes) => {
   const diagnostic =
     'The request failed. Check your API token permissions. Previous attempt: [code: 10089]';

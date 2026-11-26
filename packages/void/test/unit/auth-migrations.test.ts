@@ -14,7 +14,7 @@ import {
   applyPgAuthMigrations,
   applySqliteAuthMigrations,
   pgMigrationRunner,
-} from '../../src/runtime/auth-migrations.ts';
+} from '../../src/runtime/auth/migrations.ts';
 
 // PGlite serves the `pg` clients, and each client records the database it names.
 const state = vi.hoisted(() => ({ pg: null as PGlite | null, connections: [] as Array<string> }));
@@ -73,6 +73,145 @@ function sqliteColumns(db: DatabaseSync, table: string): Array<string> {
 }
 
 describe('auth migration runner', () => {
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'creates plugin table indexes idempotently on fresh and existing %s tables',
+    async (dialect) => {
+      const { DatabaseSync } = await import('node:sqlite');
+      const db = new DatabaseSync(':memory:');
+      const statements: Array<string> = [];
+      const mysqlIndexes = new Set<string>();
+      const mysqlTables = new Set<string>();
+      const schema = resolveVoidAuthMigrationSchema({
+        dialect,
+        providers: null,
+        userConfig: {
+          user: { modelName: 'members', fields: { createdAt: 'joined_at' } },
+          plugins: [
+            {
+              id: 'table-indexes',
+              schema: {
+                user: {
+                  fields: {},
+                  indexes: [
+                    { name: 'members_joined_idx', fields: ['createdAt'] as const },
+                    {
+                      name: 'members_name_joined_uidx',
+                      fields: ['name', 'createdAt'] as const,
+                      unique: true,
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      });
+      const mysqlRunner = {
+        async all<T extends Record<string, unknown>>(sql: string, params?: Array<unknown>) {
+          if (sql.includes('SELECT DATABASE()')) {
+            return [{ database_name: 'app' }] as unknown as Array<T>;
+          }
+          if (sql.includes('information_schema.tables')) {
+            return [...mysqlTables].map((table_name) => ({ table_name })) as unknown as Array<T>;
+          }
+          if (sql.includes('information_schema.columns')) {
+            return [
+              'id',
+              ...Object.keys(schema.tables.find((table) => table.name === params?.[1])!.fields),
+            ].map((column_name) => ({ column_name, data_type: 'varchar' })) as unknown as Array<T>;
+          }
+          if (sql.includes('information_schema.statistics')) {
+            return [...mysqlIndexes].map((index_name) => ({ index_name })) as unknown as Array<T>;
+          }
+          return [] as Array<T>;
+        },
+        async run(sql: string) {
+          statements.push(sql);
+          const table = sql.match(/^CREATE TABLE(?: IF NOT EXISTS)? `([^`]+)`/);
+          if (table) {
+            expect(mysqlTables.has(table[1])).toBe(false);
+            mysqlTables.add(table[1]);
+          }
+          const index = sql.match(/^CREATE (?:UNIQUE )?INDEX `([^`]+)`/);
+          if (index) {
+            mysqlIndexes.add(index[1]);
+          }
+        },
+      };
+      const apply = (target: VoidAuthMigrationSchema) =>
+        dialect === 'sqlite'
+          ? applySqliteAuthMigrations(sqliteRunner(db), target)
+          : dialect === 'postgresql'
+            ? applyPgAuthMigrations(pgMigrationRunner(state.pg!), target)
+            : applyMySqlAuthMigrations(mysqlRunner, target);
+      try {
+        for (const existing of [false, true]) {
+          db.exec(
+            'DROP TABLE IF EXISTS session; DROP TABLE IF EXISTS account; DROP TABLE IF EXISTS members; DROP TABLE IF EXISTS verification',
+          );
+          await state.pg!.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
+          mysqlIndexes.clear();
+          mysqlTables.clear();
+          statements.length = 0;
+          if (existing) {
+            await apply(
+              resolveVoidAuthMigrationSchema({
+                dialect,
+                providers: null,
+                userConfig: { user: { modelName: 'members', fields: { createdAt: 'joined_at' } } },
+              }),
+            );
+          }
+          await apply(schema);
+          await apply(schema);
+          if (dialect === 'sqlite') {
+            expect(db.prepare("PRAGMA index_list('members')").all()).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ name: 'members_joined_idx', unique: 0 }),
+                expect.objectContaining({ name: 'members_name_joined_uidx', unique: 1 }),
+                expect.objectContaining({ name: 'members_email_uidx', unique: 1 }),
+              ]),
+            );
+            expect(
+              db
+                .prepare("PRAGMA index_info('members_name_joined_uidx')")
+                .all()
+                .map((column) => column.name),
+            ).toEqual(['name', 'joined_at']);
+          } else if (dialect === 'postgresql') {
+            const indexes = (
+              await state.pg!.query<{ indexname: string; indexdef: string }>(
+                "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'members'",
+              )
+            ).rows;
+            expect(indexes).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({ indexname: 'members_joined_idx' }),
+                expect.objectContaining({
+                  indexname: 'members_name_joined_uidx',
+                  indexdef: expect.stringContaining('UNIQUE INDEX'),
+                }),
+                expect.objectContaining({ indexname: 'members_email_uidx' }),
+              ]),
+            );
+            expect(
+              indexes.find((index) => index.indexname === 'members_name_joined_uidx')?.indexdef,
+            ).toContain('(name, joined_at)');
+          } else {
+            expect(statements.filter((sql) => sql.includes('`members_joined_idx`'))).toEqual([
+              'CREATE INDEX `members_joined_idx` ON `members` (`joined_at`)',
+            ]);
+            expect(statements.filter((sql) => sql.includes('`members_name_joined_uidx`'))).toEqual([
+              'CREATE UNIQUE INDEX `members_name_joined_uidx` ON `members` (`name`, `joined_at`)',
+            ]);
+          }
+        }
+      } finally {
+        db.close();
+      }
+    },
+  );
+
   it('applies the sqlite auth schema idempotently', async () => {
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(':memory:');
@@ -430,7 +569,7 @@ describe('auth migration runner', () => {
           runner,
           resolveWithUserFields('postgresql', {
             plan: { type: 'string', defaultValue: "it's free" },
-            motto: { type: 'string', defaultValue: "it's a\\b" },
+            motto: { type: 'string', defaultValue: String.raw`it's a\b` },
             folder: { type: 'string', defaultValue: 'end\\' },
             banned: { type: 'boolean', defaultValue: true },
           }),
@@ -439,7 +578,9 @@ describe('auth migration runner', () => {
         expect(
           (await pg.query('SELECT plan, motto, folder, banned FROM "user"')).rows,
           `standard_conforming_strings = ${mode}`,
-        ).toEqual([{ plan: "it's free", motto: "it's a\\b", folder: 'end\\', banned: true }]);
+        ).toEqual([
+          { plan: "it's free", motto: String.raw`it's a\b`, folder: 'end\\', banned: true },
+        ]);
       } finally {
         await pg.exec('RESET standard_conforming_strings');
       }
@@ -543,7 +684,7 @@ describe('auth migration runner', () => {
     const statements: Array<string> = [];
     const resolved = resolveWithUserFields('mysql', {
       plan: { type: 'string', defaultValue: 'free' },
-      motto: { type: 'string', defaultValue: "it's a\\b" },
+      motto: { type: 'string', defaultValue: String.raw`it's a\b` },
       nickname: { type: 'string' },
     });
     const user = resolved.tables.find((table) => table.name === 'user')!;

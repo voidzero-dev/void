@@ -7,6 +7,7 @@ import { useIslandForm } from '../../src/runtime/use-island-form.ts';
 
 type TestForm = {
   setError(field: string, message: string): void;
+  clearErrors(...fields: Array<string>): void;
   readonly errors: Record<string, string>;
   data: Record<string, unknown>;
   hasChanges: boolean;
@@ -154,6 +155,45 @@ describe('useForm setError', () => {
           form.data.email = 'a@example.com';
           await nextTick();
           expect(form.errors.email).toBeUndefined();
+          return () => h('form');
+        },
+      }),
+    );
+    app.provide('__void_router', router);
+    await renderToString(app);
+  });
+
+  it('clears only the errors of the fields a change touched', async () => {
+    const router = {
+      visit: async () => ({}),
+    } as unknown as VoidRouter;
+    const app = createSSRApp(
+      defineComponent({
+        setup() {
+          const form = useForm(
+            '/test',
+            { profile: { name: '', email: '' }, contacts: [{ email: '' }, { email: '' }] },
+            {},
+          );
+          form.setError('profile.name', 'Required name');
+          form.setError('profile.email', 'Required email');
+          form.setError('contacts.0.email', 'First email');
+          form.setError('contacts.1.email', 'Second email');
+          form.setError('name', 'Unrelated');
+
+          form.data.profile = { name: 'Alex', email: '' };
+          expect(form.errors['profile.name']).toBeUndefined();
+          expect(form.errors['profile.email']).toBe('Required email');
+
+          form.data.contacts = [{ email: '' }, { email: 'alex@example.com' }];
+          expect(form.errors['contacts.0.email']).toBe('First email');
+          expect(form.errors['contacts.1.email']).toBeUndefined();
+
+          form.clearErrors('profile');
+          expect(form.errors).toEqual({ 'contacts.0.email': 'First email', name: 'Unrelated' });
+
+          form.clearErrors('contacts');
+          expect(form.errors).toEqual({ name: 'Unrelated' });
           return () => h('form');
         },
       }),
@@ -419,4 +459,38 @@ describe('useIslandForm edits made during a submit', () => {
     form.reset();
     expect(form.data.title).toBe('Sent');
   });
+});
+
+it('clears the array-level count error after adding an undefined slot', async () => {
+  const app = createSSRApp(
+    defineComponent({
+      setup() {
+        const form = useForm('/test', { contacts: [undefined] });
+        form.setError('contacts', 'Add a second row');
+        (form.data.contacts as Array<unknown>).push(undefined);
+        expect((form.data.contacts as Array<unknown>).length).toBe(2);
+        expect(form.errors.contacts).toBeUndefined();
+        return () => h('form');
+      },
+    }),
+  );
+  app.provide('__void_router', {});
+  await renderToString(app);
+});
+
+it('clears the object-level error after removing an undefined key', async () => {
+  const app = createSSRApp(
+    defineComponent({
+      setup() {
+        const form = useForm('/test', { profile: { option: undefined } });
+        form.setError('profile', 'Remove the option field');
+        delete (form.data.profile as Record<string, unknown>).option;
+        expect(Object.hasOwn(form.data.profile as object, 'option')).toBe(false);
+        expect(form.errors.profile).toBeUndefined();
+        return () => h('form');
+      },
+    }),
+  );
+  app.provide('__void_router', {});
+  await renderToString(app);
 });

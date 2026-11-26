@@ -314,7 +314,6 @@ describe('runMigrations (local SQLite)', () => {
   it('getAppliedMigrations returns [] when neither tracking table exists', async () => {
     const root = createDir();
     const dbPath = join(root, 'empty.sqlite');
-    // Create an empty DB
     const db = await openSqliteDatabase(dbPath);
     db.close();
 

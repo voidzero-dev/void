@@ -1,6 +1,7 @@
 {
   "extends": ["astro/tsconfigs/strict", "./.void/tsconfig.json"],
   "compilerOptions": {
+    "noEmit": true,
     "noUnusedLocals": true,
     "types": ["void/env"],
     "allowImportingTsExtensions": true

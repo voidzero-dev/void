@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 
 const PACKAGE_ROOT = join(import.meta.dirname, '..', '..');
 const CLI_ENTRY = join(PACKAGE_ROOT, 'dist', 'cli', 'cli.mjs');
-const ENV_PUBLIC_DIST = join(PACKAGE_ROOT, 'dist', 'runtime', 'env-public.mjs');
+const ENV_PUBLIC_DIST = join(PACKAGE_ROOT, 'dist', 'runtime', 'env/public.mjs');
 
 const roots: Array<string> = [];
 
@@ -120,7 +120,7 @@ describe('void env types (subprocess)', () => {
 
     const dtsPath = join(root, '.void', 'env.d.ts');
     expect(existsSync(dtsPath)).toBe(true);
-    const dts = readFileSync(dtsPath, 'utf-8');
+    const dts = readFileSync(dtsPath, 'utf8');
     expect(dts).toContain('declare module "void/env"');
     expect(dts).toContain('declare module "void/handler"');
     expect(dts).toContain('typeof import("../env.ts")');

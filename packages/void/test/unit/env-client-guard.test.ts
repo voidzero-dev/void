@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { envClientGuardPlugin } from '../../src/plugin-env-client-guard.ts';
-import { string } from '../../src/runtime/env-helpers.ts';
-import { defineEnv } from '../../src/runtime/env-public.ts';
+import { string } from '../../src/runtime/env/helpers.ts';
+import { defineEnv } from '../../src/runtime/env/public.ts';
 
 const ROOT = '/project';
 type MessagePayload =
@@ -86,7 +86,7 @@ function resetSchema() {
 // flag is one-way (can't be unset), so we mock the module instead for
 // the no-schema test.
 async function withNoSchema(fn: () => Promise<void>): Promise<void> {
-  const mod = await import('../../src/runtime/env-public.ts');
+  const mod = await import('../../src/runtime/env/public.ts');
   vi.spyOn(mod, '_hasRegisteredSchema').mockReturnValue(false);
   vi.spyOn(mod, '_getRegisteredSchema').mockReturnValue(null);
   try {
@@ -138,9 +138,9 @@ describe('envClientGuardPlugin', () => {
     );
     expect(result.threw).toBe(true);
     expect(ctx.errors).toHaveLength(1);
-    expect(ctx.errors[0]!.message).toContain('STRIPE_KEY');
-    expect(ctx.errors[0]!.message).toContain('VITE_*');
-    expect(ctx.errors[0]!.loc?.line).toBe(2);
+    expect(ctx.errors[0].message).toContain('STRIPE_KEY');
+    expect(ctx.errors[0].message).toContain('VITE_*');
+    expect(ctx.errors[0].loc?.line).toBe(2);
   });
 
   it('does not error when the key is VITE_-prefixed', async () => {
@@ -165,7 +165,7 @@ describe('envClientGuardPlugin', () => {
       `${ROOT}/src/page.ts`,
     );
     expect(result.threw).toBe(true);
-    expect(ctx.errors[0]!.message).toContain('STRIPE_KEY');
+    expect(ctx.errors[0].message).toContain('STRIPE_KEY');
   });
 
   it('catches namespace imports (`import * as voidEnv`)', async () => {
@@ -177,7 +177,7 @@ describe('envClientGuardPlugin', () => {
       `${ROOT}/src/page.ts`,
     );
     expect(result.threw).toBe(true);
-    expect(ctx.errors[0]!.message).toContain('STRIPE_KEY');
+    expect(ctx.errors[0].message).toContain('STRIPE_KEY');
   });
 
   it('passes through keys not present in the schema (could be a binding or typo)', async () => {
@@ -204,7 +204,7 @@ describe('envClientGuardPlugin', () => {
     expect(result.threw).toBe(false);
     expect(ctx.errors).toEqual([]);
     expect(ctx.warnings).toHaveLength(1);
-    expect(ctx.warnings[0]!.message).toMatch(/Computed access/);
+    expect(ctx.warnings[0].message).toMatch(/Computed access/);
   });
 
   it('is a no-op when no env schema is registered', async () => {
@@ -275,12 +275,12 @@ describe('envClientGuardPlugin', () => {
     ].join('\n');
     const result = await runTransform(ctx, code, `${ROOT}/src/page.ts`);
     expect(result.threw).toBe(true);
-    expect(ctx.errors[0]!.loc).toEqual({
+    expect(ctx.errors[0].loc).toEqual({
       line: 4,
       column: 10,
       file: `${ROOT}/src/page.ts`,
     });
-    expect(ctx.errors[0]!.message).toContain('src/page.ts:4:10');
+    expect(ctx.errors[0].message).toContain('src/page.ts:4:10');
   });
 
   it('handles SFC virtual modules with `?vue&type=script&lang.ts` query', async () => {

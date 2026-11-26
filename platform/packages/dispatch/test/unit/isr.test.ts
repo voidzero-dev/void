@@ -21,8 +21,8 @@ import {
   extractPageDataFromHtml,
   normalizePageDataForJsonCache,
   writeIsrCache,
-  type IsrCacheEntry,
 } from '../../src/isr.ts';
+import type { IsrCacheEntry } from '../../src/isr.ts';
 
 describe('isrCacheKey', () => {
   it('maps root path to __index__', () => {
@@ -140,36 +140,36 @@ describe('isStale', () => {
   });
 
   it('returns false when entry is fresh', () => {
-    vi.setSystemTime(1000000);
+    vi.setSystemTime(1_000_000);
     const entry: IsrCacheEntry = {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: 1000000,
+      createdAt: 1_000_000,
       ttl: 60,
     };
     expect(isStale(entry)).toBe(false);
   });
 
   it('returns true when entry is expired', () => {
-    vi.setSystemTime(1000000 + 61 * 1000);
+    vi.setSystemTime(1_000_000 + 61 * 1000);
     const entry: IsrCacheEntry = {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: 1000000,
+      createdAt: 1_000_000,
       ttl: 60,
     };
     expect(isStale(entry)).toBe(true);
   });
 
   it('returns false at exact TTL boundary', () => {
-    vi.setSystemTime(1000000 + 60 * 1000);
+    vi.setSystemTime(1_000_000 + 60 * 1000);
     const entry: IsrCacheEntry = {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: 1000000,
+      createdAt: 1_000_000,
       ttl: 60,
     };
     expect(isStale(entry)).toBe(false);
@@ -292,7 +292,6 @@ describe('resolvePageTtl', () => {
       resolvePageTtl([{ pattern: '/p', revalidate: 120 }], undefined, { '/p': 3600 }, '/p'),
     ).toBe(120);
   });
-  // Inherit-eligible page with NO pathRevalidate → resolvePathTtl(undefined) → 0.
   it('an inherit-eligible page with NO pathRevalidate resolves 0', () => {
     expect(resolvePageTtl([{ pattern: '/x' }], undefined, undefined, '/x')).toBe(0);
   });
@@ -494,7 +493,6 @@ describe('matchesLiteralPage', () => {
   it('an inherit-eligible literal page with a positive per-path rule vouches', () => {
     expect(matchesLiteralPage([{ pattern: '/catch' }], '/catch', { '/catch': 60 })).toBe(true);
   });
-  // An inherit-eligible literal page whose per-path rule resolves 0 does NOT vouch.
   it('an inherit-eligible literal page whose per-path rule is 0 does NOT vouch', () => {
     expect(matchesLiteralPage([{ pattern: '/catch' }], '/catch', { '/catch': 0 })).toBe(false);
   });
@@ -576,7 +574,7 @@ describe('isrCacheResponse', () => {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: Date.now() - 120000,
+      createdAt: Date.now() - 120_000,
       ttl: 60,
     };
     const response = isrCacheResponse(entry, true);
@@ -591,7 +589,7 @@ describe('isrCacheResponse', () => {
       body: new ReadableStream(),
       status: 200,
       headers: {},
-      createdAt: Date.now() - 10000,
+      createdAt: Date.now() - 10_000,
       ttl: 5,
     };
     const response = isrCacheResponse(entry, true);
@@ -738,11 +736,13 @@ describe('writeIsrCache — variant cap', () => {
         },
         list: async (opts: { prefix: string; limit?: number; cursor?: string }) => {
           const all = [...kvStore.keys()]
-            .map((key) => `isr-cache/${key}`)
-            .filter((k) => k.startsWith(opts.prefix))
+            .flatMap((key) => {
+              const k = `isr-cache/${key}`;
+              return k.startsWith(opts.prefix) ? [k] : [];
+            })
             .sort();
           const limit = opts.limit ?? 1000;
-          const start = opts.cursor ? parseInt(opts.cursor, 10) : 0;
+          const start = opts.cursor ? Number.parseInt(opts.cursor, 10) : 0;
           const slice = all.slice(start, start + limit);
           const list_complete = start + limit >= all.length;
           return {

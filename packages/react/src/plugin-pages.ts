@@ -43,6 +43,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
   return createPagesPlugin(pagesDir, {
     name: 'void-react:pages',
     root,
+    deployRecovery: options?.deployRecovery,
     generateRenderer(scan, isDev) {
       return generateRendererModule(scan, pagesDir, isDev);
     },
@@ -183,7 +184,9 @@ function clientOptimizeEntries(
     }
   }
   // Entries are glob patterns, so route names such as [id] must be literal.
-  return [...browserFiles].map((file) => relative(root, file).replace(/[()[\]{}*?!|]/g, '\\$&'));
+  return [...browserFiles].map((file) =>
+    relative(root, file).replaceAll(/[()[\]{}*?!|]/g, String.raw`\$&`),
+  );
 }
 
 function generateRendererModule(scan: PageScanResult, pagesDir: string, isDev: boolean): string {

@@ -19,6 +19,7 @@ import adminInvitations from './admin/routes/invitations.tsx';
 import adminLogin from './admin/routes/login.ts';
 import adminPlans from './admin/routes/plans.ts';
 import adminProjects from './admin/routes/projects.tsx';
+import adminSecurity, { adminProjectSecurity } from './admin/routes/security.ts';
 import adminSignupControl from './admin/routes/signup-control.tsx';
 import { dashboardHandler, adminSystem } from './admin/routes/system.tsx';
 import adminUsers from './admin/routes/users.tsx';
@@ -51,8 +52,8 @@ import {
   getOpenProjectOwnershipPeriodsByProjectIds,
   getProjectsByIds,
   getUsersByIds,
-  type Db,
 } from './db.ts';
+import type { Db } from './db.ts';
 import {
   deploymentExecutionStatus,
   dispatchPendingDeployments,
@@ -70,8 +71,10 @@ import { isValidEmailDomain, MAX_DOMAIN_LENGTH } from './email/domain-name.ts';
 import emailIngressResolution from './email/ingress-resolution.ts';
 import { repairEmailRecipientPolicyMirror } from './email/settings.ts';
 import { reconcileSharedEmailRecipients } from './email/shared-recipient-service.ts';
-import { isDevBypass, type ApiEnv } from './env.ts';
+import { isDevBypass } from './env.ts';
+import type { ApiEnv } from './env.ts';
 import { ErrorAlertMonitor } from './error-alert-monitor.ts';
+import { armFastMaintenance, fastMaintenanceArmedAt } from './fast-maintenance.ts';
 import { cancelContainerBuildDos } from './github/cancel-builds.ts';
 import { authMiddleware } from './middleware/auth.ts';
 import { platformAccessProtection } from './middleware/platform-access.ts';
@@ -123,6 +126,7 @@ import internalVerifyPrerenderBuild from './routes/internal-verify-prerender-bui
 import me from './routes/me.ts';
 import oauth, { oauthMetadata } from './routes/oauth.ts';
 import platformBootstrapRoutes from './routes/platform-bootstrap.ts';
+import projectSecurityRoutes from './routes/project-security.ts';
 import {
   myProjectInvitationRoutes,
   projectInvitationResponseRoutes,
@@ -133,6 +137,7 @@ import projectZeroTrustRoutes from './routes/project-zero-trust.ts';
 import projects from './routes/projects.ts';
 import revalidate from './routes/revalidate.ts';
 import secrets from './routes/secrets.ts';
+import securityPageRoutes from './routes/security-page.ts';
 import { projectUsage, accountUsage } from './routes/usage.ts';
 import { webhookRoutes } from './routes/webhooks.ts';
 import { setProjectsRoutingSuspension } from './routing.ts';
@@ -144,6 +149,10 @@ import {
   platformLoginTests,
   platformHumanSessions,
 } from './schema.ts';
+import { SecurityScanControl } from './security/control.ts';
+import { runSecurityMaintenance } from './security/maintenance.ts';
+import { reconcilePendingPublicRequests } from './security/public-gate-flow.ts';
+import { SecurityScanScheduler } from './security/scheduler.ts';
 import { isAdminSuspended, REASON_REQUESTS_EXCEEDED } from './suspension.ts';
 import { getCurrentBillingPeriodStart } from './tiers.ts';
 import type { Domain } from './types.ts';
@@ -155,9 +164,11 @@ import { lockZeroTrustConfiguration } from './zero-trust/lock.ts';
 import { reconcilePendingProjectZeroTrust } from './zero-trust/maintenance.ts';
 import { reconcileProjectZeroTrustDomains } from './zero-trust/project.ts';
 import {
+  MAX_ROUTING_KEYS_PER_RUN,
   resolveProjectZeroTrustRoutingForPublication,
   withProjectZeroTrustRouting,
 } from './zero-trust/routing.ts';
+import type { RoutingBudget } from './zero-trust/routing.ts';
 import { markProjectCustomDomainsChanged } from './zero-trust/state.ts';
 
 function sharedEmailBootstrapFailureDetail(
@@ -302,6 +313,21 @@ const app = new Hono<ApiEnv>()
   .use('*', async (context, next) => {
     context.set('db', createDb(context.env.HYPERDRIVE.connectionString));
     await next();
+  })
+
+  // Deploys, domains, email, deletions and operator commands all start as a
+  // mutating request, and leave work for the two-minute cron to continue. A
+  // request that failed on the server may have committed part of its work, so
+  // only a rejected one (4xx) is known to have left nothing behind.
+  .use('*', async (context, next) => {
+    await next();
+    const status = context.res.status;
+    if (
+      !['GET', 'HEAD', 'OPTIONS'].includes(context.req.method) &&
+      (status < 400 || status >= 500)
+    ) {
+      await armFastMaintenance(context.env);
+    }
   })
 
   .use('*', platformAccessProtection)
@@ -527,6 +553,7 @@ const app = new Hono<ApiEnv>()
     context.json({
       acceptsExecutionPlans: true,
       skipMigrations: true,
+      d1ReadReplication: true,
       migrationProtocolVersion: 2,
       supportedClassifierVersions: [1],
     }),
@@ -584,6 +611,8 @@ const app = new Hono<ApiEnv>()
   // capability response.
   .use('/email/*', capabilityMiddleware('email'))
   .route('/email', emailConfirm)
+  // The signed link from `void project security open` is the credential (spec §13.2).
+  .route('/security/projects', securityPageRoutes)
   .use('/me', authMiddleware)
   .use('/me/*', authMiddleware)
   .route('/me', me)
@@ -595,6 +624,7 @@ const app = new Hono<ApiEnv>()
   .route('/projects', projectTokens)
   .route('/projects', projectTeamRoutes)
   .route('/projects', projectZeroTrustRoutes)
+  .route('/projects', projectSecurityRoutes)
   .route('/projects', deploy)
   .route('/projects', deleteRoute)
   .route('/projects', revalidate)
@@ -617,7 +647,9 @@ app.use('/admin/*', adminCsrfMiddleware);
 app.post('/admin/fate', adminFateHandler);
 app.get('/admin/', dashboardHandler);
 app.route('/admin/users', adminUsers);
+app.route('/admin/projects', adminProjectSecurity);
 app.route('/admin/projects', adminProjects);
+app.route('/admin/security', adminSecurity);
 app.route('/admin/email', adminEmail);
 app.route('/admin/zero-trust', adminZeroTrust);
 app.route('/admin/builds', adminBuilds);
@@ -662,13 +694,43 @@ async function scheduled(
   env: ApiEnv['Bindings'],
   _ctx: ExecutionContext,
 ): Promise<void> {
+  // An idle fast tick must not query PostgreSQL: a query every two minutes
+  // keeps a scale-to-zero database running. See fast-maintenance.ts.
+  const armedAt = controller.cron === FAST_CRON ? await fastMaintenanceArmedAt(env) : undefined;
+  if (armedAt === null) {
+    return;
+  }
+  const fastTier = { unfinished: false };
+  try {
+    await runScheduledMaintenance(controller, env, fastTier);
+  } finally {
+    if (fastTier.unfinished) {
+      await armFastMaintenance(env, armedAt);
+    }
+  }
+}
+
+/**
+ * `fastTier.unfinished` is set when a step leaves work that the next
+ * two-minute tick should continue, and keeps that tier armed. Only work that
+ * ends by itself may set it. Retries that can repeat indefinitely (failed
+ * project cleanup, email operations awaiting recovery) rely on the request
+ * that created them and on the hourly cron.
+ */
+async function runScheduledMaintenance(
+  controller: ScheduledController,
+  env: ApiEnv['Bindings'],
+  fastTier: { unfinished: boolean },
+): Promise<void> {
   env = await resolvePlatformApplicationEnvironment(env);
   const deploymentDb = env.DEPLOYMENTS_QUEUE ? createDb(env.HYPERDRIVE.connectionString) : null;
   // Durable jobs admitted before maintenance must still execute and settle.
   if (deploymentDb) {
-    await dispatchPendingDeployments(env, deploymentDb).catch((error) =>
-      console.error('[scheduled] deployment outbox failed', error),
-    );
+    await dispatchPendingDeployments(env, deploymentDb)
+      .then((found) => {
+        fastTier.unfinished ||= found;
+      })
+      .catch((error: unknown) => console.error('[scheduled] deployment outbox failed', error));
   }
   if (
     env.PLATFORM_TRAFFIC_STATE === 'staging' ||
@@ -684,12 +746,12 @@ async function scheduled(
   // run inside their request. Worker uploads that never became a deployment
   // are still removed here.
   if (!deploymentDb) {
-    await sweepStaleDeploymentInputs(env, db).catch((error) =>
+    await sweepStaleDeploymentInputs(env, db).catch((error: unknown) =>
       console.error('[scheduled] deployment input sweep failed', error),
     );
   }
 
-  await reconcileProjectCleanupJobs(db, env).catch((error) =>
+  await reconcileProjectCleanupJobs(db, env).catch((error: unknown) =>
     console.error('[scheduled] project cleanup retry failed:', error),
   );
 
@@ -698,11 +760,14 @@ async function scheduled(
   // not, so the pending-domain and email work below still runs. An operation
   // already in error waits for the hourly tier or an explicit reconcile.
   if (controller.cron === FAST_CRON) {
-    const zeroTrustProgressed = await resumePlatformZeroTrustOperation(env, db).catch((error) => {
-      console.error('[scheduled] Zero Trust operation resume failed:', error);
-      return false;
-    });
+    const zeroTrustProgressed = await resumePlatformZeroTrustOperation(env, db).catch(
+      (error: unknown) => {
+        console.error('[scheduled] Zero Trust operation resume failed:', error);
+        return false;
+      },
+    );
     if (zeroTrustProgressed) {
+      fastTier.unfinished = true;
       return;
     }
   }
@@ -710,33 +775,37 @@ async function scheduled(
   // Proxy token rotations, bounded per tick so deploys keep their share of the
   // Cloudflare API rate limit.
   if (!isDevBypass(env) && env.CF_API_TOKEN) {
-    await reconcileProxyTokenRotations(db, env, { maxCfCalls: 100, maxMs: 25_000 }).catch((error) =>
-      console.error('[scheduled] proxy token rotation failed:', error),
-    );
+    await reconcileProxyTokenRotations(db, env, { maxCfCalls: 100, maxMs: 25_000 })
+      .then((summary) => {
+        fastTier.unfinished ||= summary.done + summary.pending > 0;
+      })
+      .catch((error: unknown) => console.error('[scheduled] proxy token rotation failed:', error));
   }
 
   if (capabilities.email) {
     await reconcileEmailDestinationCleanups(db, {
       accountId: env.CF_ACCOUNT_ID,
       apiToken: env.CF_API_TOKEN,
-    }).catch((error) => console.error('[scheduled] email destination cleanup failed:', error));
+    }).catch((error: unknown) =>
+      console.error('[scheduled] email destination cleanup failed:', error),
+    );
     await (async () => {
       const operationId = await ensureSharedEmailConnection(db, env);
       if (operationId) {
         await runEmailOperation(db, env, operationId);
       }
-    })().catch((error) => console.error('[scheduled] shared email setup failed:', error));
-    await reconcilePendingEmailOperations(db, env).catch((error) =>
+    })().catch((error: unknown) => console.error('[scheduled] shared email setup failed:', error));
+    await reconcilePendingEmailOperations(db, env).catch((error: unknown) =>
       console.error('[scheduled] email operation reconciliation failed:', error),
     );
-    await reconcileSharedEmailRecipients(db, env).catch((error) =>
+    await reconcileSharedEmailRecipients(db, env).catch((error: unknown) =>
       console.error('[scheduled] shared email recipient reconciliation failed:', error),
     );
-    await flushEmailCacheOutbox(db, env.ROUTING).catch((error) =>
+    await flushEmailCacheOutbox(db, env.ROUTING).catch((error: unknown) =>
       console.error('[scheduled] email display publication failed:', error),
     );
     if (controller.cron !== FAST_CRON) {
-      await pruneEmailActionHistory(db).catch((error) =>
+      await pruneEmailActionHistory(db).catch((error: unknown) =>
         console.error('[scheduled] email history cleanup failed:', error),
       );
       await repairEmailRecipientPolicyMirror(db, env.ROUTING);
@@ -752,6 +821,7 @@ async function scheduled(
     }
     const cutoff = new Date(controller.scheduledTime - RECENT_PENDING_WINDOW_MS).toISOString();
     const young = await getPendingDomainsNewerThan(db, cutoff, MAX_PENDING_RECONCILE_PER_RUN);
+    fastTier.unfinished ||= young.length > 0;
     if (young.length === MAX_PENDING_RECONCILE_PER_RUN) {
       console.warn(
         `[scheduled] fast pending-domain reconcile hit the per-run cap (${MAX_PENDING_RECONCILE_PER_RUN}); remaining pending domains will be processed on the next run`,
@@ -759,7 +829,7 @@ async function scheduled(
     }
     // Fast tier does NOT re-trigger HTTP DCV via PATCH — only the hourly tier
     // does (see the hourly call below and tryActivateDomain's comment).
-    await reconcilePendingDomains(env, db, young, false).catch((err) =>
+    await reconcilePendingDomains(env, db, young, false).catch((err: unknown) =>
       console.error('[scheduled] fast pending-domain reconcile failed:', err),
     );
     return;
@@ -767,19 +837,33 @@ async function scheduled(
 
   // Hourly tier (every :00): full maintenance.
 
+  // Security audits: reaper, re-poke, backlog skip, sweeps, retention, daily probe.
+  if (capabilities.securityAudits) {
+    await runSecurityMaintenance(env, db, Date.now()).catch((error: unknown) =>
+      console.error('[scheduled] security audit maintenance failed:', error),
+    );
+  }
+
   if (capabilities.sandbox) {
-    await retrySandboxControllerCleanup(db, env).catch((error) =>
+    await retrySandboxControllerCleanup(db, env).catch((error: unknown) =>
       console.error('[scheduled] Sandbox controller cleanup failed:', error),
     );
   }
 
-  await reconcilePendingProjectZeroTrust(env, db).catch((error) =>
-    console.error('[scheduled] Zero Trust reconciliation failed:', error),
+  const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
+  await reconcilePendingProjectZeroTrust(env, db, undefined, routingBudget).catch(
+    (error: unknown) => console.error('[scheduled] Zero Trust reconciliation failed:', error),
+  );
+
+  // Public gate backstop: judge open public requests again (for example after an
+  // installation operation ends). Flips only when the full reconcile fits its budget.
+  await reconcilePendingPublicRequests(env, db, undefined, routingBudget).catch((error: unknown) =>
+    console.error('[scheduled] public request re-check failed:', error),
   );
 
   // Repair published AI logging settings that drifted from Postgres, and advance
   // an unfinished plan default publish by one page.
-  await sweepAiLogging(db, env.ROUTING, initialPlanDefaultFor(env)).catch((error) =>
+  await sweepAiLogging(db, env.ROUTING, initialPlanDefaultFor(env)).catch((error: unknown) =>
     console.error('[scheduled] AI logging sweep failed:', error),
   );
 
@@ -790,7 +874,9 @@ async function scheduled(
         console.log(`[scheduled] auto-failed ${n} stale deployment(s)`);
       }
     })
-    .catch((err) => console.error('[scheduled] failed to clean up stale deployments:', err));
+    .catch((err: unknown) =>
+      console.error('[scheduled] failed to clean up stale deployments:', err),
+    );
 
   // Auto-fail GitHub Actions builds stuck ACTIVE far longer than any plan's
   // build timeout (see STALE_ACTIONS_BUILD_MAX_AGE_MINUTES).
@@ -801,7 +887,7 @@ async function scheduled(
           console.log(`[scheduled] auto-failed ${n} stale github_actions build(s)`);
         }
       })
-      .catch((err) =>
+      .catch((err: unknown) =>
         console.error('[scheduled] failed to clean up stale github_actions builds:', err),
       );
   }
@@ -833,7 +919,9 @@ async function scheduled(
           );
         }
       })
-      .catch((err) => console.error('[scheduled] failed to clean up stale container builds:', err));
+      .catch((err: unknown) =>
+        console.error('[scheduled] failed to clean up stale container builds:', err),
+      );
   }
 
   // Re-arm the build scheduler if any container builds are still queued. The
@@ -851,31 +939,33 @@ async function scheduled(
           await scheduler.fetch('https://scheduler/poke', { method: 'POST' });
         }
       })
-      .catch((err) => console.error('[scheduled] failed to re-arm build scheduler:', err));
+      .catch((err: unknown) => console.error('[scheduled] failed to re-arm build scheduler:', err));
   }
 
   // Purge expired OAuth nonces and auth codes left by abandoned login flows (best-effort)
-  await purgeExpiredOAuthRequests(db).catch((err) =>
+  await purgeExpiredOAuthRequests(db).catch((err: unknown) =>
     console.error('[scheduled] failed to purge expired connected-app grants:', err),
   );
-  await reapExpiredPreviews(db, env).catch((err) =>
+  await reapExpiredPreviews(db, env).catch((err: unknown) =>
     console.error('[scheduled] preview teardown failed:', err),
   );
-  await purgeExpiredOAuthNonces(db).catch((err) =>
+  await purgeExpiredOAuthNonces(db).catch((err: unknown) =>
     console.error('[scheduled] failed to purge expired OAuth nonces:', err),
   );
-  await purgeExpiredAuthCodes(db).catch((err) =>
+  await purgeExpiredAuthCodes(db).catch((err: unknown) =>
     console.error('[scheduled] failed to purge expired auth codes:', err),
   );
   await db
     .delete(operatorSessions)
     .where(lt(operatorSessions.expires_at, new Date().toISOString()))
-    .catch((err) => console.error('[scheduled] failed to purge expired operator sessions:', err));
+    .catch((err: unknown) =>
+      console.error('[scheduled] failed to purge expired operator sessions:', err),
+    );
   for (const table of [platformAuthAttempts, platformLoginTests, platformHumanSessions]) {
     await db
       .delete(table)
       .where(lt(table.expires_at, new Date().toISOString()))
-      .catch((err) =>
+      .catch((err: unknown) =>
         console.error('[scheduled] failed to purge expired authentication state:', err),
       );
   }
@@ -903,6 +993,8 @@ async function scheduled(
   // activated instead of garbage-collected.
   if (capabilities.customDomains) {
     const allPending = await getPendingDomains(db, MAX_PENDING_RECONCILE_PER_RUN);
+    const youngCutoff = new Date(Date.now() - RECENT_PENDING_WINDOW_MS).toISOString();
+    fastTier.unfinished ||= (await getPendingDomainsNewerThan(db, youngCutoff, 1)).length > 0;
     if (allPending.length === MAX_PENDING_RECONCILE_PER_RUN) {
       console.warn(
         `[scheduled] hourly pending-domain reconcile hit the per-run cap (${MAX_PENDING_RECONCILE_PER_RUN}); remaining pending domains will be processed on the next run`,
@@ -913,7 +1005,7 @@ async function scheduled(
     // amplify PATCH volume under a burst of young pending domains and could 429
     // other tenants' hostname operations), while still re-triggering the long
     // tail and resetting CF's decaying 7-day validation backoff once per hour.
-    await reconcilePendingDomains(env, db, allPending, true).catch((err) =>
+    await reconcilePendingDomains(env, db, allPending, true).catch((err: unknown) =>
       console.error('[scheduled] hourly pending-domain reconcile failed:', err),
     );
 
@@ -923,7 +1015,7 @@ async function scheduled(
     // CF's own "Moved → Deleted after 7 days" sweep may not fire. Delete the CF
     // hostname (revokes the cert order) and drop the DB row. Run once globally;
     // conservative — only `status === 'pending'` rows are eligible.
-    await cleanupStalePendingDomains(env, db, controller.scheduledTime).catch((err) =>
+    await cleanupStalePendingDomains(env, db, controller.scheduledTime).catch((err: unknown) =>
       console.error('[scheduled] failed to clean up stale pending domains:', err),
     );
   }
@@ -1079,7 +1171,7 @@ export async function cleanupStalePendingDomains(
           continue;
         }
         cleaned += 1;
-        await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error) =>
+        await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error: unknown) =>
           console.error(
             `[scheduled] failed to reconcile Zero Trust after deleting ${domain.hostname}:`,
             error,
@@ -1145,7 +1237,7 @@ export async function cleanupStalePendingDomains(
     if (!claimed) {
       continue;
     }
-    await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error) =>
+    await reconcileProjectZeroTrustDomains(env, db, domain.project_id).catch((error: unknown) =>
       console.error(
         `[scheduled] failed to reconcile Zero Trust after deleting ${domain.hostname}:`,
         error,
@@ -1192,7 +1284,7 @@ async function processUserRollover(
           if (!raw) {
             continue;
           }
-          const routing = JSON.parse(raw);
+          const routing = JSON.parse(raw) as { userId?: string };
           if (!routing.userId) {
             routing.userId = current.user_id;
             await env.ROUTING.put(
@@ -1302,6 +1394,8 @@ export {
   ErrorAlertMonitor,
   SandboxConcurrencyCounter,
   SandboxControl,
+  SecurityScanControl,
+  SecurityScanScheduler,
   BuildScheduler,
   BuildManager,
   BuildManagerLarge,

@@ -9,7 +9,7 @@
  *
  * Side-effect contract: loading the file evaluates the user's `defineEnv`
  * call, which registers the schema in the singleton state in
- * `runtime/env-public.ts`. Callers read the result from there.
+ * `runtime/env/public.ts`. Callers read the result from there.
  *
  * Node-only (lives under `host/`). Must not be imported from anything
  * that ships in worker bundles.
@@ -28,6 +28,7 @@ export async function loadUserEnvFile(envFile: string): Promise<void> {
   } catch (err) {
     const base = `env: Failed to load '${envFile}': '${(err as Error).message}'.`;
     const hint = aliasHint(err, 'env.ts');
+    // oxlint-disable-next-line preserve-caught-error -- User env modules can throw errors carrying environment values.
     throw new Error(hint ? `${base}\n\n${hint}` : base);
   }
 }

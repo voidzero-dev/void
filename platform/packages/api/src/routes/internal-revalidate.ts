@@ -35,7 +35,7 @@ app.post('/:id', async (context) => {
     return context.json({ error: 'project not found' }, 404);
   }
 
-  const body = await context.req.json<{ paths?: ReadonlyArray<string>; all?: boolean }>();
+  const body = await context.req.json<{ paths?: Array<string>; all?: boolean }>();
   return runRevalidate(context, projectId, project, body);
 });
 

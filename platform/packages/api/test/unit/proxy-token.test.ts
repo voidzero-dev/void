@@ -13,16 +13,15 @@ import {
   PROXY_INTERNAL_AUTH_HEADER,
   PROXY_TOKEN_ISOLATE_TTL_MS,
   PROXY_TOKEN_KV_CACHE_TTL_SECONDS,
-  type ProxyInternalRoute,
   proxyTokenGeneration,
   proxyTokenStateKey,
-  type ProxyTokenState,
   ProxyTokenStateError,
   readProxyTokenState,
   serializeProxyTokenState,
   verifyProxyInternalAuth,
   verifyProxyToken,
 } from '../../src/proxy-token.ts';
+import type { ProxyInternalRoute, ProxyTokenState } from '../../src/proxy-token.ts';
 
 const SECRET = 'test-secret-key';
 const PROJECT = 'proj_000000000001';
@@ -40,27 +39,33 @@ const INTERNAL: Record<ProxyInternalRoute, string> = {
 const ROUTES = Object.keys(INTERNAL) as Array<ProxyInternalRoute>;
 
 function base64url(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64url');
+  return (Buffer as BufferConstructor).from(bytes).toString('base64url');
 }
 
 function nodeTok(gen: number, projectId = PROJECT): string {
   if (gen === 0) {
     return base64url(createHmac('sha256', SECRET).update(projectId).digest());
   }
-  const key = Buffer.from(hkdfSync('sha256', SECRET, 'void-proxy-token', 'proxy-token', 32));
+  const key = (Buffer as BufferConstructor).from(
+    hkdfSync('sha256', SECRET, 'void-proxy-token', 'proxy-token', 32),
+  );
   const mac = createHmac('sha256', key).update(`void-proxy-token:${projectId}:${gen}`).digest();
   return `${gen}.${base64url(mac)}`;
 }
 
 function nodeInternal(route: ProxyInternalRoute, projectId = PROJECT): string {
-  const key = Buffer.from(hkdfSync('sha256', SECRET, 'void-proxy-internal', 'proxy-internal', 32));
+  const key = (Buffer as BufferConstructor).from(
+    hkdfSync('sha256', SECRET, 'void-proxy-internal', 'proxy-internal', 32),
+  );
   return base64url(
     createHmac('sha256', key).update(`void-proxy-internal\n${route}\n${projectId}`).digest(),
   );
 }
 
 function nodeAiUsageTag(projectId: string, secret = SECRET): string {
-  const key = Buffer.from(hkdfSync('sha256', secret, 'void-ai-usage', 'ai-usage', 32));
+  const key = (Buffer as BufferConstructor).from(
+    hkdfSync('sha256', secret, 'void-ai-usage', 'ai-usage', 32),
+  );
   const mac = base64url(createHmac('sha256', key).update(`void-ai-usage\n${projectId}`).digest());
   return `${projectId}.${mac.slice(0, 22)}`;
 }

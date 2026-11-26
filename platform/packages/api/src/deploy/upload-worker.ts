@@ -1,18 +1,18 @@
 import { eq } from 'drizzle-orm';
-import { type Context } from 'hono';
+import type { Context } from 'hono';
 import {
   createAssetUploadSession,
   normalizeForCfAssetSession,
   uploadAssetBuckets,
   buildAssetMetadata,
   resolveAssetContentTypes,
-  type AssetManifestEntry,
 } from '../assets.ts';
+import type { AssetManifestEntry } from '../assets.ts';
 import { retryWithBackoff } from '../cf-api.ts';
 import { uploadPool } from '../concurrency.ts';
 import { getProjectSecrets, upsertProjectSecret } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
-import { type DeployLogger } from '../observability/logger.ts';
+import type { DeployLogger } from '../observability/logger.ts';
 import {
   BETTER_AUTH_SECRET_NAME,
   decryptProjectSecret,
@@ -33,7 +33,7 @@ import {
 import { issueProjectProxyToken } from '../proxy-token-rotation.ts';
 import { RESERVED_BINDING_NAMES } from '../reserved-bindings.ts';
 import { deployments } from '../schema.ts';
-import { type DeployManifest, type DeployEvent, type Deployment, type Project } from '../types.ts';
+import type { DeployManifest, DeployEvent, Deployment, Project } from '../types.ts';
 import {
   WORKER_UPLOAD_BUDGET_MS,
   WORKER_UPLOAD_IDLE_MS,
@@ -44,10 +44,12 @@ import {
   withKnownLength,
   workerUploadBody,
   workerUploadDeadline,
-  type TrackedStream,
-  type UploadTimeout,
-  type UploadWatchdog,
-  type WorkerModule,
+} from '../worker-upload.ts';
+import type {
+  TrackedStream,
+  UploadTimeout,
+  UploadWatchdog,
+  WorkerModule,
 } from '../worker-upload.ts';
 import {
   buildWebSocketUploadBindings,
@@ -96,7 +98,7 @@ function uploadFields(
   watchdog: UploadWatchdog,
   attemptStart: number,
   budgetEndsAt: number,
-): Record<string, unknown> {
+) {
   const progress = upload.progress();
   const timeout = watchdog.fired() ?? null;
   return {
@@ -128,7 +130,7 @@ function savedUploadReplayCode(body: string): number | undefined {
   for (const error of errors) {
     const code = (error as { code?: unknown } | null)?.code;
     // 100312: the assets completion token was used. 10079: the migration tag moved.
-    if (code === 100312 || code === 10079) {
+    if (code === 100_312 || code === 10_079) {
       return code;
     }
   }
@@ -147,9 +149,9 @@ async function workerScriptSaved(
       void response.body?.cancel().catch(() => {});
       return false;
     }
-    const body = (await response.json()) as {
+    const body = await response.json<{
       result?: { script?: { migration_tag?: unknown } | null } | null;
-    } | null;
+    } | null>();
     const script = body?.result?.script;
     return !!script && (migrationTag === undefined || script.migration_tag === migrationTag);
   } catch {
@@ -246,6 +248,7 @@ export async function uploadDeploymentWorker(input: {
       projectSlug: project.slug,
       proxyToken: proxyToken.token,
       emailSenderDomain: context.env.EMAIL_SENDER_DOMAIN,
+      storageLocationHint: context.env.R2_LOCATION_HINT,
       deploymentId: deployment.id,
     },
   );
@@ -327,7 +330,7 @@ export async function uploadDeploymentWorker(input: {
       }
       assetsByHash.set(hash, {
         bytes: new Uint8Array(await object.arrayBuffer()),
-        contentType: contentTypes.get(hash)!,
+        contentType: contentTypes.get(hash) ?? 'application/octet-stream',
       });
     });
     // Every byte was pre-uploaded direct-to-R2 by the CLI, so none are new
@@ -442,7 +445,7 @@ export async function uploadDeploymentWorker(input: {
       apiToken: context.env.CF_API_TOKEN,
       apiService: context.env.SANDBOX_CONTROL_SERVICE ?? 'void-api',
       identity: {
-        projectId: projectId,
+        projectId,
         deploymentId: deployment.id,
         userId: owner.id,
         slug: project.slug,
@@ -481,7 +484,7 @@ export async function uploadDeploymentWorker(input: {
     manifest.live?.migrations,
   );
   const tailServiceName = context.env.TAIL_SERVICE_NAME ?? DEFAULT_TAIL_SERVICE_NAME;
-  const metadata: Record<string, unknown> = {
+  const metadata = {
     main_module: manifest.workerMain ?? DEFAULT_WORKER_MAIN_MODULE,
     compatibility_date: manifest.compatibilityDate ?? '2026-02-12',
     compatibility_flags: manifest.compatibilityFlags ?? ['nodejs_compat'],
@@ -521,7 +524,8 @@ export async function uploadDeploymentWorker(input: {
     );
   }
 
-  input.workerUploadUrl = `https://api.cloudflare.com/client/v4/accounts/${context.env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${workerName}`;
+  const workerUploadUrl = `https://api.cloudflare.com/client/v4/accounts/${context.env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${workerName}`;
+  input.workerUploadUrl = workerUploadUrl;
   const maxAttempts = CF_RETRY.maxRetries + 1;
   const cfHeaders = {
     Authorization: `Bearer ${context.env.CF_API_TOKEN}`,
@@ -534,7 +538,7 @@ export async function uploadDeploymentWorker(input: {
   // the uploaded migration tag is this upload.
   const savedDespiteFailure = async (fields: Record<string, unknown>) => {
     const saved = await workerScriptSaved(
-      input.workerUploadUrl!,
+      workerUploadUrl,
       cfHeaders,
       durableObjectMigrations?.new_tag,
     );
@@ -570,7 +574,7 @@ export async function uploadDeploymentWorker(input: {
       // The request and its response body are retried together: a connection
       // that drops while the body is read fails like one that drops earlier.
       try {
-        cfResponse = await fetch(input.workerUploadUrl!, {
+        cfResponse = await fetch(workerUploadUrl, {
           method: 'PUT',
           headers: { ...cfHeaders, 'Content-Type': upload.contentType },
           body: withKnownLength(upload.stream, upload.length),
@@ -692,7 +696,9 @@ export async function uploadDeploymentWorker(input: {
     },
   );
   input.workerUploaded = true;
-  await verifyManagedDurableObjectApplicationBindings(context.env, workerName, manifest);
+  await verifyManagedDurableObjectApplicationBindings(context.env, workerName, manifest, {
+    deadline: input.deadline,
+  });
 
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 

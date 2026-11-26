@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import { pendingAuthenticationSetup } from '../../auth/bootstrap.ts';
 import { readAuthSettings, readEnabledLoginConnections } from '../../auth/configuration.ts';
@@ -64,7 +65,6 @@ export function isAdminOAuthState(state: string): boolean {
   }
 }
 
-// GET /login
 app.get('/login', async (context) => {
   if (await pendingAuthenticationSetup(context.get('db'))) {
     return context.redirect('/setup');
@@ -86,7 +86,6 @@ app.get('/login', async (context) => {
   });
 });
 
-// GET /login/:provider
 app.get('/login/:provider', async (context) => {
   const provider = context.req.param('provider');
   const managed = await startPlatformLogin(context, 'admin', provider);
@@ -280,7 +279,6 @@ export async function handleAdminOAuthCallback(context: Context<ApiEnv>): Promis
   return context.redirect('/admin/');
 }
 
-// GET /logout
 app.get('/logout', (context) => {
   deleteCookie(context, 'admin_token', { path: '/' });
   return context.redirect('/admin/login');

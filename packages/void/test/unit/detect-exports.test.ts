@@ -1,9 +1,10 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { detectHttpExports } from '../../src/router/detect-exports.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_detect_test__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_detect_test__');
 
 function writeRoute(filename: string, content: string): string {
   const full = join(TMP, filename);
@@ -16,12 +17,12 @@ describe('detectHttpExports', () => {
   it.each([
     ['const handler = () => {}; export { handler as "GET" };', ['GET']],
     ['export { handler as "POST" } from "./handler";', ['POST']],
-    ['const handler = () => {}; export { handler as "G\\u0045T" };', ['GET']],
+    [String.raw`const handler = () => {}; export { handler as "G\u0045T" };`, ['GET']],
     ['const GET = () => {}; export { GET as "helper" };', []],
     ['export type { GET as "GET" } from "./types";', []],
     ['export { type GET as "GET", handler as "POST" } from "./handler";', ['POST']],
   ])('uses the actual exported name in %s', (source, methods) => {
-    expect(detectHttpExports(writeRoute('quoted.ts', source as string))).toEqual(methods);
+    expect(detectHttpExports(writeRoute('quoted.ts', source))).toEqual(methods);
   });
 
   beforeEach(() => {

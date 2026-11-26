@@ -3,8 +3,8 @@ import {
   createPlatformResourceNames,
   normalizeApplicationDomain,
   normalizeInstallationSlug,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   confirm,
   isCancel,
@@ -15,27 +15,34 @@ import {
   text,
 } from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
+import { Buffer } from './node-buffer.ts';
 import { printSuccess, cliCommandName, formatUrl, note, pc } from './output.ts';
 import {
   selectInstallationAppAccess,
   prepareInstallationAppAccess,
 } from './platform-app-access.ts';
 import type { PlatformArgs } from './platform-args.ts';
-import { readPlatformHyperdriveSelection } from './platform-auth-database.ts';
+import {
+  readPlatformHyperdriveSelection,
+  verifyExternalPlatformHyperdrive,
+} from './platform-auth-database.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
+  platformOperatorCredentialLabel,
   platformOperatorNeedsManagementToken,
   verifyPlatformManagementAccess,
   resolvePlatformCloudflareCredential,
   resolvePlatformCloudflareCredentialWithInput,
 } from './platform-auth.ts';
 import {
+  hyperdriveOriginLocationMatches,
   PlatformCloudflareClient,
   PlatformCloudflareApiError,
   PlatformRuntimeTokenEmailPermissionError,
   verifyPlatformRuntimeTokenPermissions,
-  type CloudflareAccount,
 } from './platform-cloudflare.ts';
+import type { CloudflareAccount } from './platform-cloudflare.ts';
+import { platformCredentialHelp } from './platform-credential-label.ts';
 import {
   selectInstallationAuthentication,
   collectInstallationAuthentication,
@@ -59,8 +66,8 @@ import {
   createPlatformInstallPlan,
   formatPlatformInstallPlan,
   revalidatePlatformInstallAction,
-  type PlatformExternalHyperdrive,
 } from './platform-plan.ts';
+import type { PlatformExternalHyperdrive } from './platform-plan.ts';
 import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
 import {
   acquirePlatformLifecycleLock,
@@ -78,10 +85,12 @@ import {
   updateProjectWorkerRuntimeLogs,
 } from './platform-runtime-logs.ts';
 import {
+  findSavedPlatformInstallPlan,
   listSavedPlatformInstallPlans,
   savePlatformInstallChoices,
   removeSavedPlatformInstallPlan,
 } from './platform-saved-plans.ts';
+import { assertPlatformSecurityAuditsSupported } from './platform-security-audits.ts';
 import {
   completePlatformSetupDraft,
   isPlatformSetupDraft,
@@ -98,6 +107,7 @@ import {
   platformSetupFieldHelp,
   platformSetupLink,
 } from './platform-setup.ts';
+import { assertPlatformStorageSupported } from './platform-storage.ts';
 
 function isPlatformInstallDatabaseBound(
   checkpoint: Record<string, string> | null,
@@ -148,6 +158,19 @@ export function resolvePlatformInstallDatabaseUrl(
   return explicit || recorded;
 }
 
+const assertNewNameAvailable = (slug: string) => {
+  const collision = listInstallationManifests().find(
+    (manifest) =>
+      manifest.status !== 'uninstalled' && manifest.deployment.installationSlug === slug,
+  );
+  if (collision && !isPlatformInstallInProgress(collision)) {
+    throw new Error(
+      `platform: ${collision.deployment.displayName} (${slug}) already exists (${collision.status}). Run \`void platform status ${collision.id}\` to inspect it.`,
+    );
+  }
+  assertPlatformInstallationSlugAvailable(slug);
+};
+
 export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Promise<void> {
   if (commandArgs.subcommand === 'domain') {
     const { runPlatformDomainCommand } = await import('./platform-domain.ts');
@@ -157,7 +180,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
   if (commandArgs.subcommand === 'discover') {
     log.step('Preparing platform discovery');
     const credential = await resolvePlatformCloudflareCredential();
-    const client = new PlatformCloudflareClient(credential.token);
+    const client = new PlatformCloudflareClient(credential.token, {
+      credential: platformOperatorCredentialLabel(credential),
+    });
     const accounts = await withPlatformProgress('Reading Cloudflare accounts', () =>
       readAccounts(client),
     );
@@ -196,6 +221,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
   let existing = args.resume ? resolveInstallationManifest(args.name) : null;
   let selectedInstall = false;
   let selectedDraft = false;
+  let reuseSavedPlan = !args.plan;
   let installationName = args.name;
   const { input: installationSlug, credential: operatorCredential } =
     await resolvePlatformCloudflareCredentialWithInput(async () => {
@@ -212,18 +238,6 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         existing = manifest;
         selectedInstall = true;
         selectedDraft = isPlatformSetupDraft(manifest);
-      };
-      const assertNewNameAvailable = (slug: string) => {
-        const collision = listInstallationManifests().find(
-          (manifest) =>
-            manifest.status !== 'uninstalled' && manifest.deployment.installationSlug === slug,
-        );
-        if (collision && !isPlatformInstallInProgress(collision)) {
-          throw new Error(
-            `platform: ${collision.deployment.displayName} (${slug}) already exists (${collision.status}). Run \`void platform status ${collision.id}\` to inspect it.`,
-          );
-        }
-        assertPlatformInstallationSlugAvailable(slug);
       };
       if (!args.resume && process.stdin.isTTY) {
         const installs = resumableInstalls().filter(
@@ -248,7 +262,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           !args.dedicatedZoneSpecified &&
           args.dashboardUrl === undefined &&
           !args.customDomains &&
-          args.runtimeLogs === undefined
+          !args.securityAudits &&
+          args.runtimeLogs === undefined &&
+          args.storageLocation === undefined
             ? listSavedPlatformInstallPlans().filter(
                 (saved) =>
                   (!args.name || saved.args.name === normalizeInstallationSlug(args.name)) &&
@@ -284,6 +300,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
             throw new Error('platform: Cancelled.');
           }
           if (choice === 'new') {
+            reuseSavedPlan = false;
             // Do not let --name silently reselect the draft the user just declined.
             requestedName = '';
           } else if (choice.startsWith('plan:')) {
@@ -291,6 +308,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
             if (!saved) {
               throw new Error('platform: The selected plan is no longer available.');
             }
+            reuseSavedPlan = true;
             args = { ...saved.args, plan: args.plan, yes: args.yes };
             runtime = loadPlatformRuntime(args.runtime);
             installationName = args.name;
@@ -324,7 +342,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           (install) => install.deployment.installationSlug === slug,
         );
         if (process.stdin.isTTY && matches.length > 0) {
-          let selected = matches[0]!;
+          let selected = matches[0];
           if (matches.length > 1) {
             const choice = await select({
               message: `Which ${slug} installation do you want to resume?`,
@@ -368,7 +386,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       }
       return existing.deployment.installationSlug;
     });
-  let client = new PlatformCloudflareClient(operatorCredential.token);
+  let client = new PlatformCloudflareClient(operatorCredential.token, {
+    credential: platformOperatorCredentialLabel(operatorCredential),
+  });
   const accounts = await withPlatformProgress('Reading Cloudflare accounts', () =>
     readAccounts(client),
   );
@@ -383,15 +403,16 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
   const recorded = existing?.deployment;
   if (
     existing &&
+    recorded &&
     isPlatformSetupDraft(existing) &&
     ((args.applicationDomain &&
-      normalizeApplicationDomain(args.applicationDomain) !== recorded!.application.baseDomain) ||
-      (args.zone && normalizeApplicationDomain(args.zone) !== recorded!.application.zoneName) ||
-      (args.workersDev && !!recorded!.application.zoneName) ||
+      normalizeApplicationDomain(args.applicationDomain) !== recorded.application.baseDomain) ||
+      (args.zone && normalizeApplicationDomain(args.zone) !== recorded.application.zoneName) ||
+      (args.workersDev && !!recorded.application.zoneName) ||
       (args.controlPlaneDomain &&
         normalizeApplicationDomain(args.controlPlaneDomain) !==
-          recorded!.controlPlane.apiHostname) ||
-      (args.dedicatedZone && !recorded!.application.dedicatedZone))
+          recorded.controlPlane.apiHostname) ||
+      (args.dedicatedZone && !recorded.application.dedicatedZone))
   ) {
     throw new Error(
       'platform: These options differ from the saved setup. Resume its recorded configuration or choose another installation name.',
@@ -520,13 +541,22 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         }
       }
     }
-    const savedHyperdrive = readPlatformHyperdriveSelection(checkpoint);
-    const requestedHyperdriveId = args.hyperdrive || savedHyperdrive?.id;
+    const externalHyperdriveId = process.env.VOID_PLATFORM_HYPERDRIVE_ID?.trim() || '';
+    const selectedHyperdriveId = args.hyperdrive || externalHyperdriveId;
+    const savedPlanHyperdrive =
+      !existing && reuseSavedPlan && selectedHyperdriveId && selectedHyperdriveId !== 'create'
+        ? findSavedPlatformInstallPlan(accountId, installationSlug)?.externalHyperdrive
+        : undefined;
+    const checkpointHyperdrive = readPlatformHyperdriveSelection(checkpoint);
+    const savedHyperdrive =
+      checkpointHyperdrive ??
+      (savedPlanHyperdrive?.id === selectedHyperdriveId ? savedPlanHyperdrive : undefined);
+    const requestedHyperdriveId = args.hyperdrive || checkpointHyperdrive?.id;
     const recordedHyperdrive = existing?.resources.find(
       (resource) => resource.key === 'hyperdrive',
     );
     if (
-      (savedHyperdrive && requestedHyperdriveId !== savedHyperdrive.id) ||
+      (checkpointHyperdrive && requestedHyperdriveId !== checkpointHyperdrive.id) ||
       (recordedHyperdrive &&
         requestedHyperdriveId &&
         (requestedHyperdriveId === 'create'
@@ -541,21 +571,27 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         'platform: The selected Hyperdrive differs from the saved installation. Resume with its original Hyperdrive.',
       );
     }
-    const externalHyperdriveId = process.env.VOID_PLATFORM_HYPERDRIVE_ID?.trim() || '';
     const externalHyperdriveHost = process.env.VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST?.trim() || '';
+    const serviceId =
+      process.env.VOID_PLATFORM_HYPERDRIVE_ORIGIN_SERVICE_ID?.trim().toLowerCase() || '';
     const externalHyperdriveUser = process.env.VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER?.trim() || '';
+    if (externalHyperdriveHost && serviceId) {
+      throw new Error(
+        'platform: Specify either a Hyperdrive origin host or a Workers VPC service ID.',
+      );
+    }
     if (
-      [externalHyperdriveId, externalHyperdriveHost, externalHyperdriveUser].some(Boolean) &&
-      ![externalHyperdriveId, externalHyperdriveHost, externalHyperdriveUser].every(Boolean)
+      (externalHyperdriveId || externalHyperdriveHost || serviceId || externalHyperdriveUser) &&
+      !(externalHyperdriveId && (externalHyperdriveHost || serviceId) && externalHyperdriveUser)
     ) {
       throw new Error(
-        'platform: VOID_PLATFORM_HYPERDRIVE_ID, VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST, and VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER must be set together.',
+        'platform: Set VOID_PLATFORM_HYPERDRIVE_ID and VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER with either VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST or VOID_PLATFORM_HYPERDRIVE_ORIGIN_SERVICE_ID.',
       );
     }
     let externalHyperdrive: PlatformExternalHyperdrive | undefined = externalHyperdriveId
       ? {
           id: externalHyperdriveId,
-          host: externalHyperdriveHost,
+          ...(serviceId ? { serviceId } : { host: externalHyperdriveHost }),
           user: externalHyperdriveUser,
         }
       : undefined;
@@ -569,14 +605,18 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     if (
       savedHyperdrive &&
       externalHyperdrive &&
-      (savedHyperdrive.host.toLowerCase() !== externalHyperdrive.host.toLowerCase() ||
+      (!hyperdriveOriginLocationMatches(savedHyperdrive, externalHyperdrive) ||
         savedHyperdrive.user !== externalHyperdrive.user)
     ) {
       throw new Error('platform: The Hyperdrive origin differs from the saved installation.');
     }
-    if (savedHyperdrive) {
-      externalHyperdrive = recordedHyperdrive ? savedHyperdrive : undefined;
+    if (checkpointHyperdrive) {
+      externalHyperdrive = recordedHyperdrive ? checkpointHyperdrive : undefined;
+    } else if (savedHyperdrive) {
+      externalHyperdrive = savedHyperdrive;
     }
+    const configuredServiceOrigin =
+      externalHyperdrive?.serviceId !== undefined ? externalHyperdrive : undefined;
     if (
       !externalHyperdrive &&
       requestedHyperdriveId !== 'create' &&
@@ -649,7 +689,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         }
         if (
           (savedHyperdrive &&
-            (live.origin.host !== savedHyperdrive.host.toLowerCase() ||
+            (!hyperdriveOriginLocationMatches(live.origin, savedHyperdrive) ||
               live.origin.user !== savedHyperdrive.user ||
               (savedHyperdrive.name && live.name !== savedHyperdrive.name) ||
               (savedHyperdrive.database && live.origin.database !== savedHyperdrive.database))) ||
@@ -665,8 +705,12 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           note(
             [
               `${pc.bold('Database:')} ${live.origin.database}`,
-              `${pc.bold('Host:')} ${live.origin.host}`,
-              `${pc.bold('Port:')} ${live.origin.port ?? 'configured by Cloudflare Tunnel'}`,
+              ...(live.origin.serviceId !== undefined
+                ? [`${pc.bold('Workers VPC service:')} ${live.origin.serviceId}`]
+                : [
+                    `${pc.bold('Host:')} ${live.origin.host}`,
+                    `${pc.bold('Port:')} ${live.origin.port ?? 'configured by Cloudflare Tunnel'}`,
+                  ]),
               `${pc.bold('User:')} ${live.origin.user}`,
               `${pc.bold('SQL result caching:')} ${live.cachingDisabled ? 'disabled' : 'enabled'}`,
             ].join('\n'),
@@ -682,10 +726,36 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           id: live.id,
           name: live.name,
           database: live.origin.database,
-          host: live.origin.host,
+          ...(live.origin.serviceId !== undefined
+            ? { serviceId: live.origin.serviceId }
+            : { host: live.origin.host }),
           user: live.origin.user,
         };
+        if (externalHyperdrive.serviceId !== undefined) {
+          verifyExternalPlatformHyperdrive({
+            config: live,
+            databaseUrl: databaseUrl || undefined,
+            expected: externalHyperdrive,
+          });
+        }
       }
+    }
+    if (configuredServiceOrigin) {
+      const live = await client.getHyperdriveConfig(accountId, configuredServiceOrigin.id);
+      verifyExternalPlatformHyperdrive({
+        config: live,
+        databaseUrl: databaseUrl || undefined,
+        expected: {
+          ...configuredServiceOrigin,
+          name: recordedHyperdrive?.name ?? configuredServiceOrigin.name,
+        },
+        recordedHash: recordedHyperdrive?.configHash,
+      });
+      externalHyperdrive = {
+        ...configuredServiceOrigin,
+        name: live.name,
+        database: live.origin.database,
+      };
     }
     const authenticationSelection = await selectInstallationAuthentication(
       args.authConfig,
@@ -730,6 +800,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       controlPlaneDomain,
       ...(args.dashboardUrl !== undefined ? { dashboardUrl: args.dashboardUrl } : {}),
       ...(args.customDomains ? { customDomains: true } : {}),
+      ...(args.securityAudits ? { securityAudits: true } : {}),
       dedicatedZone,
       displayName,
       ...(externalHyperdrive ? { externalHyperdrive } : {}),
@@ -741,6 +812,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         : {}),
       installationSlug,
       ...(args.runtimeLogs !== undefined ? { runtimeLogs: args.runtimeLogs } : {}),
+      ...(args.storageLocation !== undefined ? { storageLocation: args.storageLocation } : {}),
       zoneName,
       ...(workersDev ? { workersDev: true } : {}),
     };
@@ -755,6 +827,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       createPlatformInstallPlan(client, planInput, existing, planOptions),
     );
     assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
+    assertPlatformSecurityAuditsSupported(plan.deployment, runtime.manifest);
+    assertPlatformStorageSupported(plan.deployment, runtime.manifest);
     const commandOptions = {
       commandName: cliCommandName(),
       accountId,
@@ -765,6 +839,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       controlPlaneDomain,
       ...(args.dashboardUrl !== undefined ? { dashboardUrl: args.dashboardUrl } : {}),
       ...(args.customDomains ? { customDomains: true } : {}),
+      ...(args.securityAudits ? { securityAudits: true } : {}),
       dedicatedZone,
       workersDev,
       authConfig: args.authConfig,
@@ -775,6 +850,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           ? (externalHyperdrive?.id ?? 'create')
           : undefined,
       runtime: args.runtime,
+      ...(!existing && plan.deployment.storageLocationHint
+        ? { storageLocation: plan.deployment.storageLocationHint }
+        : {}),
       // A resume keeps the recorded value, so only a new install repeats it.
       ...(!existing && plan.deployment.runtimeLogs ? { runtimeLogs: 'minimal' as const } : {}),
       ...(existing ? { resumeId: existing.id } : {}),
@@ -789,6 +867,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           yes: false,
         }).slice(2),
         plan.account.name,
+        undefined,
+        externalHyperdrive?.serviceId ? externalHyperdrive : undefined,
       );
     }
     note(
@@ -838,6 +918,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       operatorCredential.source === 'oauth' ? checkpoint?.managementApiToken || '' : '';
     if (needsManagementToken || managementApiToken) {
       let token = managementApiToken;
+      // A token from the checkpoint was saved on this machine by an earlier run.
+      let tokenSource: 'saved' | 'entered' = token ? 'saved' : 'entered';
       let openedManagementPage = false;
       const forgetRejectedManagementToken = () => {
         managementApiToken = '';
@@ -860,8 +942,12 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
               value.trim() ? undefined : 'A value is required.',
             )
           ).trim();
+          tokenSource = 'entered';
         }
-        const management = new PlatformCloudflareClient(token, { apiBase: client.apiBaseUrl });
+        const management = new PlatformCloudflareClient(token, {
+          apiBase: client.apiBaseUrl,
+          credential: { role: 'management', source: tokenSource },
+        });
         try {
           const authorizedAccounts = await management.listAccounts();
           if (!authorizedAccounts.some((account) => account.id === accountId)) {
@@ -889,13 +975,27 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           if (!isPlatformTokenAuthorizationError(error)) {
             throw error;
           }
-          const details = new Set<string>();
+          const details: Array<string> = [];
+          // Errors an AggregateError above already lists in its own message.
+          const listed = new Set<unknown>();
           for (
             let cause = error, depth = 0;
             depth < 5 && cause instanceof Error;
             depth++, cause = cause.cause
           ) {
-            details.add(cause.message.replaceAll(token, '[redacted]'));
+            if (listed.has(cause)) {
+              continue;
+            }
+            if (cause instanceof AggregateError) {
+              for (const listedError of cause.errors) {
+                listed.add(listedError);
+              }
+            }
+            const message = cause.message.replaceAll(token, '[redacted]');
+            // A wrapping error often repeats its cause's message.
+            if (!details.some((detail) => detail.includes(message))) {
+              details.push(message);
+            }
           }
           forgetRejectedManagementToken();
           log.warn(
@@ -916,7 +1016,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     removeSavedPlatformInstallPlan({ ...args, account: accountId, name: installationSlug });
     const setupManifest = existing;
     const credentialSetup = isPlatformSetupDraft(existing);
-    const values: Record<string, string> = { ...checkpoint };
+    const values = { ...checkpoint };
     if (managementAccess) {
       // A verified management token replaces an older, separately collected Access token.
       delete values.accessManagementToken;
@@ -986,19 +1086,32 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     let rejectedSavedRuntimeToken = false;
     const verifyRuntimeToken = async (token: string) => {
       let checkingRuntimePermissions = true;
+      const credential = {
+        role: 'runtime',
+        source:
+          token === process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN
+            ? 'environment'
+            : token === values.cloudflareApiToken
+              ? 'saved'
+              : 'entered',
+      } as const;
       try {
-        await verifyPlatformRuntimeTokenPermissions(new PlatformCloudflareClient(token), {
-          accountId,
-          applicationDomain,
-          customDomains: plan.deployment.capabilities.customDomains,
-          ...(plan.deployment.capabilities.email && plan.deployment.emailSharedZoneId
-            ? { emailZoneId: plan.deployment.emailSharedZoneId }
-            : {}),
-          zoneId: plan.zone?.id ?? null,
-        });
+        await verifyPlatformRuntimeTokenPermissions(
+          new PlatformCloudflareClient(token, { credential }),
+          {
+            accountId,
+            applicationDomain,
+            credential,
+            customDomains: plan.deployment.capabilities.customDomains,
+            ...(plan.deployment.capabilities.email && plan.deployment.emailSharedZoneId
+              ? { emailZoneId: plan.deployment.emailSharedZoneId }
+              : {}),
+            zoneId: plan.zone?.id ?? null,
+          },
+        );
         checkingRuntimePermissions = false;
         if (plan.actions.some((action) => action.action === 'inspect')) {
-          client = client.withAiGatewayToken(token);
+          client = client.withAiGatewayToken(token, credential);
           plan = await verifyPlatformAiGatewayPlan(
             client,
             planInput,
@@ -1447,16 +1560,31 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
 }
 
 function isPlatformTokenAuthorizationError(error: unknown, requestPathIncludes?: string): boolean {
+  return !!findPlatformTokenAuthorizationError(error, requestPathIncludes);
+}
+
+function findPlatformTokenAuthorizationError(
+  error: unknown,
+  requestPathIncludes?: string,
+): PlatformCloudflareApiError | undefined {
   for (let depth = 0; depth < 5 && error instanceof Error; depth++, error = error.cause) {
     if (
       error instanceof PlatformCloudflareApiError &&
       [401, 403].includes(error.status) &&
       (!requestPathIncludes || error.requestPath?.includes(requestPathIncludes))
     ) {
-      return true;
+      return error;
     }
   }
-  return false;
+  return undefined;
+}
+
+/** What the client said about the AI Gateway credential it used, if it knew it. */
+function platformCredentialHelpInChain(error: unknown): string | undefined {
+  const denied = findPlatformTokenAuthorizationError(error, '/ai-gateway/');
+  return denied?.credential
+    ? platformCredentialHelp(denied.credential, denied.status, denied.requestPath)
+    : undefined;
 }
 
 function formatPlatformRuntime(runtime: ReturnType<typeof loadPlatformRuntime>): string {
@@ -1485,8 +1613,12 @@ export async function verifyPlatformAiGatewayPlan(
     });
   } catch (error) {
     if (isPlatformTokenAuthorizationError(error, '/ai-gateway/')) {
+      // The client already named the token and how to fix it.
+      const help = platformCredentialHelpInChain(error);
       throw new Error(
-        'platform: The runtime token could not verify AI Gateway access. Include Account → AI Gateway → Edit for this account, then retry. No platform resources were created.',
+        help
+          ? `platform: The runtime token could not verify AI Gateway access. ${help} No platform resources were created.`
+          : 'platform: The runtime token could not verify AI Gateway access. Include Account → AI Gateway → Edit for this account, then retry. No platform resources were created.',
         { cause: error },
       );
     }
@@ -1566,10 +1698,10 @@ async function selectAccount(
         `platform: Cloudflare account ${JSON.stringify(selector)} is ambiguous. Use --account <id> to select a specific account.`,
       );
     }
-    return matches[0]!.id;
+    return matches[0].id;
   }
   if (accounts.length === 1) {
-    return accounts[0]!.id;
+    return accounts[0].id;
   }
   if (!process.stdin.isTTY) {
     throw new Error(

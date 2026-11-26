@@ -1,10 +1,13 @@
 import { expect, it, vi } from 'vite-plus/test';
+import { defineRoom, defineWebSocket } from '../../src/runtime/ws/index.ts';
+import type { WebSocketBaseContext } from '../../src/runtime/ws/index.ts';
 import {
   createWebSocketDurableObject,
   createWebSocketTombstoneDurableObject,
-} from '../../src/runtime/ws-server.ts';
-import { defineRoom, defineWebSocket } from '../../src/runtime/ws.ts';
+} from '../../src/runtime/ws/server.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
+
+vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }));
 
 const schema: StandardSchemaV1 = {
   '~standard': { version: 1, vendor: 'test', validate: (value) => ({ value }) },
@@ -27,10 +30,22 @@ function socket(readyState = 2) {
   return { webSocket, close };
 }
 
+function define(
+  kind: 'room' | 'socket',
+  definition: {
+    messages: { client: StandardSchemaV1; server: StandardSchemaV1 };
+    onClose: (
+      context: WebSocketBaseContext,
+      details?: { code: number; reason: string; wasClean: boolean },
+    ) => void;
+  },
+) {
+  return kind === 'room' ? defineRoom(definition) : defineWebSocket(definition);
+}
+
 it.each(['room', 'socket'] as const)(
   'completes the close handshake before invoking %s hooks',
   async (kind) => {
-    const define = kind === 'room' ? defineRoom : defineWebSocket;
     const { webSocket, close } = socket();
     const onClose = vi.fn(
       (_context: unknown, details?: { code: number; reason: string; wasClean: boolean }) => {
@@ -39,7 +54,7 @@ it.each(['room', 'socket'] as const)(
       },
     );
     const DurableObject = createWebSocketDurableObject(
-      define({ messages: { client: schema, server: schema }, onClose }),
+      define(kind, { messages: { client: schema, server: schema }, onClose }),
       route,
     );
     await new DurableObject(state, {}).webSocketClose(webSocket, 1000, 'done', true);

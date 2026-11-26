@@ -7,9 +7,9 @@ function createMockKV(initial: Record<string, string> = {}) {
   const store = new Map<string, string>(Object.entries(initial));
   return {
     store,
-    get: vi.fn(async (key: string, type?: 'json' | 'text') => {
+    get: vi.fn(async (key: string, type?: 'json' | 'text'): Promise<unknown> => {
       const raw = store.get(key);
-      if (raw == null) {
+      if (raw === null || raw === undefined) {
         return null;
       }
       if (type === 'json') {
@@ -29,12 +29,12 @@ function createMockKV(initial: Record<string, string> = {}) {
         .sort();
       const start = cursor ? all.indexOf(cursor) + 1 : 0;
       const page = all.slice(start, start + 2);
-      const last = all.indexOf(page[page.length - 1] ?? '');
+      const last = all.indexOf(page.at(-1) ?? '');
       const hasMore = last >= 0 && last < all.length - 1;
       return {
         keys: page.map((name) => ({ name })),
         list_complete: !hasMore,
-        ...(hasMore ? { cursor: page[page.length - 1] } : {}),
+        ...(hasMore ? { cursor: page.at(-1) } : {}),
       };
     }),
   } as unknown as KVNamespace & { store: Map<string, string> };

@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import {
   mkdir,
   mkdirSync,
@@ -15,15 +16,15 @@ import { join } from 'node:path';
 import { parse as parseJsoncRaw } from 'jsonc-parser';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { operationFixture } from '../../../deploy-cloudflare/test/operation-fixture.ts';
-import {
-  provisionCloudflareResources as provisionCloudflareResourcesImpl,
-  type DesiredResourceSet,
-  type ProvisionLogger,
-  type ProvisionOptions,
-  type RunWrangler,
-  type RunWranglerResult,
-  type WranglerCallContext,
+import { Buffer } from '../../src/cli/node-buffer.ts';
+import type {
+  DesiredResourceSet,
+  ProvisionLogger,
+  RunWrangler,
+  RunWranglerResult,
+  WranglerCallContext,
 } from '../../src/cli/provision.ts';
 
 /** proper-lockfile's callback-style fs seam. Tests override single calls on top of it. */
@@ -56,8 +57,8 @@ export interface ProvisionTestDir {
  * A temp project for one test file. Registers hooks that pin the ambient account before each
  * test and remove the project, env stubs and global stubs after it.
  */
-export function useProvisionTestDir(name: string): ProvisionTestDir {
-  const tmpDir = join(import.meta.dirname, `.tmp-provision-test-${name}`);
+export function setupProvisionTestDir(name: string): ProvisionTestDir {
+  const tmpDir = packageFixturePath(import.meta.dirname, `.tmp-provision-test-${name}`);
   const wranglerPath = toSlash(join(tmpDir, 'wrangler.jsonc'));
 
   beforeEach(() => {
@@ -79,10 +80,10 @@ export function useProvisionTestDir(name: string): ProvisionTestDir {
       writeFileSync(wranglerPath, content);
     },
     readConfig() {
-      return parseJsoncRaw(readFileSync(wranglerPath, 'utf-8')) as Record<string, unknown>;
+      return parseJsoncRaw(readFileSync(wranglerPath, 'utf8')) as Record<string, unknown>;
     },
     simulateUpdateConfig(field, entry, path = wranglerPath) {
-      const cfg = parseJsoncRaw(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+      const cfg = parseJsoncRaw(readFileSync(path, 'utf8')) as Record<string, unknown>;
       const list = Array.isArray(cfg[field]) ? (cfg[field] as Array<Record<string, unknown>>) : [];
       const index = list.findIndex((e) => e.binding === entry.binding);
       if (index >= 0) {
@@ -176,21 +177,7 @@ export function uuid(seed: string): string {
 
 export const emptyDesired: DesiredResourceSet = { kvNamespaces: [], queues: [] };
 
-/**
- * `provisionCloudflareResources` with the D1 replication update stubbed whenever the runner is
- * injected. Tests of the real API path call the implementation directly.
- */
-export function provisionCloudflareResources(
-  ...args: Parameters<typeof provisionCloudflareResourcesImpl>
-): ReturnType<typeof provisionCloudflareResourcesImpl> {
-  const [root, configPath, desired, opts] = args;
-  const replicationStub: ProvisionOptions['enableD1ReadReplication'] = async () => {};
-  return provisionCloudflareResourcesImpl(root, configPath, desired, {
-    ...opts,
-    enableD1ReadReplication:
-      opts?.enableD1ReadReplication ?? (opts?.runWrangler ? replicationStub : undefined),
-  });
-}
+export { provisionCloudflareResources } from '../../src/cli/provision.ts';
 
 /** Poll until `pid` no longer exists, or `timeoutMs` passes. */
 export async function waitForDead(pid: number, timeoutMs: number): Promise<boolean> {
@@ -201,7 +188,9 @@ export async function waitForDead(pid: number, timeoutMs: number): Promise<boole
     } catch {
       return true;
     }
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => {
+      setTimeout(r, 25);
+    });
   }
   return false;
 }
@@ -217,7 +206,11 @@ export function spawnHang(): ChildProcess {
 /** SIGKILL the child's process group, or the child alone where groups are unsupported. */
 export function reap(child: ChildProcess): void {
   try {
-    process.kill(-child.pid!, 'SIGKILL');
+    if (child.pid === undefined) {
+      child.kill('SIGKILL');
+      return;
+    }
+    process.kill(-child.pid, 'SIGKILL');
   } catch {
     try {
       child.kill('SIGKILL');

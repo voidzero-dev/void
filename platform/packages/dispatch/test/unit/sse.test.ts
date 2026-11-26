@@ -2,6 +2,7 @@ import { isEventStreamResponse } from '@void/isr/runtime';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { Env } from '../../src/env.ts';
 import app from '../../src/index.ts';
+import { createMockExecutionContext as createCtx } from '../execution-context.ts';
 
 const edgeCacheStore = new Map<string, Response>();
 
@@ -21,10 +22,6 @@ vi.stubGlobal('caches', {
 beforeEach(() => {
   edgeCacheStore.clear();
 });
-
-function createCtx(): ExecutionContext {
-  return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
-}
 
 function createEnv(options: {
   routing: {
@@ -77,14 +74,17 @@ function createEnv(options: {
   return { env, workerFetch, analyticsWrites, isrWrites };
 }
 
-function sseResponse(body = 'data: hello\n\n', headers?: HeadersInit): Response {
+function sseResponse(body = 'data: hello\n\n', init?: HeadersInit): Response {
+  const headers = new Headers(init);
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'text/event-stream; charset=utf-8');
+  }
+  if (!headers.has('Content-Length')) {
+    headers.set('Content-Length', '999');
+  }
   return new Response(body, {
     status: 200,
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Content-Length': '999',
-      ...headers,
-    },
+    headers,
   });
 }
 

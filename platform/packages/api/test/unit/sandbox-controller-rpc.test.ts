@@ -58,7 +58,7 @@ export default class extends SandboxService {
     writeFileSync(
       join(temporary, 'application.ts'),
       `
-import { getSandbox } from ${JSON.stringify(join(root, 'packages/void/src/runtime/sandbox.ts'))};
+import { getSandbox } from ${JSON.stringify(join(root, 'packages/void/src/runtime/sandbox/index.ts'))};
 export default { async fetch(request, env) {
   const id = new URL(request.url).pathname.slice(1);
   const sandbox = await getSandbox(id, { inactivityTimeoutMs: 50 });
@@ -78,7 +78,7 @@ export default { async fetch(request, env) {
         logLevel: 'silent',
         resolve: {
           alias: {
-            'void/_sandbox-container': join(root, 'packages/void/src/runtime/sandbox-container.ts'),
+            'void/_sandbox-container': join(root, 'packages/void/src/runtime/sandbox/container.ts'),
           },
         },
         ssr: { noExternal: true },
@@ -94,7 +94,9 @@ export default { async fetch(request, env) {
         },
       });
     }
+    // oxlint-disable-next-line typescript/no-unsafe-call -- The Worker test environment resolves the SDK fixture dependency dynamically.
     runtime = new Miniflare(
+      // oxlint-disable-next-line typescript/no-unsafe-call -- The Worker test environment resolves the SDK fixture dependency dynamically.
       convertV4MiniflareOptions({
         workers: [
           {

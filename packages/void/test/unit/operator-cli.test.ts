@@ -16,7 +16,7 @@ import {
   saveOperatorToken,
 } from '../../src/cli/operator-auth.ts';
 import { OperatorClient } from '../../src/cli/operator-client.ts';
-import { followOperatorLogs, runOperatorCommand } from '../../src/cli/operator-cmd.ts';
+import { followOperatorLogs, humanLines, runOperatorCommand } from '../../src/cli/operator-cmd.ts';
 import { parsePlatformArgs } from '../../src/cli/platform-args.ts';
 import {
   getActivePlatformConnection,
@@ -64,6 +64,107 @@ function connect(apiUrl: string) {
     proxyUrl: null,
   });
 }
+
+describe('operator text output labels', () => {
+  it('humanizes field names but prints data keys as they are', () => {
+    expect(
+      humanLines({
+        createdAt: 'now',
+        project_id: 'proj_1',
+        picked: { '@cf/zai-org/glm-5.3': 1, 'email-gateway': 2, 'api.example.com': 3 },
+      }),
+    ).toEqual([
+      'Created at: now',
+      'Project ID: proj_1',
+      'Picked:',
+      '  @cf/zai-org/glm-5.3: 1',
+      '  email-gateway: 2',
+      '  api.example.com: 3',
+    ]);
+  });
+});
+
+describe('zero-trust operator output', () => {
+  function stubOperator(fetcher: typeof fetch) {
+    connect('https://one.example');
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const details = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let terminal = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      terminal += String(chunk);
+      return true;
+    });
+    vi.stubGlobal('fetch', fetcher);
+    return {
+      printed: () => details.mock.calls.map(([line]) => String(line)).join('\n'),
+      terminal: () => stripVTControlCharacters(terminal),
+    };
+  }
+
+  async function reconcile(configuration: Record<string, unknown>) {
+    const output = stubOperator(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({ dryRun: true, action: 'zero-trust.reconcile', target: 'platform' }),
+        )
+        .mockResolvedValueOnce(Response.json({ ok: true, configuration })),
+    );
+    await runOperatorCommand(parseOperatorArgs(['zero-trust', 'reconcile', '--yes']));
+    return output;
+  }
+
+  it('says a checkpointed change keeps running and how to follow it', async () => {
+    const output = await reconcile({
+      status: 'configuring',
+      operation: { kind: 'reconcile', phase: 'projects', existingProjects: null },
+      lastError: null,
+    });
+    expect(output.printed()).toContain(
+      'Zero Trust is still applying this change. Void continues it within a few minutes; follow it with `void platform zero-trust status`.',
+    );
+    expect(output.terminal()).not.toContain('✓');
+  });
+
+  it('reports a finished change as completed', async () => {
+    const output = await reconcile({ status: 'ready', operation: null, lastError: null });
+    expect(output.printed()).not.toContain('still applying');
+    expect(output.terminal()).toContain('✓ Platform zero-trust reconcile completed.');
+  });
+
+  it('points to status instead of an unknown outcome when the request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      stubOperator(
+        vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(
+            Response.json({ dryRun: true, action: 'zero-trust.reconcile', target: 'platform' }),
+          )
+          .mockImplementationOnce(async (_input, init) => {
+            const signal = init?.signal as AbortSignal;
+            return new Promise<Response>((_resolve, reject) => {
+              signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            });
+          }),
+      );
+      const command = runOperatorCommand(
+        parseOperatorArgs(['zero-trust', 'reconcile', '--yes', '--timeout', '2']),
+      );
+      const failure = expect(command).rejects.toMatchObject({
+        code: 'request_timeout',
+        message:
+          'Operator request exceeded the 2-second timeout. Void continues a started Zero Trust change within a few minutes; follow it with `void platform zero-trust status` before retrying.',
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+      await failure;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('operator mutation completion output', () => {
   async function runMutation(result: Record<string, unknown>, flags: Array<string> = []) {
@@ -123,13 +224,45 @@ describe('operator mutation completion output', () => {
   });
 });
 
+/** Arguments after `security <action>` that each security command accepts. */
+const SECURITY_SAMPLES: Record<string, Array<string>> = {
+  status: [],
+  probe: [],
+  policy: ['public'],
+  models: ['--default', '@cf/zai-org/glm-5.3'],
+  limits: ['--concurrency', '3'],
+  budget: [],
+  findings: [],
+  show: ['p1', 'F-1'],
+  resolve: ['p1', 'F-1', '--reason', 'fixed', '--comment', 'done'],
+  reopen: ['p1', 'F-1', '--comment', 'again'],
+  comment: ['p1', 'F-1', 'note'],
+  model: ['p1', '--default'],
+  scans: [],
+  rescan: ['p1'],
+  backfill: [],
+  sweeps: ['on'],
+  fallback: ['on'],
+  digest: ['off'],
+  webhook: ['https://hooks.example.com/void'],
+  cancel: ['scan-1'],
+  'public-gate': ['on'],
+  'public-requests': [],
+  bypass: ['p1', '--reason', 'launch'],
+  bypasses: [],
+};
+
 describe('operator argument and help coverage', () => {
   it('has nested help and routable arguments for every operation', () => {
     for (const command of operatorCommands) {
       expect(hasHelpPage(['platform', command.group, command.action])).toBe(true);
-      const parameters = (command.positional ?? []).map((name) =>
-        name === 'type' ? 'email' : `${name}-value`,
-      );
+      // Security commands check their own words and flags; each has a sample.
+      const security = command.group === 'security' ? SECURITY_SAMPLES[command.action] : [];
+      expect(command.group !== 'security' || security !== undefined).toBe(true);
+      const parameters =
+        command.group === 'security'
+          ? security
+          : (command.positional ?? []).map((name) => (name === 'type' ? 'email' : `${name}-value`));
       const configureFlags =
         command.group === 'zero-trust' && command.action === 'configure'
           ? [
@@ -709,11 +842,11 @@ describe('deployment asset migration', () => {
         ]),
       );
       expect(fetcher).toHaveBeenCalledTimes(1);
-      expect(String(fetcher.mock.calls[0]![0])).toBe(
+      expect(String(fetcher.mock.calls[0][0])).toBe(
         'https://one.example/operator/v1/system/asset-migrations?page=2&limit=100',
       );
-      expect(fetcher.mock.calls[0]![1]).toMatchObject({ method: 'GET' });
-      expect(fetcher.mock.calls[0]![1]!.body).toBeUndefined();
+      expect(fetcher.mock.calls[0][1]).toMatchObject({ method: 'GET' });
+      expect(fetcher.mock.calls[0][1]!.body).toBeUndefined();
       if (json) {
         expect(console.log).toHaveBeenCalledWith(JSON.stringify(inventory));
       } else {
@@ -744,10 +877,10 @@ describe('deployment asset migration', () => {
       ]),
     );
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]![0])).toBe(
+    expect(String(fetcher.mock.calls[0][0])).toBe(
       'https://one.example/operator/v1/deployments/deployment%20%2F%20id/migrate-assets',
     );
-    expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({
       cursor: 'resume-cursor',
       dryRun: true,
     });
@@ -766,16 +899,15 @@ describe('deployment asset migration', () => {
     await runOperatorCommand(
       parseOperatorArgs(['deployment', 'migrate-assets', target, '--yes', '--json']),
     );
-    expect(fetcher.mock.calls.map(([, init]) => JSON.parse(String(init!.body)))).toEqual([
+    expect(fetcher.mock.calls.map(([, init]): unknown => JSON.parse(String(init!.body)))).toEqual([
       { dryRun: true },
       { expected: 'digest-1' },
       { cursor: 'cursor-1', dryRun: true },
       { cursor: 'cursor-1', expected: 'digest-2' },
     ]);
-    expect(vi.mocked(console.log).mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
-      applied('cursor-1'),
-      applied(null),
-    ]);
+    expect(
+      vi.mocked(console.log).mock.calls.map(([line]): unknown => JSON.parse(String(line))),
+    ).toEqual([applied('cursor-1'), applied(null)]);
     expect(process.stderr.write).not.toHaveBeenCalled();
   });
   it('applies the exact resumed cursor and stops at completed migration', async () => {
@@ -795,7 +927,7 @@ describe('deployment asset migration', () => {
       ]),
     );
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       cursor: 'resume-cursor',
       expected: 'digest-1',
     });
@@ -911,10 +1043,10 @@ describe('operator transport and execution', () => {
       client.request('/users', { query: { search: 'x&admin=1' } }),
     ).rejects.toMatchObject({ code: 'redirect_rejected' });
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]![0])).toBe(
+    expect(String(fetcher.mock.calls[0][0])).toBe(
       'https://one.example/operator/v1/users?search=x%26admin%3D1',
     );
-    expect(fetcher.mock.calls[0]![1]).toMatchObject({
+    expect(fetcher.mock.calls[0][1]).toMatchObject({
       redirect: 'manual',
       headers: { Authorization: 'Bearer operator' },
       signal: expect.any(AbortSignal),
@@ -998,7 +1130,7 @@ describe('operator transport and execution', () => {
 
     const mutation = client.request('/users/id/delete', { method: 'POST', body: {} });
     await vi.advanceTimersByTimeAsync(30_000);
-    expect((fetcher.mock.calls[1]![1]!.signal as AbortSignal).aborted).toBe(false);
+    expect((fetcher.mock.calls[1][1]!.signal as AbortSignal).aborted).toBe(false);
     const mutationFailure = expect(mutation).rejects.toMatchObject({
       code: 'request_timeout',
       message: expect.stringContaining('outcome may be unknown'),
@@ -1009,13 +1141,13 @@ describe('operator transport and execution', () => {
     const overridden = client.request('/users/id/delete', {
       method: 'POST',
       body: {},
-      timeoutMs: 2_000,
+      timeoutMs: 2000,
     });
     const overrideFailure = expect(overridden).rejects.toMatchObject({
       code: 'request_timeout',
       message: expect.stringContaining('2-second timeout'),
     });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(2000);
     await overrideFailure;
     vi.useRealTimers();
   });
@@ -1051,7 +1183,7 @@ describe('operator transport and execution', () => {
     fetcher.mockClear();
     await runOperatorCommand(parseOperatorArgs(['worker', 'rollback-all', '--yes']));
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       versions: { api: 'version-a' },
     });
   });
@@ -1069,7 +1201,7 @@ describe('operator transport and execution', () => {
     vi.stubGlobal('fetch', fetcher);
     await runOperatorCommand(parseOperatorArgs(['project', 'normalize', 'proj_1', '--yes']));
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({ expected: changes });
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({ expected: changes });
   });
   it.each(['--plan', '--yes'])(
     'reads a cleanup token once for %s without printing it',
@@ -1100,12 +1232,12 @@ describe('operator transport and execution', () => {
       );
       expect(stdin).toHaveBeenCalledTimes(1);
       expect(fetcher).toHaveBeenCalledTimes(mode === '--plan' ? 1 : 2);
-      expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({
+      expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({
         apiToken: 'replacement-cloudflare-token',
         dryRun: true,
       });
       if (mode === '--yes') {
-        expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+        expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
           apiToken: 'replacement-cloudflare-token',
         });
       }
@@ -1168,15 +1300,15 @@ describe('operator transport and execution', () => {
       ]),
     );
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(String(fetcher.mock.calls[0]![0])).toBe(
+    expect(String(fetcher.mock.calls[0][0])).toBe(
       'https://one.example/operator/v1/email/attempts/er_1/resolve',
     );
-    expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]!.body))).toEqual({
       ended: true,
       reason: 'Worker execution ended',
       dryRun: true,
     });
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       ended: true,
       reason: 'Worker execution ended',
     });
@@ -1219,7 +1351,7 @@ describe('operator transport and execution', () => {
         '--yes',
       ]),
     );
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       ended: true,
       outcome: 'applied',
       reason: 'Exact provider resource verified',
@@ -1260,7 +1392,7 @@ describe('operator transport and execution', () => {
       '--yes',
     ]);
     await runOperatorCommand(args);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       ended: true,
       outcome: 'not-applied',
       reason: 'Provider audit completed',
@@ -1301,7 +1433,7 @@ describe('operator transport and execution', () => {
       .mockResolvedValueOnce(preview({ domain: 'brand.example.com', inboundMode: 'none' }))
       .mockResolvedValueOnce(Response.json({ domain: { operationStatus: 'completed' } }));
     await runOperatorCommand(args);
-    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]!.body))).toEqual({
       domain: 'brand.example.com',
       project: 'hr-portal',
       outboundOnly: true,
@@ -1321,8 +1453,8 @@ describe('operator transport and execution', () => {
       ),
     ).rejects.toMatchObject({ code: 'invalid_response' });
     expect(fetcher).toHaveBeenCalledTimes(2);
-    expect(String(fetcher.mock.calls[1]![0])).toContain('cursor=page-2');
-    expect(String(fetcher.mock.calls[1]![0])).toContain('since=1h');
+    expect(String(fetcher.mock.calls[1][0])).toContain('cursor=page-2');
+    expect(String(fetcher.mock.calls[1][0])).toContain('since=1h');
   });
   it('follows ingestion cursors with overlap dedupe and preserves identical row counts', async () => {
     const controller = new AbortController();
@@ -1369,9 +1501,9 @@ describe('operator transport and execution', () => {
     const lines = write.mock.calls.map(([line]) => String(line));
     expect(lines.filter((line) => line.includes('/same'))).toHaveLength(2);
     expect(lines.filter((line) => line.includes('/completed-late'))).toHaveLength(1);
-    expect(String(fetcher.mock.calls[0]![0])).toContain('since=1h');
-    expect(String(fetcher.mock.calls[1]![0])).toContain('after=2000');
-    expect(String(fetcher.mock.calls[1]![0])).not.toContain('since=');
+    expect(String(fetcher.mock.calls[0][0])).toContain('since=1h');
+    expect(String(fetcher.mock.calls[1][0])).toContain('after=2000');
+    expect(String(fetcher.mock.calls[1][0])).not.toContain('since=');
   });
   it('notes minimal runtime logs once while following', async () => {
     const controller = new AbortController();
@@ -1674,7 +1806,7 @@ describe('operator transport and execution', () => {
       parseOperatorArgs(['build', 'logs', 'id', '--follow', '--since', '2', '--json']),
     );
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(String(fetcher.mock.calls[0]![0])).toContain('since=2');
+    expect(String(fetcher.mock.calls[0][0])).toContain('since=2');
   });
 
   it('waits for drain completion across stable terminal pages and prints a delayed marker', async () => {
@@ -1952,4 +2084,100 @@ describe('project AI logging commands', () => {
       expect(output).not.toContain('Ai logging');
     },
   );
+});
+
+describe('platform security commands', () => {
+  type Call = { method: string; path: string; body: Record<string, unknown> | null };
+
+  /** Serves operator replies in order and records each request. */
+  function serve(replies: Array<Record<string, unknown> | Response>) {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const queue = [...replies];
+    const calls: Array<Call> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
+        calls.push({
+          method: init?.method ?? 'GET',
+          path: new URL(String(input)).pathname.replace('/operator/v1', ''),
+          body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null,
+        });
+        const reply = queue.shift() ?? { error: 'unexpected_request' };
+        return reply instanceof Response ? reply : Response.json(reply);
+      }),
+    );
+    return calls;
+  }
+
+  function quiet() {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    return () =>
+      [...log.mock.calls, ...stderr.mock.calls, ...stdout.mock.calls]
+        .map(([chunk]) => String(chunk))
+        .join('\n');
+  }
+
+  const run = (...args: Array<string>) =>
+    runOperatorCommand(parseOperatorArgs(['security', ...args]));
+
+  it('previews a mode change, then applies it at the previewed revision; refuses a bad mode', async () => {
+    const out = quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.policy', target: 'platform', expectedRevision: 7 },
+      { ok: true, policy: { mode: 'public' } },
+    ]);
+    await run('policy', 'public', '--yes');
+    expect(calls.map((call) => [call.path, call.body])).toEqual([
+      ['/security/policy', { mode: 'public', dryRun: true }],
+      ['/security/policy', { mode: 'public', expectedRevision: 7 }],
+    ]);
+    expect(stripVTControlCharacters(out())).toContain('Platform security policy completed.');
+    expect(() => parseOperatorArgs(['security', 'policy', 'everything'])).toThrow(
+      'disabled|public|all',
+    );
+  });
+
+  it('reads a provider key from stdin once and never prints it', async () => {
+    const out = quiet();
+    vi.spyOn(process.stdin, Symbol.asyncIterator).mockImplementation(async function* () {
+      yield 'sk-ant-secret-value-123\n';
+      return undefined;
+    });
+    const calls = serve([
+      { dryRun: true, action: 'security.provider-key', target: 'anthropic' },
+      { ok: true, host: 'anthropic', message: 'Saved your own Anthropic key.' },
+    ]);
+    await run('models', '--provider', 'anthropic', '--key-stdin', '--yes');
+    expect(calls[1]).toMatchObject({
+      path: '/security/provider-keys',
+      body: { host: 'anthropic', key: 'sk-ant-secret-value-123' },
+    });
+    expect(out()).toContain('Saved your own Anthropic key.');
+    expect(out()).not.toContain('sk-ant-secret-value-123');
+  });
+
+  it('bypasses a public request with a preview first', async () => {
+    quiet();
+    const calls = serve([
+      { dryRun: true, action: 'security.public-request-bypass', target: 'p1' },
+      { ok: true, project: { state: 'ready' } },
+    ]);
+    await run('bypass', 'p1', '--reason', 'launch today', '--yes');
+    expect(calls[1]).toMatchObject({
+      path: '/projects/p1/security/public-request/bypass',
+      body: { reason: 'launch today' },
+    });
+  });
+
+  it('names the upgrade command when security audits are not installed', async () => {
+    quiet();
+    const body = { error: 'platform capability unavailable', capability: 'securityAudits' };
+    serve([Response.json(body, { status: 501 })]);
+    await expect(run('probe')).rejects.toThrow(
+      'Security audits are not installed. Run: void platform upgrade --security-audits',
+    );
+  });
 });

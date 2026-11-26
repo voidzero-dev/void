@@ -13,12 +13,16 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, toSlash } from 'pathslash';
 import { build } from 'vite';
-import { getDatabaseDialect, readConfig, type DatabaseDialect } from '../config.ts';
+import { findEnvFile } from '../codegen/env-types.ts';
+import { getDatabaseDialect, readConfig } from '../config.ts';
+import type { DatabaseDialect } from '../config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { voidDbBundlerPlugin } from '../plugin-drizzle.ts';
 import { readProjectPaths } from '../project-paths.ts';
-import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
+import { cloudflareQueueName } from '../queues/cloudflare-names.ts';
+import type { CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
+import { ENV_REGISTRY_KEY } from '../shared/env-registry.ts';
 import { WORKER_CONDITIONS } from './worker-conditions.ts';
 import { transformWorkerRequireBundle } from './worker-require-transform.ts';
 
@@ -189,17 +193,31 @@ export async function generateWrapper(
       features.migrationDialect === 'sqlite' ? buildMigrationPlanBundle(migrations) : undefined;
     const handlerName =
       features.migrationDialect === 'postgresql'
-        ? 'migration-handler-pg'
+        ? 'postgres-handler'
         : features.migrationDialect === 'mysql'
-          ? 'migration-handler-mysql'
-          : 'migration-handler';
+          ? 'mysql-handler'
+          : 'd1-handler';
     const handlerFilename_ = `${handlerName}.mjs`;
-    let handlerPath = join(import.meta.dirname, '..', 'runtime', `${handlerName}.ts`);
+    let handlerPath = join(
+      import.meta.dirname,
+      '..',
+      'runtime',
+      'db',
+      'migrations',
+      `${handlerName}.ts`,
+    );
     if (!existsSync(handlerPath)) {
-      handlerPath = join(import.meta.dirname, 'runtime', handlerFilename_);
+      handlerPath = join(import.meta.dirname, 'runtime', 'db', 'migrations', handlerFilename_);
     }
     if (!existsSync(handlerPath)) {
-      handlerPath = join(import.meta.dirname, '..', 'runtime', handlerFilename_);
+      handlerPath = join(
+        import.meta.dirname,
+        '..',
+        'runtime',
+        'db',
+        'migrations',
+        handlerFilename_,
+      );
     }
     if (!existsSync(handlerPath)) {
       throw new Error(
@@ -218,7 +236,6 @@ export async function generateWrapper(
     await bundleFrameworkIsr(root, workerDir);
   }
 
-  // Write wrapper in place of original entry
   const wrapperSource = generateWrapperSource(
     renamedName,
     handlerFilename,
@@ -322,7 +339,7 @@ async function bundleMigrationHandler(
 const SQL_WORKER_EXTERNAL = [/^cloudflare:/, /^node:/, /^pgpass$/];
 
 /** pg's workerd socket and its CommonJS pool, resolved from the pg that `fromPath` loads. */
-function pgWorkerAliases(fromPath: string): Record<string, string> {
+function pgWorkerAliases(fromPath: string) {
   return {
     'pg-cloudflare': resolvePgCloudflareWorkerdEntry(fromPath),
     'pg-pool': resolvePgCjsDependency(fromPath, 'pg-pool'),
@@ -344,7 +361,7 @@ export async function bundleWorkerSqlDriver(
   const packageName = dialect === 'postgresql' ? 'pg' : 'mysql2';
   const outDir = join(baseDir, createHash('sha256').update(main).digest('hex').slice(0, 12));
   mkdirSync(outDir, { recursive: true });
-  const input: Record<string, string> = {
+  const input = {
     [packageName]: writeDriverEntry(join(outDir, 'entry.mjs'), main),
   };
   const promise = dialect === 'mysql' ? resolveMysqlPromise(main) : undefined;
@@ -416,7 +433,7 @@ function patchWorkerRequireBundle(
       continue;
     }
     const path = join(outDir, file);
-    const code = readFileSync(path, 'utf-8');
+    const code = readFileSync(path, 'utf8');
     const transformed = transformWorkerRequireBundle(
       code,
       file,
@@ -586,15 +603,17 @@ function generateWrapperSource(
   migrationPlanBundle?: MigrationPlanBundle,
 ): string {
   const lines: Array<string> = [];
-  lines.push(WRAPPER_MARKER);
-  lines.push(`import original from "./${renamedEntry}";`);
-  // Durable Object, Workflow and entrypoint classes must stay exported from the uploaded module.
-  lines.push(`export * from "./${renamedEntry}";`);
+  lines.push(
+    WRAPPER_MARKER,
+    `import original from "./${renamedEntry}";`,
+    // Durable Object, Workflow and entrypoint classes must stay exported from the uploaded module.
+    `export * from "./${renamedEntry}";`,
+  );
 
   if (features.isr) {
-    lines.push('import { handleFrameworkIsr } from "./__void_isr.mjs";');
-    lines.push(`const __voidIsrDeploymentId = ${JSON.stringify(crypto.randomUUID())};`);
     lines.push(
+      'import { handleFrameworkIsr } from "./__void_isr.mjs";',
+      `const __voidIsrDeploymentId = ${JSON.stringify(crypto.randomUUID())};`,
       `const __voidIsrPolicy = ${JSON.stringify({
         revalidate: features.isr.revalidate,
         queryAllowlist: features.isr.queryAllowlist,
@@ -609,9 +628,11 @@ function generateWrapperSource(
     lines.push(`import { handleQueue, handleQueueRelay } from "./${handlersModule}";`);
   }
   if (migrations && migrations.length > 0) {
-    lines.push(`import { createMigrationHandler } from "./__void_migration_handler.mjs";`);
-    lines.push(`const __migrations = ${JSON.stringify(migrations)};`);
-    lines.push(`const __migrationPlanBundle = ${JSON.stringify(migrationPlanBundle)};`);
+    lines.push(
+      `import { createMigrationHandler } from "./__void_migration_handler.mjs";`,
+      `const __migrations = ${JSON.stringify(migrations)};`,
+      `const __migrationPlanBundle = ${JSON.stringify(migrationPlanBundle)};`,
+    );
   }
 
   lines.push('');
@@ -625,11 +646,15 @@ function generateWrapperSource(
     !!features.isr;
 
   if (needsFetchWrap) {
-    lines.push('async function wrappedFetch(request, env, ctx) {');
-    lines.push('  const url = new URL(request.url);');
+    lines.push(
+      'async function wrappedFetch(request, env, ctx) {',
+      '  const url = new URL(request.url);',
+    );
     if (features.isr) {
-      lines.push('  env.__VOID_ISR_DEPLOYMENT_ID ??= __voidIsrDeploymentId;');
-      lines.push('  env.__VOID_ISR_HOST = url.hostname;');
+      lines.push(
+        '  env.__VOID_ISR_DEPLOYMENT_ID ??= __voidIsrDeploymentId;',
+        '  env.__VOID_ISR_HOST = url.hostname;',
+      );
     }
 
     // Readiness probe — platform polls this to confirm the worker is live
@@ -643,114 +668,101 @@ function generateWrapperSource(
       features.queues.length > 0 ||
       features.hasMigrations
     ) {
-      lines.push('  if (request.method === "GET" && url.pathname === "/__void/ready") {');
-      // An entry without a `fetch` handler (e.g. a framework build whose
-      // entry is a bare function) would fail every app request, so it must
-      // not pass the probe and get promoted.
-      lines.push('    if (typeof original?.fetch !== "function") {');
       lines.push(
+        '  if (request.method === "GET" && url.pathname === "/__void/ready") {',
+        // An entry without a `fetch` handler (e.g. a framework build whose
+        // entry is a bare function) would fail every app request, so it must
+        // not pass the probe and get promoted.
+        '    if (typeof original?.fetch !== "function") {',
         '      return Response.json({ ready: false, error: "worker entry has no fetch handler" }, { status: 503, headers: { "cache-control": "no-store" } });',
-      );
-      lines.push('    }');
-      lines.push(
+        '    }',
         `    return Response.json({ ready: true${features.versionMetadataBinding ? `, versionId: env[${JSON.stringify(features.versionMetadataBinding)}]?.id` : ''} }${features.versionMetadataBinding ? ', { headers: { "cache-control": "no-store" } }' : ''});`,
+        '  }',
       );
-      lines.push('  }');
     }
 
     if (features.queues.length > 0) {
-      lines.push('  if (request.method === "POST" && url.pathname === "/__void/queue") {');
-      lines.push('    const expected = env?.__VOID_PROXY_TOKEN;');
-      lines.push('    if (!expected || request.headers.get("x-void-internal") !== expected) {');
-      lines.push('      return Response.json({ error: "unauthorized" }, { status: 401 });');
-      lines.push('    }');
-      lines.push('    try {');
       lines.push(
+        '  if (request.method === "POST" && url.pathname === "/__void/queue") {',
+        '    const expected = env?.__VOID_PROXY_TOKEN;',
+        '    if (!expected || request.headers.get("x-void-internal") !== expected) {',
+        '      return Response.json({ error: "unauthorized" }, { status: 401 });',
+        '    }',
+        '    try {',
         '      return Response.json(await handleQueueRelay(await request.json(), env, ctx));',
-      );
-      lines.push('    } catch {');
-      lines.push(
+        '    } catch {',
         '      return Response.json({ error: "Invalid queue payload" }, { status: 400 });',
+        '    }',
+        '  }',
       );
-      lines.push('    }');
-      lines.push('  }');
     }
 
-    // Migration handler
     if (migrations && migrations.length > 0) {
-      lines.push('  if (request.method === "POST" && url.pathname === "/__void/migrate") {');
-      lines.push('    const handler = createMigrationHandler(env, __migrations);');
-      lines.push('    return handler(request);');
-      lines.push('  }');
       lines.push(
+        '  if (request.method === "POST" && url.pathname === "/__void/migrate") {',
+        '    const handler = createMigrationHandler(env, __migrations);',
+        '    return handler(request);',
+        '  }',
         '  if (request.method === "GET" && url.pathname === "/__void/migrate/capabilities") {',
-      );
-      lines.push(
         '    const handler = createMigrationHandler(env, __migrations, undefined, __migrationPlanBundle);',
-      );
-      lines.push('    return handler(request);');
-      lines.push('  }');
-      lines.push('  if (request.method === "POST" && url.pathname === "/__void/migrate/app") {');
-      lines.push(
+        '    return handler(request);',
+        '  }',
+        '  if (request.method === "POST" && url.pathname === "/__void/migrate/app") {',
         '    const handler = createMigrationHandler(env, __migrations, undefined, __migrationPlanBundle);',
-      );
-      lines.push('    return handler(request);');
-      lines.push('  }');
-      lines.push(
+        '    return handler(request);',
+        '  }',
         '  if (request.method === "GET" && url.pathname.startsWith("/__void/migrate/app/attempt/")) {',
-      );
-      lines.push(
         '    const handler = createMigrationHandler(env, __migrations, undefined, __migrationPlanBundle);',
+        '    return handler(request);',
+        '  }',
       );
-      lines.push('    return handler(request);');
-      lines.push('  }');
     }
 
     // Cron handler
     if (features.crons.length > 0) {
-      lines.push('  if (request.method === "POST" && url.pathname === "/__void/scheduled") {');
-      lines.push('    const __token = request.headers.get("x-void-internal");');
-      lines.push('    const __expected = env?.__VOID_PROXY_TOKEN || env?.CRON_SECRET;');
-      lines.push('    if (!__expected || __token !== __expected) {');
-      lines.push("      return new Response(JSON.stringify({ error: 'unauthorized' }), {");
-      lines.push('        status: 401,');
-      lines.push('        headers: { "Content-Type": "application/json" },');
-      lines.push('      });');
-      lines.push('    }');
-      lines.push('    try {');
-      lines.push('      const { cron, scheduledTime } = await request.json();');
-      lines.push('      const controller = { cron, scheduledTime, noRetry() {} };');
-      lines.push('      await handleScheduled(controller, env, ctx);');
-      lines.push('      return new Response(JSON.stringify({ ok: true }), {');
-      lines.push('        headers: { "Content-Type": "application/json" },');
-      lines.push('      });');
-      lines.push('    } catch (err) {');
-      lines.push('      return new Response(JSON.stringify({ error: String(err) }), {');
-      lines.push('        status: 500,');
-      lines.push('        headers: { "Content-Type": "application/json" },');
-      lines.push('      });');
-      lines.push('    }');
-      lines.push('  }');
+      lines.push(
+        '  if (request.method === "POST" && url.pathname === "/__void/scheduled") {',
+        '    const __token = request.headers.get("x-void-internal");',
+        '    const __expected = env?.__VOID_PROXY_TOKEN || env?.CRON_SECRET;',
+        '    if (!__expected || __token !== __expected) {',
+        "      return new Response(JSON.stringify({ error: 'unauthorized' }), {",
+        '        status: 401,',
+        '        headers: { "Content-Type": "application/json" },',
+        '      });',
+        '    }',
+        '    try {',
+        '      const { cron, scheduledTime } = await request.json();',
+        '      const controller = { cron, scheduledTime, noRetry() {} };',
+        '      await handleScheduled(controller, env, ctx);',
+        '      return new Response(JSON.stringify({ ok: true }), {',
+        '        headers: { "Content-Type": "application/json" },',
+        '      });',
+        '    } catch (err) {',
+        '      return new Response(JSON.stringify({ error: String(err) }), {',
+        '        status: 500,',
+        '        headers: { "Content-Type": "application/json" },',
+        '      });',
+        '    }',
+        '  }',
+      );
     }
 
     if (features.isr) {
       lines.push(
         '  if (env.ISR_CACHE && request.headers.get("upgrade")?.toLowerCase() !== "websocket") {',
-      );
-      lines.push(
         '    const cached = await handleFrameworkIsr(request, env, ctx, { ...__voidIsrPolicy, deploymentId: __voidIsrDeploymentId }, (req) => original.fetch(req, env, ctx));',
+        '    if (cached) return cached;',
+        '  }',
       );
-      lines.push('    if (cached) return cached;');
-      lines.push('  }');
     }
-    lines.push('  return original.fetch(request, env, ctx);');
-    lines.push('}');
-    lines.push('');
+    lines.push('  return original.fetch(request, env, ctx);', '}', '');
   }
 
-  lines.push('export default {');
-  // Keep the entry's own handlers, such as email or tail; Void's handlers below take precedence.
-  lines.push('  ...original,');
+  lines.push(
+    'export default {',
+    // Keep the entry's own handlers, such as email or tail; Void's handlers below take precedence.
+    '  ...original,',
+  );
 
   if (needsFetchWrap) {
     lines.push('  fetch: wrappedFetch,');
@@ -794,6 +806,12 @@ function generateHandlersSource(
   if (scoped) {
     lines.push(`import { withRuntimeEnv } from ${JSON.stringify(envModuleFile)};`);
   }
+  // The app's entry loads env.ts when the Worker starts, and the copy of `void/env` that
+  // registers it publishes its `_prepareEnv`. Jobs bundle their own copy apart from the app, so
+  // they prepare the env through that one, and their reads serve the values it resolved.
+  const prepareEnv = findEnvFile(root)
+    ? `  await globalThis[Symbol.for(${JSON.stringify(ENV_REGISTRY_KEY)})]?.prepare?.(env);`
+    : undefined;
 
   // Scheduled handlers
   if (features.crons.length > 0) {
@@ -802,36 +820,41 @@ function generateHandlersSource(
       lines.push(`import cronHandler${i} from "${absPath}";`);
     }
 
-    lines.push('');
     lines.push(
+      '',
       scoped
         ? 'async function __runScheduled(controller, env, ctx) {'
         : 'export async function handleScheduled(controller, env, ctx) {',
     );
+    if (prepareEnv) {
+      lines.push(prepareEnv);
+    }
     lines.push('  const tasks = [];');
     for (let i = 0; i < features.crons.length; i++) {
-      lines.push(`  if (${JSON.stringify(features.crons[i].crons)}.includes(controller.cron)) {`);
-      lines.push('    tasks.push((async () => {');
-      lines.push(`      if (typeof cronHandler${i} === "function") {`);
-      lines.push(`        await cronHandler${i}(controller, env, ctx);`);
       lines.push(
+        `  if (${JSON.stringify(features.crons[i].crons)}.includes(controller.cron)) {`,
+        '    tasks.push((async () => {',
+        `      if (typeof cronHandler${i} === "function") {`,
+        `        await cronHandler${i}(controller, env, ctx);`,
         `      } else if (cronHandler${i} && typeof cronHandler${i}.default === "function") {`,
+        `        await cronHandler${i}.default(controller, env, ctx);`,
+        '      }',
+        '    })());',
+        '  }',
       );
-      lines.push(`        await cronHandler${i}.default(controller, env, ctx);`);
-      lines.push('      }');
-      lines.push('    })());');
-      lines.push('  }');
     }
-    lines.push('  const results = await Promise.allSettled(tasks);');
     lines.push(
+      '  const results = await Promise.allSettled(tasks);',
       '  const errors = results.filter(result => result.status === "rejected").map(result => result.reason);',
+      '  if (errors.length) throw new AggregateError(errors, "Scheduled jobs failed");',
+      '}',
     );
-    lines.push('  if (errors.length) throw new AggregateError(errors, "Scheduled jobs failed");');
-    lines.push('}');
     if (scoped) {
-      lines.push('export function handleScheduled(controller, env, ctx) {');
-      lines.push('  return withRuntimeEnv(env, () => __runScheduled(controller, env, ctx));');
-      lines.push('}');
+      lines.push(
+        'export function handleScheduled(controller, env, ctx) {',
+        '  return withRuntimeEnv(env, () => __runScheduled(controller, env, ctx));',
+        '}',
+      );
     }
   }
 
@@ -851,39 +874,41 @@ function generateHandlersSource(
         queueNames,
         cloudflareNames && queueNames.map((name) => cloudflareQueueName(name, cloudflareNames)),
       ),
-    );
-    lines.push('');
-    lines.push(
+      '',
       scoped
         ? 'async function __runQueue(batch, env, ctx) {'
         : 'export async function handleQueue(batch, env, ctx) {',
     );
-    lines.push('  const queueSuffix = batch.queue;');
-    lines.push('  const __queueIndex = __resolveQueueIndex(queueSuffix);');
-    lines.push('  if (__queueIndex === -1) {');
-    lines.push('    batch.retryAll();');
-    lines.push(
-      '    throw new Error(`No unambiguous queue handler matches "${String(queueSuffix)}"`);',
-    );
-    lines.push('  }');
-    lines.push('  switch (__queueIndex) {');
-    for (let i = 0; i < features.queues.length; i++) {
-      lines.push(`    case ${i}:`);
-      lines.push(`      if (typeof queueHandler${i} === "function") {`);
-      lines.push(`        await queueHandler${i}(batch, env);`);
-      lines.push(
-        `      } else if (queueHandler${i} && typeof queueHandler${i}.default === "function") {`,
-      );
-      lines.push(`        await queueHandler${i}.default(batch, env);`);
-      lines.push(`      }`);
-      lines.push(`      return;`);
+    if (prepareEnv) {
+      lines.push(prepareEnv);
     }
-    lines.push('  }');
-    lines.push('}');
+    lines.push(
+      '  const queueSuffix = batch.queue;',
+      '  const __queueIndex = __resolveQueueIndex(queueSuffix);',
+      '  if (__queueIndex === -1) {',
+      '    batch.retryAll();',
+      '    throw new Error(`No unambiguous queue handler matches "${String(queueSuffix)}"`);',
+      '  }',
+      '  switch (__queueIndex) {',
+    );
+    for (let i = 0; i < features.queues.length; i++) {
+      lines.push(
+        `    case ${i}:`,
+        `      if (typeof queueHandler${i} === "function") {`,
+        `        await queueHandler${i}(batch, env);`,
+        `      } else if (queueHandler${i} && typeof queueHandler${i}.default === "function") {`,
+        `        await queueHandler${i}.default(batch, env);`,
+        `      }`,
+        `      return;`,
+      );
+    }
+    lines.push('  }', '}');
     if (scoped) {
-      lines.push('export function handleQueue(batch, env, ctx) {');
-      lines.push('  return withRuntimeEnv(env, () => __runQueue(batch, env, ctx));');
-      lines.push('}');
+      lines.push(
+        'export function handleQueue(batch, env, ctx) {',
+        '  return withRuntimeEnv(env, () => __runQueue(batch, env, ctx));',
+        '}',
+      );
     }
     lines.push(`
 export async function handleQueueRelay(payload, env, ctx) {

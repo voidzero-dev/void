@@ -22,7 +22,7 @@ function extractLang(info: string): string {
 
 /**
  * Copies the code next to a clicked copy button, without removed diff lines
- * and without the empty last line that Shiki adds.
+ * and without the empty last line of the code block.
  * Markdown pages are island pages and always load as full documents, so this
  * classic inline script runs once per page load and adds one delegated
  * listener. The body must not contain `<`, so neither island tag matching nor
@@ -35,7 +35,7 @@ export const CODE_COPY_SCRIPT: string =
   'if(!p||!navigator.clipboard)return;' +
   'const t=Array.from(p.querySelectorAll(".line:not(.diff.remove)"),l=>l.textContent);' +
   't[t.length-1]===""&&t.pop();' +
-  'navigator.clipboard.writeText(t.join("\\n")).then(()=>{b.classList.add("copied");' +
+  String.raw`navigator.clipboard.writeText(t.join("\n")).then(()=>{b.classList.add("copied");` +
   'setTimeout(()=>b.classList.remove("copied"),2e3)},()=>{})}))</script>';
 
 /**
@@ -53,7 +53,6 @@ export function preWrapperPlugin(md: MarkdownExit, options?: { copyLabel?: strin
     const token = tokens[idx];
     // Strip title bracket notation before rendering
     token.info = token.info.replace(/\[.*\]/, '');
-    // Handle active class for code-group
     const active = / active( |$)/.test(token.info) ? ' active' : '';
     token.info = token.info.replace(/ active$/, '').replace(/ active /, ' ');
     const lang = extractLang(token.info);

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConfigEnv, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { createWorkerFetch } from '../../src/runtime/routing-worker.ts';
+import { createWorkerFetch } from '../../src/runtime/routing/worker.ts';
 import { CLOUDFLARE_DEPLOY_BUILD_ENV } from '../../src/shared/env.ts';
 import {
   CLOUDFLARE_PRESERVE_BINDINGS_BUILD_ENV,
@@ -44,6 +44,7 @@ async function generate(resolved: Record<string, unknown>, command: 'build' | 's
   if (!configure) {
     throw new Error('Void environment hook missing');
   }
+  // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- This synchronous fixture hook is called without a Vite plugin context.
   (configure as (config: UserConfig, environment: ConfigEnv) => void)(
     {},
     { command, mode: command === 'build' ? 'production' : 'development' },
@@ -65,6 +66,7 @@ async function generate(resolved: Record<string, unknown>, command: 'build' | 's
 async function readiness(entry: string, env: Record<string, unknown>): Promise<Response> {
   const source = entry.match(/const __voidFetch = (__createWorkerFetch\([\s\S]*?\n {2}\}\));/)?.[1];
   expect(source).toBeDefined();
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   const fetch = new Function(
     '__createWorkerFetch',
     'app',
@@ -79,10 +81,10 @@ async function readiness(entry: string, env: Record<string, unknown>): Promise<R
   )(
     createWorkerFetch,
     { fetch: () => new Response('application') },
-    (_request: Request, _env: object, response: Response) => response,
-    (_env: object, callback: () => Promise<Response>) => callback(),
-    (_env: object, callback: () => Promise<Response>) => callback(),
-    (bindings: object) => bindings,
+    (_request: Request, _env: Record<string, unknown>, response: Response) => response,
+    (_env: Record<string, unknown>, callback: () => Promise<Response>) => callback(),
+    (_env: Record<string, unknown>, callback: () => Promise<Response>) => callback(),
+    (bindings: Record<string, unknown>) => bindings,
     async () => null,
     async () => [],
     async () => new Response(null, { status: 204 }),

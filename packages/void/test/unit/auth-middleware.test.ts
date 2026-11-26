@@ -1,4 +1,5 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 const mocks = vi.hoisted(() => ({
@@ -11,19 +12,14 @@ vi.mock('better-auth', () => ({
 }));
 
 import {
-  getAuth,
-  getUser,
-  requireAuth,
-  type AuthState,
-  type AuthUser,
-} from '../../src/runtime/auth.ts';
-import {
   createVoidAuthRuntime,
   privateCachePolicy,
-  type VoidAuthRuntimeOptions,
-} from '../../src/runtime/better-auth-shared.ts';
-import { createRoutingRuntime } from '../../src/runtime/routing.ts';
-import { markStaticAsset } from '../../src/runtime/static-asset-marker.ts';
+} from '../../src/runtime/auth/better-auth-shared.ts';
+import type { VoidAuthRuntimeOptions } from '../../src/runtime/auth/better-auth-shared.ts';
+import { getAuth, getUser, requireAuth } from '../../src/runtime/auth/index.ts';
+import type { AuthState, AuthUser } from '../../src/runtime/auth/index.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import { markStaticAsset } from '../../src/runtime/routing/static-asset-marker.ts';
 
 const authRuntimeOptions: VoidAuthRuntimeOptions = {
   dialect: 'sqlite',
@@ -41,7 +37,7 @@ function createApp(sessionResult: { response: AuthState | null; headers: Headers
 
   const app = new Hono();
   app.use(async (c, next) => {
-    await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {} as never);
+    await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {});
   });
   return app;
 }
@@ -278,6 +274,71 @@ describe('runVoidAuthMiddleware response headers', () => {
   });
 });
 
+describe('runVoidAuthMiddleware Better Auth plugins', () => {
+  const env = { BETTER_AUTH_SECRET: 'test-secret' };
+  type PluginList = Array<{ id: string }>;
+  const pluginsOf = (call: number): PluginList =>
+    (mocks.betterAuth.mock.calls[call][0] as { plugins?: PluginList }).plugins ?? [];
+
+  function pluginApp(userConfig?: VoidAuthRuntimeOptions['userConfig']): Hono {
+    mocks.getSession.mockResolvedValue({ response: null, headers: new Headers() });
+    mocks.betterAuth.mockReturnValue({ api: { getSession: mocks.getSession }, options: {} });
+    const app = new Hono();
+    app.use((c, next) =>
+      runtime.runVoidAuthMiddleware(c, next, { ...authRuntimeOptions, userConfig }, {}),
+    );
+    app.get('/', (c) => c.text('ok'));
+    return app;
+  }
+
+  it.each([
+    ['object', (plugins: PluginList) => ({ plugins })],
+    [
+      'function',
+      (plugins: PluginList) =>
+        ({ defaults }: { defaults: object }) => ({ ...defaults, plugins }),
+    ],
+  ] as const)('keeps user plugins first with a %s config', async (_form, config) => {
+    const plugins = [{ id: 'first' }, { id: 'second' }];
+    const app = pluginApp(config(plugins));
+
+    expect((await app.request('/', undefined, env)).status).toBe(200);
+
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['first', 'second', 'void-cookies']);
+    expect(pluginsOf(0)[0]).toBe(plugins[0]);
+    expect(plugins.map((plugin) => plugin.id)).toEqual(['first', 'second']);
+  });
+
+  it('creates a separate cookie plugin for each request', async () => {
+    const app = pluginApp();
+
+    await app.request('/', undefined, env);
+    await app.request('/', undefined, env);
+
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['void-cookies']);
+    expect(pluginsOf(1).map((plugin) => plugin.id)).toEqual(['void-cookies']);
+    expect(pluginsOf(0)[0]).not.toBe(pluginsOf(1)[0]);
+  });
+
+  it('leaves the cookie plugin out of instances created outside the middleware', async () => {
+    mocks.betterAuth.mockReturnValue({ api: {}, options: {} });
+    await runtime.createVoidAuth(
+      new Request('http://localhost/'),
+      env,
+      { ...authRuntimeOptions, userConfig: { plugins: [{ id: 'only' }] } },
+      {},
+    );
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['only']);
+  });
+
+  it('skips Better Auth for internal routes', async () => {
+    const app = pluginApp();
+    app.get('/__void/cron', (c) => c.text('internal'));
+    expect((await app.request('/__void/cron', undefined, env)).status).toBe(200);
+    expect(mocks.betterAuth).not.toHaveBeenCalled();
+  });
+});
+
 describe('cross-origin cookie sessions', () => {
   const env = { BETTER_AUTH_SECRET: 'test-secret' };
   const now = new Date();
@@ -328,15 +389,15 @@ describe('cross-origin cookie sessions', () => {
   }
 
   async function sessionCookieFor(request: Request): Promise<string | null> {
-    await runtime.resolveVoidAuthState(request, env, authRuntimeOptions, {} as never);
+    await runtime.resolveVoidAuthState(request, env, authRuntimeOptions, {});
     expect(mocks.getSession).toHaveBeenCalledOnce();
-    return (mocks.getSession.mock.calls[0]![0] as { headers: Headers }).headers.get('cookie');
+    return (mocks.getSession.mock.calls[0][0] as { headers: Headers }).headers.get('cookie');
   }
 
   function routeApp() {
     const app = new Hono<{ Variables: { user: AuthUser | null } }>();
     app.use(async (c, next) => {
-      await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {} as never);
+      await runtime.runVoidAuthMiddleware(c, next, authRuntimeOptions, {});
     });
     return app;
   }
@@ -459,8 +520,8 @@ describe('cross-origin cookie sessions', () => {
     const whoami = await app.request('https://app.void.app/api/whoami', init, env);
     await expect(whoami.json()).resolves.toEqual({ user: null, cookie: 'session=victim' });
     expect(warn).toHaveBeenCalledTimes(2);
-    expect(String(warn.mock.calls[0]![0])).toContain('https://evil.void.app');
-    expect(String(warn.mock.calls[0]![0])).toContain('trustedOrigins');
+    expect(String(warn.mock.calls[0][0])).toContain('https://evil.void.app');
+    expect(String(warn.mock.calls[0][0])).toContain('trustedOrigins');
   });
 
   it.each([
@@ -689,7 +750,7 @@ describe('privateCachePolicy', () => {
     ['', 'private, no-store'],
     [null, 'private, no-store'],
     ['no-cache="a,private", public, max-age=60', 'private, no-cache="a,private", max-age=60'],
-    ['no-cache="a\\",no-store", public', 'private, no-cache="a\\",no-store"'],
+    [String.raw`no-cache="a\",no-store", public`, String.raw`private, no-cache="a\",no-store"`],
   ])('%j -> %j', (policy, expected) => {
     expect(privateCachePolicy(policy)).toBe(expected);
   });

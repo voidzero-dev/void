@@ -15,6 +15,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
   return createPagesPlugin(pagesDir, {
     name: 'void-solid:pages',
     root: options?.root,
+    deployRecovery: options?.deployRecovery,
     generateRenderer(scan) {
       return generateRendererModule(scan, pagesDir);
     },
@@ -33,6 +34,13 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
           optimizeDeps: {
             // Pre-include Solid entries discovered late via dynamic imports
             include: ['solid-js', 'solid-js/web', 'solid-js/store'],
+          },
+          environments: {
+            void_worker: {
+              // The Worker renders with the same entries. Name them so it has them before its
+              // first request.
+              optimizeDeps: { include: ['solid-js', 'solid-js/web', 'solid-js/store'] },
+            },
           },
         };
       }

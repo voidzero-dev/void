@@ -1,4 +1,5 @@
-import { defineHandler, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 
 export type Props = InferProps<typeof loader>;
 
@@ -12,13 +13,12 @@ export const loader = defineHandler((c) => {
       type = 'null';
     } else if (typeof value === 'object') {
       // Try to identify CF binding types
-      const proto = Object.getPrototypeOf(value);
+      const proto = Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null;
       type = proto?.constructor?.name || 'object';
     }
     bindings.push({ name, type });
   }
 
-  // Sort alphabetically
   bindings.sort((a, b) => a.name.localeCompare(b.name));
 
   return { bindings };

@@ -70,8 +70,8 @@ const WORKER_DEFS: ReadonlyArray<PlatformWorkerDef> = [
 // Derive dependedBy from dependsOn (single source of truth for the dependency graph)
 export const PLATFORM_WORKERS: ReadonlyArray<PlatformWorker> = WORKER_DEFS.map((def) => ({
   ...def,
-  dependedBy: WORKER_DEFS.filter((other) => other.dependsOn.includes(def.name)).map(
-    (other) => other.name,
+  dependedBy: WORKER_DEFS.flatMap((other) =>
+    other.dependsOn.includes(def.name) ? [other.name] : [],
   ),
 }));
 

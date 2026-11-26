@@ -34,8 +34,6 @@ Use this page as a command reference. If you are setting up a project for the fi
 
 ## Cheat Sheet {#cheat-sheet}
 
-Platform administrators can also choose AI Gateway logging [per project](./cli/platform-users.md#ai-gateway-logging) with `void platform project ai-logging`, or [per plan](../guide/platform/administration/plans.md#ai-gateway-logging) with `void platform config plans`.
-
 | Command                           | Purpose                                                                       |
 | --------------------------------- | ----------------------------------------------------------------------------- |
 | `void deploy`                     | Build and deploy to the configured platform                                   |
@@ -63,13 +61,15 @@ Platform administrators can also choose AI Gateway logging [per project](./cli/p
 | `void account login`              | Authenticate with a Void platform                                             |
 | `void cloudflare login`           | Authenticate with Cloudflare through Void                                     |
 | `void platform install`           | Install a company Void platform in Cloudflare                                 |
+| `void platform security`          | Administer security audits: scan mode, models, caps, findings, and alerts     |
 | `void connect <url>`              | Connect the CLI to a Void platform; hostnames default to HTTPS                |
 | `void project link`               | Link directory to a project                                                   |
 | `void project logs`               | Show runtime logs from deployed project                                       |
 | `void project requests`           | Show request-level traffic (status, method, timing)                           |
 | `void project rollback`           | Roll back to a previous deployment                                            |
 | `void project cancel`             | Cancel an active deployment                                                   |
-| `void project zero-trust`         | Inspect or override project Zero Trust protection                             |
+| `void project zero-trust`         | Inspect or override project Zero Trust protection, or bypass a security scan  |
+| `void project security`           | Review findings and scans, set model and budget, scan, check code pre-deploy  |
 | `void project purge-cache`        | Purge all cached pages (Void platform)                                        |
 | `void build logs`                 | Stream, tail, or download build logs                                          |
 | `void email status`               | Show email readiness on your own Cloudflare account (`--platform cloudflare`) |
@@ -83,6 +83,8 @@ Platform administrators can also choose AI Gateway logging [per project](./cli/p
 | `void email domain`               | Send and receive at your own domain on a Cloudflare zone                      |
 | `void init`                       | Set up a new or existing project, including coding agents                     |
 | `void migrate`                    | Update project configuration                                                  |
+
+For platform administration, see [plans and account limits](../guide/platform/administration/plans.md), [users and projects](./cli/platform-users.md), and [AI logging](./cli/platform-users.md#ai-gateway-logging).
 
 ## Binary Invocation {#binary-invocation}
 

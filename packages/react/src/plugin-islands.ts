@@ -18,8 +18,8 @@ import {
   ISLANDS_CLIENT_ENTRY_ID,
   findIslandImports,
   editIslandSource,
-  type IslandSourceEdit,
 } from 'void/pages-islands-plugin';
+import type { IslandSourceEdit } from 'void/pages-islands-plugin';
 import { REACT_REFRESH_PREAMBLE } from './plugin-pages.ts';
 
 const COMPONENT_EXTENSIONS = ['.tsx', '.jsx', '.ts', '.js'];
@@ -64,6 +64,7 @@ export function islandsPlugin(
       },
 
       configureServer(server) {
+        islandManifest.configureServer(server, pagesDir);
         watchPagesForRescan(server, pagesDir, root, (scan: PageScanResult) => {
           pageScan = scan;
         });
@@ -94,7 +95,7 @@ export function islandsPlugin(
       },
 
       load: {
-        // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+        // Vite virtual module null-byte prefix
         filter: { id: /^\0virtual:void-islands-(renderer|client)$/ },
         handler(id) {
           if (id === '\0' + ISLANDS_RENDERER_ID) {
@@ -155,8 +156,6 @@ export function islandsPlugin(
             const replacement = `import ${rawName} from ${specRaw}`;
             edits.push({ start: islandImport.start, end: islandImport.end, text: replacement });
 
-            // Generate wrapper that adds data-island attributes during SSR.
-            // Uses _React_island (imported below) for createElement.
             wrappers.push(
               `var ${name} = function ${name}(props) {` +
                 ` return _React_island.createElement("div", {` +
@@ -169,7 +168,6 @@ export function islandsPlugin(
           }
 
           if (wrappers.length > 0) {
-            // Prepend a React import for the wrapper functions
             return editIslandSource(code, edits, {
               prepend:
                 'import _React_island from "react";\nimport { serializePageData as _serializeIslandProps } from "void/pages-server";\n',

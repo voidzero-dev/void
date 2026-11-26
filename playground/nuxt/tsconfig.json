@@ -1,8 +1,10 @@
 {
   "extends": ["./.nuxt/tsconfig.json", "./.void/tsconfig.json"],
   "compilerOptions": {
+    "noEmit": true,
     "noUnusedLocals": true,
     "types": ["void/env"],
     "allowImportingTsExtensions": true
-  }
+  },
+  "include": ["env.d.ts", "server", "db", "nuxt.config.ts", ".nuxt/**/*.d.ts"]
 }

@@ -24,8 +24,8 @@ import {
   mockCfApi,
   skipOrphanSweepDelay,
   readAllEvents,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Managed Sandbox deploys isolate the trusted controller in an account Worker.
@@ -57,6 +57,7 @@ const SANDBOX_IMAGE_V1 =
 function buildSandboxManifest(overrides?: {
   image?: string;
   containerName?: string;
+  instanceType?: string;
 }): Record<string, unknown> {
   return {
     version: 3,
@@ -67,7 +68,7 @@ function buildSandboxManifest(overrides?: {
       className: 'Sandbox',
       containerName: overrides?.containerName ?? 'void-sandbox',
       image: overrides?.image ?? SANDBOX_IMAGE_V1,
-      instanceType: 'lite',
+      instanceType: overrides?.instanceType ?? 'lite',
       maxInstances: 20,
       migrations: [{ tag: 'sandbox-v1', newSqliteClasses: ['Sandbox'] }],
     },
@@ -198,7 +199,7 @@ describe('per-deploy sandbox integration', () => {
       props: { projectId: project.id, deploymentId: deployId, userId: user.id, slug: project.slug },
     });
     const [stored] = await env.db.select().from(deployments).where(eq(deployments.id, deployId));
-    expect(JSON.parse(stored!.manifest!).sandbox.runtime).toEqual({ protocol: 2 });
+    expect(JSON.parse(stored.manifest!).sandbox.runtime).toEqual({ protocol: 2 });
     cf.expectCallOrder(
       { method: 'POST', url: '/containers/image-preparations' },
       { method: 'PUT', url: '/workers/scripts/' + controllerName },
@@ -295,16 +296,10 @@ describe('per-deploy sandbox integration', () => {
     // declared bytes before flipping routing.
     const indexBytes = new TextEncoder().encode('<html>hello</html>');
     const indexHash = (await import('../../src/assets.ts')).computeAssetHash(
-      indexBytes.buffer.slice(
-        indexBytes.byteOffset,
-        indexBytes.byteOffset + indexBytes.byteLength,
-      ) as ArrayBuffer,
+      indexBytes.buffer.slice(indexBytes.byteOffset, indexBytes.byteOffset + indexBytes.byteLength),
       '/index.html',
     );
-    await env.STATIC_ASSETS_R2.put(
-      `assets/${project.id}/${indexHash}`,
-      indexBytes as unknown as ArrayBuffer,
-    );
+    await env.STATIC_ASSETS_R2.put(`assets/${project.id}/${indexHash}`, indexBytes);
 
     const res = await app.fetch(
       new Request(`http://localhost/projects/${project.id}/deploy`, {
@@ -343,9 +338,8 @@ describe('per-deploy sandbox integration', () => {
     const bundleKeys = await listR2Keys(`worker-bundles/${project.id}/${deployId}/`);
     expect(bundleKeys).toHaveLength(0);
 
-    // bundle_stored stays false.
     const [row] = await env.db.select().from(deployments).where(eq(deployments.id, deployId));
-    expect(row!.bundle_stored).toBe(false);
+    expect(row.bundle_stored).toBe(false);
   });
 
   // ----------------------------------------------------------------------
@@ -400,7 +394,7 @@ describe('per-deploy sandbox integration', () => {
 
     // v1's retained flag flipped false in DB.
     const [v1Row] = await env.db.select().from(deployments).where(eq(deployments.id, v1Id));
-    expect(v1Row!.retained).toBe(false);
+    expect(v1Row.retained).toBe(false);
   });
 
   it('retries controller and container cleanup after an interrupted deployment cleanup', async () => {
@@ -432,7 +426,7 @@ describe('per-deploy sandbox integration', () => {
       .select({ manifest: deployments.manifest })
       .from(deployments)
       .where(eq(deployments.id, deploymentId));
-    expect(JSON.parse(cleaned!.manifest!).sandbox.runtime.cleanupComplete).toBe(true);
+    expect(JSON.parse(cleaned.manifest!).sandbox.runtime.cleanupComplete).toBe(true);
   });
 
   // ----------------------------------------------------------------------
@@ -455,7 +449,7 @@ describe('per-deploy sandbox integration', () => {
       if (key === project.slug) {
         throw new Error('forced ROUTING.put failure for test');
       }
-      return originalPut(key, value as never, options as never);
+      return originalPut(key, value as never, options);
     }) as typeof env.ROUTING.put);
 
     const cf = mockCfApi();
@@ -527,7 +521,7 @@ describe('per-deploy sandbox integration', () => {
       value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
       options?: KVNamespacePutOptions,
     ) => {
-      const result = await originalPut(key, value as never, options as never);
+      const result = await originalPut(key, value as never, options);
       // The `cutover-ready:` key is written after the routing-switch transaction
       // commits and before the deploy's finalize transaction opens, so the
       // teardown writes can be awaited here: no transaction is open, nothing
@@ -629,13 +623,13 @@ describe('per-deploy sandbox integration', () => {
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       success: boolean;
       errors: Array<{ code: number; message: string }>;
-    };
+    }>();
     expect(body.success).toBe(false);
-    expect(body.errors[0]!.code).toBe(10061);
-    expect(body.errors[0]!.message).toMatch(/Cannot create binding for class in script/);
+    expect(body.errors[0].code).toBe(10_061);
+    expect(body.errors[0].message).toMatch(/Cannot create binding for class in script/);
   });
 
   // ----------------------------------------------------------------------
@@ -681,13 +675,13 @@ describe('per-deploy sandbox integration', () => {
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       success: boolean;
       errors: Array<{ code: number; message: string }>;
-    };
+    }>();
     expect(body.success).toBe(false);
-    expect(body.errors[0]!.code).toBe(10061);
-    expect(body.errors[0]!.message).toMatch(/do-host-existing/);
+    expect(body.errors[0].code).toBe(10_061);
+    expect(body.errors[0].message).toMatch(/do-host-existing/);
   });
 
   // ----------------------------------------------------------------------
@@ -719,9 +713,9 @@ describe('per-deploy sandbox integration', () => {
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { success: boolean; errors: Array<{ code: number }> };
+    const body = await res.json<{ success: boolean; errors: Array<{ code: number }> }>();
     expect(body.success).toBe(false);
-    expect(body.errors[0]!.code).toBe(1608);
+    expect(body.errors[0].code).toBe(1608);
   });
 
   // ----------------------------------------------------------------------
@@ -891,6 +885,16 @@ describe('per-deploy sandbox integration', () => {
     expect(raw).toBeNull();
   });
 
+  it('accepts basic sandbox instanceType at deploy validation', async () => {
+    const user = await createTestUser(env.db, 'sb-basic-user', 'github', undefined, 'pro');
+    const project = await createTestProject(env.db, user.id, 'sb-basic-size');
+    mockCfApi();
+
+    const res = await deploy(project.id, user.jwt, buildSandboxManifest({ instanceType: 'basic' }));
+    expect(res.status).toBe(200);
+    expect(getDoneEvent(await readAllEvents(res))).toBeDefined();
+  });
+
   it('rejects manifest.sandbox for static/spa deployments at validation time', async () => {
     const user = await createTestUser(env.db, 'sb-p6-static-user', 'github', undefined, 'pro');
     const project = await createTestProject(env.db, user.id, 'sb-p6-static');
@@ -928,7 +932,7 @@ describe('per-deploy sandbox integration', () => {
       env,
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { event: string; message: string };
+    const body = await res.json<{ event: string; message: string }>();
     expect(body.event).toBe('error');
     expect(body.message).toContain('sandbox is not supported for static/spa deployments');
   });

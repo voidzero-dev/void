@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getRuntimeBinding, getRuntimeEnv, withRuntimeEnv } from '../../src/runtime/env.ts';
+import { getRuntimeBinding, getRuntimeEnv, withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 const globalScope = globalThis as {
   __env__?: unknown;
@@ -41,9 +41,9 @@ describe('runtime env resolution', () => {
   // dependency optimizer reload evaluates them again while a request is in flight.
   it('shares the request env and scope with another copy of the env module', async () => {
     vi.resetModules();
-    const first = await import('../../src/runtime/env.ts');
+    const first = await import('../../src/runtime/env/runtime.ts');
     vi.resetModules();
-    const second = await import('../../src/runtime/env.ts');
+    const second = await import('../../src/runtime/env/runtime.ts');
     expect(second.withRuntimeEnv).not.toBe(first.withRuntimeEnv);
 
     const key = {};
@@ -68,6 +68,21 @@ describe('runtime env resolution', () => {
 });
 
 describe('internal binding filtering — ISR_CACHE (exact-name)', () => {
+  it('checks a getter-backed ISR deployment ID once per binding lookup', () => {
+    const getDeploymentId = vi.fn<() => string>().mockReturnValueOnce('dep_1');
+    const env = {
+      ISR_CACHE: { tag: 'isr-kv' },
+      get __VOID_ISR_DEPLOYMENT_ID() {
+        return getDeploymentId();
+      },
+    };
+
+    withRuntimeEnv(env, () => {
+      expect(getRuntimeBinding('ISR_CACHE')).toBeUndefined();
+    });
+    expect(getDeploymentId).toHaveBeenCalledOnce();
+  });
+
   it('hides ISR_CACHE from getRuntimeEnv while ISR is active', () => {
     withRuntimeEnv(
       { DB: { tag: 'db' }, ISR_CACHE: { tag: 'isr-kv' }, __VOID_ISR_DEPLOYMENT_ID: 'dep_1' },

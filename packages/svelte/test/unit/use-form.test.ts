@@ -9,6 +9,7 @@ import { compile, compileModule } from 'svelte/compiler';
 import { transformWithOxc } from 'vite';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import type { VoidRouter } from 'void/pages-client';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 
 type TestForm = {
   readonly data: Record<string, unknown>;
@@ -17,6 +18,7 @@ type TestForm = {
   readonly pending: boolean;
   readonly wasSuccessful: boolean;
   setError(field: string, message: string): void;
+  clearErrors(...fields: Array<string>): void;
   reset(): void;
   post(): Promise<void>;
 };
@@ -32,7 +34,7 @@ type TestIslandForm = {
 
 // The unit project has no Svelte plugin and resolves `svelte` to its server entry, so compile
 // the rune module and a host component here and point them at Svelte's browser entries.
-const TMP = join(import.meta.dirname, '.tmp-use-form');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-use-form');
 const require = createRequire(import.meta.url);
 const svelteDir = dirname(require.resolve('svelte/package.json'));
 const svelteExports: Record<string, string | { browser?: string; default: string }> =
@@ -47,9 +49,9 @@ function svelteBrowserUrl(specifier: string): string {
 function writeCompiled(file: string, code: string): void {
   writeFileSync(
     join(TMP, file),
-    code.replace(
+    code.replaceAll(
       /(from |import )['"](svelte(?:\/[^'"]*)?)['"]/g,
-      (_, keyword, specifier) => `${keyword}'${svelteBrowserUrl(specifier)}'`,
+      (_, keyword: string, specifier: string) => `${keyword}'${svelteBrowserUrl(specifier)}'`,
     ),
   );
 }
@@ -151,6 +153,46 @@ describe('useForm field errors', () => {
     (form.data.profile as { name: string }).name = 'Alice';
     svelte.flushSync();
     expect({ ...form.errors }).toEqual({ name: 'Name invalid' });
+  });
+
+  it('clears only the errors of the fields a change touched', () => {
+    const form = mountForm({
+      profile: { name: '', email: '' },
+      contacts: [{ email: '' }, { email: '' }],
+    });
+    form.setError('profile.name', 'Required name');
+    form.setError('profile.email', 'Required email');
+    form.setError('contacts.0.email', 'First email');
+    form.setError('contacts.1.email', 'Second email');
+    form.setError('name', 'Unrelated');
+    svelte.flushSync();
+
+    form.data.profile = { name: 'Alex', email: '' };
+    svelte.flushSync();
+    expect(form.errors['profile.name']).toBeUndefined();
+    expect(form.errors['profile.email']).toBe('Required email');
+
+    form.data.contacts = [{ email: '' }, { email: 'alex@example.com' }];
+    svelte.flushSync();
+    expect(form.errors['contacts.0.email']).toBe('First email');
+    expect(form.errors['contacts.1.email']).toBeUndefined();
+
+    form.clearErrors('profile');
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ 'contacts.0.email': 'First email', name: 'Unrelated' });
+
+    form.clearErrors('contacts');
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ name: 'Unrelated' });
+  });
+
+  it('keeps an error set for a field whose name contains a dot', () => {
+    const form = mountForm({ 'email.work': '' });
+
+    form.data['email.work'] = 'alice@example.com';
+    form.setError('email.work', 'Invalid email');
+    svelte.flushSync();
+    expect({ ...form.errors }).toEqual({ 'email.work': 'Invalid email' });
   });
 
   it('clears an error written before the field edit in the same handler', () => {
@@ -389,4 +431,47 @@ describe('useIslandForm edits made during a submit', () => {
     form.reset();
     expect(form.data.title).toBe('Sent');
   });
+});
+
+it('clears the array-level count error after adding an undefined slot', () => {
+  const form = mountForm({ contacts: [undefined] });
+  form.setError('contacts', 'Add a second row');
+  (form.data.contacts as Array<unknown>).push(undefined);
+  svelte.flushSync();
+  expect((form.data.contacts as Array<unknown>).length).toBe(2);
+  expect(form.errors.contacts).toBeUndefined();
+});
+
+it('clears the object-level error after removing an undefined key', () => {
+  const form = mountForm({ profile: { option: undefined } });
+  form.setError('profile', 'Remove the option field');
+  delete (form.data.profile as Record<string, unknown>).option;
+  svelte.flushSync();
+  expect(Object.hasOwn(form.data.profile as object, 'option')).toBe(false);
+  expect(form.errors.profile).toBeUndefined();
+});
+
+it('clears stale errors for other edits in the same batch as validation', () => {
+  const form = mountForm({ contacts: [{ email: '' }, { email: '' }] });
+  form.setError('contacts.0.email', 'First email required');
+  const contacts = form.data.contacts as Array<{ email: string }>;
+  contacts[0].email = 'first@example.com';
+  contacts[1].email = 'invalid';
+  form.setError('contacts.1.email', 'Second email invalid');
+  svelte.flushSync();
+
+  expect({ ...form.errors }).toEqual({ 'contacts.1.email': 'Second email invalid' });
+});
+
+it('preserves a separate literal dotted error when editing or clearing its prefix', () => {
+  const form = mountForm({ email: '', 'email.work': '' });
+  form.setError('email', 'Personal email is required');
+  form.setError('email.work', 'Work email is required');
+  form.data.email = 'new@example.com';
+  svelte.flushSync();
+  expect({ ...form.errors }).toEqual({ 'email.work': 'Work email is required' });
+
+  form.setError('email', 'Invalid email');
+  form.clearErrors('email');
+  expect({ ...form.errors }).toEqual({ 'email.work': 'Work email is required' });
 });

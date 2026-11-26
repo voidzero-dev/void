@@ -1,10 +1,9 @@
-import {
-  createDefaultPlanCatalog,
-  parsePlatformPlanCatalog,
-  type BuiltinPlanId,
-  type PlanLimits,
-  type PlatformPlanCatalog,
-  type PlatformPlanDefinition,
+import { createDefaultPlanCatalog, parsePlatformPlanCatalog } from '@void/platform/plans';
+import type {
+  BuiltinPlanId,
+  PlanLimits,
+  PlatformPlanCatalog,
+  PlatformPlanDefinition,
 } from '@void/platform/plans';
 import { count, sql } from 'drizzle-orm';
 import type { DbOrTx } from './db.ts';
@@ -88,7 +87,10 @@ export function planFromCatalog(catalog: PlatformPlanCatalog, id: string): Platf
   if (plan) {
     return plan;
   }
-  const fallback = createDefaultPlanCatalog().plans.find((plan) => plan.id === 'free')!;
+  const fallback = createDefaultPlanCatalog().plans.find((plan) => plan.id === 'free');
+  if (!fallback) {
+    throw new Error('The built-in free plan is missing.');
+  }
   // Legacy installations allowed short slugs for every ID except literal free.
   // Preserve that behavior while retaining the historic free quota fallback.
   return { ...fallback, allowShortSlugs: id !== 'free' };
@@ -107,7 +109,11 @@ export async function getDefaultPlan(
   initialDefaultPlanId: BuiltinPlanId = 'free',
 ): Promise<PlatformPlanDefinition> {
   const catalog = await readPlanCatalog(db, initialDefaultPlanId);
-  return catalog.plans.find((plan) => plan.id === catalog.defaultPlanId)!;
+  const plan = catalog.plans.find((plan) => plan.id === catalog.defaultPlanId);
+  if (!plan) {
+    throw new Error('The default plan is missing from the catalog.');
+  }
+  return plan;
 }
 
 export async function requireAssignablePlan(

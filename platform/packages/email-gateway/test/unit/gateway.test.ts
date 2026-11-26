@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 const router = vi.hoisted(() => ({ routeInbound: vi.fn(), routeRelayed: vi.fn() }));
@@ -32,7 +33,7 @@ const route = {
 };
 const context = { waitUntil: vi.fn() } as unknown as ExecutionContext;
 const env = (
-  apiFetch: (...args: Array<unknown>) => Promise<Response>,
+  apiFetch: (input: unknown, init?: RequestInit) => Promise<Response>,
   dispatchGet: (...args: Array<unknown>) => Fetcher = () => ({ fetch: vi.fn() }) as never,
 ) =>
   ({
@@ -42,7 +43,7 @@ const env = (
     EMAIL_SHARED_ZONE_ID: 'zone-1',
     EMAIL_SHARED_INGRESS_NAME: 'gateway-1',
     DISPATCH: { get: dispatchGet },
-  }) as never;
+  }) as Parameters<typeof gateway.fetch>[1];
 
 function uncooperativeStream(chunk: Uint8Array): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -77,7 +78,7 @@ function request(body: BodyInit, headers: Record<string, string> = {}) {
       ...headers,
     },
     ...(body instanceof ReadableStream ? { duplex: 'half' as const } : {}),
-  } as RequestInit);
+  });
 }
 
 beforeEach(() => {
@@ -205,7 +206,7 @@ describe('dedicated email gateway', () => {
     const apiFetch = vi.fn();
     const response = await gateway.fetch(
       new Request('https://gateway.example/email/destinations/confirm?token=payload.signature'),
-      { ...env(apiFetch), PLATFORM_TRAFFIC_STATE: state } as never,
+      { ...env(apiFetch), PLATFORM_TRAFFIC_STATE: state },
       context,
     );
 
@@ -252,14 +253,14 @@ describe('dedicated email gateway', () => {
       const pending = gateway.fetch(
         new Request('https://gateway.example/email/destinations/confirm?token=payload.signature'),
         env((_input, init) => {
-          signal = (init as RequestInit | undefined)?.signal ?? undefined;
+          signal = init?.signal ?? undefined;
           markStarted();
           return new Promise<Response>(() => {});
         }),
         context,
       );
       await started;
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       const timedOut = await pending;
       expect(timedOut.status).toBe(503);
       expect(timedOut.headers.get('cache-control')).toBe('no-store');
@@ -277,14 +278,14 @@ describe('dedicated email gateway', () => {
       const pending = gateway.fetch(
         new Request('https://gateway.example/email/destinations/confirm?token=payload.signature'),
         env((_input, init) => {
-          signal = (init as RequestInit | undefined)?.signal ?? undefined;
+          signal = init?.signal ?? undefined;
           return new Promise<Response>((resolve) => {
             resolveApi = resolve;
           });
         }),
         context,
       );
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       expect((await pending).status).toBe(503);
       expect(signal?.aborted).toBe(true);
 
@@ -320,10 +321,18 @@ describe('dedicated email gateway', () => {
       expect(
         await hmacVerifyState(raw, request.headers.get('x-void-internal') ?? '', 'platform-secret'),
       ).toBe(true);
-      const input = JSON.parse(raw);
+      const input: unknown = JSON.parse(raw);
+      assert(
+        input &&
+          typeof input === 'object' &&
+          'receiptId' in input &&
+          typeof input.receiptId === 'string',
+        'Expected a receipt ID',
+      );
       const existing = receipts.get(input.receiptId);
       if (String(url).endsWith('/receipts/claim')) {
-        expect(input.route).toEqual({
+        assert('payloadDigest' in input && typeof input.payloadDigest === 'string');
+        expect('route' in input ? input.route : undefined).toEqual({
           routeId: route.routeId,
           routeGeneration: route.routeGeneration,
           connectionId: route.connectionId,
@@ -345,7 +354,8 @@ describe('dedicated email gateway', () => {
         );
       }
       expect(String(url)).toContain('/receipts/complete');
-      existing!.reject = input.reject;
+      assert(existing && 'reject' in input && typeof input.reject === 'boolean');
+      existing.reject = input.reject;
       return Response.json({ ok: true });
     });
   }
@@ -357,10 +367,11 @@ describe('dedicated email gateway', () => {
     expect(first.status).toBe(204);
     expect(first.headers.get('x-void-email-receipt')).toMatch(/^[a-f0-9]{64}$/);
     expect((await gateway.fetch(request(raw), environment, context)).status).toBe(204);
-    for (const headers of [
+    const changedHeaders: Array<Record<string, string>> = [
       { 'x-void-email-from': 'other@example.net' },
       { 'x-void-email-to': 'other@example.com' },
-    ]) {
+    ];
+    for (const headers of changedHeaders) {
       expect((await gateway.fetch(request(raw, headers), environment, context)).status).toBe(409);
     }
     expect(
@@ -500,7 +511,7 @@ describe('dedicated email gateway', () => {
         env(() => new Promise<Response>(() => {})),
         context,
       );
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       expect((await pending).status).toBe(503);
     } finally {
       vi.useRealTimers();
@@ -595,13 +606,13 @@ describe('dedicated email gateway', () => {
       from: 'sender@example.net',
       to: 'support@example.com',
       setReject: (reason: string) => rejects.push(reason),
-    } as ForwardableEmailMessage;
+    } as unknown as ForwardableEmailMessage;
     await gateway.email(
       message,
       env(async (url, init) => {
         expect(url).toBe('https://api/internal/email/resolve-ingress');
-        const request = new Request(String(url), init as RequestInit);
-        const identity = (await request.json()) as Record<string, unknown>;
+        const request = new Request(String(url), init);
+        const identity = await request.json<Record<string, unknown>>();
         expect(identity).toMatchObject({
           accountId: 'account-1',
           zoneId: 'zone-1',
@@ -657,8 +668,10 @@ describe('dedicated email gateway', () => {
     ['mailbox', { name: 'alias' }],
     ['alias', 42],
     ['alias', null],
+    ['limits', []],
+    ['limits', { cpuMs: '100' }],
   ])(
-    'treats a route with a non-string %s (%j) as a malformed authority response',
+    'treats a route with an invalid %s (%j) as a malformed authority response',
     async (field, value) => {
       const environment = env(async () =>
         Response.json({ ...route, addressing: 'shared', [field]: value }),
@@ -695,7 +708,7 @@ describe('dedicated email gateway', () => {
       probe,
       env(async (url, init) => {
         expect(url).toBe('https://api/internal/email/probe-ingress');
-        const request = new Request(String(url), init as RequestInit);
+        const request = new Request(String(url), init);
         expect(
           await hmacVerifyState(
             'email-probe-v1\naccount-1\nzone-1\ngateway-1',
@@ -741,7 +754,7 @@ describe('dedicated email gateway', () => {
         context,
       );
       await started;
-      await vi.advanceTimersByTimeAsync(5_001);
+      await vi.advanceTimersByTimeAsync(5001);
       expect((await response).status).toBe(503);
     } finally {
       vi.useRealTimers();

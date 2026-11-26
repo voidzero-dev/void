@@ -1,13 +1,16 @@
-import { execSync, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
-import { type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
+import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
   registerSharedClientTests,
@@ -21,24 +24,30 @@ import {
 type NavElement = HTMLElement & { __stamp?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+// Both server groups build and serve one isolated copy of the playground, never its source.
+let fixture: IsolatedPlayground;
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
 let browser: Browser;
 
 beforeAll(async () => {
+  fixture = createIsolatedPlayground(ROOT, 'playground/svelte-pages');
   browser = await launchPagesBrowser();
 });
 
 afterAll(async () => {
   await browser?.close();
+  fixture?.cleanup();
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
-  describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
+  const clientSuite = coverage === 'smoke' ? describe : describe.concurrent;
+  clientSuite('shared client behavior', () => registerClientTests(getBase, coverage));
 }
 
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
+  const diagnostics = new WeakMap<Page, () => string>();
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
     return;
@@ -53,11 +62,17 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     const context = await browser.newContext();
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
+    diagnostics.set(page, collectBrowserDiagnostics(page));
     return page;
   }
 
   async function waitForHydration(page: Page) {
-    await page.waitForSelector('#app[data-hydrated="true"]');
+    try {
+      await page.waitForSelector('#app[data-hydrated="true"]');
+    } catch (error) {
+      console.error(diagnostics.get(page)?.());
+      throw error;
+    }
   }
 
   it('hydrates without errors', async () => {
@@ -90,7 +105,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await waitForHydration(page);
 
       await page.evaluate(() => {
-        (document.querySelector('nav') as NavElement | null)!.__stamp = 1;
+        document.querySelector<NavElement>('nav')!.__stamp = 1;
       });
 
       await page.click('a[href="/users"]');
@@ -98,9 +113,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         document.querySelector('h1')?.textContent?.includes('Users'),
       );
 
-      const stamp = await page.evaluate(
-        () => (document.querySelector('nav') as NavElement | null)?.__stamp,
-      );
+      const stamp = await page.evaluate(() => document.querySelector<NavElement>('nav')?.__stamp);
       expect(stamp).toBe(1);
 
       const navText = await page.textContent('nav');
@@ -116,7 +129,7 @@ describe('svelte-pages client (dev)', () => {
 
   beforeAll(async () => {
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'svelte-pages', 'dev', port)),
+      (port) => (child = spawnFixtureServer(fixture.root, 'dev', port)),
       20_000,
     );
     DEV_BASE = server.base;
@@ -140,8 +153,8 @@ describe('svelte-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(ROOT, 'playground/svelte-pages/pages/blog/_Counter.svelte'),
-    islandFile: join(ROOT, 'playground/svelte-pages/pages/blog/index.island.svelte'),
+    counterFile: () => join(fixture.root, 'pages/blog/_Counter.svelte'),
+    islandFile: () => join(fixture.root, 'pages/blog/index.island.svelte'),
     hmrKeepsState: false,
   });
 });
@@ -150,15 +163,10 @@ describe('svelte-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    if (!existsSync(join(ROOT, 'playground/svelte-pages/dist'))) {
-      execSync('vp run --filter ./playground/svelte-pages build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
-    }
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'svelte-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(fixture.root, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;

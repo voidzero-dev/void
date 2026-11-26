@@ -1,6 +1,7 @@
 // The Void CLI. cli.ts checks the runtime and then loads this module.
 
 import { log } from '@voidzero-dev/vite-plus-prompts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { accountSubcommands, parseAccountArgs } from './account-args.ts';
 import { getOwnVersion } from './agents.ts';
 import { parseDeployArgs } from './args.ts';
@@ -63,7 +64,12 @@ async function runSubcommandGroup<T>(
     .slice(1)
     .some((arg) => subcommands.some(({ name }) => name === arg));
   try {
-    if ((!sub || (sub.startsWith('-') && !hasNamedSubcommand)) && process.stdin.isTTY) {
+    // The menu draws on stdout, which --json keeps for its result.
+    if (
+      (!sub || (sub.startsWith('-') && !hasNamedSubcommand)) &&
+      process.stdin.isTTY &&
+      !args.includes('--json')
+    ) {
       const { promptSubcommand } = await import('./subcommand-prompt.ts');
       if (command === 'platform' && !sub) {
         log.info(
@@ -97,25 +103,58 @@ async function runSubcommandGroup<T>(
       process.exit(1);
     }
     const message = formatCloudflareUserMessage(err instanceof Error ? err.message : String(err));
+    if (
+      command === 'project' &&
+      (args[1] === 'zero-trust' || args[1] === 'security') &&
+      args.includes('--json')
+    ) {
+      const status = (err as { status?: unknown }).status;
+      const code = (err as { code?: unknown }).code;
+      // A refusal's details (urgent blockers, a closed request's state) stay in the JSON.
+      const details = (err as { details?: unknown }).details;
+      console.error(
+        JSON.stringify({
+          ...(details !== null && typeof details === 'object' && !Array.isArray(details)
+            ? details
+            : {}),
+          error: typeof code === 'string' ? code : 'invalid_command',
+          message,
+          ...(typeof status === 'number' ? { status } : {}),
+        }),
+      );
+      process.exit(1);
+    }
     if (command === 'platform') {
       const platformMessage = message.replace(/^platform:/, pc.bold(pc.red('platform:')));
       console.error(
         err instanceof OperatorClientError && err.details !== undefined
-          ? `${platformMessage}\nPartial result:\n${JSON.stringify(err.details, null, 2)}`
+          ? `${platformMessage}\n${isPartialResult(err) ? 'Partial result' : 'Details'}:\n${JSON.stringify(err.details, null, 2)}`
           : platformMessage,
       );
     } else {
-      log.error(message);
+      // A command printing JSON keeps stdout for its result.
+      log.error(message, args.includes('--json') ? { output: process.stderr } : undefined);
     }
     process.exit(1);
   }
+}
+
+// A refusal can carry details (blockers, a revision, a capability). Only a
+// request that did part of its work returns a partial result.
+function isPartialResult(err: OperatorClientError): boolean {
+  return (
+    err.code === 'partial_failure' ||
+    (typeof err.details === 'object' &&
+      err.details !== null &&
+      (err.details as { partial?: unknown }).partial === true)
+  );
 }
 
 const args = process.argv.slice(2);
 const command = args[0];
 const helpPath = getHelpPath(args);
 
-const subcommandGroups: Record<string, () => Promise<void>> = {
+const subcommandGroups = {
   auth: () =>
     runSubcommandGroup('auth', authSubcommands, parseAuthArgs, (root, parsed) =>
       import('./auth-router.ts').then(({ runAuthRouter }) => runAuthRouter(root, parsed)),
@@ -157,9 +196,15 @@ const subcommandGroups: Record<string, () => Promise<void>> = {
       import('./email.ts').then(({ runEmailCommand }) => runEmailCommand(root, parsed)),
     ),
   db: () =>
-    runSubcommandGroup('db', dbSubcommands, parseDbArgs, (root, parsed) =>
-      import('./db.ts').then(({ runDbCommand }) => runDbCommand(root, parsed)),
-    ),
+    runSubcommandGroup('db', dbSubcommands, parseDbArgs, async (root, parsed) => {
+      if (parsed.action === 'execute' && parsed.json) {
+        const { runDbExecuteProcess } = await import('./db-execute-process.ts');
+        await runDbExecuteProcess(root, args);
+      } else {
+        const { runDbCommand } = await import('./db.ts');
+        await runDbCommand(root, parsed);
+      }
+    }),
   env: () =>
     runSubcommandGroup('env', envSubcommands, parseEnvArgs, (root, parsed) =>
       import('./env.ts').then(({ runEnvCommand }) => runEnvCommand(root, parsed)),
@@ -176,7 +221,7 @@ const subcommandGroups: Record<string, () => Promise<void>> = {
     runSubcommandGroup('build', buildSubcommands, parseBuildArgs, (root, parsed) =>
       import('./build-cmd.ts').then(({ runBuildCommand }) => runBuildCommand(root, parsed)),
     ),
-};
+} satisfies Record<string, () => Promise<void>>;
 
 if (helpPath) {
   if (helpPath.length === 0) {
@@ -199,25 +244,24 @@ if (helpPath) {
     process.exit(1);
   }
 
-  import('./deploy.ts').then(({ runDeploy }) => {
-    runDeploy(root, deployArgs).catch((err) => {
-      log.error(formatCloudflareUserMessage(err.message ?? String(err)));
-      process.exit(1);
-    });
-  });
-} else if (command === 'connect') {
-  (async () => {
-    const parsed = parseConnectArgs(args.slice(1));
-    const { runConnectCommand } = await import('./connect.ts');
-    await runConnectCommand(process.cwd(), parsed);
-  })().catch((err) => {
+  const { runDeploy } = await import('./deploy.ts');
+  await runDeploy(root, deployArgs).catch((err: unknown) => {
     log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
-} else if (command && Object.hasOwn(subcommandGroups, command)) {
-  subcommandGroups[command]!();
+} else if (command === 'connect') {
+  await (async () => {
+    const parsed = parseConnectArgs(args.slice(1));
+    const { runConnectCommand } = await import('./connect.ts');
+    await runConnectCommand(process.cwd(), parsed);
+  })().catch((err: unknown) => {
+    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  });
+} else if (command && hasOwnKey(subcommandGroups, command)) {
+  void subcommandGroups[command]();
 } else if (command === 'info') {
-  import('./info.ts').then(async ({ runInfoCommand }) => {
+  await import('./info.ts').then(async ({ runInfoCommand }) => {
     try {
       await runInfoCommand(process.cwd(), parseInfoArgs(args.slice(1)));
     } catch (err) {
@@ -239,15 +283,14 @@ if (helpPath) {
     process.exit(1);
   }
 
-  import('./prepare.ts').then(({ runPrepareCommand }) => {
-    runPrepareCommand(root).catch((err) => {
-      log.error(formatCloudflareUserMessage(err.message ?? String(err)));
-      process.exit(1);
-    });
+  const { runPrepareCommand } = await import('./prepare.ts');
+  await runPrepareCommand(root).catch((err: unknown) => {
+    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
   });
 } else if (command === 'init') {
   const root = process.cwd();
-  import('./init.ts').then(({ runInitCommand, parseInitArgs }) => {
+  await import('./init.ts').then(async ({ runInitCommand, parseInitArgs }) => {
     let initArgs;
     try {
       initArgs = parseInitArgs(args.slice(1));
@@ -255,9 +298,9 @@ if (helpPath) {
       log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exit(1);
     }
-    runInitCommand(root, initArgs).catch((err) => {
-      log.error(formatCloudflareUserMessage(err.message ?? String(err)));
-      process.exit(1);
+    await runInitCommand(root, initArgs).catch((err: unknown) => {
+      log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
+      process.exitCode = 1;
     });
   });
 } else if (command === 'migrate') {
@@ -265,11 +308,10 @@ if (helpPath) {
     log.error('migrate: This command takes no arguments.');
     process.exit(1);
   }
-  import('./migrate.ts').then(({ runMigrateCommand }) => {
-    runMigrateCommand(process.cwd()).catch((err) => {
-      log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
-      process.exit(1);
-    });
+  const { runMigrateCommand } = await import('./migrate.ts');
+  await runMigrateCommand(process.cwd()).catch((err: unknown) => {
+    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
   });
 } else if (command === '-v' || command === '--version') {
   console.log(getOwnVersion());
@@ -324,7 +366,7 @@ if (helpPath) {
     },
     {
       name: 'project',
-      hint: 'status | link | list | team | token | zero-trust | logs | requests | rollback | cancel | delete | purge-cache',
+      hint: 'status | link | list | team | token | zero-trust | security | logs | requests | rollback | cancel | delete | purge-cache',
       description: 'Manage projects, teams, deployments, and scoped CI credentials',
     },
     { name: 'secret', hint: 'list | put | delete | sync', description: 'Manage project secrets' },
@@ -370,7 +412,7 @@ if (helpPath) {
     { name: 'help', description: 'Show help message' },
   ];
 
-  (async () => {
+  await (async () => {
     printVoidHeader();
 
     const { promptSubcommand } = await import('./subcommand-prompt.ts');
@@ -382,8 +424,8 @@ if (helpPath) {
     const cmd = result.subcommand;
     const root = process.cwd();
 
-    if (Object.hasOwn(subcommandGroups, cmd)) {
-      return subcommandGroups[cmd]!();
+    if (hasOwnKey(subcommandGroups, cmd)) {
+      return subcommandGroups[cmd]();
     }
 
     switch (cmd) {
@@ -421,7 +463,7 @@ if (helpPath) {
         printGlobalHelp();
         return;
     }
-  })().catch((err) => {
+  })().catch((err: unknown) => {
     log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });

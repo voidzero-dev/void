@@ -27,7 +27,7 @@ export const adminCsrfMiddleware: MiddlewareHandler<ApiEnv> = async (context, ne
   await next();
 };
 
-function parseOrigin(value: string): string | null {
+export function parseOrigin(value: string): string | null {
   try {
     return new URL(value).origin;
   } catch {

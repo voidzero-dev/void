@@ -2,7 +2,8 @@ import type { Plugin } from 'vite';
 import solid from 'vite-plugin-solid';
 import { resolvePagesDir } from 'void/pages';
 import { islandsPlugin } from './plugin-islands.ts';
-import { pagesPlugin, type PrefetchConfig } from './plugin-pages.ts';
+import { pagesPlugin } from './plugin-pages.ts';
+import type { PrefetchConfig } from './plugin-pages.ts';
 
 const SOLID_RUNTIME_PACKAGE = '@void/solid';
 
@@ -10,6 +11,7 @@ export type VoidSolidOptions = Readonly<{
   solid?: Parameters<typeof solid>[0];
   viewTransitions?: boolean;
   prefetch?: PrefetchConfig;
+  deployRecovery?: boolean;
 }>;
 
 // The runtime entry exports raw `.tsx` source. Without these hints, Vite's SSR
@@ -46,11 +48,8 @@ export function voidSolid(options?: VoidSolidOptions): Array<Plugin> {
   return [
     configPlugin(),
     solid({ ssr: true, ...options?.solid }),
-    pagesPlugin(pagesDir, {
-      root,
-      viewTransitions: options?.viewTransitions,
-      prefetch: options?.prefetch,
-    }),
+    // Spread so adapter options the pages plugin owns reach it without per-option glue.
+    pagesPlugin(pagesDir, { ...options, root }),
     ...islandsPlugin(pagesDir, { root }),
   ];
 }

@@ -5,7 +5,7 @@
   "scripts": {
     "deploy": "node ../../scripts/wrangler-deploy.ts",
     "dev": "wrangler dev",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json"
+    "typecheck": "tsrs --noEmit && tsrs --noEmit -p tsconfig.test.json"
   },
   "dependencies": {
     "@void/edge": "workspace:*",
@@ -16,6 +16,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:platform",
     "@types/node": "catalog:",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:",
     "wrangler": "catalog:platform"

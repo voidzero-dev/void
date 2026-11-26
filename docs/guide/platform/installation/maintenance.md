@@ -30,9 +30,9 @@ that the application covers the printed API and proxy origins. A Cloudflare
 management API token does not authenticate an Access-protected HTTP request.
 
 For automatic setup, resuming also creates or verifies an Access exception
-limited to `/health` on the reserved dispatch health hostname. Void still requires
-its private probe token on that endpoint; requests without it cannot reach an
-application. This lets installation check routing while employee protection and
+limited to `/health` and the paths under it on the reserved dispatch health
+hostname. Void still requires its private probe token on that endpoint; requests
+without it cannot reach an application. This lets installation check routing while employee protection and
 account-wide Default-Deny remain enabled. It does not bypass Access for an entire
 Worker or for deployed apps.
 
@@ -114,9 +114,11 @@ void platform upgrade [id]
 
 An upgrade validates the runtime, applies supported pending migrations, deploys the Workers, and checks their health. Existing Worker secrets are preserved.
 
-Install, upgrade, and repair also publish the saved [AI Gateway logging](/reference/cli/platform-users#ai-gateway-logging) settings (**Publishing AI logging settings**). For about 2 minutes afterward, `void platform project show` reports projects with a setting other than `inherit` as `pending`, as well as projects it switched back to `inherit`.
+Install, upgrade, and repair also publish saved [AI Gateway logging](/reference/cli/platform-users#ai-gateway-logging) settings. Affected projects may show `pending` for about 2 minutes afterward, including projects returning to `inherit`. Check progress with `void platform project show <project-id>`.
 
-Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. If credentials are rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
+Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. It lists every missing permission at once and names the credential Cloudflare rejected. If the management credential is rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
+
+With browser login, Void uses the runtime token for AI Gateway: `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`, or the one saved on this machine. If an error names the runtime token, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to a valid runtime token, or set `CLOUDFLARE_API_TOKEN` to a management token with **Account → AI Gateway → Edit**. Void then uses that token instead of browser login.
 
 Some upgrades pause application traffic until the new version passes health checks. If a command fails while traffic is paused:
 
@@ -127,11 +129,15 @@ Some upgrades pause application traffic until the new version passes health chec
 ::: details Migration safety, credential rotation, and rollback
 
 To update the runtime Cloudflare token, GitHub OAuth credentials when GitHub login is enabled, or R2 credentials,
-provide their `VOID_PLATFORM_*` environment variables when running the upgrade.
+provide their `VOID_PLATFORM_*` environment variables when running `upgrade` or `repair`.
 Only the supplied values replace live credentials. Recovery data from an older
 workstation does not overwrite them, and upgrades preserve the live signing keys
 and complete project-encryption keyring. Keep current credentials in your secret
 manager so they can also restore a missing Worker during repair.
+
+Set `VOID_PLATFORM_R2_ACCESS_KEY_ID` and `VOID_PLATFORM_R2_SECRET_ACCESS_KEY` together, even if
+only the secret changed. Void checks the R2 pair against the assets bucket before it changes the
+platform.
 
 Database migrations only move forward. Void checks compatibility before upgrading and tells you if an intermediate release is needed. If deployment fails, it attempts to restore the previous Workers against the compatible database schema. Retrying does not repeat completed migrations.
 
@@ -146,7 +152,10 @@ Keep the earlier runtime files if you need rollback. If the installed version is
 
 Do not roll back to 0.26.0 or earlier after upgrading to a later release. Void does not refuse this rollback, but those releases reject the credentials that later releases give your apps. Every project deployed or rotated since the upgrade loses AI, email, ISR revalidation, remote D1, KV, and R2, and prerendering until you upgrade again. If you have rolled back that far, upgrade again, then run `void platform system rotate-proxy-tokens --all --yes` and check with `--plan` until nothing is pending or failed.
 
-After a rollback to 1.8.0, plan [AI Gateway logging](/guide/platform/administration/plans#ai-gateway-logging) defaults are not applied: projects that follow a plan default use the gateway's own setting, which logs prompts and responses on a new installation. Project settings still apply. Plan defaults stay saved, and the next upgrade publishes them again. A rollback to a release before 1.8.0 applies no AI logging settings.
+Rolling back can restore prompt and response logging:
+
+- **1.8.0** applies project AI logging settings but ignores [plan defaults](/guide/platform/administration/plans#ai-gateway-logging). Projects without an override use the gateway's setting, which enables logging on a new installation. Plan defaults stay saved and are published again on upgrade.
+- **Before 1.8.0**, no project or plan AI logging settings apply.
 
 Let running rotations finish before you roll back. If an older proxy runs next to a newer API, prerendering and remote D1, KV, and R2 fail until both run the same release. After a rollback to the release just before credential rotation, projects deployed since the upgrade lose prerendering and remote D1, KV, and R2 until they are deployed again or you upgrade again. A rotated project deployed during any rollback stays broken after you upgrade again, and 0.26.0 and earlier also drop rotations that have not finished. After upgrading again from any rollback, run the same `rotate-proxy-tokens` commands.
 

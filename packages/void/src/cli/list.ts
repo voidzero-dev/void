@@ -1,6 +1,11 @@
 import { outro, log } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import { PlatformClient, type DeploymentResponse } from './client.ts';
+import { PlatformClient } from './client.ts';
+import type { DeploymentResponse } from './client.ts';
+import {
+  formatProjectStatusSecurityLine,
+  readSecurityStatusQuietly,
+} from './deploy-security-notice.ts';
 import {
   dim,
   formatCount,
@@ -107,6 +112,14 @@ async function showDeployments(
     return;
   }
 
+  const securityStatus = await readSecurityStatusQuietly(client, projectId);
+  const securityLine = securityStatus
+    ? formatProjectStatusSecurityLine(slug, securityStatus)
+    : null;
+  if (securityLine) {
+    console.log(`${tablePrefix()}${securityLine}`);
+  }
+
   const latest = deployments[0];
   if (latest.status === 'failed' && latest.error_message) {
     log.error(`project: Latest deploy failed: '${latest.error_message}'.`);
@@ -186,16 +199,17 @@ function formatDeploymentRow(
   d: DeploymentResponse,
   activeDeploymentId: string | null,
 ): DeploymentRow {
-  let manifest: {
+  type Manifest = {
     type?: string;
     static?: string;
     framework?: string;
     revalidate?: number;
     pathRevalidate?: Record<string, number>;
-  } | null = null;
+  };
+  let manifest: Manifest | null = null;
   if (d.manifest) {
     try {
-      manifest = JSON.parse(d.manifest);
+      manifest = JSON.parse(d.manifest) as Manifest | null;
     } catch {
       // ignore
     }

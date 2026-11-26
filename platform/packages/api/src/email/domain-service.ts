@@ -7,12 +7,8 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import type { Project } from '../types.ts';
 import { createCfCustomerClient } from './cf-customer.ts';
-import {
-  emailDomainRoutes,
-  emailOperations,
-  emailZoneConnections,
-  type EmailInboundMode,
-} from './connection-schema.ts';
+import { emailDomainRoutes, emailOperations, emailZoneConnections } from './connection-schema.ts';
+import type { EmailInboundMode } from './connection-schema.ts';
 import {
   EmailOperationError,
   credentialFor,
@@ -168,7 +164,7 @@ export async function addEmailDomainForProject(
       inboundMode: input.inboundMode,
     });
     await runEmailOperation(context.get('db'), context.env, operationId);
-    return domainResult(context, project, input.domain, operationId);
+    return await domainResult(context, project, input.domain, operationId);
   } catch (error) {
     return serviceError(context, error);
   }
@@ -312,7 +308,7 @@ export async function getEmailDomainStatusForProject(
           .where(
             and(
               eq(emailDomainRoutes.id, snapshot.route.id),
-              eq(emailDomainRoutes.project_id, snapshot.route.project_id!),
+              eq(emailDomainRoutes.project_id, project.id),
               eq(emailDomainRoutes.connection_id, snapshot.connection.id),
               eq(emailDomainRoutes.desired_generation, snapshot.route.desired_generation),
               eq(emailDomainRoutes.desired_state, 'active'),
@@ -360,7 +356,7 @@ export async function syncEmailDomainForProject(
       project.id,
     );
     await runEmailOperation(context.get('db'), context.env, operationId);
-    return domainResult(context, project, rawDomain, operationId);
+    return await domainResult(context, project, rawDomain, operationId);
   } catch (error) {
     return serviceError(context, error);
   }

@@ -1,6 +1,6 @@
 {
   "name": "@void/deploy-core",
-  "version": "1.9.1",
+  "version": "1.12.0",
   "description": "Shared deployment contracts, manifests, and resource plans for Void.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -28,9 +28,10 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "devDependencies": {
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

@@ -1,9 +1,10 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import { expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from '../../../../test/browser-helpers.ts';
+import { createPackageFixtureDir } from '../../../../test/integration-helpers.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
 
 declare global {
@@ -13,7 +14,7 @@ declare global {
 }
 
 it('marks a React island hydrated only after its first commit', async () => {
-  const root = mkdtempSync(join(import.meta.dirname, '__tmp_hydration_'));
+  const root = createPackageFixtureDir(join(import.meta.dirname, '../..'), '__tmp_hydration_');
   const pages = join(root, 'pages');
   mkdirSync(pages);
   writeFileSync(

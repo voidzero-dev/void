@@ -7,10 +7,12 @@ import {
   parsePlatformAuthenticationSetup,
   parsePlatformLoginConfiguration,
   platformDashboardUrl,
-  type PlatformAppAccess,
-  type PlatformAuthenticationSetup,
-  type PlatformDeploymentManifest,
-  type PlatformLoginKind,
+} from '@void/platform';
+import type {
+  PlatformAppAccess,
+  PlatformAuthenticationSetup,
+  PlatformDeploymentManifest,
+  PlatformLoginKind,
 } from '@void/platform';
 import { confirm, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { formatUrl } from './output.ts';
@@ -18,8 +20,8 @@ import {
   activatePlatformAccessCredentials,
   parsePlatformAccessSetupSpec,
   preparePlatformAccessSetup,
-  type PlatformAccessSetupSpec,
 } from './platform-access-setup.ts';
+import type { PlatformAccessSetupSpec } from './platform-access-setup.ts';
 import type { PlatformManagementAccess } from './platform-auth.ts';
 import type { PlatformCloudflareClient } from './platform-cloudflare.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
@@ -144,7 +146,9 @@ export async function selectInstallationAuthentication(
     }
     const authentication = {
       providers: [
-        ...new Set(entries.map((entry) => entry.configuration!.kind as PlatformLoginKind)),
+        ...new Set(
+          selected.connections.map((entry) => entry.configuration.kind as PlatformLoginKind),
+        ),
       ],
       configurable: true as const,
       ...(selected.protection ? { accessProtection: true as const } : {}),
@@ -223,7 +227,7 @@ export async function collectInstallationAuthentication(
       authBootstrapCode: checkpoint.authBootstrapCode ?? '',
     };
   }
-  const entries =
+  const entries: NonNullable<PlatformAuthSelection['file']>['connections'] =
     selection.file?.connections ??
     selection.authentication.providers.map((kind) => ({
       configuration: {
@@ -237,20 +241,21 @@ export async function collectInstallationAuthentication(
               : kind === 'oidc'
                 ? 'Company SSO'
                 : 'Cloudflare Access',
-      } as Record<string, unknown>,
+      },
       clientSecretEnv: undefined,
     }));
   const connections = [];
   const accessEntry = entries.find((entry) => entry.configuration.kind === 'cloudflare-access');
-  const prepared =
+  const prepareAccess =
     access &&
     (selection.authentication.accessProtection ||
-      (accessEntry && (!selection.file || selection.file.cloudflareAccess)))
+      (accessEntry && (!selection.file || selection.file.cloudflareAccess)));
+  const dashboardUrl = prepareAccess ? platformDashboardUrl(plan.deployment) : undefined;
+  const prepared =
+    access && prepareAccess
       ? await preparePlatformAccessSetup({
           plan,
-          ...(platformDashboardUrl(plan.deployment)
-            ? { additionalOrigins: [platformDashboardUrl(plan.deployment)!] }
-            : {}),
+          ...(dashboardUrl ? { additionalOrigins: [dashboardUrl] } : {}),
           ownershipNonce: access.ownershipNonce,
           protection: !!selection.authentication.accessProtection,
           ...(accessEntry
@@ -331,7 +336,7 @@ export async function collectInstallationAuthentication(
   const administratorConnectionId =
     selection.file?.administratorConnectionId ??
     (connections.length === 1
-      ? connections[0]!.configuration.id
+      ? connections[0].configuration.id
       : process.stdin.isTTY
         ? platformPromptAnswer(
             await select({
@@ -342,7 +347,7 @@ export async function collectInstallationAuthentication(
               })),
             }),
           )
-        : connections[0]!.configuration.id);
+        : connections[0].configuration.id);
   let protection = prepared?.protection ?? selection.file?.protection ?? null;
   if (selection.authentication.accessProtection && !protection) {
     const teamDomain = await prompt('Access team origin (https://team.cloudflareaccess.com):');
@@ -443,6 +448,14 @@ export function authenticationSetupRequestHash(setupJson: string): string {
   return createHash('sha256').update(JSON.stringify(configuration)).digest('hex');
 }
 
+const connections = (entries: ReadonlyArray<{ configuration: { id?: unknown; kind?: unknown } }>) =>
+  entries
+    .map(({ configuration: { id, kind } }) =>
+      JSON.stringify([id || defaultConnectionId(kind as PlatformLoginKind), kind]),
+    )
+    .sort()
+    .join('\n');
+
 /**
  * Read a repair login file. It may change login settings, not methods or Access
  * protection: it lists the same connection IDs and kinds as the saved setup.
@@ -453,25 +466,20 @@ export async function readLoginReplacementFile(
   setupJson: string,
 ): Promise<AuthFile> {
   const selection = await selectInstallationAuthentication(file);
+  const selected = selection.file;
+  if (!selected) {
+    throw new Error('platform: Repair requires a login settings file.');
+  }
   const installed = parsePlatformAuthenticationSetup(JSON.parse(setupJson)).connections;
-  const connections = (
-    entries: ReadonlyArray<{ configuration: { id?: unknown; kind?: unknown } }>,
-  ) =>
-    entries
-      .map(({ configuration: { id, kind } }) =>
-        JSON.stringify([id || defaultConnectionId(kind as PlatformLoginKind), kind]),
-      )
-      .sort()
-      .join('\n');
   if (
-    connections(selection.file!.connections) !== connections(installed) ||
+    connections(selected.connections) !== connections(installed) ||
     !!selection.authentication.accessProtection !== !!authentication.accessProtection
   ) {
     throw new Error(
       `platform: Repair changes login settings, not which login methods or Access protection the platform uses. List each installed connection with its ID: ${installed.map(({ configuration }) => configuration.id).join(', ')}.`,
     );
   }
-  return selection.file!;
+  return selected;
 }
 
 /**

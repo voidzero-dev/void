@@ -1,5 +1,6 @@
 import { once } from 'node:events';
 import {
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -36,6 +37,29 @@ const base: WrapperFeatures = {
   queues: [],
 };
 
+// Wrappers in these tests use plain objects for bindings and execution context.
+type FixtureWorker = {
+  fetch(
+    request: Request,
+    env: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): Promise<Response>;
+  scheduled(): unknown;
+  email(): unknown;
+  queue(
+    batch: Record<string, unknown>,
+    env: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ): Promise<void>;
+};
+
+async function loadWrappedWorker(root: string): Promise<FixtureWorker> {
+  const { default: worker } = (await import(pathToFileURL(join(root, 'index.mjs')).href)) as {
+    default: FixtureWorker;
+  };
+  return worker;
+}
+
 describe('repeated wrapper generation', () => {
   const roots: Array<string> = [];
   afterEach(() => {
@@ -56,7 +80,7 @@ describe('repeated wrapper generation', () => {
       readiness: true,
       versionMetadataBinding: 'AUTHORED_VERSION',
     });
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     const response = await worker.fetch(
       new Request('https://app.example/__void/ready', {
         headers: { 'Cloudflare-Workers-Version-Overrides': 'app="new-version"' },
@@ -79,7 +103,7 @@ describe('repeated wrapper generation', () => {
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
     expect(readFileSync(join(root, '__original.mjs'), 'utf8')).toBe(original);
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     expect(await (await worker.fetch(new Request('https://app/'), {}, {})).text()).toBe(
       'application',
     );
@@ -108,7 +132,7 @@ describe('repeated wrapper generation', () => {
       'export default { fetch() { return new Response("app"); }, scheduled() { return "cron"; }, email() { return "mail"; } };',
     );
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     expect(worker.scheduled()).toBe('cron');
     expect(worker.email()).toBe('mail');
     expect((await worker.fetch(new Request('https://app/__void/ready'), {}, {})).status).toBe(200);
@@ -122,7 +146,7 @@ describe('repeated wrapper generation', () => {
       'export default function handler() { return new Response("bare"); }',
     );
     await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
-    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    const worker = await loadWrappedWorker(root);
     const response = await worker.fetch(new Request('https://app/__void/ready'), {}, {});
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
@@ -171,7 +195,7 @@ describe('repeated wrapper generation', () => {
     });
     try {
       await generateWrapper(root, 'index.mjs', root, { ...base, isr: { revalidate: 60 } });
-      const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+      const worker = await loadWrappedWorker(root);
       const tasks: Array<Promise<unknown>> = [];
       const ctx = {
         waitUntil: (task: Promise<unknown>) => {
@@ -373,7 +397,7 @@ describe('cleanupWrapper', () => {
     cleanupWrapper(root);
 
     expect(existsSync(projectFile)).toBe(true);
-    expect(readFileSync(join(voidDir, 'dev-trigger-token'), 'utf-8')).toBe('stable-token');
+    expect(readFileSync(join(voidDir, 'dev-trigger-token'), 'utf8')).toBe('stable-token');
     for (const directory of temporaryDirectories) {
       expect(existsSync(join(voidDir, directory))).toBe(false);
     }
@@ -413,7 +437,7 @@ describe('generated wrapper queue dispatch', () => {
       ...base,
       queues: [{ name: 'emails', filePath: 'emails.ts', bindingName: 'QUEUE_EMAILS' }],
     });
-    return (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    return await loadWrappedWorker(root);
   }
 
   const relayRequest = (token?: string) =>
@@ -620,7 +644,7 @@ describe('generated wrapper queue dispatch', () => {
       ...base,
       queues: [{ name: 'emails', filePath: 'emails.ts', bindingName: 'QUEUE_EMAILS' }],
     });
-    const wrapper = (await import(pathToFileURL(join(workerDir, 'index.mjs')).href)).default;
+    const wrapper = await loadWrappedWorker(workerDir);
     const timestamp = new Date('2026-01-01T00:00:00Z');
     const batch = {
       queue: 'emails',
@@ -697,12 +721,12 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       migrationDialect: 'sqlite',
     });
 
-    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf-8');
+    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf8');
     expect(wrapper).toContain('__migrations');
     expect(wrapper).toContain('001_create_users.sql');
     expect(wrapper).toContain('CREATE TABLE users');
 
-    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
+    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf8');
     expect(handler).not.toMatch(/from\s+["']\.\.\//);
     expect(handler).not.toContain('../migrations/canonical-json');
     expect(handler).not.toContain('../canonical-json-');
@@ -727,13 +751,13 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       migrationDialect: 'postgresql',
     });
 
-    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
+    const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf8');
     expect(handler).not.toContain('import("pg")');
     expect(
       readdirSync(workerDir).some((file) => file.startsWith('__void_migration_handler-')),
     ).toBe(true);
     const bundled = readdirSync(workerDir)
-      .map((file) => readFileSync(join(workerDir, file), 'utf-8'))
+      .map((file) => readFileSync(join(workerDir, file), 'utf8'))
       .join('\n');
     expect(bundled).not.toContain('PGPASSFILE');
     expect(bundled).not.toContain('createReadStream');
@@ -794,9 +818,15 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
   async function migrateMySqlInWorkerd(workerDir: string): Promise<unknown> {
     // The applied-migrations SELECT returns a row, so mysql2 also parses a result set.
     // No CLI run holds the named lock, so the deploy's lease is enough.
-    const mysql = await startFakeMySqlServer((sql) =>
-      sql.includes('IS_USED_LOCK') ? [{ holder: null }] : [{ name: '000_applied_elsewhere.sql' }],
-    );
+    const mysql = await startFakeMySqlServer((sql) => {
+      if (sql.includes('DATABASE()')) {
+        return [{ db: 'app' }];
+      }
+      if (sql.includes('IS_USED_LOCK')) {
+        return [{ holder: null }];
+      }
+      return [{ name: '000_applied_elsewhere.sql' }];
+    });
     try {
       return await fetchWrappedWorker(
         workerDir,
@@ -853,7 +883,7 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       expect(imports.filter((id) => !/^(node:|cloudflare:|\.\/)/.test(id))).toEqual([]);
       const required = Array.from(
         code.matchAll(/\b__require\(\s*["']([^"']+)["']\s*\)/g),
-        (match) => match[1]!,
+        (match) => match[1],
       );
       expect(required.filter((id) => !isBuiltin(id) && !optionalRequires.includes(id))).toEqual([]);
     }
@@ -1161,7 +1191,54 @@ export default async function () {
     expect(handlers).toContain('export async function handleScheduled(controller, env, ctx) {');
     expect(handlers).toContain('export async function handleQueue(batch, env, ctx) {');
     expect(handlers).not.toContain('withRuntimeEnv');
+    // Nor do the jobs of an app without env.ts prepare an env.
+    expect(handlers).not.toContain('prepare');
   });
+
+  /** Write `source` as a cron job and a queue consumer, both named `read-env`, that read `void/env`. */
+  function writeReadEnvJobs(projectRoot: string, source: string): Partial<WrapperFeatures> {
+    mkdirSync(join(projectRoot, 'crons'));
+    writeFileSync(join(projectRoot, 'crons', 'read-env.ts'), source);
+    mkdirSync(join(projectRoot, 'queues'));
+    writeFileSync(join(projectRoot, 'queues', 'read-env.ts'), source);
+    mkdirSync(join(projectRoot, 'node_modules'));
+    symlinkSync(
+      join(import.meta.dirname, '..', '..'),
+      join(projectRoot, 'node_modules', 'void'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    return {
+      crons: [{ name: 'read-env', filePath: 'read-env.ts', crons: ['0 * * * *'] }],
+      queues: [{ name: 'read-env', filePath: 'read-env.ts', bindingName: 'QUEUE_READ_ENV' }],
+    };
+  }
+
+  /** Run the `read-env` cron job and queue consumer in workerd. Both succeed. */
+  async function expectReadEnvJobsToPass(
+    workerDir: string,
+    options: Parameters<typeof fetchWrappedWorker>[2],
+  ): Promise<void> {
+    expect(
+      await fetchWrappedWorker(
+        workerDir,
+        { path: '/__void/scheduled', body: { cron: '0 * * * *', scheduledTime: Date.now() } },
+        options,
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      await fetchWrappedWorker(
+        workerDir,
+        {
+          path: '/__void/queue',
+          body: {
+            queue: 'read-env',
+            messages: [{ id: 'one', timestamp: new Date().toISOString(), body: {}, attempts: 1 }],
+          },
+        },
+        options,
+      ),
+    ).toMatchObject({ ok: true });
+  }
 
   // A D1 framework Worker has only `nodejs_als`; PostgreSQL deploys add `nodejs_compat`, and run
   // jobs in a request scope. Under browser conditions, reading a server key from `void/env` throws.
@@ -1173,50 +1250,84 @@ export default async function () {
     async ({ config, compatibilityFlags }) => {
       const { workerDir, projectRoot } = createMigrationFixture();
       writeFileSync(join(projectRoot, 'void.json'), JSON.stringify(config));
-      const job = `import { env } from 'void/env';
+      const jobs = writeReadEnvJobs(
+        projectRoot,
+        `import { env } from 'void/env';
 
 export default async function () {
   if (env.STRIPE_KEY !== 'sk_test') throw new Error('unexpected STRIPE_KEY');
 }
-`;
-      mkdirSync(join(projectRoot, 'crons'));
-      writeFileSync(join(projectRoot, 'crons', 'read-env.ts'), job);
-      mkdirSync(join(projectRoot, 'queues'));
-      writeFileSync(join(projectRoot, 'queues', 'read-env.ts'), job);
-      mkdirSync(join(projectRoot, 'node_modules'));
-      symlinkSync(
-        join(import.meta.dirname, '..', '..'),
-        join(projectRoot, 'node_modules', 'void'),
-        process.platform === 'win32' ? 'junction' : 'dir',
+`,
       );
 
-      await generateWrapper(workerDir, 'index.mjs', projectRoot, {
-        ...base,
-        crons: [{ name: 'read-env', filePath: 'read-env.ts', crons: ['0 * * * *'] }],
-        queues: [{ name: 'read-env', filePath: 'read-env.ts', bindingName: 'QUEUE_READ_ENV' }],
-      });
+      await generateWrapper(workerDir, 'index.mjs', projectRoot, { ...base, ...jobs });
 
-      const options = { bindings: { STRIPE_KEY: 'sk_test' }, compatibilityFlags };
-      expect(
-        await fetchWrappedWorker(
-          workerDir,
-          { path: '/__void/scheduled', body: { cron: '0 * * * *', scheduledTime: Date.now() } },
-          options,
-        ),
-      ).toEqual({ ok: true });
-      expect(
-        await fetchWrappedWorker(
-          workerDir,
-          {
-            path: '/__void/queue',
-            body: {
-              queue: 'read-env',
-              messages: [{ id: 'one', timestamp: new Date().toISOString(), body: {}, attempts: 1 }],
-            },
-          },
-          options,
-        ),
-      ).toMatchObject({ ok: true });
+      await expectReadEnvJobsToPass(workerDir, {
+        bindings: { STRIPE_KEY: 'sk_test' },
+        compatibilityFlags,
+      });
+    },
+  );
+
+  // The jobs bundle a copy of `void/env` of their own. The app's Worker loads env.ts and prepares
+  // the env, as the Class A wrapper does, and the jobs read what it resolved through the registry.
+  it.each([
+    { database: 'D1', config: {}, compatibilityFlags: ['nodejs_als'] },
+    { database: 'PostgreSQL', config: { database: 'pg' }, compatibilityFlags: ['nodejs_compat'] },
+  ])(
+    'gives $database cron and queue jobs the env.ts values that the app prepared',
+    async ({ config, compatibilityFlags }) => {
+      const { workerDir, projectRoot } = createMigrationFixture();
+      writeFileSync(join(projectRoot, 'void.json'), JSON.stringify(config));
+      const jobs = writeReadEnvJobs(
+        projectRoot,
+        `import { env } from 'void/env';
+
+export default async function () {
+  if (env.SCHEMA_DEFAULT !== 48213 || env.TOKEN !== 'SK_TEST') {
+    throw new Error('unexpected env: ' + JSON.stringify([env.SCHEMA_DEFAULT, env.TOKEN]));
+  }
+}
+`,
+      );
+      writeFileSync(
+        join(projectRoot, 'env.ts'),
+        `import { defineEnv, number } from 'void/env';
+
+// An async validator, like zod's async refine.
+const upper = {
+  '~standard': {
+    version: 1,
+    vendor: 'test',
+    validate: async (value) => ({ value: String(value).toUpperCase() }),
+  },
+};
+
+export default defineEnv({ SCHEMA_DEFAULT: number().default(48213), TOKEN: upper });
+`,
+      );
+      writeFileSync(
+        join(projectRoot, 'app.ts'),
+        `import './env.ts';
+import { _prepareEnv } from 'void/env';
+
+export default {
+  async fetch(request, env) {
+    await _prepareEnv(env);
+    return new Response('app');
+  },
+};
+`,
+      );
+      const app = await bundleEntry(projectRoot, join(projectRoot, 'app.ts'));
+      copyFileSync(join(app.outputDir, app.entryFilename), join(workerDir, 'index.mjs'));
+
+      await generateWrapper(workerDir, 'index.mjs', projectRoot, { ...base, ...jobs });
+
+      await expectReadEnvJobsToPass(workerDir, {
+        bindings: { TOKEN: 'sk_test' },
+        compatibilityFlags,
+      });
     },
   );
 
@@ -1230,7 +1341,7 @@ export default async function () {
       crons: [{ name: 'daily', filePath: 'daily.ts', crons: ['0 0 * * *'] }],
     });
 
-    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf-8');
+    const wrapper = readFileSync(join(workerDir, 'index.mjs'), 'utf8');
     expect(wrapper).not.toContain('/__void/migrate');
     expect(wrapper).toContain('/__void/scheduled');
   });

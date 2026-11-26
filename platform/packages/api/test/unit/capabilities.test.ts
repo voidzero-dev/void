@@ -12,6 +12,7 @@ describe('platform capabilities', () => {
       googleOAuth: true,
       managedBuilds: true,
       sandbox: true,
+      securityAudits: false,
     });
   });
 
@@ -36,5 +37,14 @@ describe('platform capabilities', () => {
     expect(() => getPlatformCapabilities({ PLATFORM_CAPABILITIES: '{"ai":true}' })).toThrow(
       'customDomains',
     );
+  });
+
+  it('reads a missing securityAudits as off and refuses a non-boolean', () => {
+    const legacy = { ...getPlatformCapabilities({}), securityAudits: undefined };
+    const read = (extra: Record<string, unknown>) =>
+      getPlatformCapabilities({ PLATFORM_CAPABILITIES: JSON.stringify({ ...legacy, ...extra }) });
+    expect(read({}).securityAudits).toBe(false);
+    expect(read({ securityAudits: true }).securityAudits).toBe(true);
+    expect(() => read({ securityAudits: 'true' })).toThrow('securityAudits must be a boolean');
   });
 });

@@ -42,3 +42,20 @@ it.each([
   expect(routingId(api)).toBeTruthy();
   expect(routingId(proxy)).toBe(routingId(api));
 });
+
+// Hosted keeps `securityAudits` off: the scheduler class ships idle, with no AI binding.
+it('binds the idle security scan scheduler without AI, in its own SQLite migration', () => {
+  type Worker = { durable_objects?: { bindings?: Array<unknown> }; ai?: unknown };
+  for (const worker of [config, config.env.production, config.env.staging] as Array<Worker>) {
+    expect(worker.durable_objects?.bindings).toContainEqual({
+      name: 'SECURITY_SCAN_SCHEDULER',
+      class_name: 'SecurityScanScheduler',
+    });
+    expect(worker.ai).toBeUndefined();
+  }
+  const migrations = (config as unknown as { migrations: Array<unknown> }).migrations;
+  expect(migrations.at(-1)).toEqual({
+    tag: 'security-audits-v1',
+    new_sqlite_classes: ['SecurityScanScheduler'],
+  });
+});

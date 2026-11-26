@@ -1,29 +1,60 @@
+import { isRecord } from '@void/deploy-core';
+import type { EmailActionRecipient, EmailAdmissionResult } from '@voidcloud/api/email-admission';
 import { hmacSign } from './hmac.ts';
 import type { Env } from './types.ts';
 
-export type ActionRecipient = {
-  recipient: string;
-  state:
-    | 'rejected'
-    | 'reserved'
-    | 'attempt_started'
-    | 'provider_accepted'
-    | 'failed'
-    | 'outcome_unknown'
-    | 'cancelled';
-  errorCode: string | null;
-  providerReference: string | null;
-};
-export type Admission = {
-  operationId: string;
-  replay: boolean;
-  recipients: Array<ActionRecipient>;
-  accountId?: string;
-};
+export type ActionRecipient = EmailActionRecipient;
+export type Admission = EmailAdmissionResult;
+
+function isRecipient(value: unknown): value is ActionRecipient {
+  return (
+    isRecord(value) &&
+    typeof value.recipient === 'string' &&
+    (value.state === 'rejected' ||
+      value.state === 'reserved' ||
+      value.state === 'attempt_started' ||
+      value.state === 'provider_accepted' ||
+      value.state === 'failed' ||
+      value.state === 'outcome_unknown' ||
+      value.state === 'cancelled') &&
+    (typeof value.errorCode === 'string' || value.errorCode === null) &&
+    (typeof value.providerReference === 'string' || value.providerReference === null)
+  );
+}
+
+type RecipientResponse = { recipients: Array<ActionRecipient> };
+
+function hasRecipients(value: unknown): value is RecipientResponse {
+  return isRecord(value) && Array.isArray(value.recipients) && value.recipients.every(isRecipient);
+}
+
+function isAdmission(value: unknown): value is Admission {
+  return (
+    isRecord(value) &&
+    typeof value.operationId === 'string' &&
+    typeof value.replay === 'boolean' &&
+    (value.accountId === undefined || typeof value.accountId === 'string') &&
+    hasRecipients(value)
+  );
+}
+
+type ReceiptClaim = { state: 'claimed' | 'in_progress' | 'completed'; reject?: boolean };
+
+function isReceiptClaim(value: unknown): value is ReceiptClaim {
+  return (
+    isRecord(value) &&
+    (value.state === 'claimed' || value.state === 'in_progress' || value.state === 'completed') &&
+    (value.reject === undefined || typeof value.reject === 'boolean')
+  );
+}
+
+function isAcknowledged(value: unknown): value is { ok: true } {
+  return isRecord(value) && value.ok === true;
+}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const EMAIL_DEFAULT_DEADLINE_MS = 5_000;
+const EMAIL_DEFAULT_DEADLINE_MS = 5000;
 const EMAIL_ACTION_DEADLINE_MS = 15_000;
 const EMAIL_ADMISSION_DEADLINE_MS = 15_000;
 const MAX_ADMISSION_RESPONSE_BYTES = 65_536;
@@ -39,6 +70,7 @@ async function call<T>(
   env: Pick<Env, 'API' | 'EMAIL_SIGNING_SECRET'>,
   path: string,
   body: unknown,
+  isResult: (value: unknown) => value is T,
   deadlineMs = EMAIL_DEFAULT_DEADLINE_MS,
 ): Promise<T> {
   const controller = new AbortController();
@@ -87,7 +119,7 @@ async function call<T>(
     }
     throw new Error(`EMAIL_ADMISSION_${response.status}`);
   }
-  const reader = response.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
   if (!reader) {
     throw new Error('EMAIL_ADMISSION_EMPTY_RESPONSE');
   }
@@ -105,7 +137,11 @@ async function call<T>(
       bytes.set(chunk.value, size);
       size += chunk.value.byteLength;
     }
-    return JSON.parse(decoder.decode(bytes.subarray(0, size))) as T;
+    const result: unknown = JSON.parse(decoder.decode(bytes.subarray(0, size)));
+    if (!isResult(result)) {
+      throw new Error('EMAIL_ADMISSION_INVALID_RESPONSE');
+    }
+    return result;
   } finally {
     void reader.cancel().catch(() => {});
     try {
@@ -135,8 +171,8 @@ export type ReceiptRouteFence = {
 export function claimRelayedReceipt(
   env: Pick<Env, 'API' | 'EMAIL_SIGNING_SECRET'>,
   identity: RelayedReceiptIdentity,
-): Promise<{ state: 'claimed' | 'in_progress' | 'completed'; reject?: boolean }> {
-  return call(env, '/receipts/claim', identity);
+): Promise<ReceiptClaim> {
+  return call(env, '/receipts/claim', identity, isReceiptClaim);
 }
 
 export function completeRelayedReceipt(
@@ -144,12 +180,17 @@ export function completeRelayedReceipt(
   identity: RelayedReceiptIdentity,
   reject: boolean,
 ): Promise<{ ok: true }> {
-  return call(env, '/receipts/complete', {
-    receiptId: identity.receiptId,
-    projectId: identity.projectId,
-    payloadDigest: identity.payloadDigest,
-    reject,
-  });
+  return call(
+    env,
+    '/receipts/complete',
+    {
+      receiptId: identity.receiptId,
+      projectId: identity.projectId,
+      payloadDigest: identity.payloadDigest,
+      reject,
+    },
+    isAcknowledged,
+  );
 }
 
 /** Only generated, transport-irrelevant MIME fields are normalized. Body text stays byte-sensitive. */
@@ -206,7 +247,7 @@ export function canonicalizeVoidMime(raw: Uint8Array): Uint8Array {
           line += ` ${decoder.decode(raw.subarray(afterHeader, headerEnd)).replace(/^[ \t]+/, '')}`;
           afterHeader = headerEnd === raw.byteLength ? raw.byteLength : headerEnd + 2;
         }
-        const normalized = line.replace(
+        const normalized = line.replaceAll(
           /boundary="(=_void_(?:mixed|alternative|related)_[A-Za-z0-9_-]+)"/g,
           (_, token: string) => {
             let marker = boundaries.get(token);
@@ -373,7 +414,7 @@ export function admitEmail(
   },
   deadlineMs = EMAIL_ADMISSION_DEADLINE_MS,
 ): Promise<Admission> {
-  return call(env, '/admit', body, Math.min(deadlineMs, EMAIL_ADMISSION_DEADLINE_MS));
+  return call(env, '/admit', body, isAdmission, Math.min(deadlineMs, EMAIL_ADMISSION_DEADLINE_MS));
 }
 
 export function startEmailAttempt(
@@ -381,11 +422,12 @@ export function startEmailAttempt(
   operationId: string,
   recipients: Array<string>,
   deadlineMs = EMAIL_ACTION_DEADLINE_MS,
-): Promise<{ recipients: Array<ActionRecipient> }> {
+): Promise<RecipientResponse> {
   return call(
     env,
     `/${encodeURIComponent(operationId)}/start`,
     { recipients },
+    hasRecipients,
     Math.min(deadlineMs, EMAIL_ACTION_DEADLINE_MS),
   );
 }
@@ -397,11 +439,12 @@ export function finishEmailAttempt(
   state: 'provider_accepted' | 'failed' | 'outcome_unknown' | 'cancelled',
   details: { providerReference?: string; errorCode?: string } = {},
   deadlineMs = EMAIL_ACTION_DEADLINE_MS,
-): Promise<{ recipients: Array<ActionRecipient> }> {
+): Promise<RecipientResponse> {
   return call(
     env,
     `/${encodeURIComponent(operationId)}/finish`,
     { recipients, state, ...details },
+    hasRecipients,
     Math.min(deadlineMs, EMAIL_ACTION_DEADLINE_MS),
   );
 }
@@ -413,5 +456,10 @@ export function recordEmailReceipt(
   status: string,
   route?: ReceiptRouteFence,
 ): Promise<{ ok: true }> {
-  return call(env, '/receipts', { receiptId, projectId, status, ...(route ? { route } : {}) });
+  return call(
+    env,
+    '/receipts',
+    { receiptId, projectId, status, ...(route ? { route } : {}) },
+    isAcknowledged,
+  );
 }

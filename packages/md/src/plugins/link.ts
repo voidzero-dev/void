@@ -3,7 +3,7 @@ import type MarkdownExit from 'markdown-exit';
 
 const EXTERNAL_URL_RE = /^[a-z]+:/i;
 
-const EXTERNAL_ATTRS: Record<string, string> = {
+const EXTERNAL_ATTRS = {
   target: '_blank',
   rel: 'noreferrer',
 };
@@ -27,7 +27,8 @@ export function linkPlugin(md: MarkdownExit): void {
       return self.renderToken(tokens, idx, mdOptions);
     }
 
-    const url = token.attrs?.[hrefIndex]?.[1] ?? '';
+    const href = token.attrs?.[hrefIndex];
+    const url = href?.[1] ?? '';
 
     // Skip anchor-only links and header-anchor links
     if (url.startsWith('#') || token.attrGet('class') === 'header-anchor') {
@@ -47,8 +48,8 @@ export function linkPlugin(md: MarkdownExit): void {
       } else if (normalized.includes('.md#')) {
         normalized = normalized.replace('.md#', '#');
       }
-      if (normalized !== url) {
-        token.attrs![hrefIndex]![1] = normalized;
+      if (href && normalized !== url) {
+        href[1] = normalized;
       }
     }
 

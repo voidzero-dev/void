@@ -1,4 +1,5 @@
 import { isRecord } from './is-record.ts';
+import { isR2LocationHint } from './storage.ts';
 
 export const MANIFEST_REDIRECT_RULE_STATUSES: ReadonlySet<number> = new Set([
   200, 301, 302, 303, 307, 308,
@@ -19,7 +20,7 @@ type RoutingRuleKind = 'redirectRules' | 'fallbackRules';
 
 // Lowercases `host` in place: dispatch compares the stored form with the lowercase `url.hostname`.
 function validateRuleHost(
-  rule: Record<string, unknown>,
+  rule: { host?: unknown },
   kind: RoutingRuleKind,
   sourceRef: string,
 ): string | null {
@@ -128,6 +129,18 @@ export function validateManifestShape(manifest: unknown): string | null {
   if (!isRecord(manifest)) {
     return 'invalid manifest shape: expected a JSON object';
   }
+  if (manifest.storage !== undefined) {
+    if (manifest.version !== 5) {
+      return 'invalid manifest shape: storage requires manifest version 5';
+    }
+    if (
+      !isRecord(manifest.storage) ||
+      !isR2LocationHint(manifest.storage.locationHint) ||
+      Object.keys(manifest.storage).some((key) => key !== 'locationHint')
+    ) {
+      return 'invalid manifest shape: storage.locationHint must be a supported R2 location hint';
+    }
+  }
   if (manifest.emailProtocolVersion !== undefined && manifest.emailProtocolVersion !== 1) {
     return 'invalid manifest shape: emailProtocolVersion must be 1';
   }
@@ -143,6 +156,19 @@ export function validateManifestShape(manifest: unknown): string | null {
     return 'invalid manifest shape: bindings must be an object';
   }
   const bindings = manifest.bindings;
+  if (manifest.database !== undefined) {
+    if (
+      !isRecord(manifest.database) ||
+      Object.keys(manifest.database).some((key) => key !== 'readReplication') ||
+      (manifest.database.readReplication !== undefined &&
+        typeof manifest.database.readReplication !== 'boolean')
+    ) {
+      return 'invalid manifest shape: database.readReplication must be a boolean';
+    }
+    if (!Array.isArray(bindings.d1) || bindings.d1.length === 0) {
+      return 'invalid manifest shape: database requires a D1 binding';
+    }
+  }
   for (const key of ['d1', 'kv', 'r2', 'hyperdrive'] as const) {
     const bindingValue = bindings[key];
     if (bindingValue === undefined) {
@@ -153,6 +179,7 @@ export function validateManifestShape(manifest: unknown): string | null {
     }
   }
 
+  const queueBindingNames: Array<string> = [];
   if (manifest.queues !== undefined) {
     if (!Array.isArray(manifest.queues)) {
       return 'invalid manifest shape: queues must be an array';
@@ -163,6 +190,16 @@ export function validateManifestShape(manifest: unknown): string | null {
       }
       if (typeof queue.name !== 'string' || typeof queue.bindingName !== 'string') {
         return 'invalid manifest shape: queues entries must have string name and bindingName';
+      }
+      queueBindingNames.push(queue.bindingName);
+      if (
+        queue.maxConcurrency !== undefined &&
+        (typeof queue.maxConcurrency !== 'number' ||
+          !Number.isInteger(queue.maxConcurrency) ||
+          queue.maxConcurrency < 1 ||
+          queue.maxConcurrency > 250)
+      ) {
+        return 'invalid manifest shape: queues entry maxConcurrency must be an integer between 1 and 250';
       }
       for (const tuning of [
         'maxBatchSize',
@@ -329,17 +366,17 @@ export function validateManifestShape(manifest: unknown): string | null {
     const assetConfig = manifest.assetConfig;
     if (
       assetConfig.not_found_handling !== undefined &&
-      !['none', 'single-page-application', '404-page'].includes(
-        assetConfig.not_found_handling as string,
-      )
+      (typeof assetConfig.not_found_handling !== 'string' ||
+        !['none', 'single-page-application', '404-page'].includes(assetConfig.not_found_handling))
     ) {
       return 'invalid manifest shape: assetConfig.not_found_handling must be one of none, single-page-application, 404-page';
     }
     if (
       assetConfig.html_handling !== undefined &&
-      !['auto-trailing-slash', 'force-trailing-slash', 'drop-trailing-slash', 'none'].includes(
-        assetConfig.html_handling as string,
-      )
+      (typeof assetConfig.html_handling !== 'string' ||
+        !['auto-trailing-slash', 'force-trailing-slash', 'drop-trailing-slash', 'none'].includes(
+          assetConfig.html_handling,
+        ))
     ) {
       return 'invalid manifest shape: assetConfig.html_handling must be one of auto-trailing-slash, force-trailing-slash, drop-trailing-slash, none';
     }
@@ -451,6 +488,7 @@ export function validateManifestShape(manifest: unknown): string | null {
     return fallbackRulesError;
   }
 
+  const webSocketBindingNames: Array<string> = [];
   if (manifest.websocket !== undefined) {
     if (!isRecord(manifest.websocket)) {
       return 'invalid manifest shape: websocket must be an object';
@@ -469,6 +507,7 @@ export function validateManifestShape(manifest: unknown): string | null {
       if (route.bindingName !== undefined && typeof route.bindingName !== 'string') {
         return 'invalid manifest shape: websocket.routes entry bindingName must be a string';
       }
+      webSocketBindingNames.push(route.bindingName ?? route.className);
     }
     if (
       !Array.isArray(websocket.classes) ||
@@ -496,12 +535,16 @@ export function validateManifestShape(manifest: unknown): string | null {
       return 'invalid manifest shape: sandbox must be an object';
     }
     const sandbox = manifest.sandbox;
-    for (const key of ['bindingName', 'className', 'containerName', 'image']) {
+    for (const key of ['bindingName', 'className', 'containerName']) {
       if (typeof sandbox[key] !== 'string' || sandbox[key].length === 0) {
         return `invalid manifest shape: sandbox.${key} must be a non-empty string`;
       }
     }
-    if (isLocalImageReference(sandbox.image as string)) {
+    const image = sandbox.image;
+    if (typeof image !== 'string' || image.length === 0) {
+      return 'invalid manifest shape: sandbox.image must be a non-empty string';
+    }
+    if (isLocalImageReference(image)) {
       return 'invalid manifest shape: sandbox.image must be a registry image reference';
     }
     if (sandbox.instanceType !== undefined && typeof sandbox.instanceType !== 'string') {
@@ -550,7 +593,11 @@ export function validateManifestShape(manifest: unknown): string | null {
 
   if (manifest.durableObjects !== undefined) {
     const durable = manifest.durableObjects;
-    if (manifest.version !== 4 || !isRecord(durable) || !Array.isArray(durable.bindings)) {
+    if (
+      (manifest.version !== 4 && manifest.version !== 5) ||
+      !isRecord(durable) ||
+      !Array.isArray(durable.bindings)
+    ) {
       return 'invalid manifest shape: durableObjects requires manifest version 4 and a bindings array';
     }
     if (durable.bindings.length > 32) {
@@ -559,12 +606,12 @@ export function validateManifestShape(manifest: unknown): string | null {
     const names = new Set<string>();
     const classes = new Set<string>();
     const otherBindings = new Set([
-      ...Object.values(bindings).filter(Array.isArray).flat(),
+      ...Object.values(bindings)
+        .filter((value): value is Array<unknown> => Array.isArray(value))
+        .flat(),
       ...Object.keys(isRecord(manifest.vars) ? manifest.vars : {}),
-      ...(Array.isArray(manifest.queues) ? manifest.queues.map((q) => q.bindingName) : []),
-      ...(isRecord(manifest.websocket) && Array.isArray(manifest.websocket.routes)
-        ? manifest.websocket.routes.map((r) => r.bindingName ?? r.className)
-        : []),
+      ...queueBindingNames,
+      ...webSocketBindingNames,
       ...(isRecord(manifest.live) ? [manifest.live.bindingName] : []),
     ]);
     for (const binding of durable.bindings) {

@@ -136,14 +136,16 @@ Set these CI secrets and variables as needed:
 
 | Name                                             | When needed                                                                                                                                                                               |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                           | Required. Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions.                                                                             |
+| `CLOUDFLARE_API_TOKEN`                           | Required. Workers Admin for the first deploy, or Workers Editor to deploy to an existing Worker.                                                                                          |
 | `CLOUDFLARE_ACCOUNT_ID`                          | When the token can access several accounts.                                                                                                                                               |
 | `DATABASE_URL`                                   | PostgreSQL and MySQL provisioning and migrations.                                                                                                                                         |
 | `CLOUDFLARE_WORKERS_SUBDOMAIN`                   | When workers.dev is enabled and the version has no preview URL. Use `my-team` or `my-team.workers.dev`. An account subdomain does not create a readiness URL when `workers_dev` is false. |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | When Cloudflare Access protects the readiness URL.                                                                                                                                        |
 | `CF_ACCESS_READINESS_ORIGIN`                     | When Access protects a route or Custom Domain and `workers_dev` is `false`. See [Cloudflare Access](#cloudflare-access).                                                                  |
 
-For email, run `void email setup --platform cloudflare` locally, commit `void.lock.json`, and pass `--require-email` in CI. The token also needs Email Routing Edit and Email Sending Edit.
+Grant **Workers → Admin** for the account when Void creates the Worker. For subsequent deploys, **Workers → Editor** is enough for the Worker itself. Add **Workers Routes Write** for each zone where the deploy adds, updates, or removes a route or Custom Domain. Grant access to any resources Void reads or provisions, such as D1 or KV. See [Cloudflare Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/).
+
+For email, run `void email setup --platform cloudflare` locally, commit `void.lock.json`, and pass `--require-email` in CI. The token also needs Zone Read and Email Sending Edit, plus Email Routing Edit for apps with `email/` handlers.
 
 ### Pull request previews
 
@@ -279,7 +281,7 @@ Void deploys native apps, static sites, SPAs, supported SSGs, and Cloudflare bui
 - `--skip-build` works for existing static output. Worker apps require a fresh build.
 - Named Cloudflare environments aren't supported. Use a separate Void project config for each target.
 - Sandbox requires Workers Paid and Docker. See [Sandbox requirements](../guide/sandboxes.md#deployment) for plan and token permissions.
-- Email to arbitrary recipients requires Workers Paid; verified recipients and inbound mail work on Workers Free. See [Email](../guide/email/domains.md#your-own-cloudflare-account).
+- Email to arbitrary recipients, and all sending from apps without `email/` handlers, requires Workers Paid. Apps with handlers keep inbound mail and verified recipients on Workers Free. See [Email](../guide/email/domains.md#your-own-cloudflare-account).
 - Node.js, Bun, and Deno use their [own deployment path](./nodejs-bun-deno.md).
 
 Commit Durable Object migration history in `void.lock.json`. Do not delete or reorder deployed steps.

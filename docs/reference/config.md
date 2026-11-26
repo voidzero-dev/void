@@ -152,10 +152,11 @@ Use an object to also set how Drizzle names columns declared without a name:
 }
 ```
 
-| Key       | Values                                  | Description                                                                                                                                                                         |
-| --------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dialect` | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                  |
-| `casing`  | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name |
+| Key               | Values                                  | Description                                                                                                                                                                                |
+| ----------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dialect`         | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                         |
+| `casing`          | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name        |
+| `readReplication` | `boolean` (optional)                    | D1 only. Enable (`true`) or disable (`false`) [read replication](../guide/database/d1.md#read-replication) on deployment. Omit to preserve existing settings; new databases default to off |
 
 When using an external database:
 
@@ -191,7 +192,7 @@ Site-wide HTML `<head>` defaults for pages mode. Sets a title template, default 
 | Field           | Type                     | Description                                                      |
 | --------------- | ------------------------ | ---------------------------------------------------------------- |
 | `title`         | `string`                 | Default page title (overridden by page `head()`)                 |
-| `titleTemplate` | `string`                 | Wraps the resolved title. `%s` is replaced with the page title.  |
+| `titleTemplate` | `string`                 | Wraps the title at `%s`. Page or middleware templates replace it |
 | `meta`          | `Array<object>`          | Default `<meta>` tags (deduped by `name`/`property`, page wins)  |
 | `link`          | `Array<object>`          | Default `<link>` tags (concatenated: config, middleware, page)   |
 | `script`        | `Array<object>`          | Default `<script>` tags (concatenated: config, middleware, page) |
@@ -275,7 +276,7 @@ Enable and configure Cloudflare Sandboxes. Importing from `void/sandbox` enables
 | `platformImage`     | `string` | `cloudflare/debian-trixie`  |
 | `instanceType`      | `string` | `lite`                      |
 
-Supported sizes are `lite` and `standard-1` through `standard-4`. Native deploys build Dockerfiles with Docker; registry images must be digest-pinned references from the Cloudflare managed registry. Custom images must include the matching Sandbox SDK helper. For a local Dockerfile, supply `platformImage` when deploying to a managed platform. See [Sandboxes](../guide/sandboxes.md) for image setup and runtime examples.
+Supported sizes are `lite`, `basic`, and `standard-1` through `standard-4`. Native deploys build Dockerfiles with Docker; registry images must be digest-pinned references from the Cloudflare managed registry. Custom images must include the matching Sandbox SDK helper. For a local Dockerfile, supply `platformImage` when deploying to a managed platform. See [Sandboxes](../guide/sandboxes.md) for image setup and runtime examples.
 
 Sandbox requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans) and Containers access. Managed runtime tokens need Account / Containers: Edit and Account / Cloudchamber: Edit. See [Sandbox deployment](../guide/sandboxes.md#deployment).
 
@@ -297,6 +298,18 @@ Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they 
 ```json
 { "target": "node" }
 ```
+
+### `storage.locationHint`
+
+Choose a preferred region when Void creates your app's R2 bucket, on either a Void platform or a direct Cloudflare deployment:
+
+```json
+{ "storage": { "locationHint": "apac" } }
+```
+
+Supported hints are `apac` (Asia Pacific), `eeur` (Eastern Europe), `enam` (Eastern North America), `weur` (Western Europe), `wnam` (Western North America), and `oc` (Oceania). Cloudflare treats these as [best-effort location hints](https://developers.cloudflare.com/r2/reference/data-location/), not data residency guarantees.
+
+The project setting overrides the platform's default. Without either, Cloudflare chooses automatically. This only affects new buckets: changing the hint never moves or replaces an existing bucket. Apps that do not use R2 create no bucket.
 
 ### `worker`
 
@@ -609,4 +622,4 @@ App type. If omitted, auto-detected on first deploy. See [Supported App Types](.
 
 #### `inference.outputDir`
 
-Output directory for static deploys, relative to the project root. Only relevant when `inference.appType` is `"spa"` or `"static"`. Defaults to `"dist"`.
+Output directory for static deploys, relative to the project root. Only relevant when `inference.appType` is `"spa"` or `"static"`. Defaults to `"dist"`, or `"dist/client"` when the project depends on `void`, because `voidPlugin()` writes browser files there and server files to `dist/ssr`.

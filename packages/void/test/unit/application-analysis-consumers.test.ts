@@ -5,7 +5,8 @@ import type { ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { computeDesiredCloudflareResources } from '../../src/cli/deploy-resources.ts';
 import { buildFrameworkManifest, buildVoidManifest } from '../../src/cli/package.ts';
-import { readConfig, type VoidConfig } from '../../src/config.ts';
+import { readConfig } from '../../src/config.ts';
+import type { VoidConfig } from '../../src/config.ts';
 
 type CloudflarePluginConfig = {
   config: (resolved: Record<string, unknown>) => Record<string, unknown>;
@@ -50,7 +51,7 @@ async function pluginConfig(root: string): Promise<Record<string, unknown>> {
   if (!handler) {
     throw new Error('Expected the Cloudflare config or framework Wrangler sync plugin.');
   }
-  handler.call({} as never, { command: 'serve' } as ResolvedConfig);
+  await handler.call({} as never, { command: 'serve' } as ResolvedConfig);
   return JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')) as Record<string, unknown>;
 }
 
@@ -62,6 +63,22 @@ afterEach(() => {
 });
 
 describe('application analysis consumer parity', () => {
+  it.each([undefined, false, true])(
+    'carries D1 replication opt-in to native resources: %s',
+    async (readReplication) => {
+      const root = project(
+        { database: { readReplication }, inference: { bindings: { db: 'APP_DB' } } },
+        {},
+      );
+      const result = await computeDesiredCloudflareResources(
+        root,
+        readConfig(root),
+        join(root, 'wrangler.jsonc'),
+      );
+      expect(result.desired.d1?.binding).toBe('APP_DB');
+      expect(result.desired.d1?.readReplication).toBe(readReplication);
+    },
+  );
   it.each(['CACHE', false] as const)(
     'retains storage, auth and live with a partial KV override of %s',
     async (kv) => {

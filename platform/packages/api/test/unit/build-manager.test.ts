@@ -1,5 +1,6 @@
-import { EventEmitter } from 'node:events';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
+import { isRecord } from '@void/deploy-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { renderCapturedLog } from './log-tail-helpers.ts';
 
@@ -36,8 +37,8 @@ function createDeferred<T>(): {
   return { promise, resolve, reject };
 }
 
-vi.mock('@cloudflare/containers', () => ({
-  Container: class {
+const { MockContainer } = vi.hoisted(() => {
+  class MockContainer {
     ctx: unknown;
     env: unknown;
     envVars: Record<string, string> = {};
@@ -89,7 +90,10 @@ vi.mock('@cloudflare/containers', () => ({
     async start(): Promise<void> {
       containerCalls.started += 1;
       this._containerRunning = true;
-      await (this as unknown as { onStart(): Promise<void> }).onStart();
+      await this.onStart();
+    }
+    onStart(): void | Promise<void> {
+      throw new Error('Expected BuildManager to provide onStart');
     }
     async stop(): Promise<void> {
       containerCalls.stopped += 1;
@@ -116,16 +120,24 @@ vi.mock('@cloudflare/containers', () => ({
     }
     // Test helper: invoke every scheduled callback whose delay has elapsed,
     // exactly as the base alarm loop would when the deadline arrives.
-    async _runDueSchedules(): Promise<void> {
+    async _runDueSchedules(manager: BuildManager): Promise<void> {
       const due = this._schedules;
       this._schedules = [];
-      for (const task of due) {
-        const fn = (this as unknown as Record<string, () => Promise<void>>)[task.callback];
-        await fn.call(this);
+      for (const { callback } of due) {
+        if (
+          callback !== 'pollLogs' &&
+          callback !== 'enforceTimeout' &&
+          callback !== 'reconcileTerminalWrite'
+        ) {
+          throw new Error(`Missing scheduled callback: ${callback}`);
+        }
+        await manager[callback]();
       }
     }
-  },
-}));
+  }
+  return { MockContainer };
+});
+vi.mock('@cloudflare/containers', () => ({ Container: MockContainer }));
 
 // db.ts — capture every status write so the state machine can be asserted.
 type StatusWrite = {
@@ -138,23 +150,30 @@ type StatusWrite = {
     instanceType?: string | null;
   };
 };
-const ACTIVE_BUILD_STATUSES = ['starting', 'building', 'deploying'];
-const dbState = {
-  writes: [] as Array<StatusWrite>,
+const ACTIVE_BUILD_STATUSES = new Set(['starting', 'building', 'deploying']);
+const dbState: {
+  writes: Array<StatusWrite>;
+  status: Map<string, string>;
+  deployment: { id: string } | null;
+  createdAt: string;
+  requeued: Array<string>;
+  installationCovered: boolean;
+} = {
+  writes: [],
   // Authoritative per-build DB status, so the CAS helpers
   // (markBuildBuildingIfStarting / markBuildTerminalIfActive) can model the real
   // `UPDATE ... WHERE status = ?` guard: a write that doesn't match the guard is
   // a no-op (records no write and returns false), exactly like Postgres.
   status: new Map<string, string>(),
   // deployment returned by getDeploymentByProjectAndCommit
-  deployment: null as { id: string } | null,
+  deployment: null,
   // `created_at` (ISO string) returned by getBuild for the build row. Drives the
   // freshness-recheck age bound: a null-comparison on a FRESH build requeues, on
   // an OLD build (older than FRESHNESS_VERIFY_MAX_AGE_MS) fails. Defaults to now.
   createdAt: new Date().toISOString(),
   // records every build returned to `queued` via the guarded requeue CAS so the
   // freshness-recheck null path can be asserted.
-  requeued: [] as Array<string>,
+  requeued: [],
   // Drives `installationCoversRepo`: the JIT App-installation coverage recheck
   // in startBuild. Default true so the happy path proceeds to mint + start; the
   // coverage tests flip it false (uninstall/suspension/repo-removal raced the
@@ -164,10 +183,12 @@ const dbState = {
 vi.mock('../../src/db.ts', () => ({
   createDb: () => ({ __mock: 'db' }),
   // Unconditional write — mirrors the real `updateBuildStatus` (no status guard).
-  updateBuildStatus: vi.fn(async (_db: unknown, id: string, status: string, opts?: unknown) => {
-    dbState.status.set(id, status);
-    dbState.writes.push({ id, status, opts: opts as StatusWrite['opts'] });
-  }),
+  updateBuildStatus: vi.fn(
+    async (_db: unknown, id: string, status: string, opts?: StatusWrite['opts']) => {
+      dbState.status.set(id, status);
+      dbState.writes.push({ id, status, opts });
+    },
+  ),
   // CAS: `starting -> building` ONLY if the row is still `starting`. Returns
   // whether it updated (true) so onStart can avoid resurrecting a terminal row.
   markBuildBuildingIfStarting: vi.fn(
@@ -176,20 +197,20 @@ vi.mock('../../src/db.ts', () => ({
         return false;
       }
       dbState.status.set(id, 'building');
-      dbState.writes.push({ id, status: 'building', opts: opts as StatusWrite['opts'] });
+      dbState.writes.push({ id, status: 'building', opts });
       return true;
     },
   ),
   // CAS: apply a terminal status ONLY if the row is currently active. Returns
   // whether it updated (true). A second/late terminal write is a no-op.
   markBuildTerminalIfActive: vi.fn(
-    async (_db: unknown, id: string, status: string, opts?: unknown) => {
+    async (_db: unknown, id: string, status: string, opts?: StatusWrite['opts']) => {
       const current = dbState.status.get(id);
-      if (current === undefined || !ACTIVE_BUILD_STATUSES.includes(current)) {
+      if (current === undefined || !ACTIVE_BUILD_STATUSES.has(current)) {
         return false;
       }
       dbState.status.set(id, status);
-      dbState.writes.push({ id, status, opts: opts as StatusWrite['opts'] });
+      dbState.writes.push({ id, status, opts });
       return true;
     },
   ),
@@ -200,7 +221,7 @@ vi.mock('../../src/db.ts', () => ({
   // `UPDATE ... WHERE status IN (active)` guard.
   markBuildProgressIfActive: vi.fn(async (_db: unknown, id: string, status: string) => {
     const current = dbState.status.get(id);
-    if (current === undefined || !ACTIVE_BUILD_STATUSES.includes(current)) {
+    if (current === undefined || !ACTIVE_BUILD_STATUSES.has(current)) {
       return false;
     }
     dbState.status.set(id, status);
@@ -304,7 +325,7 @@ vi.mock('../../src/github/check-run.ts', async (importOriginal) => ({
   completeCheckRun: vi.fn(async () => false),
 }));
 
-// eslint-disable-next-line import/no-relative-packages -- intentional cross-package contract reference
+// intentional cross-package contract reference
 import voidPackageJson from '../../../../../packages/void/package.json' with { type: 'json' };
 // Helpers from the container build agent. Importing the .mjs only pulls in its
 // exported helpers — the entrypoint guard keeps `main()` from running the
@@ -365,8 +386,9 @@ import {
   TERMINAL_TAIL_MAX_INPUT_CODE_UNITS,
   TERMINAL_WRITE_TIMEOUT_MS,
 } from '../../src/build-manager.ts';
-import type { BuildConfig } from '../../src/build-types.ts';
+import type { BuildConfig, BuildLogLine } from '../../src/build-types.ts';
 import {
+  createDb,
   getBuild,
   getDeploymentByProjectAndCommit,
   installationCoversRepo,
@@ -379,6 +401,7 @@ import {
   getBranchHeadComparisonStatus,
   getInstallationToken,
 } from '../../src/github/installation-token.ts';
+import type { Build } from '../../src/types.ts';
 
 // --- in-memory SQLite + storage + websocket fakes ---
 
@@ -389,6 +412,13 @@ type LogRow = {
   ts: number;
   lineEnding?: 'cr' | 'lf' | 'crlf' | 'none' | null;
 };
+
+function expectNumberBinding(value: unknown): number {
+  if (typeof value !== 'number') {
+    throw new Error('Expected a numeric SQL binding');
+  }
+  return value;
+}
 
 function makeStubCtx(options: { legacyLogSchema?: boolean; initialLogs?: Array<LogRow> } = {}) {
   const kv = new Map<string, unknown>();
@@ -424,21 +454,28 @@ function makeStubCtx(options: { legacyLogSchema?: boolean; initialLogs?: Array<L
         return { toArray: () => [] };
       }
       if (query.startsWith('INSERT INTO logs')) {
+        const [line, stream, ts, lineEnding] = bindings;
+        if (
+          typeof line !== 'string' ||
+          typeof stream !== 'string' ||
+          (lineEnding !== undefined &&
+            lineEnding !== null &&
+            lineEnding !== 'cr' &&
+            lineEnding !== 'lf' &&
+            lineEnding !== 'crlf' &&
+            lineEnding !== 'none')
+        ) {
+          throw new Error('Unexpected log insert bindings');
+        }
         seq += 1;
-        logs.push({
-          seq,
-          line: bindings[0] as string,
-          stream: bindings[1] as string,
-          ts: bindings[2] as number,
-          lineEnding: bindings[3] as LogRow['lineEnding'],
-        });
+        logs.push({ seq, line, stream, ts: expectNumberBinding(ts), lineEnding });
         return { toArray: () => [] };
       }
       if (query.startsWith('DELETE FROM logs')) {
         // Mirror `DELETE FROM logs WHERE seq <= (SELECT MAX(seq) FROM logs) - ?`:
         // keep only the most-recent N rows by seq. Without modeling this, the cap
         // would silently no-op in tests (cf. the rowCount/PGlite lesson).
-        const keep = bindings[0] as number;
+        const keep = expectNumberBinding(bindings[0]);
         if (logs.length > 0) {
           const maxSeq = logs.reduce((m, r) => (r.seq > m ? r.seq : m), 0);
           const threshold = maxSeq - keep;
@@ -463,7 +500,7 @@ function makeStubCtx(options: { legacyLogSchema?: boolean; initialLogs?: Array<L
         // Mirror the check-run log tail query: newest-first, bounded. Must be
         // modeled BEFORE the generic SELECT branch, which would misread the
         // LIMIT binding as a `seq > ?` bound.
-        const limit = bindings[0] as number;
+        const limit = expectNumberBinding(bindings[0]);
         return {
           toArray: () =>
             logs
@@ -478,7 +515,8 @@ function makeStubCtx(options: { legacyLogSchema?: boolean; initialLogs?: Array<L
         // without modeling the filter it would silently no-op in tests (cf. the
         // rowCount/PGlite lesson). The WS-replay SELECT carries no binding, so
         // `since` defaults to -Infinity and every row passes.
-        const since = bindings.length > 0 ? (bindings[0] as number) : Number.NEGATIVE_INFINITY;
+        const since =
+          bindings.length > 0 ? expectNumberBinding(bindings[0]) : Number.NEGATIVE_INFINITY;
         return {
           toArray: () =>
             logs
@@ -525,18 +563,16 @@ class FakeWebSocket {
   }
 }
 
-function makeEnv() {
+function makeEnv(platformEnv?: ApiEnv['Bindings']['PLATFORM_ENV']) {
   const schedulerStub = { fetch: vi.fn(async () => new Response('ok')) };
   return {
     HYPERDRIVE: { connectionString: 'postgres://fake' },
     JWT_SECRET: 'secret',
-    PLATFORM_ENV: undefined,
+    PLATFORM_ENV: platformEnv,
     BUILD_SCHEDULER: {
       idFromName: vi.fn((n: string) => ({ name: n })),
       get: vi.fn(() => schedulerStub),
     },
-  } as unknown as ApiEnv['Bindings'] & {
-    BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> };
   };
 }
 
@@ -559,18 +595,66 @@ function makeConfig(overrides: Partial<BuildConfig> = {}): BuildConfig {
   };
 }
 
-function makeManager(ctx: ReturnType<typeof makeStubCtx>, env: ApiEnv['Bindings']) {
-  return new BuildManager(ctx as unknown as ConstructorParameters<typeof BuildManager>[0], env);
+type MockContainerState = Pick<
+  InstanceType<typeof MockContainer>,
+  '_containerRunning' | '_portFetch' | '_schedules' | '_runDueSchedules' | 'envVars'
+>;
+type BuildManagerFixture = BuildManager & MockContainerState;
+
+function isMockContainer(value: BuildManager): value is BuildManagerFixture {
+  return value instanceof MockContainer;
+}
+
+function makeManager(
+  ctx: ReturnType<typeof makeStubCtx>,
+  env: ReturnType<typeof makeEnv>,
+): BuildManagerFixture {
+  // The mocked Container constructor accepts the storage and bindings used by this suite.
+  const manager: unknown = Reflect.construct(BuildManager, [ctx, env]);
+  if (!(manager instanceof BuildManager) || !isMockContainer(manager)) {
+    throw new Error('Expected the mocked Container base');
+  }
+  return manager;
 }
 
 /** Read the timeout tasks the manager armed via the base `schedule()` API. */
-function scheduledTasks(m: BuildManager): Array<ScheduledTask> {
-  return (m as unknown as { _schedules: Array<ScheduledTask> })._schedules;
+function scheduledTasks(m: BuildManagerFixture): Array<ScheduledTask> {
+  return m._schedules;
 }
 
 /** Fire the base alarm loop so any due scheduled callbacks run (timeout path). */
-async function runDueSchedules(m: BuildManager): Promise<void> {
-  await (m as unknown as { _runDueSchedules: () => Promise<void> })._runDueSchedules();
+async function runDueSchedules(m: BuildManagerFixture): Promise<void> {
+  await m._runDueSchedules(m);
+}
+
+function makeBuildRow(status: Build['status'], checkRunId: string | null): Build {
+  return {
+    id: 'b1',
+    project_id: 'p1',
+    user_id: 'u1',
+    executor: 'container',
+    status,
+    commit_sha: 'sha1',
+    branch: 'main',
+    deployment_id: null,
+    github_run_id: null,
+    github_run_attempt: null,
+    logs_url: null,
+    check_run_id: checkRunId,
+    error: null,
+    exit_code: null,
+    instance_type: null,
+    started_at: null,
+    completed_at: null,
+    created_at: dbState.createdAt,
+  };
+}
+
+function requireLogTail(value: string | null): string {
+  if (value === null) {
+    throw new Error('Expected a rendered log tail');
+  }
+  return value;
 }
 
 function lastWrite(status: string): StatusWrite | undefined {
@@ -579,7 +663,11 @@ function lastWrite(status: string): StatusWrite | undefined {
 
 /** Read the per-build agent secret the manager stored at startBuild(). */
 function agentToken(ctx: ReturnType<typeof makeStubCtx>): string {
-  return ctx._kv.get('agentToken') as string;
+  const token = ctx._kv.get('agentToken');
+  if (typeof token !== 'string') {
+    throw new Error('Expected an agent token in storage');
+  }
+  return token;
 }
 
 /** Build an authenticated agent control request (Bearer agent token). */
@@ -588,9 +676,27 @@ function agentRequest(
   url: string,
   init: RequestInit = {},
 ): Request {
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${agentToken(ctx)}`);
   return new Request(url, {
     ...init,
-    headers: { ...(init.headers ?? {}), Authorization: `Bearer ${agentToken(ctx)}` },
+    headers,
+  });
+}
+
+type SocketMessage = { type: string; line?: string };
+
+function readSocketMessages(socket: FakeWebSocket): Array<SocketMessage> {
+  return socket.sent.map((message) => {
+    const value: unknown = JSON.parse(message);
+    if (
+      !isRecord(value) ||
+      typeof value.type !== 'string' ||
+      (value.line !== undefined && typeof value.line !== 'string')
+    ) {
+      throw new Error('Expected a WebSocket log message');
+    }
+    return { ...value, type: value.type };
   });
 }
 
@@ -629,25 +735,32 @@ beforeEach(() => {
   containerCalls.destroyed = 0;
   containerCalls.baseAlarms = 0;
   vi.clearAllMocks();
-  (globalThis as unknown as { WebSocketPair: unknown }).WebSocketPair = FakeWebSocketPair;
+  vi.stubGlobal('WebSocketPair', FakeWebSocketPair);
   // Patch Response to tolerate status 101 (WebSocket upgrade) while delegating
   // every other construction to the real implementation.
-  (globalThis as unknown as { Response: unknown }).Response = new Proxy(RealResponse, {
-    construct(target, args) {
-      const init = args[1] as { status?: number } | undefined;
-      if (init?.status === 101) {
-        return new FakeUpgradeResponse(args[0], init as { webSocket?: unknown });
-      }
-      return Reflect.construct(target, args, target);
-    },
-    get(target, prop, receiver) {
-      return Reflect.get(target, prop, receiver);
-    },
-  });
+  vi.stubGlobal(
+    'Response',
+    new Proxy(RealResponse, {
+      construct(target, args) {
+        const init: unknown = args[1];
+        if (isRecord(init) && init.status === 101) {
+          return new FakeUpgradeResponse(args[0], {
+            status: init.status,
+            webSocket: init.webSocket,
+          });
+        }
+        const response: unknown = Reflect.construct(target, args, target);
+        if (!(response instanceof target)) {
+          throw new Error('Expected a Response');
+        }
+        return response;
+      },
+    }),
+  );
 });
 
 afterEach(() => {
-  (globalThis as unknown as { Response: unknown }).Response = RealResponse;
+  vi.unstubAllGlobals();
 });
 
 describe('BuildManager.startBuild', () => {
@@ -660,7 +773,7 @@ describe('BuildManager.startBuild', () => {
 
     expect(containerCalls.started).toBe(1);
     // Build env-var contract handed to the container agent.
-    const envVars = (m as unknown as { envVars: Record<string, string> }).envVars;
+    const envVars = m.envVars;
     expect(envVars.BUILD_ID).toBe('b1');
     expect(envVars.PROJECT_ID).toBe('p1');
     expect(envVars.PROJECT_SLUG).toBe('my-app');
@@ -712,21 +825,21 @@ describe('BuildManager.startBuild', () => {
     const env = makeEnv();
     // Staging requires the CF Access service token (see fail-fast below), so set
     // it for the happy-path URL assertion.
-    Object.assign(env as object, {
+    Object.assign(env, {
       PLATFORM_ENV: 'staging',
       CF_ACCESS_CLIENT_ID_STAGING: 'svc-id.access',
       CF_ACCESS_CLIENT_SECRET_STAGING: 'svc-secret',
     });
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
-    const envVars = (m as unknown as { envVars: Record<string, string> }).envVars;
+    const envVars = m.envVars;
     expect(envVars.VOID_API_URL).toBe('https://api.staging.void.cloud');
   });
 
   it('forwards the staging CF Access service token into the container (staging hosts are Access-gated)', async () => {
     const ctx = makeStubCtx();
     const env = makeEnv();
-    Object.assign(env as object, {
+    Object.assign(env, {
       PLATFORM_ENV: 'staging',
       CF_ACCESS_CLIENT_ID_STAGING: 'svc-id.access',
       CF_ACCESS_CLIENT_SECRET_STAGING: 'svc-secret',
@@ -734,7 +847,7 @@ describe('BuildManager.startBuild', () => {
     });
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
-    const envVars = (m as unknown as { envVars: Record<string, string> }).envVars;
+    const envVars = m.envVars;
     // The CLI reads the un-suffixed names; the worker holds the *_STAGING secrets.
     expect(envVars.CF_ACCESS_CLIENT_ID).toBe('svc-id.access');
     expect(envVars.CF_ACCESS_CLIENT_SECRET).toBe('svc-secret');
@@ -745,22 +858,21 @@ describe('BuildManager.startBuild', () => {
     const ctx = makeStubCtx();
     const env = makeEnv();
     // Production env, but the secrets happen to be set: they must NOT leak in.
-    Object.assign(env as object, {
+    Object.assign(env, {
       PLATFORM_ENV: undefined,
       CF_ACCESS_CLIENT_ID_STAGING: 'svc-id.access',
       CF_ACCESS_CLIENT_SECRET_STAGING: 'svc-secret',
     });
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
-    const envVars = (m as unknown as { envVars: Record<string, string> }).envVars;
+    const envVars = m.envVars;
     expect(envVars.CF_ACCESS_CLIENT_ID).toBeUndefined();
     expect(envVars.CF_ACCESS_CLIENT_SECRET).toBeUndefined();
   });
 
   it('fails fast (does NOT start) on staging when the service token is unconfigured', async () => {
     const ctx = makeStubCtx();
-    const env = makeEnv();
-    (env as unknown as { PLATFORM_ENV?: string }).PLATFORM_ENV = 'staging';
+    const env = makeEnv('staging');
     const m = makeManager(ctx, env);
     // Staging is Access-gated and the container can't auth without the service
     // token, so an unconfigured staging worker is a platform misconfiguration:
@@ -771,16 +883,13 @@ describe('BuildManager.startBuild', () => {
     expect(failed?.id).toBe('b1');
     expect(failed?.opts?.error).toMatch(/CF_ACCESS_CLIENT_ID_STAGING/);
     // Slot freed: the scheduler was poked and the row is not left active.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('fails fast on staging when the service token is half-configured (id without secret)', async () => {
     const ctx = makeStubCtx();
     const env = makeEnv();
-    Object.assign(env as object, {
+    Object.assign(env, {
       PLATFORM_ENV: 'staging',
       CF_ACCESS_CLIENT_ID_STAGING: 'svc-id.access',
       // CF_ACCESS_CLIENT_SECRET_STAGING intentionally absent — a half pair is as
@@ -881,7 +990,7 @@ describe('BuildManager.startBuild', () => {
     // does NOT flush — see `finishBuildLogging`; that push has no route to the DO
     // and awaiting it could only spend this grace.)
     expect(LOG_DRAIN_GRACE_SECONDS * 1000).toBeGreaterThanOrEqual(
-      LOG_DRAIN_ABSOLUTE_TIMEOUT_MS + 5_000,
+      LOG_DRAIN_ABSOLUTE_TIMEOUT_MS + 5000,
     );
   });
 
@@ -890,11 +999,11 @@ describe('BuildManager.startBuild', () => {
     // up to LOG_DRAIN_BUDGET_MS inside it, then one second until a follow-up request
     // can acknowledge the cursor if that callback exhausted its budget. Equality
     // has no scheduling/ingest slack and lets the agent close on the boundary.
-    expect(LOG_DRAIN_IDLE_TIMEOUT_MS).toBeGreaterThan(LOG_DRAIN_BUDGET_MS + 2_000);
+    expect(LOG_DRAIN_IDLE_TIMEOUT_MS).toBeGreaterThan(LOG_DRAIN_BUDGET_MS + 2000);
     expect(LOG_DRAIN_ABSOLUTE_TIMEOUT_MS).toBeGreaterThan(
-      MAX_LOG_PULL_PAGES * (LOG_PULL_TIMEOUT_MS + 1_000),
+      MAX_LOG_PULL_PAGES * (LOG_PULL_TIMEOUT_MS + 1000),
     );
-    expect(LOG_TERMINAL_DRAIN_RETRY_WINDOW_MS + 1_000).toBeLessThanOrEqual(
+    expect(LOG_TERMINAL_DRAIN_RETRY_WINDOW_MS + 1000).toBeLessThanOrEqual(
       LOG_DRAIN_IDLE_TIMEOUT_MS,
     );
   });
@@ -932,10 +1041,7 @@ describe('BuildManager.startBuild', () => {
     expect(failed?.opts?.error).toBe('token mint failed');
 
     // (c) the scheduler was poked so the queue scan re-arms.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
 
     // (d) the row is not left in an active status (would leak a concurrency slot).
     const activeWrite = dbState.writes.find((w) =>
@@ -964,7 +1070,7 @@ describe('BuildManager.startBuild', () => {
     // markBuildTerminalIfActive('failed'), which must succeed against the still-
     // active 'starting' row (default mock impl records it).
     const scheduleSpy = vi
-      .spyOn(m as unknown as { schedule: () => Promise<void> }, 'schedule')
+      .spyOn(m, 'schedule')
       .mockRejectedValueOnce(new Error('postgres write failed'));
 
     await expect(m.startBuild(makeConfig())).rejects.toThrow('postgres write failed');
@@ -981,10 +1087,7 @@ describe('BuildManager.startBuild', () => {
     expect(failed?.opts?.error).toBe('postgres write failed');
 
     // (c) the scheduler was poked so the slot frees + the queue scan re-arms.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
 
     scheduleSpy.mockRestore();
   });
@@ -1001,7 +1104,7 @@ describe('BuildManager.startBuild', () => {
     // Enter the catch via a post-start failure, then make the terminal CAS write
     // ALSO throw (the transient-outage-on-finalize case the finally must survive).
     const scheduleSpy = vi
-      .spyOn(m as unknown as { schedule: () => Promise<void> }, 'schedule')
+      .spyOn(m, 'schedule')
       .mockRejectedValueOnce(new Error('postgres write failed'));
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('terminal write failed'));
 
@@ -1009,10 +1112,7 @@ describe('BuildManager.startBuild', () => {
 
     // Poked despite the terminal-write throw → the slot frees + the queue scan
     // re-arms instead of stranding the row until the reaper.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
 
     scheduleSpy.mockRestore();
   });
@@ -1035,7 +1135,7 @@ describe('BuildManager.startBuild', () => {
     });
     // Enter the catch AFTER the container launched, so the teardown drains.
     const scheduleSpy = vi
-      .spyOn(m as unknown as { schedule: () => Promise<void> }, 'schedule')
+      .spyOn(m, 'schedule')
       .mockRejectedValueOnce(new Error('schedule arming failed'));
     const fetchFn = vi.fn(async () => {
       order.push('drain');
@@ -1044,7 +1144,7 @@ describe('BuildManager.startBuild', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
     await expect(m.startBuild(makeConfig())).rejects.toThrow('schedule arming failed');
 
@@ -1064,11 +1164,9 @@ describe('BuildManager.startBuild', () => {
 
     // Force the post-start schedule step to throw, and make stop() also throw.
     const scheduleSpy = vi
-      .spyOn(m as unknown as { schedule: () => Promise<void> }, 'schedule')
+      .spyOn(m, 'schedule')
       .mockRejectedValueOnce(new Error('postgres write failed'));
-    const stopSpy = vi
-      .spyOn(m as unknown as { stop: () => Promise<void> }, 'stop')
-      .mockRejectedValueOnce(new Error('container stop failed'));
+    const stopSpy = vi.spyOn(m, 'stop').mockRejectedValueOnce(new Error('container stop failed'));
 
     await expect(m.startBuild(makeConfig())).rejects.toThrow('postgres write failed');
     expect(stopSpy).toHaveBeenCalled();
@@ -1091,7 +1189,7 @@ describe('BuildManager.startBuild', () => {
     const m = makeManager(ctx, env);
 
     const startSpy = vi
-      .spyOn(m as unknown as { start: () => Promise<void> }, 'start')
+      .spyOn(m, 'start')
       .mockRejectedValueOnce(
         new Error('there is no container instance that can be provided to this durable object'),
       );
@@ -1112,10 +1210,7 @@ describe('BuildManager.startBuild', () => {
 
     // (c) the scheduler was NOT poked from the capacity path — the scheduler's own
     // catch handles the requeue, and a poke would only churn the alarm.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).not.toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).not.toHaveBeenCalled();
 
     startSpy.mockRestore();
   });
@@ -1157,10 +1252,7 @@ describe('BuildManager.startBuild', () => {
     expect(dbState.status.get('b1')).toBe('failed');
 
     // (c) slot freed: scheduler poked so the queue scan re-arms.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   // A genuine PRE-launch failure (token mint throws BEFORE `containerStarted`
@@ -1184,10 +1276,7 @@ describe('BuildManager.startBuild', () => {
     expect(containerCalls.stopped).toBe(0);
     expect(containerCalls.destroyed).toBe(0);
     // Slot freed: scheduler poked so the queue scan re-arms.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   // the startBuild catch finalizes via the CAS `markBuildTerminalIfActive`,
@@ -1203,12 +1292,10 @@ describe('BuildManager.startBuild', () => {
 
     // start() throws a non-capacity error; the concurrent cancel commits
     // 'cancelled' to the DB row before the catch's terminal write runs.
-    const startSpy = vi
-      .spyOn(m as unknown as { start: () => Promise<void> }, 'start')
-      .mockImplementationOnce(async () => {
-        dbState.status.set('b1', 'cancelled');
-        throw new Error('image pull failed');
-      });
+    const startSpy = vi.spyOn(m, 'start').mockImplementationOnce(async () => {
+      dbState.status.set('b1', 'cancelled');
+      throw new Error('image pull failed');
+    });
 
     await expect(m.startBuild(makeConfig())).rejects.toThrow('image pull failed');
 
@@ -1217,10 +1304,7 @@ describe('BuildManager.startBuild', () => {
     expect(dbState.status.get('b1')).toBe('cancelled');
     expect(dbState.writes.some((w) => w.status === 'failed')).toBe(false);
     // The scheduler is still poked so the freed slot is reclaimed.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
 
     startSpy.mockRestore();
   });
@@ -1235,7 +1319,7 @@ describe('BuildManager.startBuild', () => {
     const m = makeManager(ctx, env);
 
     // Effective sleepAfter (minutes) parsed from the configured '<n>m' string.
-    const sleepAfter = (m as unknown as { sleepAfter: string }).sleepAfter;
+    const sleepAfter = m.sleepAfter;
     expect(sleepAfter).toMatch(/^\d+m$/);
     const sleepAfterMinutes = Number.parseInt(sleepAfter, 10);
     // DEPLOY_TOKEN_HARD_MAX_MINUTES is mocked to 60 above; the idle net must be
@@ -1271,10 +1355,7 @@ describe('BuildManager.startBuild', () => {
     // onStop can't resurrect it.
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'cancelled' });
     // The scheduler was poked so the freed slot is reclaimed.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('does not launch after cancellation completes while the source token is awaiting', async () => {
@@ -1304,10 +1385,7 @@ describe('BuildManager.startBuild', () => {
     expect(dbState.writes.some((write) => write.status === 'building')).toBe(false);
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'cancelled' });
     expect(ctx._kv.get('logDrainState')).toMatchObject({ state: 'complete' });
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('does not mint a source token when cancellation finishes during deploy-token signing', async () => {
@@ -1340,7 +1418,7 @@ describe('BuildManager.startBuild', () => {
     });
     const m = makeManager(makeStubCtx(), makeEnv());
     const startSpy = vi
-      .spyOn(m as unknown as { start: () => Promise<void> }, 'start')
+      .spyOn(m, 'start')
       .mockRejectedValueOnce(
         new Error('there is no container instance that can be provided to this durable object'),
       );
@@ -1370,23 +1448,16 @@ describe('BuildManager.startBuild', () => {
     const ctx = makeStubCtx();
     ctx._kv.set('checkRunId', '99001');
     const m = makeManager(ctx, makeEnv());
-    const startSpy = vi
-      .spyOn(
-        m as unknown as {
-          start: (options?: unknown, wait?: { signal?: AbortSignal }) => Promise<void>;
-        },
-        'start',
-      )
-      .mockImplementationOnce(async (_options, wait) => {
-        // The real base awaits scheduleNextAlarm/refreshOutboundInterception
-        // before container.start(), and checks abort only during readiness.
-        preparingLaunch.resolve(undefined);
-        await releaseLaunch.promise;
-        containerCalls.started += 1;
-        (m as unknown as { _containerRunning: boolean })._containerRunning = true;
-        expect(wait?.signal?.aborted).toBe(true);
-        throw new Error('Aborted waiting for container to start');
-      });
+    const startSpy = vi.spyOn(m, 'start').mockImplementationOnce(async (_options, wait) => {
+      // The real base awaits scheduleNextAlarm/refreshOutboundInterception
+      // before container.start(), and checks abort only during readiness.
+      preparingLaunch.resolve(undefined);
+      await releaseLaunch.promise;
+      containerCalls.started += 1;
+      m._containerRunning = true;
+      expect(wait?.signal?.aborted).toBe(true);
+      throw new Error('Aborted waiting for container to start');
+    });
     const starting = m.startBuild(makeConfig());
     await preparingLaunch.promise;
     await m.cancelBuild('build superseded');
@@ -1401,7 +1472,7 @@ describe('BuildManager.startBuild', () => {
     expect(dbState.status.get('b1')).toBe('cancelled');
     expect(containerCalls.stopped).toBe(1);
     expect(containerCalls.destroyed).toBe(1);
-    expect((m as unknown as { _containerRunning: boolean })._containerRunning).toBe(false);
+    expect(m._containerRunning).toBe(false);
     expect(ctx._logs.filter((row) => row.line.includes('container terminated'))).toEqual([
       expect.objectContaining({
         line: '[build-manager] container terminated: build superseded',
@@ -1503,23 +1574,16 @@ describe('BuildManager.startBuild', () => {
     const ctx = makeStubCtx();
     const env = makeEnv();
     const m = makeManager(ctx, env);
-    const startSpy = vi
-      .spyOn(
-        m as unknown as {
-          start: (options?: unknown, wait?: { signal?: AbortSignal }) => Promise<void>;
-        },
-        'start',
-      )
-      .mockImplementationOnce(async (_options, wait) => {
-        // Match @cloudflare/containers: launch first, await readiness, then call
-        // onStart before resolving. Cancellation lands in that middle window.
-        containerCalls.started += 1;
-        (m as unknown as { _containerRunning: boolean })._containerRunning = true;
-        launched.resolve(undefined);
-        await releaseOnStart.promise;
-        expect(wait?.signal?.aborted).toBe(true);
-        await m.onStart();
-      });
+    const startSpy = vi.spyOn(m, 'start').mockImplementationOnce(async (_options, wait) => {
+      // Match @cloudflare/containers: launch first, await readiness, then call
+      // onStart before resolving. Cancellation lands in that middle window.
+      containerCalls.started += 1;
+      m._containerRunning = true;
+      launched.resolve(undefined);
+      await releaseOnStart.promise;
+      expect(wait?.signal?.aborted).toBe(true);
+      await m.onStart();
+    });
 
     const starting = m.startBuild(makeConfig());
     await launched.promise;
@@ -1531,7 +1595,7 @@ describe('BuildManager.startBuild', () => {
     expect(dbState.writes.some((write) => write.status === 'building')).toBe(false);
     expect(containerCalls.stopped).toBe(1);
     expect(containerCalls.destroyed).toBe(1);
-    expect((m as unknown as { _containerRunning: boolean })._containerRunning).toBe(false);
+    expect(m._containerRunning).toBe(false);
     expect(ctx._kv.get('logDrainState')).toMatchObject({ state: 'complete' });
     expect(ctx._logs.filter((row) => row.line.includes('container terminated'))).toHaveLength(1);
     expect(scheduledTasks(m).some((task) => task.callback === 'enforceTimeout')).toBe(false);
@@ -1547,15 +1611,13 @@ describe('BuildManager.startBuild', () => {
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(
       new Error('postgres cancellation failed'),
     );
-    const startSpy = vi
-      .spyOn(m as unknown as { start: () => Promise<void> }, 'start')
-      .mockImplementationOnce(async () => {
-        containerCalls.started += 1;
-        (m as unknown as { _containerRunning: boolean })._containerRunning = true;
-        launched.resolve(undefined);
-        await releaseOnStart.promise;
-        await m.onStart();
-      });
+    const startSpy = vi.spyOn(m, 'start').mockImplementationOnce(async () => {
+      containerCalls.started += 1;
+      m._containerRunning = true;
+      launched.resolve(undefined);
+      await releaseOnStart.promise;
+      await m.onStart();
+    });
 
     const starting = m.startBuild(makeConfig());
     await launched.promise;
@@ -1567,13 +1629,10 @@ describe('BuildManager.startBuild', () => {
     // onStart callback cannot restore `building` authority afterward.
     expect(containerCalls.stopped).toBe(1);
     expect(containerCalls.destroyed).toBe(1);
-    expect((m as unknown as { _containerRunning: boolean })._containerRunning).toBe(false);
+    expect(m._containerRunning).toBe(false);
     expect(dbState.writes.some((write) => write.status === 'building')).toBe(false);
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'cancelled' });
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     startSpy.mockRestore();
   });
 });
@@ -1599,7 +1658,7 @@ describe('BuildManager.startBuild source-token scoping', () => {
     });
     // The build still starts (the scope is additive; the happy path is unchanged).
     expect(containerCalls.started).toBe(1);
-    const envVars = (m as unknown as { envVars: Record<string, string> }).envVars;
+    const envVars = m.envVars;
     expect(envVars.SOURCE_TOKEN).toBe('install-token');
   });
 
@@ -1645,10 +1704,7 @@ describe('BuildManager.startBuild freshness recheck', () => {
       expect(containerCalls.started).toBe(0);
       expect(containerCalls.stopped).toBe(0);
       // The scheduler was poked so the freed slot is reclaimed.
-      expect(
-        (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-          .get,
-      ).toHaveBeenCalled();
+      expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     });
   }
 
@@ -1672,10 +1728,7 @@ describe('BuildManager.startBuild freshness recheck', () => {
     expect(vi.mocked(signDeployToken)).not.toHaveBeenCalled();
     expect(containerCalls.started).toBe(0);
     // Scheduler poked so the alarm retries.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('fails an OLD build (older than the max age) when the head comparison stays unverifiable (null)', async () => {
@@ -1700,10 +1753,7 @@ describe('BuildManager.startBuild freshness recheck', () => {
     // NO mint, NO start.
     expect(vi.mocked(signDeployToken)).not.toHaveBeenCalled();
     expect(containerCalls.started).toBe(0);
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it("proceeds to mint + start when the branch head is 'identical' (default)", async () => {
@@ -1762,10 +1812,7 @@ describe('BuildManager.startBuild installation coverage recheck (TOCTOU)', () =>
       'repo1',
     );
     // Scheduler poked so the freed slot is reclaimed.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('fails closed (cancels) when a stored build config has no connection id', async () => {
@@ -1824,10 +1871,7 @@ describe('BuildManager.onStop', () => {
     expect(complete?.opts?.exitCode).toBe(0);
     expect(complete?.opts?.deploymentId).toBe('dpl_123');
     // Scheduler poked so the next queued build can start.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('non-zero exit code → failed with the exit code and reason', async () => {
@@ -1873,9 +1917,7 @@ describe('BuildManager.onStop', () => {
     const env = makeEnv();
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('postgres write failed'));
 
@@ -1885,10 +1927,7 @@ describe('BuildManager.onStop', () => {
       'postgres write failed',
     );
 
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     // Local DO status was set terminal BEFORE the failing write, so a later guard
     // won't resurrect it.
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'complete' });
@@ -1899,19 +1938,12 @@ describe('BuildManager.onStop', () => {
     const env = makeEnv();
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
     dbState.writes = [];
 
     const originalPut = ctx.storage.put.getMockImplementation()!;
     ctx.storage.put.mockImplementation(async (key: string, value: unknown) => {
-      if (
-        key === 'logDrainState' &&
-        typeof value === 'object' &&
-        value !== null &&
-        (value as { state?: string }).state === 'complete'
-      ) {
+      if (key === 'logDrainState' && isRecord(value) && value.state === 'complete') {
         throw new Error('sqlite metadata unavailable');
       }
       await originalPut(key, value);
@@ -1920,10 +1952,7 @@ describe('BuildManager.onStop', () => {
     await expect(m.onStop({ exitCode: 0, reason: 'exit' })).resolves.toBeUndefined();
 
     expect(lastWrite('complete')).toBeDefined();
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   // failure branch: same decoupling for a non-zero exit — a Postgres throw
@@ -1933,9 +1962,7 @@ describe('BuildManager.onStop', () => {
     const env = makeEnv();
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('postgres write failed'));
 
@@ -1943,10 +1970,7 @@ describe('BuildManager.onStop', () => {
       'postgres write failed',
     );
 
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'failed' });
   });
 
@@ -1962,9 +1986,7 @@ describe('BuildManager.onStop', () => {
     await m.startBuild(makeConfig());
     dbState.writes = [];
     dbState.deployment = { id: 'dpl_123' };
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     // Lookup rejects once, AFTER the exit-0 (deploy already succeeded).
     vi.mocked(getDeploymentByProjectAndCommit).mockRejectedValueOnce(
@@ -1980,10 +2002,7 @@ describe('BuildManager.onStop', () => {
     expect(complete?.opts?.exitCode).toBe(0);
     expect(complete?.opts?.deploymentId).toBeNull();
     // Slot freed — the next queued build can start.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     // Local DO status is terminal so a later guard won't resurrect it.
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'complete' });
   });
@@ -1999,7 +2018,7 @@ describe('BuildManager.onError', () => {
     // The container is still live here, so onError drains before it finalizes. An
     // unstubbed port fetch would throw and burn the whole retry window on real
     // timers; answer immediately with nothing to pull.
-    (m as unknown as { _portFetch: () => Promise<Response> })._portFetch = async () =>
+    m._portFetch = async () =>
       new RealResponse(JSON.stringify({ lines: [], lastSeq: 0 }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -2037,7 +2056,7 @@ describe('BuildManager.onError', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
     vi.mocked(completeCheckRun).mockImplementationOnce(async () => {
       order.push('finalize');
       return false;
@@ -2084,7 +2103,7 @@ describe('BuildManager.onError', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
     vi.mocked(completeCheckRun).mockImplementationOnce(async () => {
       order.push('finalize');
       return false;
@@ -2144,11 +2163,11 @@ describe('BuildManager.onError', () => {
     const stopEntered = new Promise<void>((resolve) => {
       markStopEntered = resolve;
     });
-    (m as unknown as { stop: () => Promise<void> }).stop = vi.fn(async () => {
+    m.stop = vi.fn(async () => {
       containerCalls.stopped += 1;
       markStopEntered();
       await stopGate;
-      (m as unknown as { _containerRunning: boolean })._containerRunning = false;
+      m._containerRunning = false;
     });
 
     const fetchFn = vi.fn(
@@ -2158,7 +2177,7 @@ describe('BuildManager.onError', () => {
           headers: { 'content-type': 'application/json' },
         }),
     );
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
     const onError = m.onError(new Error('container crashed'));
     await terminalWriteEntered;
@@ -2225,7 +2244,7 @@ describe('BuildManager.onError', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
     const onError = m.onError(new Error('container crashed'));
     await onErrorPullEntered;
@@ -2257,12 +2276,10 @@ describe('BuildManager.onError', () => {
     const env = makeEnv();
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('postgres write failed'));
-    (m as unknown as { _portFetch: (url: string) => Promise<Response> })._portFetch = vi.fn(
+    m._portFetch = vi.fn(
       async () =>
         new RealResponse(JSON.stringify({ lines: [], lastSeq: 0 }), {
           status: 200,
@@ -2274,10 +2291,7 @@ describe('BuildManager.onError', () => {
     // freed: pokeScheduler ran in the finally despite the rejection.
     await expect(m.onError(new Error('boom'))).rejects.toThrow('postgres write failed');
 
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     // Local DO status was set terminal BEFORE the failing write, so a later guard
     // won't resurrect it.
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'failed' });
@@ -2366,9 +2380,8 @@ describe('BuildManager lifecycle status-race CAS guards', () => {
     // in-memory guard catches the obvious replay; force-prove the DB CAS too by
     // calling the terminal helper directly with the row already terminal.
     await m.onStop({ exitCode: 137, reason: 'runtime_signal' });
-    const { markBuildTerminalIfActive } = await import('../../src/db.ts');
     const moved = await markBuildTerminalIfActive(
-      {} as unknown as Parameters<typeof markBuildTerminalIfActive>[0],
+      createDb(env.HYPERDRIVE.connectionString),
       'b1',
       'failed',
       { exitCode: 137 },
@@ -2387,10 +2400,9 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
     // A manager-level alarm() override would treat every base
     // monitor tick as a timeout (failing healthy builds) AND starve the base
     // loop that dispatches onStop. The manager must inherit the base alarm.
-    const proto = Object.getPrototypeOf(BuildManager.prototype) as Record<string, unknown>;
     expect(Object.hasOwn(BuildManager.prototype, 'alarm')).toBe(false);
     // The inherited alarm is the base one (defined on the parent prototype).
-    expect(typeof proto.alarm).toBe('function');
+    expect(BuildManager.prototype.alarm).toBe(MockContainer.prototype.alarm);
   });
 
   it('a base alarm BEFORE the deadline does not fail a healthy build, and onStop still finalizes', async () => {
@@ -2432,10 +2444,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
     const failed = lastWrite('failed');
     expect(failed?.opts?.error).toMatch(/timed out/);
     // Slot freed: scheduler poked so the next queued build can start.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('force-kills the container via destroy() (SIGKILL) on timeout, not just stop() (SIGTERM)', async () => {
@@ -2466,7 +2475,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
     await m.onStop({ exitCode: 0, reason: 'exit' });
     // A real onStop callback means the producer is already gone. The unit stub
     // calls the hook directly, so model that base-class liveness transition.
-    (m as unknown as { _containerRunning: boolean })._containerRunning = false;
+    m._containerRunning = false;
     dbState.writes = [];
     containerCalls.stopped = 0;
 
@@ -2509,10 +2518,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
       conclusion: 'cancelled',
       text: expect.stringContaining('container terminated'),
     });
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it.each(['failed', 'cancelled'])(
@@ -2526,7 +2532,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
       await ctx.storage.put('buildConfig', { ...makeConfig(), status });
       vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('postgres offline'));
       const portFetch = vi.fn();
-      (m as unknown as { _portFetch: unknown })._portFetch = portFetch;
+      m._portFetch = portFetch;
 
       await expect(m.enforceTimeout()).rejects.toThrow('postgres offline');
 
@@ -2540,10 +2546,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
       expect(scheduledTasks(m).some((task) => task.callback === 'reconcileTerminalWrite')).toBe(
         true,
       );
-      expect(
-        (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-          .get,
-      ).toHaveBeenCalled();
+      expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     },
   );
 
@@ -2558,9 +2561,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
     containerCalls.stopped = 0;
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('postgres write failed'));
 
@@ -2570,10 +2571,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
     await expect(runDueSchedules(m)).rejects.toThrow('postgres write failed');
 
     expect(containerCalls.stopped).toBe(1);
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     // The local DO status is terminal so a subsequent onStop won't resurrect it.
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'failed' });
   });
@@ -2593,9 +2591,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
     containerCalls.stopped = 0;
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     // Pends forever — the Hyperdrive-stall shape, not the Hyperdrive-throw shape.
     vi.mocked(markBuildTerminalIfActive).mockReturnValueOnce(new Promise<boolean>(() => {}));
@@ -2611,10 +2607,7 @@ describe('BuildManager timeout integration (base-owned alarm + scheduled enforce
     }
 
     expect(containerCalls.stopped).toBe(1);
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'failed' });
   });
 });
@@ -2634,9 +2627,7 @@ describe('BuildManager.cancelBuild (internal RPC)', () => {
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
     containerCalls.stopped = 0;
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     vi.mocked(markBuildTerminalIfActive).mockReturnValueOnce(new Promise<boolean>(() => {}));
 
@@ -2651,10 +2642,7 @@ describe('BuildManager.cancelBuild (internal RPC)', () => {
     }
 
     expect(containerCalls.stopped).toBe(1);
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'cancelled' });
   });
 
@@ -2676,10 +2664,7 @@ describe('BuildManager.cancelBuild (internal RPC)', () => {
     // The CAS landed the terminal row.
     expect(dbState.status.get('b1')).toBe('cancelled');
     // Scheduler poked so the freed concurrency slot is reclaimed.
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
   });
 
   it('force-kills the container via destroy() (SIGKILL) on cancel, not just stop() (SIGTERM)', async () => {
@@ -2743,9 +2728,9 @@ describe('BuildManager.cancelBuild (internal RPC)', () => {
 
     // Model an invocation lost after the durable local write but before its
     // authoritative terminal write/check-run completion reached Postgres/GitHub.
-    await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('failed');
+    await m['setStatus']('failed');
     dbState.status.set('b1', 'building');
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
     await m.cancelBuild('build superseded');
 
@@ -2775,9 +2760,9 @@ describe('BuildManager.cancelBuild (internal RPC)', () => {
     vi.mocked(completeCheckRun).mockClear();
 
     // The earlier invocation committed Postgres but was lost before its check PATCH.
-    await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('failed');
+    await m['setStatus']('failed');
     dbState.status.set('b1', 'failed');
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
     await m.cancelBuild('build superseded');
 
@@ -2804,9 +2789,7 @@ describe('BuildManager.cancelBuild (internal RPC)', () => {
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
     containerCalls.stopped = 0;
-    (
-      env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }
-    ).BUILD_SCHEDULER.get.mockClear();
+    env.BUILD_SCHEDULER.get.mockClear();
 
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('postgres write failed'));
 
@@ -2815,10 +2798,7 @@ describe('BuildManager.cancelBuild (internal RPC)', () => {
     await expect(m.cancelBuild('project disconnected')).rejects.toThrow('postgres write failed');
 
     expect(containerCalls.stopped).toBe(1);
-    expect(
-      (env as unknown as { BUILD_SCHEDULER: { get: ReturnType<typeof vi.fn> } }).BUILD_SCHEDULER
-        .get,
-    ).toHaveBeenCalled();
+    expect(env.BUILD_SCHEDULER.get).toHaveBeenCalled();
     // The local DO status is terminal so a subsequent onStop won't resurrect it.
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'cancelled' });
     expect(ctx._logs.map((row) => row.line)).toContain(
@@ -2835,9 +2815,9 @@ describe('BuildManager log ingest + WebSocket replay', () => {
     await m.startBuild(makeConfig());
 
     // Seed via ingestLines (the pull-loop sink), the sole producer.
-    await (m as unknown as { ingestLines: (lines: Array<LogRow>) => Promise<void> }).ingestLines([
-      { line: 'installing deps', stream: 'stdout', ts: 1 } as unknown as LogRow,
-      { line: 'build done', stream: 'stdout', ts: 2 } as unknown as LogRow,
+    await m['ingestLines']([
+      { line: 'installing deps', stream: 'stdout', ts: 1 },
+      { line: 'build done', stream: 'stdout', ts: 2 },
     ]);
     expect(ctx._logs).toHaveLength(2);
 
@@ -2848,7 +2828,7 @@ describe('BuildManager log ingest + WebSocket replay', () => {
     expect(upgrade.status).toBe(101);
     const server = ctx._sockets[0];
     expect(server).toBeDefined();
-    const messages = server.sent.map((s) => JSON.parse(s));
+    const messages = readSocketMessages(server);
     expect(messages[0]).toMatchObject({ type: 'log', line: 'installing deps' });
     expect(messages[1]).toMatchObject({ type: 'log', line: 'build done' });
     expect(messages[2]).toEqual({ type: 'caught_up' });
@@ -2862,13 +2842,11 @@ describe('BuildManager log ingest + WebSocket replay', () => {
 
     // Push MORE than the cap; the oldest must be evicted and the table bounded.
     const total = MAX_STORED_LOG_LINES + 250;
-    const batch: Array<{ line: string; stream: string; ts: number }> = [];
+    const batch: Array<BuildLogLine> = [];
     for (let i = 1; i <= total; i++) {
       batch.push({ line: `line ${i}`, stream: 'stdout', ts: i });
     }
-    await (m as unknown as { ingestLines: (lines: Array<LogRow>) => Promise<void> }).ingestLines(
-      batch as unknown as Array<LogRow>,
-    );
+    await m['ingestLines'](batch);
 
     // Table is bounded to the cap, retaining the NEWEST lines (tail), dropping the
     // oldest (head). Pre-fix it held all `total` rows.
@@ -2879,7 +2857,7 @@ describe('BuildManager log ingest + WebSocket replay', () => {
     // WS replay loads the bounded table (not an unbounded set).
     await m.fetch(new Request('https://manager/', { headers: { Upgrade: 'websocket' } }));
     const server = ctx._sockets[0];
-    const logMsgs = server.sent.map((s) => JSON.parse(s)).filter((msg) => msg.type === 'log');
+    const logMsgs = readSocketMessages(server).filter((msg) => msg.type === 'log');
     expect(logMsgs.length).toBe(MAX_STORED_LOG_LINES);
   });
 
@@ -2894,11 +2872,9 @@ describe('BuildManager log ingest + WebSocket replay', () => {
     const server = ctx._sockets[0];
     server.sent = []; // drop the caught_up marker
 
-    await (m as unknown as { ingestLines: (lines: Array<LogRow>) => Promise<void> }).ingestLines([
-      { line: 'live line', stream: 'stderr', ts: 3 } as unknown as LogRow,
-    ]);
+    await m['ingestLines']([{ line: 'live line', stream: 'stderr', ts: 3 }]);
 
-    const live = server.sent.map((s) => JSON.parse(s));
+    const live = readSocketMessages(server);
     expect(live.some((msg) => msg.type === 'log' && msg.line === 'live line')).toBe(true);
   });
 
@@ -2926,12 +2902,10 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
   /** Seed a batch of lines through the pull-loop sink (`ingestLines`). */
   async function seedLogs(
     _ctx: ReturnType<typeof makeStubCtx>,
-    m: BuildManager,
-    lines: Array<{ line: string; stream: string; ts: number }>,
+    m: BuildManagerFixture,
+    lines: Array<BuildLogLine>,
   ): Promise<void> {
-    await (m as unknown as { ingestLines: (lines: Array<LogRow>) => Promise<void> }).ingestLines(
-      lines as unknown as Array<LogRow>,
-    );
+    await m['ingestLines'](lines);
   }
 
   it('since=0 returns all stored rows (seq+line+stream+ts) and the max seq as lastSeq', async () => {
@@ -2947,11 +2921,11 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
       lastSeq: number;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(body.lines).toEqual([
       { seq: 1, line: 'installing deps', stream: 'stdout', ts: 10 },
       { seq: 2, line: 'build done', stream: 'stdout', ts: 20 },
@@ -2980,7 +2954,7 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
       dbState.status.set('b1', 'failed');
       return true;
     });
-    (m as unknown as { _portFetch: (url: string) => Promise<Response> })._portFetch = vi.fn(
+    m._portFetch = vi.fn(
       async () =>
         new RealResponse(
           JSON.stringify({
@@ -2994,29 +2968,33 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     const failing = m.onError(new Error('container runtime error'));
     await terminalWriteStarted;
 
-    const pending = (await (await m.fetch(new Request('https://manager/logs?since=0'))).json()) as {
+    const pending = await (
+      await m.fetch(new Request('https://manager/logs?since=0'))
+    ).json<{
       lines: Array<LogRow>;
       terminal: boolean;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(pending).toMatchObject({ lines: [], terminal: true, logsComplete: false });
 
     releaseTerminalWrite();
     await failing;
-    const drained = (await (await m.fetch(new Request('https://manager/logs?since=0'))).json()) as {
+    const drained = await (
+      await m.fetch(new Request('https://manager/logs?since=0'))
+    ).json<{
       lines: Array<LogRow>;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(drained.lines.map((line) => line.line)).toEqual(['delayed diagnostic']);
     expect(drained.logsComplete).toBe(false);
 
     // onError deliberately leaves the container to the base lifecycle. Its later
     // onStop is the producer barrier that makes the drained snapshot final.
-    (m as unknown as { _containerRunning: boolean })._containerRunning = false;
+    m._containerRunning = false;
     await m.onStop({ exitCode: 1, reason: 'exit' });
-    const complete = (await (
+    const complete = await (
       await m.fetch(new Request('https://manager/logs?since=1'))
-    ).json()) as { lines: Array<LogRow>; lastSeq: number; logsComplete: boolean | null };
+    ).json<{ lines: Array<LogRow>; lastSeq: number; logsComplete: boolean | null }>();
     expect(complete).toMatchObject({ lines: [], lastSeq: 1, logsComplete: true });
   });
 
@@ -3034,10 +3012,10 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
 
     const res = await m.fetch(new Request('https://manager/logs?since=1', { method: 'GET' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<{ seq: number; line: string; stream: string; ts: number }>;
       lastSeq: number;
-    };
+    }>();
     // seq 1 ('a') is excluded; only seq > 1 returned.
     expect(body.lines).toEqual([
       { seq: 2, line: 'b', stream: 'stdout', ts: 2 },
@@ -3055,13 +3033,13 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     // No logs ingested. since=0 → empty list, lastSeq echoes the requested 0.
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { lines: Array<unknown>; lastSeq: number };
+    const body = await res.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(body.lines).toEqual([]);
     expect(body.lastSeq).toBe(0);
 
     // A non-zero cursor against an empty table echoes that cursor (never moves back).
     const res2 = await m.fetch(new Request('https://manager/logs?since=7', { method: 'GET' }));
-    const body2 = (await res2.json()) as { lines: Array<unknown>; lastSeq: number };
+    const body2 = await res2.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(body2.lines).toEqual([]);
     expect(body2.lastSeq).toBe(7);
   });
@@ -3076,16 +3054,16 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
 
     // No `since` param at all → defaults to 0.
     const missing = await m.fetch(new Request('https://manager/logs', { method: 'GET' }));
-    const missingBody = (await missing.json()) as {
+    const missingBody = await missing.json<{
       lines: Array<{ seq: number }>;
       lastSeq: number;
-    };
+    }>();
     expect(missingBody.lines.map((r) => r.seq)).toEqual([1]);
     expect(missingBody.lastSeq).toBe(1);
 
     // A non-numeric `since` → NaN → defaults to 0.
     const nan = await m.fetch(new Request('https://manager/logs?since=abc', { method: 'GET' }));
-    const nanBody = (await nan.json()) as { lines: Array<{ seq: number }>; lastSeq: number };
+    const nanBody = await nan.json<{ lines: Array<{ seq: number }>; lastSeq: number }>();
     expect(nanBody.lines.map((r) => r.seq)).toEqual([1]);
     expect(nanBody.lastSeq).toBe(1);
   });
@@ -3118,10 +3096,10 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     await m.startBuild(makeConfig());
     // Pin a deterministic non-terminal status (startBuild → onStart may flip
     // 'starting' → 'building'); the point is terminal:false while running.
-    await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('building');
+    await m['setStatus']('building');
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
-    const body = (await res.json()) as { status: string | null; terminal: boolean };
+    const body = await res.json<{ status: string | null; terminal: boolean }>();
     expect(body.status).toBe('building');
     expect(body.terminal).toBe(false);
   });
@@ -3133,10 +3111,10 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     await m.startBuild(makeConfig());
 
     // Drive the DO-local status terminal (mirrors a completion path's setStatus).
-    await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('complete');
+    await m['setStatus']('complete');
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
-    const body = (await res.json()) as { status: string | null; terminal: boolean };
+    const body = await res.json<{ status: string | null; terminal: boolean }>();
     expect(body.status).toBe('complete');
     expect(body.terminal).toBe(true);
   });
@@ -3148,11 +3126,11 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     // No startBuild → no stored config.
 
     const res = await m.fetch(new Request('https://manager/logs?since=0', { method: 'GET' }));
-    const body = (await res.json()) as {
+    const body = await res.json<{
       status: string | null;
       terminal: boolean;
       logsComplete: boolean | null;
-    };
+    }>();
     expect(body.status).toBeNull();
     expect(body.terminal).toBe(false);
     expect(body.logsComplete).toBeNull();
@@ -3166,10 +3144,12 @@ describe('BuildManager.fetch GET /logs?since=N (admin poll read)', () => {
     const m = makeManager(ctx, makeEnv());
     ctx.storage.put.mockClear();
 
-    const body = (await (await m.fetch(new Request('https://manager/logs?since=0'))).json()) as {
+    const body = await (
+      await m.fetch(new Request('https://manager/logs?since=0'))
+    ).json<{
       lines: Array<LogRow>;
       logsComplete: boolean | null;
-    };
+    }>();
 
     expect(body.logsComplete).toBe(true);
     expect(body.lines.map((line) => line.line)).toEqual(['legacy tail']);
@@ -3212,11 +3192,11 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
    * invoked as `(url, port)` so the existing `(url, port)` assertions still hold.
    */
   function stubPortFetch(
-    m: BuildManager,
+    m: BuildManagerFixture,
     responses: Array<{ lines: Array<LogRow>; lastSeq: number } | Error>,
-  ): ReturnType<typeof vi.fn> {
+  ) {
     let call = 0;
-    const fn = vi.fn(async (_url: string, _port?: number) => {
+    const fn = vi.fn(async (_url: string, _port?: number, _init?: RequestInit) => {
       const next = responses[Math.min(call, responses.length - 1)];
       call += 1;
       if (next instanceof Error) {
@@ -3227,13 +3207,13 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fn })._portFetch = fn;
+    m._portFetch = fn;
     return fn;
   }
 
   /** Read the in-memory log cursor the loop advances. */
   function logCursor(m: BuildManager): number {
-    return (m as unknown as { logCursor: number }).logCursor;
+    return m['logCursor'];
   }
 
   it('pulls two batches: ingests lines, advances the cursor, and re-arms', async () => {
@@ -3263,17 +3243,17 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         lastSeq: 3,
       },
     ]);
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
     // First poll: requests with the initial cursor (0) on port 4000.
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe('http://manager/logs?since=0');
     expect(fetchFn.mock.calls[0][1]).toBe(4000);
 
     // Lines ingested into SQLite (seq stripped before insert) + broadcast over WS.
     expect(ctx._logs.map((r) => r.line)).toEqual(['installing deps', 'compiling']);
-    const broadcast = server.sent.map((s) => JSON.parse(s));
+    const broadcast = readSocketMessages(server);
     expect(broadcast.some((m) => m.type === 'log' && m.line === 'installing deps')).toBe(true);
     expect(broadcast.some((m) => m.type === 'log' && m.line === 'compiling')).toBe(true);
 
@@ -3282,8 +3262,8 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     expect(scheduledTasks(m).some((t) => t.callback === 'pollLogs')).toBe(true);
 
     // Second poll continues from the advanced cursor (since=2).
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    m._schedules = [];
+    await m.pollLogs();
     expect(fetchFn.mock.calls[1][0]).toBe('http://manager/logs?since=2');
     expect(ctx._logs.map((r) => r.line)).toEqual(['installing deps', 'compiling', 'uploading']);
     expect(logCursor(m)).toBe(3);
@@ -3307,12 +3287,12 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // stop()/destroy(), so state it explicitly — otherwise this "completed
     // container" case would model a terminal build with a still-LIVE container,
     // which is the cancel/timeout case covered by its own test below.
-    (m as unknown as { _containerRunning: boolean })._containerRunning = false;
+    m._containerRunning = false;
 
     // Clear the schedule armed at startBuild so we observe ONLY pollLogs' decision.
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
 
     // Self-terminated: no agent poll, no re-arm.
     expect(fetchFn).not.toHaveBeenCalled();
@@ -3332,14 +3312,14 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     stubPortFetch(m, [{ lines: [], lastSeq: 0 }]);
     await m.onError(new Error('container runtime error'));
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'failed' });
-    expect((m as unknown as { _containerRunning: boolean })._containerRunning).toBe(true);
+    expect(m._containerRunning).toBe(true);
 
     const fetchFn = stubPortFetch(m, [
       { lines: [{ seq: 7, line: 'vite build failed', stream: 'stderr', ts: 7 }], lastSeq: 7 },
     ]);
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(fetchFn.mock.calls[0][0]).toBe('http://manager/logs?since=0');
@@ -3355,14 +3335,12 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
 
-    await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('cancelled');
+    await m['setStatus']('cancelled');
 
     const fetchFn = stubPortFetch(m, [new Error('container gone mid-teardown')]);
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
-    await expect(
-      (m as unknown as { pollLogs: () => Promise<void> }).pollLogs(),
-    ).resolves.toBeUndefined();
+    await expect(m.pollLogs()).resolves.toBeUndefined();
     expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(scheduledTasks(m).some((t) => t.callback === 'pollLogs')).toBe(false);
   });
@@ -3373,13 +3351,13 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
 
-    await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('cancelled');
+    await m['setStatus']('cancelled');
 
     const autoStart = vi.fn(async () => new RealResponse('{}', { status: 200 }));
-    (m as unknown as { containerFetch: typeof autoStart }).containerFetch = autoStart;
+    m.containerFetch = autoStart;
     const portFetch = stubPortFetch(m, [{ lines: [], lastSeq: 0 }]);
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
 
     expect(portFetch).toHaveBeenCalledTimes(1);
     expect(autoStart).not.toHaveBeenCalled();
@@ -3396,12 +3374,12 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // The container exited between polls but onStop hasn't run yet, so the
     // persisted status is still `building` (non-terminal). The running guard must
     // skip the fetch entirely and end the loop (onStop finalizes the build).
-    (m as unknown as { _containerRunning: boolean })._containerRunning = false;
+    m._containerRunning = false;
 
     // Clear the schedule armed at startBuild so we observe ONLY pollLogs' decision.
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
 
     // No port fetch and no re-arm — the loop stopped so onStop can finalize the build.
     expect(fetchFn).not.toHaveBeenCalled();
@@ -3416,11 +3394,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     const fetchFn = stubPortFetch(m, [new Error('container mid-start')]);
 
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
     // Must not throw out of pollLogs even though the port fetch rejects.
-    await expect(
-      (m as unknown as { pollLogs: () => Promise<void> }).pollLogs(),
-    ).resolves.toBeUndefined();
+    await expect(m.pollLogs()).resolves.toBeUndefined();
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     // Nothing ingested; the loop still re-armed (the container may come up next tick).
@@ -3440,14 +3416,12 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     await m.startBuild(makeConfig());
 
     const fetchFn = vi.fn(
-      async () => new RealResponse('not json at all', { status: 200 }),
-    ) as ReturnType<typeof vi.fn>;
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+      async (_url: string) => new RealResponse('not json at all', { status: 200 }),
+    );
+    m._portFetch = fetchFn;
 
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
-    await expect(
-      (m as unknown as { pollLogs: () => Promise<void> }).pollLogs(),
-    ).resolves.toBeUndefined();
+    m._schedules = [];
+    await expect(m.pollLogs()).resolves.toBeUndefined();
 
     expect(ctx._logs).toHaveLength(0);
     expect(logCursor(m)).toBe(0);
@@ -3464,12 +3438,12 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     // Spy on the auto-starting containerFetch — it must NEVER be called by pollLogs.
     const autoStart = vi.fn(async () => new RealResponse('{}', { status: 200 }));
-    (m as unknown as { containerFetch: typeof autoStart }).containerFetch = autoStart;
+    m.containerFetch = autoStart;
 
     const portFetch = stubPortFetch(m, [{ lines: [], lastSeq: 0 }]);
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
 
     expect(portFetch).toHaveBeenCalledTimes(1); // pulled via the non-starting path
     expect(autoStart).not.toHaveBeenCalled(); // never the auto-starting path
@@ -3499,12 +3473,12 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // starvation the destroy() escalation exists to prevent.
     const timeoutSpy = vi.spyOn(AbortSignal, 'timeout');
     const fetchFn = stubPortFetch(m, [{ lines: [], lastSeq: 0 }]);
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
 
-    const init = fetchFn.mock.calls[0][2] as RequestInit | undefined;
-    const signal = init?.signal as AbortSignal | undefined;
+    const init = fetchFn.mock.calls[0][2];
+    const signal = init?.signal;
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(signal?.aborted).toBe(false);
     expect(timeoutSpy).toHaveBeenCalledWith(LOG_PULL_TIMEOUT_MS);
@@ -3521,7 +3495,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
    * drain that reaches a dead agent.
    */
   /** Serve a backlog as N capped pages, mimicking the agent's paged /logs. */
-  function stubPagedPortFetch(m: BuildManager, pages: Array<Array<LogRow>>) {
+  function stubPagedPortFetch(m: BuildManagerFixture, pages: Array<Array<LogRow>>) {
     let call = 0;
     const fetchFn = vi.fn(async (_url: string, _port?: number, _init?: RequestInit) => {
       const page = pages[call] ?? [];
@@ -3530,29 +3504,29 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       return new RealResponse(
         JSON.stringify({
           lines: page,
-          lastSeq: page[page.length - 1]?.seq ?? 0,
+          lastSeq: page.at(-1)?.seq ?? 0,
           hasMore: more,
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
     return fetchFn;
   }
 
-  function stubOrderedPortFetch(m: BuildManager, lines: Array<LogRow>) {
+  function stubOrderedPortFetch(m: BuildManagerFixture, lines: Array<LogRow>) {
     const teardownAtPull: Array<{ stopped: number; destroyed: number }> = [];
     const fetchFn = vi.fn(async (_url: string, _port?: number, _init?: RequestInit) => {
       teardownAtPull.push({
         stopped: containerCalls.stopped,
         destroyed: containerCalls.destroyed,
       });
-      return new RealResponse(
-        JSON.stringify({ lines, lastSeq: lines[lines.length - 1]?.seq ?? 0 }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
+      return new RealResponse(JSON.stringify({ lines, lastSeq: lines.at(-1)?.seq ?? 0 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
     return { fetchFn, teardownAtPull };
   }
 
@@ -3651,7 +3625,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
     await m.enforceTimeout();
 
@@ -3692,7 +3666,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // A cancel that races an already-exited container: the agent is gone, its
     // natural-exit `waitForLogDrain()` already handed the tail over, and a pull here
     // would only be a doomed fetch in front of two no-op signals.
-    (m as unknown as { _containerRunning: boolean })._containerRunning = false;
+    m._containerRunning = false;
     const { fetchFn } = stubOrderedPortFetch(m, []);
 
     await m.cancelBuild('build superseded');
@@ -3715,7 +3689,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       // The agent reaches natural exit while the manager is awaiting its final
       // pull. Its own barrier owns this ending; later container controls would be
       // successful no-ops and must not manufacture a cancellation marker.
-      (m as unknown as { _containerRunning: boolean })._containerRunning = false;
+      m._containerRunning = false;
       return new RealResponse(
         JSON.stringify({
           lines: [{ seq: 1, line: 'void deploy exited with code 0', stream: 'stdout', ts: 1 }],
@@ -3727,7 +3701,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         },
       );
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
     await m.cancelBuild('build superseded');
 
@@ -3762,11 +3736,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // stderr, so a live tail renders it as the abnormal end it is.
     expect(ctx._logs[1].stream).toBe('stderr');
     // ...and it survives into the check-run tail (sanitize + fence) unchanged.
-    expect(
-      await (
-        m as unknown as { readLogTailMarkdown: () => Promise<string | null> }
-      ).readLogTailMarkdown(),
-    ).toContain('[build-manager] container terminated: build superseded');
+    expect(await m['readLogTailMarkdown']()).toContain(
+      '[build-manager] container terminated: build superseded',
+    );
   });
 
   it('does not claim the container terminated when both control signals fail', async () => {
@@ -3776,18 +3748,16 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     await m.startBuild(makeConfig());
     stubOrderedPortFetch(m, []);
 
-    const stop = vi
-      .spyOn(m as unknown as { stop: () => Promise<void> }, 'stop')
-      .mockRejectedValueOnce(new Error('SIGTERM control failed'));
+    const stop = vi.spyOn(m, 'stop').mockRejectedValueOnce(new Error('SIGTERM control failed'));
     const destroy = vi
-      .spyOn(m as unknown as { destroy: () => Promise<void> }, 'destroy')
+      .spyOn(m, 'destroy')
       .mockRejectedValueOnce(new Error('SIGKILL control failed'));
 
     await m.cancelBuild('build superseded');
 
     expect(stop).toHaveBeenCalledOnce();
     expect(destroy).toHaveBeenCalledOnce();
-    expect((m as unknown as { _containerRunning: boolean })._containerRunning).toBe(true);
+    expect(m._containerRunning).toBe(true);
     expect(ctx._logs.map((row) => row.line)).not.toContain(
       '[build-manager] container terminated: build superseded',
     );
@@ -3796,7 +3766,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // silenced forever. `mockRejectedValueOnce` falls through to the real methods
     // on this second call.
     await m.cancelBuild('project deleted');
-    expect((m as unknown as { _containerRunning: boolean })._containerRunning).toBe(false);
+    expect(m._containerRunning).toBe(false);
     expect(ctx._logs.map((row) => row.line)).toContain(
       '[build-manager] container terminated: build terminated out of band',
     );
@@ -3869,7 +3839,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const fetchFn = vi.fn(async (url: string, _port?: number, _init?: RequestInit) => {
       const since = Number(new URL(url).searchParams.get('since') ?? '0');
       const lines = buffer.filter((entry) => entry.seq > since);
-      const lastSeq = buffer[buffer.length - 1]?.seq ?? since;
+      const lastSeq = buffer.at(-1)?.seq ?? since;
       calls += 1;
       if (calls === 1) {
         markEntered();
@@ -3880,17 +3850,19 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._portFetch = fetchFn;
+    m._schedules = [];
 
-    const poll = (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    const poll = m.pollLogs();
     await firstPullEntered;
 
     const cancel = m.cancelBuild('build superseded');
     // Give cancelBuild every chance to reach its own pull (getConfig + setStatus
     // are awaits) BEFORE the in-flight fetch answers — that is the race.
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     release();
     await Promise.all([poll, cancel]);
@@ -3928,43 +3900,28 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       markJsonEntered = resolve;
     });
     const fetchFn = vi.fn(async () => {
-      return {
-        ok: true,
-        json: async () => {
-          markJsonEntered();
-          await jsonGate;
-          return {
-            lines: [{ seq: 1, line: 'active tail', stream: 'stderr', ts: 1 }],
-            lastSeq: 1,
-          };
-        },
-      } as Response;
+      const response = RealResponse.json({
+        lines: [{ seq: 1, line: 'active tail', stream: 'stderr', ts: 1 }],
+        lastSeq: 1,
+      });
+      const read = response.json.bind(response);
+      vi.spyOn(response, 'json').mockImplementation(async () => {
+        markJsonEntered();
+        await jsonGate;
+        return read();
+      });
+      return response;
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
-    const container = (
-      m as unknown as {
-        rawContainer: () => { getTcpPort: (port: number) => { fetch: typeof fetchFn } };
-      }
-    ).rawContainer();
-    const activePull = (
-      m as unknown as {
-        pullLogsOnce: (target: {
-          getTcpPort: (port: number) => { fetch: typeof fetchFn };
-        }) => Promise<void>;
-      }
-    ).pullLogsOnce(container);
+    const container = m['rawContainer']();
+    if (!container) {
+      throw new Error('Expected a container fixture');
+    }
+    const activePull = m['pullLogsOnce'](container);
     await jsonEntered;
 
-    const teardown = (
-      m as unknown as {
-        forceStopContainer: (
-          reason: string,
-          markerAuthoritative?: boolean,
-          drainFirst?: boolean,
-        ) => Promise<void>;
-      }
-    ).forceStopContainer('terminal write failed', true, false);
+    const teardown = m['forceStopContainer']('terminal write failed', true, false);
     for (let i = 0; i < 5; i++) {
       await Promise.resolve();
     }
@@ -4014,7 +3971,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       // Snapshot at RECEIPT, like the agent — a line recorded while this request is
       // open cannot appear in its body.
       const lines = buffer.filter((entry) => entry.seq > since);
-      const lastSeq = buffer[buffer.length - 1]?.seq ?? since;
+      const lastSeq = buffer.at(-1)?.seq ?? since;
       stoppedAtPull.push(containerCalls.stopped);
       calls += 1;
       if (calls === 1) {
@@ -4026,10 +3983,10 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._portFetch = fetchFn;
+    m._schedules = [];
 
-    const poll = (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    const poll = m.pollLogs();
     await firstPullEntered;
 
     // The build's real diagnosis, written AFTER the in-flight pull froze its body.
@@ -4042,7 +3999,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     const cancel = m.cancelBuild('build superseded');
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     release();
     await Promise.all([poll, cancel]);
@@ -4097,16 +4056,18 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._portFetch = fetchFn;
+    m._schedules = [];
 
-    const poll = (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    const poll = m.pollLogs();
     await firstPullEntered;
 
     const cancelA = m.cancelBuild('build superseded');
     const cancelB = m.cancelBuild('project deleted');
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     release();
     await Promise.all([poll, cancelA, cancelB]);
@@ -4140,7 +4101,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const stopEntered = new Promise<void>((resolve) => {
       markStopEntered = resolve;
     });
-    (m as unknown as { stop: () => Promise<void> }).stop = vi.fn(async () => {
+    m.stop = vi.fn(async () => {
       containerCalls.stopped += 1;
       markStopEntered();
       await stopGate;
@@ -4171,17 +4132,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
-    const forceStop = (
-      m as unknown as {
-        forceStopContainer: (
-          reason: string,
-          markerAuthoritative?: boolean,
-          drainFirst?: boolean,
-        ) => Promise<void>;
-      }
-    ).forceStopContainer.bind(m);
+    const forceStop = m['forceStopContainer'].bind(m);
 
     const first = forceStop('build superseded', true, true);
     await stopEntered;
@@ -4222,7 +4175,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const stopEntered = new Promise<void>((resolve) => {
       markStopEntered = resolve;
     });
-    (m as unknown as { stop: () => Promise<void> }).stop = vi.fn(async () => {
+    m.stop = vi.fn(async () => {
       containerCalls.stopped += 1;
       markStopEntered();
       await stopGate;
@@ -4253,11 +4206,11 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
     const cancel = m.cancelBuild('build superseded');
     await stopEntered;
-    const poll = (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    const poll = m.pollLogs();
     for (let i = 0; i < 5; i++) {
       await Promise.resolve();
     }
@@ -4291,7 +4244,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const stopEntered = new Promise<void>((resolve) => {
       markStopEntered = resolve;
     });
-    (m as unknown as { stop: () => Promise<void> }).stop = vi.fn(async () => {
+    m.stop = vi.fn(async () => {
       markStopEntered();
       await stopGate;
     });
@@ -4302,16 +4255,8 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
           headers: { 'content-type': 'application/json' },
         }),
     );
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
-    const forceStop = (
-      m as unknown as {
-        forceStopContainer: (
-          reason: string,
-          markerAuthoritative?: boolean,
-          drainFirst?: boolean,
-        ) => Promise<void>;
-      }
-    ).forceStopContainer.bind(m);
+    m._portFetch = fetchFn;
+    const forceStop = m['forceStopContainer'].bind(m);
 
     const first = forceStop('startup failed before revocation', false, false);
     await stopEntered;
@@ -4342,8 +4287,8 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // status half built a state no teardown can produce (terminal, live container,
     // marker unclaimed) and then asserted silence for it, which is the `onError` hole
     // covered by the test below. Exclusion here comes from the claim, not the status.
-    (m as unknown as { claimTerminationMarker: () => boolean }).claimTerminationMarker();
-    await (m as unknown as { setStatus: (s: string) => Promise<void> }).setStatus('failed');
+    m['claimTerminationMarker']();
+    await m['setStatus']('failed');
     stubOrderedPortFetch(m, []);
 
     await m.cancelBuild('project deleted');
@@ -4373,7 +4318,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     stubPortFetch(m, [{ lines: [], lastSeq: 0 }]);
     await m.onError(new Error('container runtime error'));
     expect(ctx._kv.get('buildConfig')).toMatchObject({ status: 'failed' });
-    expect((m as unknown as { _containerRunning: boolean })._containerRunning).toBe(true);
+    expect(m._containerRunning).toBe(true);
     ctx._logs.length = 0;
     const { fetchFn } = stubOrderedPortFetch(m, []);
 
@@ -4442,7 +4387,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     vi.mocked(markBuildTerminalIfActive).mockResolvedValueOnce(false);
     // Enter the catch AFTER the container launched, so the teardown runs.
     const scheduleSpy = vi
-      .spyOn(m as unknown as { schedule: () => Promise<void> }, 'schedule')
+      .spyOn(m, 'schedule')
       .mockRejectedValueOnce(new Error('schedule arming failed'));
     stubOrderedPortFetch(m, []);
 
@@ -4533,7 +4478,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     const timeout = m.enforceTimeout();
     for (let i = 0; i < 5; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
     }
     // The peer runs to completion — container destroyed — while the owner is parked.
     await m.cancelBuild('project deleted');
@@ -4541,9 +4488,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // parked and Postgres continues to authorize the deploy token. The peer must
     // signal immediately, not drain during that publication window.
     expect(fetchFn).not.toHaveBeenCalled();
-    const beforeOwner = (await (
+    const beforeOwner = await (
       await m.fetch(new Request('https://manager/logs?since=0'))
-    ).json()) as { logsComplete: boolean | null };
+    ).json<{ logsComplete: boolean | null }>();
     expect(beforeOwner.logsComplete).toBe(false);
     releaseRevocation();
     await timeout;
@@ -4555,9 +4502,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       .map((r) => r.line)
       .filter((line) => line.startsWith('[build-manager] container terminated:'));
     expect(markers).toEqual(['[build-manager] container terminated: build timed out']);
-    const afterOwner = (await (
+    const afterOwner = await (
       await m.fetch(new Request('https://manager/logs?since=0'))
-    ).json()) as { lines: Array<LogRow>; logsComplete: boolean | null };
+    ).json<{ lines: Array<LogRow>; logsComplete: boolean | null }>();
     expect(afterOwner.logsComplete).toBe(true);
     expect(afterOwner.lines.at(-1)?.line).toBe(
       '[build-manager] container terminated: build timed out',
@@ -4574,9 +4521,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     const m = makeManager(ctx, env);
 
     // Post-launch failure: the container is up, then timeout-scheduling throws.
-    vi.spyOn(m as unknown as { schedule: () => Promise<void> }, 'schedule').mockRejectedValueOnce(
-      new Error('schedule arming failed'),
-    );
+    vi.spyOn(m, 'schedule').mockRejectedValueOnce(new Error('schedule arming failed'));
     vi.mocked(markBuildTerminalIfActive).mockRejectedValueOnce(new Error('hyperdrive blip'));
     const { fetchFn } = stubOrderedPortFetch(m, []);
 
@@ -4644,7 +4589,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     // Row still ACTIVE at teardown: the UPDATE is in flight, not yet committed.
     dbState.status.set('b1', 'building');
     stubOrderedPortFetch(m, []);
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
 
     await expect(m.enforceTimeout()).rejects.toThrow('did not settle');
 
@@ -4678,7 +4623,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     ctx._kv.set('checkRunId', '99001');
     dbState.status.set('b1', 'building');
 
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
     await m.reconcileTerminalWrite();
 
     expect(vi.mocked(completeCheckRun)).not.toHaveBeenCalled();
@@ -4687,7 +4632,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     );
 
     // Still nothing. Re-arm again rather than dropping the build on the floor.
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
     await m.reconcileTerminalWrite();
     expect(scheduledTasks(m).filter((t) => t.callback === 'reconcileTerminalWrite')).toHaveLength(
       1,
@@ -4695,7 +4640,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     // The stale reaper terminalizes the row; the next pass concludes and stops.
     dbState.status.set('b1', 'failed');
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
     await m.reconcileTerminalWrite();
     expect(vi.mocked(completeCheckRun)).toHaveBeenCalledTimes(1);
     expect(scheduledTasks(m).some((t) => t.callback === 'reconcileTerminalWrite')).toBe(false);
@@ -4709,15 +4654,10 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
     // Simulate eviction/cache loss: only the authoritative row still has the id.
     ctx._kv.delete('checkRunId');
-    (m as unknown as { activeCheckRunId: string | null }).activeCheckRunId = null;
+    m['activeCheckRunId'] = null;
     vi.mocked(getBuild).mockClear();
     vi.mocked(completeCheckRun).mockClear();
-    vi.mocked(getBuild).mockResolvedValueOnce({
-      id: 'b1',
-      created_at: dbState.createdAt,
-      status: 'failed',
-      check_run_id: '99001',
-    } as never);
+    vi.mocked(getBuild).mockResolvedValueOnce(makeBuildRow('failed', '99001'));
 
     await m.reconcileTerminalWrite();
 
@@ -4733,15 +4673,10 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     await m.startBuild(makeConfig());
 
     ctx._kv.delete('checkRunId');
-    (m as unknown as { activeCheckRunId: string | null }).activeCheckRunId = null;
+    m['activeCheckRunId'] = null;
     vi.mocked(getBuild).mockClear();
     vi.mocked(completeCheckRun).mockClear();
-    vi.mocked(getBuild).mockResolvedValueOnce({
-      id: 'b1',
-      created_at: dbState.createdAt,
-      status: 'failed',
-      check_run_id: null,
-    } as never);
+    vi.mocked(getBuild).mockResolvedValueOnce(makeBuildRow('failed', null));
 
     await m.reconcileTerminalWrite();
 
@@ -4761,7 +4696,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     vi.mocked(completeCheckRun).mockClear();
     dbState.status.delete('b1'); // getBuild now returns null, as after a cascade delete
 
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
     await m.reconcileTerminalWrite();
 
     // If broken: an absent row was treated like an active one and re-armed.
@@ -4781,9 +4716,9 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     await m.startBuild(makeConfig());
     vi.mocked(completeCheckRun).mockClear();
     // Pends forever — the Hyperdrive-stall shape, not the throw shape.
-    vi.mocked(getBuild).mockReturnValueOnce(new Promise(() => {}) as never);
+    vi.mocked(getBuild).mockReturnValueOnce(new Promise<Build | null>(() => {}));
 
-    (m as unknown as { _schedules: Array<ScheduledTask> })._schedules = [];
+    m._schedules = [];
     vi.useFakeTimers();
     try {
       const pending = m.reconcileTerminalWrite();
@@ -4812,10 +4747,7 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
     ]);
     const fetchFn = stubPagedPortFetch(m, pages);
 
-    await (m as unknown as { pullLogsOnce: (c: unknown) => Promise<void> }).pullLogsOnce({
-      getTcpPort: () => ({ fetch: fetchFn }),
-      running: true,
-    });
+    await pullOnce(m, fetchFn);
 
     // If broken: one page per call, so seven pages wait for seven ticks.
     // One final empty request carries `since=<last ingested seq>` back to the agent,
@@ -4858,13 +4790,10 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     });
-    (m as unknown as { _portFetch: typeof fetchFn })._portFetch = fetchFn;
+    m._portFetch = fetchFn;
 
     try {
-      await (m as unknown as { pullLogsOnce: (c: unknown) => Promise<void> }).pullLogsOnce({
-        getTcpPort: () => ({ fetch: fetchFn }),
-        running: true,
-      });
+      await pullOnce(m, fetchFn);
     } finally {
       nowSpy.mockRestore();
     }
@@ -4893,10 +4822,10 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
 
   /** Endless maximum-shape pages: every page delivers `rows` lines and claims more. */
   function stubEndlessPages(
-    m: BuildManager,
+    m: BuildManagerFixture,
     rows: number,
     line: (seq: number) => string = (seq) => `line-${seq}`,
-  ): ReturnType<typeof vi.fn> {
+  ) {
     let seq = 0;
     const fn = vi.fn(async (_url: string, _port?: number, _init?: RequestInit) => {
       const lines = Array.from({ length: rows }, () => {
@@ -4908,13 +4837,16 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
         headers: { 'content-type': 'application/json' },
       });
     });
-    (m as unknown as { _portFetch: typeof fn })._portFetch = fn;
+    m._portFetch = fn;
     return fn;
   }
 
-  function pullOnce(m: BuildManager, fetchFn: unknown): Promise<boolean> {
-    return (m as unknown as { pullLogsOnce: (c: unknown) => Promise<boolean> }).pullLogsOnce({
-      getTcpPort: () => ({ fetch: fetchFn }),
+  function pullOnce(
+    m: BuildManagerFixture,
+    fetchFn: NonNullable<BuildManagerFixture['_portFetch']>,
+  ): Promise<boolean> {
+    return m['pullLogsOnce']({
+      getTcpPort: (port) => ({ fetch: (url, init) => fetchFn(url, port, init) }),
     });
   }
 
@@ -5052,8 +4984,8 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       { lines: [{ seq: 2, line: 'second', stream: 'stdout', ts: 2 }], lastSeq: 2 },
     ]);
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
+    await m.pollLogs();
 
     expect(fetchFn).toHaveBeenCalledTimes(2);
     expect(fetchFn.mock.calls[1][0]).toBe('http://manager/logs?since=1');
@@ -5073,8 +5005,8 @@ describe('BuildManager.pollLogs (DO log pull-loop)', () => {
       { lines: [{ seq: 1, line: 'back online', stream: 'stdout', ts: 1 }], lastSeq: 1 },
     ]);
 
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
-    await (m as unknown as { pollLogs: () => Promise<void> }).pollLogs();
+    await m.pollLogs();
+    await m.pollLogs();
 
     expect(fetchFn).toHaveBeenCalledTimes(2);
     expect(ctx._logs.map((r) => r.line)).toEqual(['back online']);
@@ -5104,14 +5036,13 @@ describe('BuildManager.ingestLines (the pull-loop sink)', () => {
   it('upgrades a legacy log table once without fabricating a final delimiter', async () => {
     const ctx = makeStubCtx({
       legacyLogSchema: true,
-      initialLogs: [{ seq: 1, line: '\x1b[?1049hERR', stream: 'stdout', ts: 1 }],
+      initialLogs: [{ seq: 1, line: '\u001b[?1049hERR', stream: 'stdout', ts: 1 }],
     });
     const m = makeManager(ctx, makeEnv());
-    const readTail = () =>
-      (m as unknown as { readLogTailMarkdown: () => Promise<string | null> }).readLogTailMarkdown;
+    const readTail = () => m['readLogTailMarkdown'];
 
     const first = await readTail().call(m);
-    expect(parseFence(first as string).content).toEqual(['ERR']);
+    expect(parseFence(requireLogTail(first)).content).toEqual(['ERR']);
     await readTail().call(m);
     expect(
       ctx._sqlQueries.filter((query) => query.startsWith('ALTER TABLE logs ADD COLUMN')),
@@ -5130,13 +5061,13 @@ describe('BuildManager.ingestLines (the pull-loop sink)', () => {
     server.sent = [];
 
     // Call ingestLines directly with BuildLogLine shape (no seq).
-    await (m as unknown as { ingestLines: (lines: Array<LogRow>) => Promise<void> }).ingestLines([
-      { line: 'a', stream: 'stdout', ts: 1 } as unknown as LogRow,
-      { line: 'b', stream: 'stderr', ts: 2 } as unknown as LogRow,
+    await m['ingestLines']([
+      { line: 'a', stream: 'stdout', ts: 1 },
+      { line: 'b', stream: 'stderr', ts: 2 },
     ]);
 
     expect(ctx._logs.map((r) => r.line)).toEqual(['a', 'b']);
-    const sent = server.sent.map((s) => JSON.parse(s));
+    const sent = readSocketMessages(server);
     expect(sent).toContainEqual({ type: 'log', line: 'a', stream: 'stdout', ts: 1 });
     expect(sent).toContainEqual({ type: 'log', line: 'b', stream: 'stderr', ts: 2 });
   });
@@ -5159,13 +5090,13 @@ const utf8 = new TextEncoder();
 function hasLoneSurrogate(text: string): boolean {
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    if (code >= 0xd800 && code <= 0xdbff) {
+    if (code >= 0xd8_00 && code <= 0xdb_ff) {
       const next = text.charCodeAt(i + 1);
-      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+      if (!(next >= 0xdc_00 && next <= 0xdf_ff)) {
         return true;
       }
       i++; // complete pair — skip its low half
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
+    } else if (code >= 0xdc_00 && code <= 0xdf_ff) {
       return true;
     }
   }
@@ -5186,7 +5117,7 @@ function parseFence(out: string): { fenceLen: number; content: Array<string> } {
   const openIdx = rendered.findIndex((line) => /^`+text$/.test(line));
   expect(openIdx).toBeGreaterThan(-1);
   const fenceLen = rendered[openIdx].length - 'text'.length;
-  expect(rendered[rendered.length - 1]).toBe('`'.repeat(fenceLen));
+  expect(rendered.at(-1)).toBe('`'.repeat(fenceLen));
   return { fenceLen, content: rendered.slice(openIdx + 1, rendered.length - 1) };
 }
 
@@ -5222,7 +5153,7 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
     expect(out).toContain(lines[99]);
     expect(out).toContain(lines[41]);
     expect(out).not.toContain(lines[40]);
-    expect((out as string).length).toBeLessThan(65535);
+    expect(requireLogTail(out).length).toBeLessThan(65_535);
   });
 
   it('keeps the LAST 60000 chars of a single over-cap line', async () => {
@@ -5237,7 +5168,7 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
 
   it('grows the fence to 7 backticks when a content line contains a 6-backtick run (no breakout)', async () => {
     const line = `fence bait: ${SIX_BACKTICKS} tail`;
-    const out = (await formatLogTailMarkdown([line], 1)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown([line], 1));
     const { fenceLen, content } = parseFence(out);
     expect(fenceLen).toBe(7);
     // The line is preserved verbatim — sizing the fence, not mangling content.
@@ -5247,19 +5178,21 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
   });
 
   it('grows the fence to 13 backticks for a 12-backtick content run', async () => {
-    const out = (await formatLogTailMarkdown(['a', `x${'`'.repeat(12)}y`, 'b'], 3)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown(['a', `x${'`'.repeat(12)}y`, 'b'], 3));
     const { fenceLen, content } = parseFence(out);
     expect(fenceLen).toBe(13);
     expect(content).toEqual(['a', `x${'`'.repeat(12)}y`, 'b']);
   });
 
   it('keeps the fence at exactly six backticks when the content has no backticks', async () => {
-    const { fenceLen } = parseFence((await formatLogTailMarkdown(['plain', 'lines'], 2)) as string);
+    const { fenceLen } = parseFence(
+      requireLogTail(await formatLogTailMarkdown(['plain', 'lines'], 2)),
+    );
     expect(fenceLen).toBe(6);
   });
 
   it('holds the WHOLE string under GitHub’s 65535 cap for a pathological all-backtick line', async () => {
-    const out = (await formatLogTailMarkdown(['`'.repeat(61000)], 1)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown(['`'.repeat(61_000)], 1));
     expect(out.length).toBeLessThanOrEqual(CHECK_RUN_OUTPUT_TEXT_MAX_BYTES);
     // Format still parses: header first, then fence lines matching
     // ^`+text$ / ^`+$, and the fence still beats every content run.
@@ -5283,7 +5216,7 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
       { length: 40 },
       (_, i) => `${String(i).padStart(4, '0')}${'语'.repeat(998)}`,
     );
-    const out = (await formatLogTailMarkdown(lines, 40)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown(lines, 40));
     expect(out).toContain('**Last 20 log lines:**');
     expect(out).toContain('_…earlier lines omitted._');
     expect(out).toContain(lines[39]);
@@ -5294,7 +5227,7 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
 
   it('tail-truncates a lone CJK line to its LAST ~60000 UTF-8 bytes (under 65535 total)', async () => {
     // 30000 units (would fit a unit cap untouched) but 90000 bytes.
-    const out = (await formatLogTailMarkdown(['好'.repeat(30000)], 1)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown(['好'.repeat(30_000)], 1));
     expect(utf8.encode(out).length).toBeLessThanOrEqual(CHECK_RUN_OUTPUT_TEXT_MAX_BYTES);
     const { content } = parseFence(out);
     expect(content).toHaveLength(1);
@@ -5302,15 +5235,15 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
     // byte-capping keeps the tail rather than over-truncating it.
     expect(/^好+$/.test(content[0])).toBe(true);
     const contentBytes = utf8.encode(content[0]).length;
-    expect(contentBytes).toBeLessThanOrEqual(60000);
-    expect(contentBytes).toBeGreaterThanOrEqual(59990);
+    expect(contentBytes).toBeLessThanOrEqual(60_000);
+    expect(contentBytes).toBeGreaterThanOrEqual(59_990);
   });
 
   it('never leaves a split surrogate pair at a truncation cut (emoji at the boundary)', async () => {
     // '🚀' = 2 UTF-16 units / 4 UTF-8 bytes: 20000 emoji = 80000 bytes, so the
     // byte cap must cut inside the emoji run. A cut landing mid-pair would
     // strand a lone surrogate (re-encoded as a 3-byte U+FFFD — garbage).
-    const out = (await formatLogTailMarkdown(['🚀'.repeat(20000)], 1)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown(['🚀'.repeat(20_000)], 1));
     expect(utf8.encode(out).length).toBeLessThanOrEqual(CHECK_RUN_OUTPUT_TEXT_MAX_BYTES);
     expect(hasLoneSurrogate(out)).toBe(false);
   });
@@ -5322,7 +5255,9 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
     // UTF-16 length stays far under (the unit measure never fires). The
     // converging loop must cut the lone line by bytes without splitting an
     // emoji pair.
-    const out = (await formatLogTailMarkdown(['🚀'.repeat(13500) + '`'.repeat(6000)], 1)) as string;
+    const out = requireLogTail(
+      await formatLogTailMarkdown(['🚀'.repeat(13_500) + '`'.repeat(6000)], 1),
+    );
     expect(utf8.encode(out).length).toBeLessThanOrEqual(CHECK_RUN_OUTPUT_TEXT_MAX_BYTES);
     expect(hasLoneSurrogate(out)).toBe(false);
     const { fenceLen, content } = parseFence(out);
@@ -5337,7 +5272,7 @@ describe('formatLogTailMarkdown (pure check-run output.text renderer)', () => {
 // line — the agent splits on CR/LF and a clack spinner separates frames with
 // `ESC[1G ESC[J` and no newline.
 describe('renderCapturedLog (terminal-visible text for the check run)', () => {
-  const ESC = '\x1b';
+  const ESC = '\u001b';
 
   it('leaves a plain line untouched', async () => {
     expect(await renderCapturedLog('[build-agent] source extracted')).toBe(
@@ -5380,7 +5315,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
   });
 
   it('strips OSC sequences (window title / hyperlink) under both BEL and ST terminators', async () => {
-    expect(await renderCapturedLog(`${ESC}]0;building\x07done`)).toBe('done');
+    expect(await renderCapturedLog(`${ESC}]0;building\u0007done`)).toBe('done');
     expect(await renderCapturedLog(`${ESC}]8;;https://void.app${ESC}\\link`)).toBe('link');
   });
 
@@ -5417,14 +5352,14 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
     // state, so the payload after an embedded BEL is still invisible. BEL is also
     // an ordinary data byte inside sixel, so this is reachable from real payloads.
     for (const intro of ['P', 'X', '^', '_']) {
-      expect(await renderCapturedLog(`before${ESC}${intro}hidden\x07still${ESC}\\after`)).toBe(
+      expect(await renderCapturedLog(`before${ESC}${intro}hidden\u0007still${ESC}\\after`)).toBe(
         'beforeafter',
       );
     }
     // ...and with no ST at all, the string still runs to end of line.
-    expect(await renderCapturedLog(`${ESC}Pabc\x07def`)).toBe('');
+    expect(await renderCapturedLog(`${ESC}Pabc\u0007def`)).toBe('');
     // OSC keeps BEL as a terminator (the legacy xterm convention).
-    expect(await renderCapturedLog(`${ESC}]0;title\x07visible`)).toBe('visible');
+    expect(await renderCapturedLog(`${ESC}]0;title\u0007visible`)).toBe('visible');
   });
 
   it('aborts a string control on an embedded ESC, as a VT parser does', async () => {
@@ -5441,8 +5376,8 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
   });
 
   it('does not mistake ordinary text for an escape sequence', async () => {
-    expect(await renderCapturedLog('cost [32m] and \\x1b are literal')).toBe(
-      'cost [32m] and \\x1b are literal',
+    expect(await renderCapturedLog(String.raw`cost [32m] and \x1b are literal`)).toBe(
+      String.raw`cost [32m] and \x1b are literal`,
     );
   });
 
@@ -5458,7 +5393,6 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
   // row untouched — an earlier revision trusted pyte here and misfiled 3J as
   // prefix-erasing.
   it('keeps the prefix across erase-FORWARD, which clears only from the cursor on', async () => {
-    // Terminal renders each of these as 'Downloading done'.
     expect(await renderCapturedLog(`Downloading${ESC}[K done`)).toBe('Downloading done');
     expect(await renderCapturedLog(`Downloading${ESC}[0K done`)).toBe('Downloading done');
     expect(await renderCapturedLog(`Downloading${ESC}[J done`)).toBe('Downloading done');
@@ -5518,7 +5452,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
 
   it('bounds repeated DEC selective erases that scan protection metadata', async () => {
     for (const final of ['J', 'K']) {
-      const selectiveEraseFlood = `x${`${ESC}[?2${final}`.repeat(2_700)}ERR`;
+      const selectiveEraseFlood = `x${`${ESC}[?2${final}`.repeat(2700)}ERR`;
       expect(selectiveEraseFlood.length).toBeLessThanOrEqual(TERMINAL_RENDER_MAX_INPUT_CODE_UNITS);
       await expect(renderCapturedLog(selectiveEraseFlood)).resolves.toBe('');
     }
@@ -5526,7 +5460,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
 
   it('bounds REP allocation by preceding-grapheme length as well as Ps', async () => {
     const combining = `a${'\u0301'.repeat(131)}`;
-    expect(combining.length * 8_000).toBeGreaterThan(TERMINAL_RENDER_MAX_REPEAT_CODE_UNITS);
+    expect(combining.length * 8000).toBeGreaterThan(TERMINAL_RENDER_MAX_REPEAT_CODE_UNITS);
     expect(await renderCapturedLog(`${combining}${ESC}[8000b`)).toBe('');
   });
 
@@ -5549,7 +5483,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
 
   it('does not charge a whole ordinary ASCII run as REP source', async () => {
     const text = 'a'.repeat(132);
-    expect(await renderCapturedLog(`${text}${ESC}[8000b`)).toBe(`${text}${'a'.repeat(8_000)}`);
+    expect(await renderCapturedLog(`${text}${ESC}[8000b`)).toBe(`${text}${'a'.repeat(8000)}`);
   });
 
   it('does not charge unsupported private REP identities', async () => {
@@ -5558,7 +5492,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
   });
 
   it('bounds cumulative REP expansion from distinct printable graphemes', async () => {
-    const grapheme = `a${'\u0301'.repeat(2_000)}`;
+    const grapheme = `a${'\u0301'.repeat(2000)}`;
     const allocation = grapheme.length * 200;
     expect(allocation).toBeLessThan(TERMINAL_RENDER_MAX_REPEAT_CODE_UNITS);
     expect(allocation * 3).toBeGreaterThan(TERMINAL_RENDER_MAX_REPEAT_CODE_UNITS);
@@ -5674,7 +5608,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
     // This input is below the agent's 128KiB capture ceiling but asks ECH to
     // rewrite almost all of a 100,000-cell row 3,000 times — roughly 300 million
     // assignments in the DO while it is trying to finalize a check run.
-    const hostile = `SECRET${'a'.repeat(99_994)}${ESC}[7G${`${ESC}[999999X`.repeat(3_000)}`;
+    const hostile = `SECRET${'a'.repeat(99_994)}${ESC}[7G${`${ESC}[999999X`.repeat(3000)}`;
     const out = await renderCapturedLog(hostile);
     // Once the budget is spent, fail closed by dropping the modeled row. Ignoring
     // an over-budget erase could resurrect text a real terminal hid.
@@ -5713,7 +5647,7 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
 });
 
 describe('formatLogTailMarkdown sanitizes before measuring', () => {
-  const ESC = '\x1b';
+  const ESC = '\u001b';
 
   it('renders the visible frame, not the erased ones', async () => {
     const spinner = `◒  Uploading${ESC}[1G${ESC}[J◐  Uploading (59/59)${ESC}[1G${ESC}[J◆  Deployed!`;
@@ -5724,13 +5658,15 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
 
   it('keeps diagnostics visible after a tool leaves a wide terminal margin', async () => {
     const margin = ' '.repeat(512);
-    const out = (await formatLogTailMarkdown(
-      [
-        { line: `${ESC}[?25l${margin}build finished`, lineEnding: 'crlf' },
-        { line: `${margin}deploy: output missing`, lineEnding: 'none' },
-      ],
-      2,
-    )) as string;
+    const out = requireLogTail(
+      await formatLogTailMarkdown(
+        [
+          { line: `${ESC}[?25l${margin}build finished`, lineEnding: 'crlf' },
+          { line: `${margin}deploy: output missing`, lineEnding: 'none' },
+        ],
+        2,
+      ),
+    );
     expect(parseFence(out).content).toEqual([
       `${' '.repeat(32)}build finished`,
       `${' '.repeat(32)}deploy: output missing`,
@@ -5738,10 +5674,9 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
   });
 
   it('drops lines that carried nothing but control output', async () => {
-    const out = (await formatLogTailMarkdown(
-      ['real output', `${ESC}[?25h`, 'more output'],
-      3,
-    )) as string;
+    const out = requireLogTail(
+      await formatLogTailMarkdown(['real output', `${ESC}[?25h`, 'more output'], 3),
+    );
     expect(parseFence(out).content).toEqual(['real output', 'more output']);
   });
 
@@ -5754,7 +5689,8 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
     // visible text is 12 chars. Pre-sanitize accounting would blow the content
     // cap and shift out every line before it.
     const flood =
-      Array.from({ length: 20000 }, (_, i) => `frame ${i}${ESC}[1G${ESC}[J`).join('') + 'Deployed!';
+      Array.from({ length: 20_000 }, (_, i) => `frame ${i}${ESC}[1G${ESC}[J`).join('') +
+      'Deployed!';
     expect(flood.length).toBeGreaterThan(CHECK_RUN_LOG_TAIL_MAX_BYTES);
     const out = await formatLogTailMarkdown(['first real line', flood, 'last real line'], 3);
     // The unsafe stateful group makes the later terminal state unknowable. Even
@@ -5766,7 +5702,7 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
     // One 120KB Kitty graphics blob — under pipeStream's 128KB per-line cap, so
     // this arrives intact. Its visible width is zero, but left as text it alone
     // exceeds the tail budget and shifts out every line before it.
-    const blob = `${ESC}_Ga=T,f=100;${'QUJDRA'.repeat(20000)}${ESC}\\`;
+    const blob = `${ESC}_Ga=T,f=100;${'QUJDRA'.repeat(20_000)}${ESC}\\`;
     expect(blob.length).toBeGreaterThan(CHECK_RUN_LOG_TAIL_MAX_BYTES);
     const lines = [...Array.from({ length: 9 }, (_, i) => `[vite] error detail ${i}`), blob];
     const out = await formatLogTailMarkdown(lines, lines.length);
@@ -5783,10 +5719,12 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
       [`${ESC}^`, `${ESC}\\`],
       [`${ESC}_G`, `${ESC}\\`],
     ]) {
-      const out = (await formatLogTailMarkdown(
-        ['first', `before${intro}SECRET`, `MORE${terminator}after`, 'last'],
-        4,
-      )) as string;
+      const out = requireLogTail(
+        await formatLogTailMarkdown(
+          ['first', `before${intro}SECRET`, `MORE${terminator}after`, 'last'],
+          4,
+        ),
+      );
       expect(parseFence(out).content).toEqual(['first', 'beforeafter', 'last']);
       expect(out).not.toContain('SECRET');
       expect(out).not.toContain('MORE');
@@ -5795,10 +5733,12 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
 
   it('preserves parser state for the 8-bit C1 forms across captured rows', async () => {
     for (const intro of ['\u009d0;title=', '\u0090q', '\u0098', '\u009e', '\u009fG']) {
-      const out = (await formatLogTailMarkdown(
-        ['first', `before${intro}SECRET`, 'MORE', `PAYLOAD\u009cafter`, 'last'],
-        5,
-      )) as string;
+      const out = requireLogTail(
+        await formatLogTailMarkdown(
+          ['first', `before${intro}SECRET`, 'MORE', `PAYLOAD\u009cafter`, 'last'],
+          5,
+        ),
+      );
       expect(parseFence(out).content).toEqual(['first', 'beforeafter', 'last']);
       expect(out).not.toContain('SECRET');
       expect(out).not.toContain('MORE');
@@ -5811,7 +5751,7 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
       [`before${ESC}`, '[31mRED'],
       [`before${ESC}[`, '31mRED'],
     ]) {
-      const out = (await formatLogTailMarkdown(lines, lines.length)) as string;
+      const out = requireLogTail(await formatLogTailMarkdown(lines, lines.length));
       expect(parseFence(out).content).toEqual(['before', 'RED']);
       expect(out).not.toContain('31m');
     }
@@ -5819,39 +5759,44 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
 
   it('renders captured newlines without losing CSI state or bare-CR rewrites', async () => {
     const first = { line: `before${ESC}[`, lineEnding: 'cr' as const };
-    const bareCr = (await formatLogTailMarkdown(
-      [first, { line: '31mRED', lineEnding: 'none' }],
-      2,
-    )) as string;
+    const bareCr = requireLogTail(
+      await formatLogTailMarkdown([first, { line: '31mRED', lineEnding: 'none' }], 2),
+    );
     expect(parseFence(bareCr).content).toEqual(['REDore']);
 
-    const bareLf = (await formatLogTailMarkdown(
-      [
-        { ...first, lineEnding: 'lf' as const },
-        { line: '31mRED', lineEnding: 'none' },
-      ],
-      2,
-    )) as string;
+    const bareLf = requireLogTail(
+      await formatLogTailMarkdown(
+        [
+          { ...first, lineEnding: 'lf' as const },
+          { line: '31mRED', lineEnding: 'none' },
+        ],
+        2,
+      ),
+    );
     expect(parseFence(bareLf).content).toEqual(['before', 'RED']);
 
-    const crlf = (await formatLogTailMarkdown(
-      [
-        { ...first, lineEnding: 'crlf' as const },
-        { line: '31mRED', lineEnding: 'none' },
-      ],
-      2,
-    )) as string;
+    const crlf = requireLogTail(
+      await formatLogTailMarkdown(
+        [
+          { ...first, lineEnding: 'crlf' as const },
+          { line: '31mRED', lineEnding: 'none' },
+        ],
+        2,
+      ),
+    );
     expect(parseFence(crlf).content).toEqual(['before', 'RED']);
   });
 
   it('starts plain LF-delimited log lines at column zero', async () => {
-    const out = (await formatLogTailMarkdown(
-      [
-        { line: 'abc', lineEnding: 'lf' },
-        { line: 'X', lineEnding: 'none' },
-      ],
-      2,
-    )) as string;
+    const out = requireLogTail(
+      await formatLogTailMarkdown(
+        [
+          { line: 'abc', lineEnding: 'lf' },
+          { line: 'X', lineEnding: 'none' },
+        ],
+        2,
+      ),
+    );
     expect(parseFence(out).content).toEqual(['abc', 'X']);
   });
 
@@ -5861,36 +5806,41 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
       (_, index) => `${index}: ${'x'.repeat(400)}`,
     );
     expect(lines.join('\n').length).toBeGreaterThan(TERMINAL_TAIL_MAX_INPUT_CODE_UNITS);
-    const out = (await formatLogTailMarkdown(
-      lines.map((line) => ({ line, lineEnding: 'lf' })),
-      lines.length,
-    )) as string;
+    const out = requireLogTail(
+      await formatLogTailMarkdown(
+        lines.map((line) => ({ line, lineEnding: 'lf' })),
+        lines.length,
+      ),
+    );
     expect(parseFence(out).content).toEqual(lines);
   });
 
   it('does not invent a REP source across a captured LF inside CSI', async () => {
-    const grapheme = `a${'\u0301'.repeat(8_200)}`;
-    const out = (await formatLogTailMarkdown(
-      [
-        { line: `${grapheme}${ESC}[`, lineEnding: 'lf' },
-        { line: `128b${ESC}[2K${ESC}[1GERR`, lineEnding: 'none' },
-      ],
-      2,
-    )) as string;
+    const grapheme = `a${'\u0301'.repeat(8200)}`;
+    const out = requireLogTail(
+      await formatLogTailMarkdown(
+        [
+          { line: `${grapheme}${ESC}[`, lineEnding: 'lf' },
+          { line: `128b${ESC}[2K${ESC}[1GERR`, lineEnding: 'none' },
+        ],
+        2,
+      ),
+    );
     expect(parseFence(out).content).toEqual([grapheme, 'ERR']);
   });
 
   it('preserves protection and configured tab stops across parser-ground rows', async () => {
-    const protectedOut = (await formatLogTailMarkdown(
-      [`${ESC}[1"q`, `SECRET${ESC}[?2K`],
-      2,
-    )) as string;
+    const protectedOut = requireLogTail(
+      await formatLogTailMarkdown([`${ESC}[1"q`, `SECRET${ESC}[?2K`], 2),
+    );
     expect(parseFence(protectedOut).content).toEqual(['SECRET']);
 
-    const tabsOut = (await formatLogTailMarkdown(
-      [`${ESC}[3g${ESC}[21G${ESC}H`, `SECRET_TOKEN_ABCDEFG\r\t${ESC}[1K${ESC}[1GERR`],
-      2,
-    )) as string;
+    const tabsOut = requireLogTail(
+      await formatLogTailMarkdown(
+        [`${ESC}[3g${ESC}[21G${ESC}H`, `SECRET_TOKEN_ABCDEFG\r\t${ESC}[1K${ESC}[1GERR`],
+        2,
+      ),
+    );
     expect(parseFence(tabsOut).content).toEqual(['ERR']);
     expect(tabsOut).not.toContain('KEN_ABCDEFG');
   });
@@ -5900,7 +5850,7 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
       ...Array.from({ length: CHECK_RUN_LOG_TAIL_LINES - 1 }, (_, index) => `error ${index}`),
       `${ESC}[31mFAILED${ESC}[0m`,
     ];
-    const out = (await formatLogTailMarkdown(lines, lines.length)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown(lines, lines.length));
     const content = parseFence(out).content;
     expect(content).toHaveLength(CHECK_RUN_LOG_TAIL_LINES);
     expect(content.at(0)).toBe('error 0');
@@ -5908,41 +5858,37 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
   });
 
   it('does not resurrect cached rows cleared by later terminal history controls', async () => {
-    const ris = (await formatLogTailMarkdown([`SECRET${ESC}`, 'cERR'], 2)) as string;
+    const ris = requireLogTail(await formatLogTailMarkdown([`SECRET${ESC}`, 'cERR'], 2));
     expect(parseFence(ris).content).toEqual(['ERR']);
 
-    const ed3 = (await formatLogTailMarkdown(['SECRET', `${ESC}[3JERR`], 2)) as string;
+    const ed3 = requireLogTail(await formatLogTailMarkdown(['SECRET', `${ESC}[3JERR`], 2));
     expect(parseFence(ed3).content).toEqual(['ERR']);
   });
 
   it('keeps captured normal and alternate-buffer histories separate', async () => {
-    const staysAlternate = (await formatLogTailMarkdown(
-      ['SECRET', `${ESC}[?1049hERR`],
-      2,
-    )) as string;
+    const staysAlternate = requireLogTail(
+      await formatLogTailMarkdown(['SECRET', `${ESC}[?1049hERR`], 2),
+    );
     expect(parseFence(staysAlternate).content).toEqual(['ERR']);
 
-    const returnsToNormal = (await formatLogTailMarkdown(
-      ['normal', `${ESC}[?1049hALT${ESC}[3J${ESC}[?1049lERR`],
-      2,
-    )) as string;
+    const returnsToNormal = requireLogTail(
+      await formatLogTailMarkdown(['normal', `${ESC}[?1049hALT${ESC}[3J${ESC}[?1049lERR`], 2),
+    );
     expect(parseFence(returnsToNormal).content).toEqual(['normal', 'ERR']);
 
-    const alternateScroll = (await formatLogTailMarkdown(
-      [`${ESC}[?1049hALT1`, { line: 'ALT2', lineEnding: 'none' }],
-      2,
-    )) as string;
+    const alternateScroll = requireLogTail(
+      await formatLogTailMarkdown([`${ESC}[?1049hALT1`, { line: 'ALT2', lineEnding: 'none' }], 2),
+    );
     expect(parseFence(alternateScroll).content).toEqual(['ALT2']);
 
-    const reentersClearedAlternate = (await formatLogTailMarkdown(
-      [`${ESC}[?1049hOLD`, `${ESC}[?1049l`, `${ESC}[?1049hNEW`],
-      3,
-    )) as string;
+    const reentersClearedAlternate = requireLogTail(
+      await formatLogTailMarkdown([`${ESC}[?1049hOLD`, `${ESC}[?1049l`, `${ESC}[?1049hNEW`], 3),
+    );
     expect(parseFence(reentersClearedAlternate).content).toEqual(['NEW']);
   });
 
   it('does not resurrect a row scrolled away by control input within one capture', async () => {
-    const out = (await formatLogTailMarkdown([`SECRET\u0085ERR`], 1)) as string;
+    const out = requireLogTail(await formatLogTailMarkdown([`SECRET\u0085ERR`], 1));
     expect(parseFence(out).content).toEqual(['ERR']);
   });
 
@@ -5963,7 +5909,7 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
   it('spends the controlled-input budget on newest whole parser groups first', async () => {
     const olderControlled = Array.from(
       { length: 6 },
-      (_, index) => `${ESC}[0mold-${index}-${'x'.repeat(7_000)}`,
+      (_, index) => `${ESC}[0mold-${index}-${'x'.repeat(7000)}`,
     );
     const out = await formatLogTailMarkdown(
       [...olderControlled, `before${ESC}_GSECRET`, `MORE${ESC}\\latest failure`],
@@ -5981,10 +5927,12 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
   });
 
   it('can omit an oversized plain prefix because it cannot mutate terminal state', async () => {
-    const out = (await formatLogTailMarkdown(
-      ['x'.repeat(TERMINAL_TAIL_MAX_INPUT_CODE_UNITS), `${ESC}[31mFAILED${ESC}[0m`],
-      2,
-    )) as string;
+    const out = requireLogTail(
+      await formatLogTailMarkdown(
+        ['x'.repeat(TERMINAL_TAIL_MAX_INPUT_CODE_UNITS), `${ESC}[31mFAILED${ESC}[0m`],
+        2,
+      ),
+    );
     expect(parseFence(out).content).toEqual(['FAILED']);
   });
 });
@@ -6029,10 +5977,10 @@ describe('BuildManager finalizeCheckRun log tail (output.text)', () => {
     await m.startBuild(makeConfig());
     // Finalize resolves the run id from DO storage (create is inert in this file).
     ctx._kv.set('checkRunId', '99001');
-    await (m as unknown as { ingestLines: (lines: Array<LogRow>) => Promise<void> }).ingestLines([
-      { line: 'installing deps', stream: 'stdout', ts: 1 } as unknown as LogRow,
-      { line: 'building app', stream: 'stdout', ts: 2 } as unknown as LogRow,
-      { line: 'deploy complete', stream: 'stdout', ts: 3 } as unknown as LogRow,
+    await m['ingestLines']([
+      { line: 'installing deps', stream: 'stdout', ts: 1 },
+      { line: 'building app', stream: 'stdout', ts: 2 },
+      { line: 'deploy complete', stream: 'stdout', ts: 3 },
     ]);
 
     await m.onStop({ exitCode: 0, reason: 'exit' });
@@ -6065,14 +6013,11 @@ describe('BuildManager finalizeCheckRun log tail (output.text)', () => {
     const m = makeManager(ctx, env);
     await m.startBuild(makeConfig());
     ctx._kv.set('checkRunId', '99001');
-    await (m as unknown as { ingestLines: (lines: Array<LogRow>) => Promise<void> }).ingestLines([
-      { line: 'installing deps', stream: 'stdout', ts: 1 } as unknown as LogRow,
-    ]);
+    await m['ingestLines']([{ line: 'installing deps', stream: 'stdout', ts: 1 }]);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.spyOn(
-      m as unknown as { readLogTailMarkdown: () => Promise<string | null> },
-      'readLogTailMarkdown',
-    ).mockRejectedValue(new Error('sqlite read failed'));
+    m['readLogTailMarkdown'] = vi
+      .fn<BuildManager['readLogTailMarkdown']>()
+      .mockRejectedValue(new Error('sqlite read failed'));
 
     await m.onStop({ exitCode: 0, reason: 'exit' });
 
@@ -6359,10 +6304,10 @@ describe('build-agent shutdown handlers (PID-1 SIGTERM delivery)', () => {
       expect(addedInt).toHaveLength(1);
     } finally {
       for (const l of process.rawListeners('SIGTERM').filter((x) => !beforeTerm.includes(x))) {
-        process.removeListener('SIGTERM', l as (...args: Array<unknown>) => void);
+        process.removeListener('SIGTERM', l);
       }
       for (const l of process.rawListeners('SIGINT').filter((x) => !beforeInt.includes(x))) {
-        process.removeListener('SIGINT', l as (...args: Array<unknown>) => void);
+        process.removeListener('SIGINT', l);
       }
     }
   });
@@ -7070,13 +7015,13 @@ describe('build-agent exit-time log drain barrier', () => {
 
   it('resets the idle deadline while acknowledged progress continues across slow callbacks', async () => {
     let clock = 0;
-    const acknowledgedAt = [7_000, 14_000, 21_000];
+    const acknowledgedAt = [7000, 14_000, 21_000];
     const served = (): number => acknowledgedAt.filter((at) => at <= clock).length;
 
     const drained = await waitForLogDrain({
       timeoutMs: 30_000,
-      idleTimeoutMs: 8_000,
-      pollMs: 1_000,
+      idleTimeoutMs: 8000,
+      pollMs: 1000,
       served,
       recorded: () => acknowledgedAt.length,
       now: () => clock,
@@ -7095,7 +7040,7 @@ describe('build-agent exit-time log drain barrier', () => {
     const drained = await waitForLogDrain({
       timeoutMs: LOG_DRAIN_ABSOLUTE_TIMEOUT_MS,
       idleTimeoutMs: LOG_DRAIN_IDLE_TIMEOUT_MS,
-      pollMs: 1_000,
+      pollMs: 1000,
       served: () => 0,
       recorded: () => 1,
       now: () => clock,
@@ -7111,11 +7056,11 @@ describe('build-agent exit-time log drain barrier', () => {
   it('enforces the non-resettable absolute cap despite continual partial progress', async () => {
     let clock = 0;
     let acknowledged = 0;
-    let nextProgress = 7_000;
+    let nextProgress = 7000;
     const drained = await waitForLogDrain({
       timeoutMs: 20_000,
-      idleTimeoutMs: 8_000,
-      pollMs: 1_000,
+      idleTimeoutMs: 8000,
+      pollMs: 1000,
       served: () => acknowledged,
       recorded: () => 100,
       now: () => clock,
@@ -7123,7 +7068,7 @@ describe('build-agent exit-time log drain barrier', () => {
         clock += ms;
         if (clock >= nextProgress) {
           acknowledged += 1;
-          nextProgress += 7_000;
+          nextProgress += 7000;
         }
       },
     });
@@ -7181,7 +7126,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // cursor only after a SUCCESSFUL parse, so a body too large to read inside
     // LOG_PULL_TIMEOUT_MS is a livelock, not a slow transfer.
     const before = getBufferedLogLines();
-    const since = before.length > 0 ? before[before.length - 1].seq : 0;
+    const since = before.at(-1)?.seq ?? 0;
 
     // Under the OLD accounting these fit one page twice over (2000 x 1048 chars
     // is just under the 2 MiB budget, and the line cap is 2000). Serialized, each
@@ -7206,8 +7151,11 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     const text = await res.text();
 
     // If broken: ~12.6 MB, six times the cap it claims to honour.
-    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_LOG_RESPONSE_BYTES);
-    const body = JSON.parse(text) as { lines: Array<{ seq: number }>; hasMore: boolean };
+    expect(utf8.encode(text).byteLength).toBeLessThanOrEqual(MAX_LOG_RESPONSE_BYTES);
+    const body: unknown = JSON.parse(text);
+    if (!isRecord(body) || !Array.isArray(body.lines)) {
+      throw new Error('Expected a paginated log response');
+    }
     // Still makes progress, and still reports the remainder.
     expect(body.lines.length).toBeGreaterThan(0);
     expect(body.lines.length).toBeLessThan(MAX_LOG_RESPONSE_LINES);
@@ -7222,7 +7170,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // asks for the same backlog and the cursor never moves, until the drain
     // barrier expires and the tail is lost.
     const before = getBufferedLogLines();
-    let since = before.length > 0 ? before[before.length - 1].seq : 0;
+    let since = before.at(-1)?.seq ?? 0;
     const start = since;
 
     // Comfortably past the byte cap: 40 x 128KB.
@@ -7230,7 +7178,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     for (let i = 0; i < 40; i++) {
       record(big, 'stdout');
     }
-    const finalSeq = getBufferedLogLines().slice(-1)[0].seq;
+    const finalSeq = getBufferedLogLines().at(-1)!.seq;
 
     server = await startControlServer(0);
     const address = server.address();
@@ -7240,17 +7188,19 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     const pull = async (
       from: number,
     ): Promise<{ lines: Array<{ seq: number }>; lastSeq: number }> =>
-      (await (await fetch(`http://127.0.0.1:${address.port}/logs?since=${from}`)).json()) as {
+      await (
+        await fetch(`http://127.0.0.1:${address.port}/logs?since=${from}`)
+      ).json<{
         lines: Array<{ seq: number }>;
         lastSeq: number;
-      };
+      }>();
 
     // If broken: one body carries all 40 lines (~5MB) and `lastSeq` jumps
     // straight to the end, so nothing bounds the transfer the DO must finish.
     const first = await pull(since);
     expect(JSON.stringify(first.lines).length).toBeLessThanOrEqual(MAX_LOG_RESPONSE_BYTES * 1.1);
     expect(first.lastSeq).toBeLessThan(finalSeq);
-    expect(first.lastSeq).toBe(first.lines[first.lines.length - 1].seq);
+    expect(first.lastSeq).toBe(first.lines.at(-1)!.seq);
 
     // And repeated pulls converge — each batch strictly advances the cursor.
     let rounds = 0;
@@ -7269,7 +7219,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // The module-level ring is shared across this file's suites, so poll from the
     // current high-water mark rather than 0.
     const before = getBufferedLogLines();
-    const since = before.length > 0 ? before[before.length - 1].seq : 0;
+    const since = before.at(-1)?.seq ?? 0;
 
     // Ephemeral port: the container's fixed 4000 could collide in CI.
     server = await startControlServer(0);
@@ -7290,10 +7240,10 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
 
     const res = await fetch(`http://127.0.0.1:${address.port}/logs?since=${since}`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: Array<{ seq: number; line: string }>;
       lastSeq: number;
-    };
+    }>();
 
     // Without the drain barrier the container exits before the DO's next ~1s
     // poll, so this line would never reach the DO's store or the check run.
@@ -7314,7 +7264,7 @@ describe('build-agent GET /logs serves post-child-close lines', () => {
     // is `lastSeq` verbatim, so it comes back as `since=lastSeq`.
     const ack = await fetch(`http://127.0.0.1:${address.port}/logs?since=${body.lastSeq}`);
     expect(ack.status).toBe(200);
-    const ackBody = (await ack.json()) as { lines: Array<unknown>; lastSeq: number };
+    const ackBody = await ack.json<{ lines: Array<unknown>; lastSeq: number }>();
     expect(ackBody.lines).toEqual([]);
     expect(getAckedLogSeq()).toBe(body.lastSeq);
     await expect(waitForLogDrain({ timeoutMs: 50, pollMs: 5 })).resolves.toBe(true);
@@ -7731,7 +7681,7 @@ describe('build-agent log buffer is bounded', () => {
     // units. Counting code units here would let the ring hold up to 6x this on the
     // wire, which no longer fits what one drain can fetch.
     const retained = buf.reduce(
-      (sum, entry) => sum + Buffer.byteLength(JSON.stringify(entry)) + 1,
+      (sum, entry) => sum + utf8.encode(JSON.stringify(entry)).byteLength + 1,
       0,
     );
     expect(retained).toBeLessThanOrEqual(MAX_BUFFERED_LOG_BYTES);
@@ -7765,7 +7715,7 @@ describe('build-agent log buffer is bounded', () => {
     }
 
     const wire = getBufferedLogLines().reduce(
-      (sum, entry) => sum + Buffer.byteLength(JSON.stringify(entry)) + 1,
+      (sum, entry) => sum + utf8.encode(JSON.stringify(entry)).byteLength + 1,
       0,
     );
     // If broken: ~6x the cap, because only code units were counted.
@@ -7816,8 +7766,10 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
   // Minimal stand-in for the child's stdout/stderr: pipeStream only uses
   // setEncoding (no-op here — we feed strings directly) plus the 'data'/'end'
   // events. Emitting synchronously lets each test assert right after feed().
-  class FakeReadable extends EventEmitter {
-    setEncoding() {}
+  class FakeReadable extends Readable {
+    constructor() {
+      super({ read() {} });
+    }
     feed(...chunks: Array<string>) {
       for (const chunk of chunks) {
         this.emit('data', chunk);
@@ -7833,7 +7785,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
   function capture(run: (src: FakeReadable) => void): Array<string> {
     const before = getBufferedLogLines().length;
     const src = new FakeReadable();
-    pipeStream(src as unknown as NodeJS.ReadableStream, 'stdout');
+    pipeStream(src, 'stdout');
     run(src);
     return getBufferedLogLines()
       .slice(before)
@@ -7843,7 +7795,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
   function captureRows(run: (src: FakeReadable) => void) {
     const before = getBufferedLogLines().length;
     const src = new FakeReadable();
-    pipeStream(src as unknown as NodeJS.ReadableStream, 'stdout');
+    pipeStream(src, 'stdout');
     run(src);
     return getBufferedLogLines().slice(before);
   }
@@ -7853,7 +7805,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
     // in `tail` and records nothing before 'end' — live tail stays empty.
     const src = new FakeReadable();
     const before = getBufferedLogLines().length;
-    pipeStream(src as unknown as NodeJS.ReadableStream, 'stdout');
+    pipeStream(src, 'stdout');
     src.feed('a\rb\rc');
     // The completed frames are recorded on the data event, BEFORE end.
     expect(
@@ -7891,10 +7843,10 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
         '+ vue 3.5.44',
         '+ void 1.1.11',
         '[build-agent] $ void deploy --project example',
-        '\x1b[32m✓ built in 119ms\x1b[0m',
+        '\u001b[32m✓ built in 119ms\u001b[0m',
         'dist/client/index.html  0.57 kB',
         '  at build (build.ts:10:2)',
-        'Uploading 1/2\r\x1b[2K✓ Uploaded 2/2',
+        'Uploading 1/2\r\u001b[2K✓ Uploaded 2/2',
         '╭─ https://example.void.app ─╮',
         '│  2 static assets          │',
         '╰───────────────────────────╯',
@@ -7908,7 +7860,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
         }
         src.end();
       });
-      const out = (await formatLogTailMarkdown(rows, rows.length)) as string;
+      const out = requireLogTail(await formatLogTailMarkdown(rows, rows.length));
       expect(parseFence(out).content).toEqual([
         ...lines.slice(0, 4),
         '✓ built in 119ms',
@@ -7917,14 +7869,14 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
         ...lines.slice(8),
       ]);
       expect(rows[0].lineEnding).toBe(ending === '\n' ? 'lf' : 'crlf');
-      expect(rows.some((row) => row.line.includes('\x1b[32m'))).toBe(true);
+      expect(rows.some((row) => row.line.includes('\u001b[32m'))).toBe(true);
     },
   );
 
   it('classifies a CR at a chunk seam after one-byte lookahead', () => {
     const before = getBufferedLogLines().length;
     const src = new FakeReadable();
-    pipeStream(src as unknown as NodeJS.ReadableStream, 'stdout');
+    pipeStream(src, 'stdout');
     src.feed('torn\r');
     expect(getBufferedLogLines()).toHaveLength(before);
     src.feed('\nrewrite\r');
@@ -7949,7 +7901,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
   it('keeps an over-cap row bounded while its final CR awaits lookahead', () => {
     const before = getBufferedLogLines().length;
     const src = new FakeReadable();
-    pipeStream(src as unknown as NodeJS.ReadableStream, 'stdout');
+    pipeStream(src, 'stdout');
     src.feed(`${'x'.repeat(MAX_PARTIAL_LINE_CHARS * 3)}\r`);
     // The ambiguous row is pending, but only its capped prefix + marker remains.
     expect(getBufferedLogLines()).toHaveLength(before);
@@ -7969,7 +7921,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
     // fix records one truncated line, then drops the rest until a terminator.
     const before = getBufferedLogLines().length;
     const src = new FakeReadable();
-    pipeStream(src as unknown as NodeJS.ReadableStream, 'stdout');
+    pipeStream(src, 'stdout');
     // 12.8 MB of bytes with zero line terminators, fed as 64 KiB chunks.
     for (let i = 0; i < 200; i++) {
       src.feed('y'.repeat(64 * 1024));
@@ -8061,7 +8013,7 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
     // carrying far more CR delimiters than the cap.
     const flood = MAX_PENDING_LOG_LINES * 3 + 11;
     const src = new FakeReadable();
-    pipeStream(src as unknown as NodeJS.ReadableStream, 'stdout');
+    pipeStream(src, 'stdout');
     src.feed('\r'.repeat(flood));
     // Uncapped, every CR would push a row and the batch would grow to `flood`
     // (>> the cap) before any flush.

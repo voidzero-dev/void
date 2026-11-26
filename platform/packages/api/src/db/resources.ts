@@ -11,8 +11,9 @@ import {
   builds,
 } from '../schema.ts';
 import type { Resource } from '../types.ts';
-import { terminateBuildsForProject, type TerminatedBuild } from './builds.ts';
-import { type Db, type DbOrTx } from './client.ts';
+import { terminateBuildsForProject } from './builds.ts';
+import type { TerminatedBuild } from './builds.ts';
+import type { Db, DbOrTx } from './client.ts';
 
 // --- Resources ---
 

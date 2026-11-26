@@ -170,7 +170,7 @@ export const platformAuthSettings = pgTable(
     revision: integer('revision').notNull().default(1),
     admission: jsonb('admission').notNull().$type<PlatformAdmissionPolicy>(),
     protection: jsonb('protection').$type<PlatformAccessProtection>(),
-    session_seconds: integer('session_seconds').notNull().default(2592000),
+    session_seconds: integer('session_seconds').notNull().default(2_592_000),
     sessions_required: boolean('sessions_required').notNull().default(false),
     created_at: timestamp('created_at', { mode: 'string', withTimezone: true })
       .notNull()
@@ -1085,9 +1085,17 @@ export const emailDomains = pgTable(
 // doc 0078, "Recipient policy"). Authoritative here; hot-path readers get a
 // ROUTING KV mirror written by the setting's own writer.
 // ---------------------------------------------------------------------------
+type PlatformSettingValue =
+  | null
+  | string
+  | number
+  | boolean
+  | ReadonlyArray<PlatformSettingValue>
+  | { readonly [key: string]: PlatformSettingValue | undefined };
+
 export const platformSettings = pgTable('platform_settings', {
   key: text('key').primaryKey(),
-  value: jsonb('value').notNull(),
+  value: jsonb('value').$type<PlatformSettingValue>().notNull(),
   updated_at: timestamp('updated_at', { mode: 'string' }).notNull().defaultNow(),
 });
 
@@ -1620,3 +1628,5 @@ export const invitations = pgTable(
 export * from './email/connection-schema.ts';
 
 export * from './email/admission-schema.ts';
+
+export * from './security/schema.ts';

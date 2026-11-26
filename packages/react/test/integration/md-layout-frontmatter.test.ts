@@ -1,12 +1,14 @@
 // The Markdown plugin source needs its ambient module declarations in this package's typecheck.
 // eslint-disable-next-line typescript/triple-slash-reference -- env.d.ts has no exports to import.
 /// <reference path="../../../md/src/env.d.ts" />
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer } from 'vite';
 import { expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from '../../../../test/browser-helpers.ts';
-import { openIslandPage, type IslandPageVisit } from '../../../../test/island-page-browser.ts';
+import { createPackageFixtureDir } from '../../../../test/integration-helpers.ts';
+import { openIslandPage } from '../../../../test/island-page-browser.ts';
+import type { IslandPageVisit } from '../../../../test/island-page-browser.ts';
 import { voidMarkdown } from '../../../md/src/plugin.ts';
 import { islandFrontmatterScript } from '../../../void/src/pages/serialize.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
@@ -21,7 +23,7 @@ type IslandRenderer = {
 };
 
 it('a layout reads the frontmatter of the Markdown page it wraps', async () => {
-  const root = mkdtempSync(join(import.meta.dirname, '__tmp_md_frontmatter_'));
+  const root = createPackageFixtureDir(join(import.meta.dirname, '../..'), '__tmp_md_frontmatter_');
   const pages = join(root, 'pages');
   mkdirSync(pages);
   writeFileSync(
@@ -63,7 +65,10 @@ export default function Layout({ children }) {
 });
 
 it('an island reads the same frontmatter in the browser as on the server', async () => {
-  const root = mkdtempSync(join(import.meta.dirname, '__tmp_md_island_frontmatter_'));
+  const root = createPackageFixtureDir(
+    join(import.meta.dirname, '../..'),
+    '__tmp_md_island_frontmatter_',
+  );
   mkdirSync(join(root, 'pages'));
   mkdirSync(join(root, 'components'));
   writeFileSync(
@@ -109,7 +114,7 @@ export default function Title() {
 });
 
 it('an island that only the Markdown page imports hydrates', async () => {
-  const root = mkdtempSync(join(import.meta.dirname, '__tmp_md_page_island_'));
+  const root = createPackageFixtureDir(join(import.meta.dirname, '../..'), '__tmp_md_page_island_');
   mkdirSync(join(root, 'pages'));
   mkdirSync(join(root, 'components'));
   writeFileSync(

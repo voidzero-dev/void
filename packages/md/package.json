@@ -1,6 +1,6 @@
 {
   "name": "@void/md",
-  "version": "1.9.1",
+  "version": "1.12.0",
   "description": "Markdown pages with layouts and interactive islands for Void.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -38,11 +38,10 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit --rootDir ../.."
+    "typecheck": "tsrs --noEmit --rootDir ../.."
   },
   "dependencies": {
-    "@shikijs/engine-javascript": "catalog:",
-    "@shikijs/transformers": "catalog:",
+    "@pierre/highlights": "catalog:",
     "gray-matter": "^4.0.3",
     "markdown-exit": "catalog:",
     "markdown-it": "^15.0.3",
@@ -52,7 +51,6 @@
     "markdown-it-emoji": "^3.1.0",
     "markdown-it-footnote": "^4.0.0",
     "pathslash": "catalog:",
-    "shiki": "catalog:",
     "tinyglobby": "^0.2.17"
   },
   "devDependencies": {

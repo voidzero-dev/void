@@ -1,13 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'pathslash';
-import {
-  isCSSRequest,
-  normalizePath,
-  type Plugin,
-  type ResolvedConfig,
-  type UserConfig,
-  type ViteDevServer,
-} from 'vite';
+import { isCSSRequest, normalizePath } from 'vite';
+import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from 'vite';
 import { createBoundaryManifest } from './boundary-plans.ts';
 import { findIslandImports, findStaticCssImports } from './island-imports.ts';
 import { toLayoutId } from './layout-resolution.ts';
@@ -31,10 +25,11 @@ export {
 } from './island-imports.ts';
 
 type VoidMdPluginApi = {
+  clientEntryId?: string;
   getClientScripts?(): Map<string, unknown>;
 };
 
-type VoidMdPlugin = {
+export type VoidMdPlugin = {
   name: string;
   api?: VoidMdPluginApi;
 };
@@ -86,6 +81,13 @@ export type IslandManifest = {
    * build may load the islands client entry before their transforms run.
    */
   registerPages(pageScan: PageScanResult, pagesDir: string): void;
+  /**
+   * Regenerate the dev islands client entry when an island is recorded, or an
+   * island file is added or deleted, so the next page load hydrates the
+   * current islands without a server restart. Markdown pages in `pagesDir`
+   * are recorded when they are saved.
+   */
+  configureServer(server: ViteDevServer, pagesDir: string): void;
 };
 
 /** `extensions` are tried, in order, for an island import without one. */
@@ -94,19 +96,35 @@ export function createIslandManifest(
   extensions: ReadonlyArray<string>,
 ): IslandManifest {
   const entries = new Map<string, IslandEntry>();
+  let server: ViteDevServer | null = null;
 
-  function register(
-    specifier: string,
-    importerDir: string,
-    hydrate: string,
-  ): { absPath: string | null; islandId: string } {
+  type RegisteredIsland = { absPath: string | null; islandId: string };
+
+  function register(specifier: string, importerDir: string, hydrate: string): RegisteredIsland {
     const absPath = resolveSpecifier(specifier, importerDir, extensions);
     if (!absPath) {
       return { absPath, islandId: specifier };
     }
     const islandId = normalizePath(relative(root, absPath)).replace(/\.[^.]+$/, '');
+    const isNew = entries.get(islandId)?.componentPath !== absPath;
     entries.set(islandId, { componentPath: absPath, islandId, hydrate });
+    if (isNew && server) {
+      invalidateVirtualModule(server, ISLANDS_CLIENT_ENTRY_ID);
+    }
     return { absPath, islandId };
+  }
+
+  function registerFile(filePath: string): void {
+    let code: string;
+    try {
+      code = readFileSync(filePath, 'utf8');
+    } catch {
+      // Deleted since the scan or watcher event. Its unlink event follows.
+      return;
+    }
+    for (const islandImport of findIslandImports(code, filePath)) {
+      register(islandImport.specifier, dirname(filePath), islandImport.hydrate);
+    }
   }
 
   return {
@@ -122,12 +140,36 @@ export function createIslandManifest(
         if (!entry.island) {
           continue;
         }
-        const filePath = resolve(pagesDir, entry.filePath);
-        const code = readFileSync(filePath, 'utf-8');
-        for (const islandImport of findIslandImports(code, filePath)) {
-          register(islandImport.specifier, dirname(filePath), islandImport.hydrate);
-        }
+        registerFile(resolve(pagesDir, entry.filePath));
       }
+    },
+    configureServer(devServer, pagesDir) {
+      server = devServer;
+      const pagesPrefix = normalizePath(pagesDir) + '/';
+      // The entry skips islands whose file is missing. Regenerate it when a
+      // recorded island file is deleted or comes back.
+      const onIslandFile = (path: string) => {
+        for (const entry of entries.values()) {
+          if (entry.componentPath === path) {
+            invalidateVirtualModule(devServer, ISLANDS_CLIENT_ENTRY_ID);
+            return;
+          }
+        }
+      };
+      // Markdown pages emit their own island wrappers, so no page transform
+      // records their islands. Record them before the page reloads.
+      const onSave = (file: string) => {
+        const path = normalizePath(file);
+        if (path.startsWith(pagesPrefix) && path.endsWith('.md')) {
+          registerFile(path);
+        }
+      };
+      devServer.watcher.on('add', (file: string) => {
+        onIslandFile(normalizePath(file));
+        onSave(file);
+      });
+      devServer.watcher.on('change', onSave);
+      devServer.watcher.on('unlink', (file: string) => onIslandFile(normalizePath(file)));
     },
   };
 }
@@ -274,7 +316,10 @@ export function collectIslandStyles(
   const seen = new Set<string>();
   const pending = [...roots].reverse();
   while (pending.length > 0) {
-    const id = pending.pop()!;
+    const id = pending.pop();
+    if (id === undefined) {
+      break;
+    }
     if (seen.has(id)) {
       continue;
     }
@@ -392,6 +437,12 @@ export type IslandClientEntryOptions = {
 export function generateIslandClientEntry(options: IslandClientEntryOptions): string {
   const uniqueIslands = new Map<string, string>();
   for (const entry of options.manifest.entries.values()) {
+    // A dev edit can delete an island the manifest recorded. Importing its
+    // path would fail the whole entry and stop every other island hydrating.
+    // Keep the entry: the file may come back.
+    if (!existsSync(entry.componentPath)) {
+      continue;
+    }
     uniqueIslands.set(entry.islandId, entry.componentPath);
   }
 
@@ -408,7 +459,7 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
     }
   } else if (!options.isDev) {
     for (const file of options.cssFiles) {
-      const content = readFileSync(file, 'utf-8');
+      const content = readFileSync(file, 'utf8');
       lines.push(...(options.styleBlockImports?.(file, content) ?? []));
       for (const item of findStaticCssImports(content, file)) {
         lines.push(rewriteCssImportForVirtualModule(item.statement, item.specifier, file));
@@ -418,20 +469,16 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
 
   // Without islands, no built page gets this script (see
   // computePagesNeedingClientJS), so the entry only gives the styles a chunk to
-  // link. Dev keeps the runtime: it does not reload this module when a page
-  // gains an island.
+  // link. Dev keeps the runtime so a page that gains its first island hydrates.
   if (!options.needsRuntime && !options.isDev) {
     return lines.join('\n');
   }
 
-  lines.push('import { initIslands } from "void/pages-client";');
-  lines.push('const islands = {');
+  lines.push('import { initIslands } from "void/pages-client";', 'const islands = {');
   for (const [id, path] of uniqueIslands) {
     lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);
   }
-  lines.push('};');
-  lines.push(options.hydrateIsland);
-  lines.push('initIslands(islands, hydrateIsland);');
+  lines.push('};', options.hydrateIsland, 'initIslands(islands, hydrateIsland);');
 
   return lines.join('\n');
 }
@@ -442,7 +489,7 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
  * Use findStaticCssImports to inspect authored imports. Removed in the next major version.
  */
 export function extractCssImports(filePath: string): string {
-  const code = readFileSync(filePath, 'utf-8');
+  const code = readFileSync(filePath, 'utf8');
   return findStaticCssImports(code, filePath)
     .map(({ specifier }) => `@import ${JSON.stringify(specifier)};`)
     .join('\n');
@@ -462,7 +509,7 @@ export function computePagesNeedingClientJS(
       continue;
     }
     const filePath = resolve(pagesDir, layout.filePath);
-    const code = readFileSync(filePath, 'utf-8');
+    const code = readFileSync(filePath, 'utf8');
     if (hasIslandImports(code, filePath)) {
       layoutDirsWithIslands.add(layout.directory);
     }
@@ -480,7 +527,7 @@ export function computePagesNeedingClientJS(
     }
 
     const filePath = resolve(pagesDir, page.componentPath);
-    const code = readFileSync(filePath, 'utf-8');
+    const code = readFileSync(filePath, 'utf8');
     if (hasIslandImports(code, filePath)) {
       result.add(page.componentId);
       continue;
@@ -497,19 +544,21 @@ export function computePagesNeedingClientJS(
 
   const pageIds = new Set(pageScan.pages.map((page) => page.componentId));
   const interactiveLayouts = new Set(
-    [...pageScan.layouts, ...pageScan.namedLayouts]
-      .filter(
-        (layout) =>
+    [...pageScan.layouts, ...pageScan.namedLayouts].flatMap((layout) => {
+      if (
+        !(
           layout.island &&
           hasIslandImports(
             readFileSync(resolve(pagesDir, layout.filePath), 'utf8'),
             layout.filePath,
-          ),
-      )
-      .map((layout) => {
-        const id = toLayoutId(layout);
-        return pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id;
-      }),
+          )
+        )
+      ) {
+        return [];
+      }
+      const id = toLayoutId(layout);
+      return [pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id];
+    }),
   );
   for (const plan of Object.values(createBoundaryManifest(pageScan).plans)) {
     if (plan.layouts.some((id) => interactiveLayouts.has(id))) {
@@ -519,10 +568,23 @@ export function computePagesNeedingClientJS(
   return result;
 }
 
+type PagesRescan = { flush: () => Promise<void> };
+
+/** Make the dev server load a virtual module again on its next request. */
+function invalidateVirtualModule(server: ViteDevServer, id: string): void {
+  for (const env of Object.values(server.environments)) {
+    const mod = env.moduleGraph.getModuleById('\0' + id);
+    if (mod) {
+      env.moduleGraph.invalidateModule(mod);
+    }
+  }
+}
+
 /**
  * Watch the pages directory for structural changes (add/remove) and .md content
  * changes (frontmatter layout field) so that new layouts and named layouts are
- * picked up without a dev server restart.
+ * picked up without a dev server restart. Any other page or layout edit
+ * regenerates the islands renderer, which reads their island imports.
  *
  * Returns a `flush()` function that resolves when any pending rescan completes
  * (useful for tests).
@@ -532,7 +594,7 @@ export function watchPagesForRescan(
   pagesDir: string,
   root: string,
   onRescan: (pageScan: PageScanResult) => void,
-): { flush: () => Promise<void> } {
+): PagesRescan {
   let pending: Promise<void> | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   const normalizedPagesDir = normalizePath(pagesDir);
@@ -555,12 +617,7 @@ export function watchPagesForRescan(
         .then(
           (pageScan) => {
             onRescan(pageScan);
-            for (const env of Object.values(server.environments)) {
-              const mod = env.moduleGraph.getModuleById('\0' + ISLANDS_RENDERER_ID);
-              if (mod) {
-                env.moduleGraph.invalidateModule(mod);
-              }
-            }
+            invalidateVirtualModule(server, ISLANDS_RENDERER_ID);
           },
           () => {
             // The adapter pages plugin runs the same scan on the same events and
@@ -576,8 +633,13 @@ export function watchPagesForRescan(
   server.watcher.on('add', scheduleRescan);
   server.watcher.on('unlink', scheduleRescan);
   server.watcher.on('change', (path) => {
-    if (normalizePath(path).endsWith('.md')) {
+    const normalizedPath = normalizePath(path);
+    if (normalizedPath.endsWith('.md')) {
       scheduleRescan(path);
+    } else if (normalizedPath.startsWith(normalizedPagesDir + '/')) {
+      // The renderer decides from the page and layout sources which pages
+      // need client JavaScript. An edit can add a page's first island.
+      invalidateVirtualModule(server, ISLANDS_RENDERER_ID);
     }
   });
 

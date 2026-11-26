@@ -1,5 +1,6 @@
 import { isrEdgeCacheUrl } from '@void/isr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { Mock } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../../../packages/edge/src/pages-protocol.ts';
 import type { Env } from '../../src/env.ts';
 import app, { rebuildRequest } from '../../src/index.ts';
@@ -11,6 +12,10 @@ import {
   unpackIsrValue,
 } from '../../src/isr.ts';
 import { PLATFORM_DISABLED_KEY } from '../../src/platform-lifecycle.ts';
+import {
+  createMockExecutionContext as createCtx,
+  waitForBackgroundTasks,
+} from '../execution-context.ts';
 
 // Mock caches.default (CF edge cache) with a Map-backed store.
 // Uses full URL as key — callers (isrEdgeCacheKey, hashed asset code) already normalize.
@@ -65,10 +70,6 @@ type RoutingEntry = {
   };
 };
 
-function createCtx(): ExecutionContext {
-  return { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
-}
-
 // `Headers.getSetCookie()` exists on the Workers runtime but is missing from
 // `@cloudflare/workers-types` — reach it through a narrow cast (mirrors the
 // `readSetCookies` helper in src/index.ts).
@@ -120,7 +121,7 @@ function createEnv(options: {
   workerFetchImpl?: () => Promise<Response>;
 }): {
   env: Env;
-  workerFetch: ReturnType<typeof vi.fn>;
+  workerFetch: Mock<(request: Request) => Promise<Response>>;
   dispatchGet: ReturnType<typeof vi.fn>;
   kvStore: Map<
     string,
@@ -132,7 +133,7 @@ function createEnv(options: {
   analyticsWrites: Array<unknown>;
   logWrites: Array<unknown>;
 } {
-  const workerFetch = vi.fn(
+  const workerFetch = vi.fn<(request: Request) => Promise<Response>>(
     async () => options.workerFetchImpl?.() ?? options.workerResponse ?? new Response('worker'),
   );
   const kvStore = new Map<
@@ -186,8 +187,10 @@ function createEnv(options: {
       },
       list: async (opts: { prefix: string; limit?: number }) => {
         const all = [...kvStore.keys()]
-          .map((key) => `isr-cache/${key}`)
-          .filter((key) => key.startsWith(opts.prefix))
+          .flatMap((key) => {
+            const mappedKey = `isr-cache/${key}`;
+            return mappedKey.startsWith(opts.prefix) ? [mappedKey] : [];
+          })
           .sort();
         const limit = opts.limit ?? 1000;
         const slice = all.slice(0, limit);
@@ -320,7 +323,7 @@ describe('dispatch fetch handler', () => {
 
     expect(workerFetch).toHaveBeenCalledOnce();
     // The forwarded request should have no body and no stale body-size headers
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.method).toBe('POST');
     expect(forwarded.bodyUsed).toBe(false);
     expect(forwarded.headers.has('content-length')).toBe(false);
@@ -515,9 +518,7 @@ describe('ISR (stale-while-revalidate)', () => {
       documentCtx,
     );
     expect(await document.text()).toBe('<html>document</html>');
-    await Promise.all(
-      (documentCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
-    );
+    await waitForBackgroundTasks(documentCtx);
 
     const data = await app.fetch(
       new Request('https://my-app.void.app/dashboard', { headers: { Accept: 'application/json' } }),
@@ -546,7 +547,7 @@ describe('ISR (stale-while-revalidate)', () => {
       ctx,
     );
     expect(await response.json()).toEqual({ data: true });
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(kvStore.has('proj_1/isr/v3/legacy/my-app.void.app/dashboard')).toBe(false);
   });
 
@@ -577,7 +578,7 @@ describe('ISR (stale-while-revalidate)', () => {
       ctx,
     );
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(kvStore.has(key)).toBe(false);
   });
 
@@ -602,7 +603,7 @@ describe('ISR (stale-while-revalidate)', () => {
     expect(await response.text()).toBe('<html>rendered</html>');
 
     // Wait for background write
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(kvStore.has('proj_1/isr/v3/legacy/my-app.void.app/dashboard')).toBe(true);
   });
 
@@ -625,7 +626,7 @@ describe('ISR (stale-while-revalidate)', () => {
     });
     const ctx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/docs/setup/install'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     // no ISR entry written for the shadowed specific page
     expect([...kvStore.keys()].some((k) => k.includes('/docs/setup/install'))).toBe(false);
   });
@@ -677,7 +678,7 @@ describe('ISR (stale-while-revalidate)', () => {
     });
     const ctx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/docs/a/b'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect([...kvStore.keys()].some((k) => k.includes('/docs/a/b'))).toBe(true);
   });
 
@@ -695,7 +696,7 @@ describe('ISR (stale-while-revalidate)', () => {
     });
     const ctx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/api/thing'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect([...kvStore.keys()].some((k) => k.includes('/api/thing'))).toBe(false);
   });
 
@@ -713,7 +714,7 @@ describe('ISR (stale-while-revalidate)', () => {
     });
     const ctx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/robots.txt'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect([...kvStore.keys()].some((k) => k.includes('robots.txt'))).toBe(false);
   });
 
@@ -732,7 +733,7 @@ describe('ISR (stale-while-revalidate)', () => {
     });
     const ctx = createCtx();
     const response = await app.fetch(new Request('https://my-app.void.app/feed.xml'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Genuine ISR miss render — NOT the static 1-year edge cache path.
     expect(response.headers.get('x-isr-cache')).toBe('MISS');
@@ -771,7 +772,7 @@ describe('ISR (stale-while-revalidate)', () => {
       env,
       ctx1,
     );
-    await Promise.all((ctx1.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx1);
     expect(first.headers.get('x-isr-cache')).toBe('MISS');
     expect([...kvStore.keys()].some((k) => k.includes('/blog/release.v2'))).toBe(true);
     // Never diverted to the `?_v=<version>` 1-year static edge key.
@@ -797,7 +798,7 @@ describe('ISR (stale-while-revalidate)', () => {
     // → 0 (per-path opt-out, rendered live, never cached). This proves the
     // pathRevalidate field is threaded through the ISR ladder end-to-end — the
     // per-path fidelity that build-time baking (one TTL per page) cannot give.
-    const { env, workerFetch, kvStore } = createEnv({
+    const { env, kvStore } = createEnv({
       routing: {
         workerName: 'user-app',
         projectId: 'proj_1',
@@ -814,14 +815,14 @@ describe('ISR (stale-while-revalidate)', () => {
     // `/blog/other` → per-path 3600 → ISR MISS render + KV write.
     const ctx1 = createCtx();
     const other = await app.fetch(new Request('https://my-app.void.app/blog/other'), env, ctx1);
-    await Promise.all((ctx1.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx1);
     expect(other.headers.get('x-isr-cache')).toBe('MISS');
     expect([...kvStore.keys()].some((k) => k.includes('/blog/other'))).toBe(true);
 
     // `/blog/private` → per-path 0 opt-out → rendered live, NOT ISR-cached.
     const ctx2 = createCtx();
     const priv = await app.fetch(new Request('https://my-app.void.app/blog/private'), env, ctx2);
-    await Promise.all((ctx2.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx2);
     expect(priv.headers.get('x-isr-cache')).toBeNull();
     expect([...kvStore.keys()].some((k) => k.includes('/blog/private'))).toBe(false);
   });
@@ -843,7 +844,7 @@ describe('ISR (stale-while-revalidate)', () => {
     // Request 1: MISS → render + cache in KV.
     const ctx1 = createCtx();
     const first = await app.fetch(new Request('https://my-app.void.app/feed.xml'), env, ctx1);
-    await Promise.all((ctx1.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx1);
     expect(first.headers.get('x-isr-cache')).toBe('MISS');
     expect(workerFetch).toHaveBeenCalledOnce();
     expect([...kvStore.keys()].some((k) => k.includes('feed.xml'))).toBe(true);
@@ -992,7 +993,7 @@ describe('ISR (stale-while-revalidate)', () => {
 
       // No ISR write ran, and the seeded full-body entry is untouched — the 206
       // never poisoned the shared slot.
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       const seeded = kvStore.get('proj_1/isr/v3/legacy/my-app.void.app/dashboard');
       expect(seeded).toBeDefined();
       const unpacked = unpackIsrValue(seeded!.value);
@@ -1023,7 +1024,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(await response.text()).toBe('<html>partial</html>');
 
       // A 206 partial body must never enter the shared full-response cache.
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(kvStore.has('proj_1/isr/v3/legacy/my-app.void.app/dashboard')).toBe(false);
     });
 
@@ -1049,7 +1050,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.headers.get('x-isr-cache')).toBe('MISS');
       expect(await response.text()).toBe('<html>full-200</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       const cached = kvStore.get('proj_1/isr/v3/legacy/my-app.void.app/dashboard');
       expect(cached).toBeDefined();
       expect(cached!.metadata.s).toBe(200);
@@ -1076,7 +1077,7 @@ describe('ISR (stale-while-revalidate)', () => {
 
     expect(workerFetch).toHaveBeenCalledOnce();
     expect(await response.text()).toBe('<html>no-cache</html>');
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(kvStore.has('proj_1/isr/v3/legacy/my-app.void.app/dashboard')).toBe(false);
   });
 
@@ -1128,7 +1129,7 @@ describe('ISR (stale-while-revalidate)', () => {
     expect(response.headers.get('x-isr-cache')).toBe('MISS');
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     const edgeCached = edgeCacheStore.get('https://my-app.void.app/dashboard?__void_isr=legacy');
     expect(edgeCached?.headers.get('Cache-Control')).toBe(
       'public, s-maxage=60, max-age=0, must-revalidate',
@@ -1164,7 +1165,7 @@ describe('ISR (stale-while-revalidate)', () => {
       'sid=user-1; Path=/; HttpOnly',
       'csrf=tok-1; Path=/',
     ]);
-    await Promise.all((firstCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(firstCtx);
 
     const secondCtx = createCtx();
     const second = await app.fetch(
@@ -1177,9 +1178,7 @@ describe('ISR (stale-while-revalidate)', () => {
       'sid=user-2; Path=/; HttpOnly',
       'csrf=tok-2; Path=/',
     ]);
-    await Promise.all(
-      (secondCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
-    );
+    await waitForBackgroundTasks(secondCtx);
 
     expect(workerFetch).toHaveBeenCalledTimes(2);
     expect(kvStore.has('proj_1/isr/v3/legacy/my-app.void.app/dashboard')).toBe(false);
@@ -1216,7 +1215,7 @@ describe('ISR (stale-while-revalidate)', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
 
     // Wait for background revalidation
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
     // KV entry should be deleted after x-revalidate: 0
     expect(kvStore.has('proj_1/isr/v3/legacy/my-app.void.app/dashboard')).toBe(false);
@@ -1252,10 +1251,10 @@ describe('ISR (stale-while-revalidate)', () => {
 
     // Revalidation and any allowed stale re-warm share one ordered task, so a
     // privacy eviction cannot race a separate stale cache put.
-    expect((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect(ctx.waitUntil.mock.calls.length).toBe(1);
 
     // Wait for background write
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
   });
 
@@ -1340,7 +1339,7 @@ describe('ISR (stale-while-revalidate)', () => {
     expect(response.headers.get('x-isr-cache')).toBe('MISS');
     expect(await response.text()).toBe('<html>fresh</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(kvStore.has('proj_1/isr/v3/dpl_new/my-app.void.app/dashboard')).toBe(true);
     expect(edgeCacheStore.has('https://my-app.void.app/dashboard?__void_isr=dpl_new')).toBe(true);
   });
@@ -1372,7 +1371,7 @@ describe('ISR (stale-while-revalidate)', () => {
     expect(await response.text()).toBe('<html>r2-cached</html>');
 
     // Wait for edge cache population
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     const edgeCached = edgeCacheStore.get('https://my-app.void.app/dashboard?__void_isr=legacy');
     expect(edgeCached).toBeDefined();
     expect(edgeCached!.headers.get('Cache-Control')).toContain('s-maxage=');
@@ -1446,7 +1445,7 @@ describe('ISR (stale-while-revalidate)', () => {
     for (const query of ['', '?cb=0', '?cb=1', '?cb=2']) {
       const ctx = createCtx();
       await app.fetch(new Request(`https://my-app.void.app/docs${query}`), env, ctx);
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
     }
 
     // The clean request renders + writes; later requests hit the same KV
@@ -1474,7 +1473,7 @@ describe('ISR (stale-while-revalidate)', () => {
     const send = async (url: string) => {
       const ctx = createCtx();
       await app.fetch(new Request(url), env, ctx);
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
     };
 
     await send('https://my-app.void.app/search?q=void');
@@ -1489,9 +1488,6 @@ describe('ISR (stale-while-revalidate)', () => {
   });
 
   describe('query params outside the allowlist', () => {
-    const settle = async (ctx: ExecutionContext) => {
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
-    };
     // The page reflects `msg`, which no allowlist names.
     const renderMsg = async (request: Request) =>
       new Response(`<html>${new URL(request.url).searchParams.get('msg') ?? 'clean'}</html>`, {
@@ -1521,7 +1517,7 @@ describe('ISR (stale-while-revalidate)', () => {
         env,
         poisonedCtx,
       );
-      await settle(poisonedCtx);
+      await waitForBackgroundTasks(poisonedCtx);
       // Rendered live from the full URL for this visitor, but never shared.
       expect(await poisoned.text()).toBe('<html>evil</html>');
       expect(kvStore.size).toBe(0);
@@ -1529,7 +1525,7 @@ describe('ISR (stale-while-revalidate)', () => {
 
       const cleanCtx = createCtx();
       const clean = await app.fetch(new Request(`https://my-app.void.app${source}`), env, cleanCtx);
-      await settle(cleanCtx);
+      await waitForBackgroundTasks(cleanCtx);
       expect(clean.headers.get('x-isr-cache')).toBe('MISS');
       expect(await clean.text()).toBe('<html>clean</html>');
       expect([...kvStore.keys()]).toEqual([
@@ -1594,10 +1590,10 @@ describe('ISR (stale-while-revalidate)', () => {
       );
       expect(response.headers.get('x-isr-cache')).toBe('STALE');
       expect(await response.text()).toBe('<html>stale</html>');
-      await settle(ctx);
+      await waitForBackgroundTasks(ctx);
 
       expect(workerFetch).toHaveBeenCalledOnce();
-      const refresh = workerFetch.mock.calls[0]![0] as Request;
+      const refresh = workerFetch.mock.calls[0][0];
       expect(refresh.url).toBe(`https://my-app.void.app/blog/post${search}`);
       expect(refresh.headers.get('X-Test-Marker')).toBe('keep');
       expect(refresh.headers.get('X-Void-Original-URL')).toBe(
@@ -1612,7 +1608,7 @@ describe('ISR (stale-while-revalidate)', () => {
     const send = async (env: Env, path: string) => {
       const ctx = createCtx();
       const response = await app.fetch(new Request(`https://my-app.void.app${path}`), env, ctx);
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       return response;
     };
     // The page reflects `q`.
@@ -1712,15 +1708,11 @@ describe('ISR (stale-while-revalidate)', () => {
 
     const directCtx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/en/docs'), env, directCtx);
-    await Promise.all(
-      (directCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
-    );
+    await waitForBackgroundTasks(directCtx);
 
     const rewriteCtx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/docs'), env, rewriteCtx);
-    await Promise.all(
-      (rewriteCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
-    );
+    await waitForBackgroundTasks(rewriteCtx);
 
     // Worker invoked once per request — neither saw a cached entry written by
     // the other, because the KV keys carry a rewrite-variant suffix.
@@ -1729,7 +1721,7 @@ describe('ISR (stale-while-revalidate)', () => {
     const keys = [...kvStore.keys()].sort();
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe('proj_1/isr/v3/legacy/my-app.void.app/en/docs');
-    expect(keys[1]!.startsWith('proj_1/isr/v3/legacy/my-app.void.app/en/docs#rw=')).toBe(true);
+    expect(keys[1].startsWith('proj_1/isr/v3/legacy/my-app.void.app/en/docs#rw=')).toBe(true);
   });
 
   // Fallback-write ISR hole: on an ISR miss a fallback rule can rewrite a page
@@ -1774,7 +1766,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(await response.text()).toBe('{"secret":"api-only"}');
       expect(response.headers.get('x-isr-cache')).toBeNull();
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
 
       // ...but is never written into the ISR cache under the page URL.
       expect(kvStore.has('proj_1/isr/v3/legacy/my-app.void.app/dashboard')).toBe(false);
@@ -1822,7 +1814,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('<html>spa shell</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       // ...but is never written into the ISR cache under the page URL (any variant).
       const written = [...kvStore.keys()].filter((k) =>
         k.startsWith('proj_1/isr/v3/legacy/my-app.void.app/dashboard'),
@@ -1870,7 +1862,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('{"user":"per-caller-session"}');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       // ...but is NEVER written into the ISR cache under any /dashboard key.
@@ -1912,7 +1904,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('<html>account of caller-A</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       // ...but is NEVER written into the ISR cache under any /dashboard key.
@@ -1972,7 +1964,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.headers.get('x-isr-cache')).toBe('STALE');
       expect(await response.text()).toBe('<html>stale-page</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       // The /account.html body must NOT overwrite the page entry, and the entry must
@@ -2019,7 +2011,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('<html>fallback page</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       // ...but is never written into the ISR cache under the page URL (any variant).
       const written = [...kvStore.keys()].filter((k) =>
         k.startsWith('proj_1/isr/v3/legacy/my-app.void.app/dashboard'),
@@ -2083,7 +2075,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.headers.get('x-isr-cache')).toBe('STALE');
       expect(await response.text()).toBe('<html>stale-page</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       // The API fallback body must NOT overwrite the page's ISR entry — the stale
@@ -2129,7 +2121,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('{"data":"per-user"}');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       // ...but is NEVER written into the ISR cache under any /dashboard key.
@@ -2189,7 +2181,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.headers.get('x-isr-cache')).toBe('STALE');
       expect(await response.text()).toBe('<html>stale-page</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       // The /graphql body must NOT overwrite the page entry, and the entry must NOT
@@ -2233,7 +2225,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('<html>catch page</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       // The declared-page fallback IS cached under the ORIGINAL /dashboard page URL
       // (a fallback rule matches, so the key carries a `#rw=` variant suffix).
       const pageKey = [...kvStore.keys()].find((k) =>
@@ -2278,7 +2270,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('{"data":"per-user"}');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       const written = [...kvStore.keys()].filter((k) =>
@@ -2319,7 +2311,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('<html>per-user graphql</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       const written = [...kvStore.keys()].filter((k) =>
@@ -2365,7 +2357,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('<html>per-user graphql</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       const written = [...kvStore.keys()].filter((k) =>
@@ -2419,7 +2411,7 @@ describe('ISR (stale-while-revalidate)', () => {
       expect(response.headers.get('x-isr-cache')).toBe('STALE');
       expect(await response.text()).toBe('<html>stale-page</html>');
 
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(workerFetch).toHaveBeenCalled();
 
       // The /graphql body must NOT overwrite the page entry, and the entry must NOT
@@ -2474,7 +2466,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('<html>rendered</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalled();
 
     // ...but a `no-store` response must never be written into the ISR cache
@@ -2523,7 +2515,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('<html>rendered</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     // ...but NEVER written into the ISR cache under any `/dashboard` key — the
     // fallback target is not a positively identified declared literal page.
     const written = [...kvStore.keys()].filter((k) =>
@@ -2567,7 +2559,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('<html>dynamic-per-request</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalled();
 
     // ...but is NEVER written into the ISR cache under any `/graphql` key.
@@ -2608,7 +2600,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('<html>rendered</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     const pageKey = [...kvStore.keys()].find((k) =>
       k.startsWith('proj_1/isr/v3/legacy/my-app.void.app/catch'),
     );
@@ -2649,7 +2641,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('{"data":"per-request"}');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalled();
 
     // ...but a `private` response must never enter the ISR cache under the page
@@ -2681,7 +2673,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     const response = await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
     expect(response.status).toBe(200);
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     const written = [...kvStore.keys()].filter((k) =>
       k.startsWith('proj_1/isr/v3/legacy/my-app.void.app/dashboard'),
     );
@@ -2737,7 +2729,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale-public</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // Every cached representation of the now-private page is gone: R2/KV, the
@@ -2786,8 +2778,8 @@ describe('ISR respects response Cache-Control opt-out', () => {
     const ctx = createCtx();
     const response = await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
-    expect((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    expect(ctx.waitUntil.mock.calls).toHaveLength(1);
+    await waitForBackgroundTasks(ctx);
 
     expect(kvStore.has(kvKey)).toBe(false);
     expect(edgeCacheStore.has(htmlEdgeKey)).toBe(false);
@@ -2821,7 +2813,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     const response = await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // Entry is REFRESHED in place — still present, now with the fresh body.
@@ -2875,7 +2867,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // All three cached representations REMAIN: R2/KV, HTML edge (populated by the
@@ -2951,7 +2943,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     // Worker called twice: original page (404) + fallback `/api/data` (200).
     expect(workerFetch).toHaveBeenCalledTimes(2);
 
@@ -3002,7 +2994,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     const response = await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // Every cached representation is gone: R2/KV, HTML edge, JSON edge.
@@ -3058,7 +3050,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // Only ~60s STALE — well within the grace measured from stale-onset. All three
@@ -3134,7 +3126,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale-removed</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalled();
 
     // Past the grace with no way to refresh → all three representations evicted.
@@ -3192,7 +3184,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // Past the grace, but the origin returned 500 (not 404/410) → the stale entry is
@@ -3229,7 +3221,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // Past the grace but a transient 429 (not 404/410) → entry preserved.
@@ -3290,7 +3282,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
     expect(await response.text()).toBe('<html>stale-transient</html>');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalled();
 
     // Within the grace → nothing evicted; all three representations remain.
@@ -3329,7 +3321,7 @@ describe('ISR respects response Cache-Control opt-out', () => {
     const response = await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // Entry is REFRESHED in place — still present, now with the fresh body (the write
@@ -3413,6 +3405,170 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     expect(await response.json()).toEqual(JSON.parse(pageData));
   });
 
+  it('pages request ignores a JSON edge entry rendered by another build', async () => {
+    edgeCacheStore.set(
+      'https://my-app.void.app/dashboard?__void=json&__void_isr=legacy',
+      currentSharedCacheResponse(
+        new Response(pageData, {
+          headers: {
+            'content-type': 'application/json',
+            'x-isr-cache': 'HIT',
+            'X-VoidPages-Build': 'build-1',
+          },
+        }),
+      ),
+    );
+
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageData, {
+        headers: { 'content-type': 'application/json', 'X-VoidPages-Build': 'build-2' },
+      }),
+    });
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-2',
+        },
+      }),
+      env,
+      createCtx(),
+    );
+
+    // The entry holds props this client cannot render, so the app answers.
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+    // Clients of the build that rendered it can still use it.
+    expect(
+      edgeCacheStore.has('https://my-app.void.app/dashboard?__void=json&__void_isr=legacy'),
+    ).toBe(true);
+  });
+
+  it('stores the build of an HTML render with its JSON entry, so that build hits it', async () => {
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageHtml(), {
+        headers: { 'Content-Type': 'text/html', 'X-VoidPages-Build': 'build-2' },
+      }),
+    });
+    const documentCtx = createCtx();
+    await app.fetch(new Request('https://my-app.void.app/dashboard'), env, documentCtx);
+    await waitForBackgroundTasks(documentCtx);
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-2',
+        },
+      }),
+      env,
+      createCtx(),
+    );
+
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+    expect(await response.json()).toEqual(JSON.parse(pageData));
+  });
+
+  it('evicts cached HTML when a Pages answer opts out of sharing', async () => {
+    const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
+    edgeCacheStore.set(
+      htmlKey,
+      currentSharedCacheResponse(
+        new Response(pageHtml(), { headers: { 'Content-Type': 'text/html' } }),
+      ),
+    );
+    const { env } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageData, {
+        headers: {
+          'content-type': 'application/json',
+          'X-VoidPages': 'true',
+          'Cache-Control': 'no-store',
+        },
+      }),
+    });
+    const ctx = createCtx();
+
+    await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      }),
+      env,
+      ctx,
+    );
+    await waitForBackgroundTasks(ctx);
+
+    expect(edgeCacheStore.has(htmlKey)).toBe(false);
+  });
+
+  it.each([
+    [
+      'keeps',
+      'the reload response for a client from another build',
+      'build-2',
+      'text/plain; charset=utf-8',
+      true,
+    ],
+    [
+      'evicts',
+      'an ordinary answer that opts out of sharing',
+      null,
+      'text/plain; charset=utf-8',
+      false,
+    ],
+    [
+      'evicts',
+      'a rendered page from another build that opts out of sharing',
+      'build-2',
+      'text/html',
+      false,
+    ],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, contentType, kept) => {
+    const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
+    edgeCacheStore.set(
+      htmlKey,
+      currentSharedCacheResponse(
+        new Response(pageHtml(), { headers: { 'Content-Type': 'text/html' } }),
+      ),
+    );
+
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(null, {
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': contentType,
+          ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
+        },
+      }),
+    });
+    const ctx = createCtx();
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-1',
+        },
+      }),
+      env,
+      ctx,
+    );
+    await waitForBackgroundTasks(ctx);
+
+    // A reload answer belongs to one stale tab; other tabs still hold this HTML.
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(edgeCacheStore.has(htmlKey)).toBe(kept);
+  });
+
   it('pages request falls through to worker on JSON cache miss', async () => {
     const { env, workerFetch } = createEnv({
       routing: isrRouting,
@@ -3455,15 +3611,13 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     expect(await response.text()).toBe(pageHtml());
 
     // Wait for background writes
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
-    // HTML edge cache populated
     const htmlCached = edgeCacheStore.get('https://my-app.void.app/dashboard?__void_isr=legacy');
     expect(htmlCached).toBeDefined();
     expect(htmlCached!.headers.get('Cache-Control')).toBe(
       'public, s-maxage=60, max-age=0, must-revalidate',
     );
-    // JSON edge cache populated
     const jsonCached = edgeCacheStore.get(
       'https://my-app.void.app/dashboard?__void=json&__void_isr=legacy',
     );
@@ -3494,7 +3648,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     const ctx = createCtx();
     const first = await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
     expect(first.headers.get('x-isr-cache')).toBe('MISS');
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // No edge cache reset: both follow-up requests are served from the edge copy.
     const html = await app.fetch(
@@ -3540,7 +3694,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     expect(response.headers.get('x-isr-cache')).toBe('STALE');
 
     // Wait for background revalidation
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // JSON edge cache populated from revalidation
@@ -3575,10 +3729,10 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
 
     // Wait for background revalidation
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Verify the revalidation request does NOT have X-VoidPages
-    const revalRequest = workerFetch.mock.calls[0][0] as Request;
+    const revalRequest = workerFetch.mock.calls[0][0];
     expect(revalRequest.headers.has('X-VoidPages')).toBe(false);
   });
 
@@ -3610,7 +3764,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
 
     // Wait for background revalidation
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
     expect(workerFetch).toHaveBeenCalledOnce();
 
     // JSON edge cache should be deleted
@@ -3656,7 +3810,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     const ctx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // HTML cache is populated, but no JSON cache
     expect(edgeCacheStore.has('https://my-app.void.app/dashboard?__void_isr=legacy')).toBe(true);
@@ -3678,7 +3832,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     const ctx = createCtx();
     await app.fetch(new Request('https://my-app.void.app/dashboard'), env, ctx);
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     expect(
       edgeCacheStore.has('https://my-app.void.app/dashboard?__void=json&__void_isr=legacy'),
@@ -3816,7 +3970,7 @@ describe('hashed asset caching', () => {
     expect(res1.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
 
     // Wait for background cache.put
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Second request — cache hit, worker NOT invoked
     const ctx2 = createCtx();
@@ -3835,9 +3989,7 @@ describe('hashed asset caching', () => {
     expect(await (await app.fetch(new Request(url), previous.env, previousCtx)).text()).toBe(
       'evil',
     );
-    await Promise.all(
-      (previousCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
-    );
+    await waitForBackgroundTasks(previousCtx);
     expect(edgeCacheStore.size).toBe(1);
 
     const next = createEnv({
@@ -3870,7 +4022,7 @@ describe('hashed asset caching', () => {
     expect(await res.text()).toBe('fresh');
     expect(workerFetch).toHaveBeenCalledTimes(1);
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const replacement = edgeCacheStore.get('https://test.void.app/assets/stale.js?_p=proj-1');
     expect(replacement?.headers.get(SHARED_CACHE_POLICY_HEADER)).toBe(
@@ -3991,7 +4143,7 @@ describe('hashed asset caching', () => {
     expect(res.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledTimes(1);
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     expect(edgeCacheStore.has('https://test.void.app/assets/logo-abc123.png?_p=proj-1')).toBe(true);
     expect(edgeCacheStore.has('https://test.void.app/logo?_p=proj-1')).toBe(false);
@@ -4015,7 +4167,7 @@ describe('hashed asset caching', () => {
     expect(res1.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledTimes(1);
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Second request with different query string — should still be a cache hit
     const ctx2 = createCtx();
@@ -4049,7 +4201,7 @@ describe('hashed asset caching', () => {
     const first = await app.fetch(new Request(url), env, firstCtx);
     expect(await first.text()).toBe('user-1');
     expect(first.headers.get('Set-Cookie')).toContain('sid=user-1');
-    await Promise.all((firstCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(firstCtx);
 
     const second = await app.fetch(new Request(url), env, createCtx());
     expect(await second.text()).toBe('user-2');
@@ -4077,7 +4229,7 @@ describe('hashed asset caching', () => {
       firstCtx,
     );
     expect(await first.text()).toBe('user-1');
-    await Promise.all((firstCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(firstCtx);
 
     const secondCtx = createCtx();
     const second = await app.fetch(
@@ -4187,7 +4339,7 @@ describe('header rules', () => {
     // the immutable Cache-Control survives alongside the custom header.
     expect(res1.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Second request — cache hit, header rules still apply on the way out
     const ctx2 = createCtx();
@@ -4232,7 +4384,7 @@ describe('header rules', () => {
     expect(miss.headers.get('Cross-Origin-Embedder-Policy')).toBe('require-corp');
     expect(miss.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const ctx2 = createCtx();
     const hit = await app.fetch(new Request(url), env, ctx2);
@@ -4271,7 +4423,7 @@ describe('header rules', () => {
     expect(miss.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
     expect(miss.headers.get('X-Custom')).toBe('from-rules'); // additive header survives
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Cache hit — same protection on the way out of the edge cache.
     const ctx2 = createCtx();
@@ -4344,7 +4496,7 @@ describe('header rules', () => {
     // ...while the additive isolation header still applies.
     expect(miss.headers.get('Cross-Origin-Embedder-Policy')).toBe('require-corp');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Cache hit — same protection on the way out of the edge cache.
     const ctx2 = createCtx();
@@ -4383,7 +4535,7 @@ describe('header rules', () => {
     expect(miss.headers.get('Clear-Site-Data')).toBeNull();
     expect(miss.headers.get('Cross-Origin-Embedder-Policy')).toBe('require-corp');
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const ctx2 = createCtx();
     const hit = await app.fetch(new Request(url), env, ctx2);
@@ -4687,6 +4839,18 @@ describe('queue relay', () => {
     expect(batch.ackAll).toHaveBeenCalledOnce();
     expect(batch.retryAll).not.toHaveBeenCalled();
   });
+  it('retries a batch when its stored queue route is malformed', async () => {
+    const batch = createMockBatch('test-queue', [{ id: 'm1', body: 'hello' }]);
+    const { env, dispatchGet } = createQueueEnv({
+      routingRaw: JSON.stringify({ workerName: 'user-app', queueName: 42 }),
+    });
+
+    await app.queue(batch, env);
+
+    expect(batch.retryAll).toHaveBeenCalledOnce();
+    expect(batch.ackAll).not.toHaveBeenCalled();
+    expect(dispatchGet).not.toHaveBeenCalled();
+  });
 
   it('retries all on legacy protocol (ok: false)', async () => {
     const routing = JSON.stringify({ workerName: 'user-app', queueName: 'emails' });
@@ -4764,7 +4928,6 @@ describe('queue relay', () => {
 
     await app.queue(batch, env);
 
-    // Individual ack decision applied
     expect(batch.messages[0].ack).toHaveBeenCalledOnce();
     // retryAll called for undecided messages (CF preserves individual decisions)
     expect(batch.retryAll).toHaveBeenCalledOnce();
@@ -4825,7 +4988,7 @@ describe('queue relay', () => {
     await app.queue(batch, env);
 
     expect(workerFetch).toHaveBeenCalledOnce();
-    const req = workerFetch.mock.calls[0][0] as Request;
+    const req = workerFetch.mock.calls[0][0];
     expect(req.headers.get('x-void-internal')).toBe('super-secret-token');
   });
 
@@ -4843,7 +5006,7 @@ describe('queue relay', () => {
 
     await app.queue(batch, env);
 
-    const req = workerFetch.mock.calls[0][0] as Request;
+    const req = workerFetch.mock.calls[0][0];
     expect(req.headers.get('x-void-internal')).toBeNull();
   });
 
@@ -5145,7 +5308,7 @@ describe('rewrite rules', () => {
     expect(response.headers.has('Location')).toBe(false);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs');
   });
 
@@ -5168,7 +5331,7 @@ describe('rewrite rules', () => {
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs/getting-started');
   });
 
@@ -5191,7 +5354,7 @@ describe('rewrite rules', () => {
     );
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/posts/jane/first-post');
   });
 
@@ -5208,7 +5371,7 @@ describe('rewrite rules', () => {
     const response = await app.fetch(new Request('https://test.void.app/docs'), env, createCtx());
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe('https://test.void.app/docs');
   });
 
@@ -5229,7 +5392,7 @@ describe('rewrite rules', () => {
     );
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     const forwardedUrl = new URL(forwarded.url);
     expect(forwardedUrl.pathname).toBe('/en/docs');
     expect(forwardedUrl.search).toBe('?lang=en');
@@ -5250,7 +5413,7 @@ describe('rewrite rules', () => {
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/other');
     expect(forwarded.headers.has('X-Void-Original-URL')).toBe(false);
   });
@@ -5327,7 +5490,7 @@ describe('rewrite rules', () => {
     expect(response.headers.has('Location')).toBe(false);
     expect(workerFetch).toHaveBeenCalledOnce();
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/page');
   });
 
@@ -5351,7 +5514,7 @@ describe('rewrite rules', () => {
 
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs');
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe('https://my-app.void.app/docs');
   });
@@ -5378,7 +5541,7 @@ describe('rewrite rules', () => {
 
     expect(response.status).toBe(200);
     expect(workerFetch).toHaveBeenCalledOnce();
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.headers.has('X-Void-Original-URL')).toBe(false);
   });
 
@@ -5403,7 +5566,7 @@ describe('rewrite rules', () => {
     );
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe('https://test.void.app/docs');
   });
 
@@ -5423,7 +5586,7 @@ describe('rewrite rules', () => {
     const response = await app.fetch(new Request(originalUrl), env, createCtx());
 
     expect(response.status).toBe(200);
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/new');
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe(originalUrl);
   });
@@ -5451,7 +5614,7 @@ describe('rewrite rules', () => {
     const response = await app.fetch(inbound, env, createCtx());
     expect(response.status).toBe(200);
 
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(forwarded.method).toBe('POST');
     expect(forwarded.body).toBeNull();
     expect(forwarded.headers.has('content-length')).toBe(false);
@@ -5500,7 +5663,7 @@ describe('rewrite rules', () => {
 
     // Rewrite applied correctly; original URL handed off to the worker.
     expect(workerFetch).toHaveBeenCalledOnce();
-    const forwarded = workerFetch.mock.calls[0]![0] as Request;
+    const forwarded = workerFetch.mock.calls[0][0];
     expect(new URL(forwarded.url).pathname).toBe('/en/docs/intro');
     expect(forwarded.headers.get('X-Void-Original-URL')).toBe(originalUrl);
   });
@@ -5533,9 +5696,7 @@ describe('static asset caching', () => {
       env,
       firstCtx,
     );
-    await Promise.all(
-      (firstCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]),
-    );
+    await waitForBackgroundTasks(firstCtx);
 
     const secondCtx = createCtx();
     const second = await app.fetch(
@@ -5545,9 +5706,7 @@ describe('static asset caching', () => {
       env,
       secondCtx,
     );
-    await Promise.all(
-      (secondCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]),
-    );
+    await waitForBackgroundTasks(secondCtx);
 
     expect(await first.text()).toBe('<html>session=alice</html>');
     expect(await second.text()).toBe('<html>session=bob</html>');
@@ -5603,7 +5762,7 @@ describe('static asset caching', () => {
     const { env, workerFetch } = createEnv({
       routing,
       workerFetchImpl: async () => {
-        const request = workerFetch.mock.calls.at(-1)?.[0];
+        const request = workerFetch.mock.calls.at(-1)![0];
         return new Response(`<html>${new URL(request.url).searchParams.get('viewer')}</html>`, {
           headers: { 'Content-Type': 'text/html', ETag: '"member-page"' },
         });
@@ -5620,9 +5779,7 @@ describe('static asset caching', () => {
         )
       ).text(),
     ).toBe('<html>alice</html>');
-    await Promise.all(
-      (firstCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]),
-    );
+    await waitForBackgroundTasks(firstCtx);
 
     expect(
       await (
@@ -5653,7 +5810,7 @@ describe('static asset caching', () => {
     expect(workerFetch).toHaveBeenCalledTimes(1);
 
     // Wait for background cache.put
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Second request — cache hit, worker NOT invoked
     const ctx2 = createCtx();
@@ -5704,9 +5861,7 @@ describe('static asset caching', () => {
               env,
               ctx,
             );
-            await Promise.all(
-              (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map(([promise]) => promise),
-            );
+            await waitForBackgroundTasks(ctx);
             expect(response.status).toBe(allowed ? 200 : 404);
             expect(await response.text()).toBe(allowed ? 'private report' : 'Hidden');
           }
@@ -5739,7 +5894,7 @@ describe('static asset caching', () => {
           expect(await response.text()).toBe('Hidden');
         }
         expect(workerFetch).toHaveBeenCalledTimes(2);
-        expect(workerFetch.mock.calls[1]![0].url).toBe(url);
+        expect(workerFetch.mock.calls[1][0].url).toBe(url);
       });
 
       it.each(
@@ -5764,9 +5919,7 @@ describe('static asset caching', () => {
             const ctx = createCtx();
             const response = await app.fetch(new Request(url), env, ctx);
             expect(await response.text()).toBe('public asset');
-            await Promise.all(
-              (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map(([promise]) => promise),
-            );
+            await waitForBackgroundTasks(ctx);
           }
           expect(workerFetch).toHaveBeenCalledOnce();
           expect(edgeCacheStore.has(cacheKey)).toBe(true);
@@ -5813,7 +5966,7 @@ describe('static asset caching', () => {
     const first = await app.fetch(new Request('https://test.void.app/profile.json'), env, firstCtx);
     expect(await first.text()).toBe('user-1');
     expect(first.headers.get('Set-Cookie')).toContain('sid=user-1');
-    await Promise.all((firstCtx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(firstCtx);
 
     const second = await app.fetch(
       new Request('https://test.void.app/profile.json'),
@@ -5845,7 +5998,7 @@ describe('static asset caching', () => {
     const response = await app.fetch(new Request('https://test.void.app/profile.json'), env, ctx);
     expect(await response.text()).toBe('user-bob');
     expect(workerFetch).toHaveBeenCalledOnce();
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const replacement = edgeCacheStore.get(cacheKey);
     expect(replacement).toBeDefined();
@@ -5886,7 +6039,7 @@ describe('static asset caching', () => {
     const ctx = createCtx();
 
     await app.fetch(new Request('https://test.void.app/favicon.ico'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const res = await app.fetch(new Request('https://test.void.app/favicon.ico'), env, createCtx());
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
@@ -5902,7 +6055,7 @@ describe('static asset caching', () => {
     const ctx = createCtx();
 
     await app.fetch(new Request('https://test.void.app/favicon.ico'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const cacheEntry = edgeCacheStore.get('https://test.void.app/favicon.ico?_v=deploy-1');
     expect(cacheEntry).toBeDefined();
@@ -5937,7 +6090,7 @@ describe('static asset caching', () => {
       env,
       ctx,
     );
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // The 206 flows through to the client untouched — live render, not cached.
     expect(workerFetch).toHaveBeenCalledOnce();
@@ -5967,7 +6120,7 @@ describe('static asset caching', () => {
     const ctx = createCtx();
 
     await app.fetch(new Request('https://test.void.app/feed.xml'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const cacheEntry = edgeCacheStore.get('https://test.void.app/feed.xml?_v=deploy-1');
     expect(cacheEntry).toBeDefined();
@@ -5990,7 +6143,7 @@ describe('static asset caching', () => {
 
     await app.fetch(new Request('https://test.void.app/favicon.ico'), env1, ctx1);
     expect(wf1).toHaveBeenCalledTimes(1);
-    await Promise.all((ctx1.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx1);
 
     // New deploy with different version
     const routing2: RoutingEntry = {
@@ -6054,7 +6207,7 @@ describe('static asset caching', () => {
     await app.fetch(new Request('https://test.void.app/favicon.ico'), env, ctx);
     expect(workerFetch).toHaveBeenCalledTimes(1);
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const ctx2 = createCtx();
     await app.fetch(new Request('https://test.void.app/favicon.ico'), env, ctx2);
@@ -6115,9 +6268,7 @@ describe('static asset caching', () => {
           ctx,
         );
         expect(await response.text()).toBe(language);
-        await Promise.all(
-          (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]),
-        );
+        await waitForBackgroundTasks(ctx);
         expect([...kvStore.keys()].filter((key) => key.includes('/isr/'))).toEqual([]);
         expect(edgeCacheStore.size).toBe(0);
       }
@@ -6173,7 +6324,7 @@ describe('static asset caching', () => {
     await app.fetch(new Request('https://test.void.app/logo.png?width=100'), env, ctx);
     expect(workerFetch).toHaveBeenCalledTimes(1);
 
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // Different query string — should still be cache hit (query normalized to ?_v=deploy-1)
     const ctx2 = createCtx();
@@ -6201,13 +6352,13 @@ describe('static asset caching', () => {
     const ctx1 = createCtx();
     await app.fetch(new Request('https://test.void.app/badge.png?theme=light'), env, ctx1);
     expect(workerFetch).toHaveBeenCalledTimes(1);
-    await Promise.all((ctx1.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx1);
 
     // Different allowlisted value → distinct key → the worker renders again.
     const ctx2 = createCtx();
     await app.fetch(new Request('https://test.void.app/badge.png?theme=dark'), env, ctx2);
     expect(workerFetch).toHaveBeenCalledTimes(2);
-    await Promise.all((ctx2.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx2);
 
     // The first variant is still cached (not clobbered) — re-request light → HIT.
     const ctx3 = createCtx();
@@ -6232,7 +6383,7 @@ describe('static asset caching', () => {
     const ctx1 = createCtx();
     await app.fetch(new Request('https://test.void.app/badge.png?theme=light&utm=a'), env, ctx1);
     expect(workerFetch).toHaveBeenCalledTimes(1);
-    await Promise.all((ctx1.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx1);
 
     // Same allowlisted value, different NON-allowlisted param → same key → HIT.
     const ctx2 = createCtx();
@@ -6255,7 +6406,7 @@ describe('static asset caching', () => {
     const ctx1 = createCtx();
     await app.fetch(new Request('https://test.void.app/logo.png?theme=light'), env, ctx1);
     expect(workerFetch).toHaveBeenCalledTimes(1);
-    await Promise.all((ctx1.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx1);
 
     // Different value under the `*` allowlist → still one collapsed slot → HIT.
     const ctx2 = createCtx();
@@ -6373,7 +6524,7 @@ describe('static deployment caching (KV/R2)', () => {
 
     const ctx = createCtx();
     await app.fetch(new Request('https://test.void.app/'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     const cacheEntry = edgeCacheStore.get('https://test.void.app/?_v=deploy-abc');
     expect(cacheEntry).toBeDefined();
@@ -6432,7 +6583,7 @@ describe('static deployment caching (KV/R2)', () => {
       expect(await response.text()).toBe('<html>hedged</html>');
       expect(r2Get).toHaveBeenCalledTimes(2);
       expect(r2Get).toHaveBeenNthCalledWith(2, 'assets/proj-1/hash1');
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
 
       resolveSlow(loser);
       await vi.advanceTimersByTimeAsync(0);
@@ -6474,7 +6625,7 @@ describe('static deployment caching (KV/R2)', () => {
       expect(response.headers.get('X-Void-Timeout')).toBe('static-asset');
       expect(response.headers.get('Retry-After')).toBe('5');
       expect(r2Get).toHaveBeenCalledTimes(2);
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(usageSend).toHaveBeenCalledWith(
         expect.objectContaining({
           event: expect.objectContaining({
@@ -6514,7 +6665,7 @@ describe('static deployment caching (KV/R2)', () => {
       expect(response.status).toBe(503);
       expect(response.headers.get('X-Void-Storage-Error')).toBe('static-asset-read');
       expect(r2Get).toHaveBeenCalledTimes(2);
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(usageSend).toHaveBeenCalledWith(
         expect.objectContaining({
           event: expect.objectContaining({
@@ -6552,7 +6703,7 @@ describe('static deployment caching (KV/R2)', () => {
       expect(response.headers.get('X-Void-Storage-Error')).toBe('static-asset-missing');
       expect(r2Get).toHaveBeenNthCalledWith(1, 'assets/proj-1/hash1');
       expect(r2Get).toHaveBeenNthCalledWith(2, 'assets/hash1');
-      await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+      await waitForBackgroundTasks(ctx);
       expect(usageSend).toHaveBeenCalledWith(
         expect.objectContaining({
           event: expect.objectContaining({
@@ -6599,9 +6750,7 @@ describe('static deployment caching (KV/R2)', () => {
           expect(response.status).toBe(200);
           expect(response.headers.get('Content-Type')).toBe('text/javascript; charset=utf-8');
           expect(await response.text()).toBe(body);
-          await Promise.all(
-            (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
-          );
+          await waitForBackgroundTasks(ctx);
         }
       }
     },
@@ -6776,7 +6925,9 @@ describe('foreground worker duration', () => {
         revalidate,
       },
       workerFetchImpl: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 11_000));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 11_000);
+        });
         completed();
         return new Response('completed', { headers: { 'Content-Type': 'text/html' } });
       },
@@ -6813,7 +6964,9 @@ describe('foreground worker duration', () => {
           if (++calls === 1) {
             return new Response('missing', { status: 404, headers: { 'X-Void-No-Match': '1' } });
           }
-          await new Promise((resolve) => setTimeout(resolve, 11_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 11_000);
+          });
           return new Response('fallback', { headers: { 'Content-Type': 'text/html' } });
         },
       });
@@ -6847,7 +7000,9 @@ describe('foreground worker duration', () => {
         },
         assetManifest: { '/bundle.js': '!bundle' },
         workerFetchImpl: async () => {
-          await new Promise((resolve) => setTimeout(resolve, 11_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 11_000);
+          });
           return new Response(stubBody, {
             headers: {
               'Content-Type': 'text/plain;charset=UTF-8',
@@ -6871,7 +7026,7 @@ describe('foreground worker duration', () => {
         });
       await vi.advanceTimersByTimeAsync(11_000);
       expect(get).toHaveBeenCalledOnce();
-      await vi.advanceTimersByTimeAsync(9_999);
+      await vi.advanceTimersByTimeAsync(9999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
 
@@ -7166,7 +7321,7 @@ describe('request type metering for SSR routes with a file extension', () => {
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/sponsors.svg'),
-      { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+      { ...env, DISPATCH_TIMEOUT_MS: '20' },
       createCtx(),
     );
 
@@ -7242,7 +7397,7 @@ describe('request type metering for SSR routes with a file extension', () => {
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/sponsors.svg', { headers: { Cookie: 'a=1' } }),
-      { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+      { ...env, DISPATCH_TIMEOUT_MS: '20' },
       createCtx(),
     );
 
@@ -7259,7 +7414,7 @@ describe('request type metering for SSR routes with a file extension', () => {
     const ctx = createCtx();
 
     const response = await app.fetch(new Request('https://my-app.void.app/sponsors.svg'), env, ctx);
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     expect(response.status).toBe(200);
     expect(meteredRequestType(analyticsWrites)).toBe('ssr');
@@ -7327,7 +7482,7 @@ describe('request type metering when Cloudflare serves assets before the worker'
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/og.png'),
-      { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+      { ...env, DISPATCH_TIMEOUT_MS: '20' },
       createCtx(),
     );
 
@@ -7433,7 +7588,7 @@ describe('request type metering when Cloudflare serves assets before the worker'
 
       const response = await app.fetch(
         new Request('https://my-app.void.app/robots.txt'),
-        { ...env, DISPATCH_TIMEOUT_MS: '20' } as Env,
+        { ...env, DISPATCH_TIMEOUT_MS: '20' },
         createCtx(),
       );
 

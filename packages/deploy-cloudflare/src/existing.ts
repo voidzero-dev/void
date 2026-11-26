@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from 'node:util';
 import { isRecord } from '@void/deploy-core';
 import { parseRootWranglerConfig } from './config.ts';
-import { isCleanCommandExit, isWorkerNotFound, type CloudflareCommandRunner } from './execute.ts';
+import { isCleanCommandExit, isWorkerNotFound } from './execute.ts';
+import type { CloudflareCommandRunner } from './execute.ts';
 import type { CloudflareOperation } from './operations.ts';
 import {
   isVoidSecretDraftHeader,
@@ -195,7 +196,7 @@ export async function readCloudflareWorkerMigrationTag(
       `Could not verify Durable Object migration state for Cloudflare Worker "${options.workerName}".`,
     );
   }
-  const worker = body.result.find(
+  const worker = (body.result as Array<unknown>).find(
     (candidate) => isRecord(candidate) && candidate.id === options.workerName,
   );
   if (!isRecord(worker)) {
@@ -364,14 +365,22 @@ function declarativeClassesMatch(
       ['new_classes', 'legacy-kv'],
       ['new_sqlite_classes', 'sqlite'],
     ] as const) {
-      for (const name of (step[field] ?? []) as Array<string>) {
+      const names = step[field] ?? [];
+      if (!Array.isArray(names)) {
+        return false;
+      }
+      for (const name of names) {
         if (typeof name !== 'string') {
           return false;
         }
         desired.set(name, storage);
       }
     }
-    for (const item of (step.renamed_classes ?? []) as Array<unknown>) {
+    const renames = step.renamed_classes ?? [];
+    if (!Array.isArray(renames)) {
+      return false;
+    }
+    for (const item of renames) {
       if (!isRecord(item) || typeof item.from !== 'string' || typeof item.to !== 'string') {
         return false;
       }
@@ -382,7 +391,11 @@ function declarativeClassesMatch(
       desired.set(item.from, 'deleted');
       desired.set(item.to, storage);
     }
-    for (const name of (step.deleted_classes ?? []) as Array<string>) {
+    const deleted = step.deleted_classes ?? [];
+    if (!Array.isArray(deleted)) {
+      return false;
+    }
+    for (const name of deleted) {
       if (typeof name !== 'string') {
         return false;
       }
@@ -418,8 +431,8 @@ export function assertCloudflareBindingsPreserved(
     const matches = after.bindings.filter((binding) => binding.name === addition.binding);
     if (
       matches.length !== 1 ||
-      matches[0]!.type !== 'kv_namespace' ||
-      matches[0]!.namespace_id !== addition.id
+      matches[0].type !== 'kv_namespace' ||
+      matches[0].namespace_id !== addition.id
     ) {
       throw new Error(
         `The uploaded version did not use the approved KV namespace for ${addition.binding}. It has not been activated.`,
@@ -468,6 +481,7 @@ function isAssetsOnlyWorker(worker: ExistingCloudflareWorker): boolean {
   );
 }
 
+// oxlint-disable-next-line quality/no-unknown-returns -- The provider payload remains unvalidated for the caller's handler checks.
 function existingWorkerHandlers(worker: ExistingCloudflareWorker): unknown {
   // Cloudflare represents the absence of a script on assets-only Workers as null.
   // Missing or malformed handler metadata on other Workers must still fail closed.
@@ -486,11 +500,14 @@ export function assertExistingCloudflareConfig(
     const entries = config.kv_namespaces;
     for (const addition of additions) {
       const matches = Array.isArray(entries)
-        ? entries.filter((entry) => isRecord(entry) && entry.binding === addition.binding)
+        ? (entries as Array<unknown>).filter(
+            (entry): entry is Record<string, unknown> =>
+              isRecord(entry) && entry.binding === addition.binding,
+          )
         : [];
       if (
         (built || matches.length > 0) &&
-        (matches.length !== 1 || matches[0]!.id !== addition.id)
+        (matches.length !== 1 || matches[0].id !== addition.id)
       ) {
         throw new Error(
           `Binding ${addition.binding} must reference its approved KV namespace when linking.`,
@@ -562,7 +579,7 @@ export function assertExistingCloudflareConfig(
   const metadata = isRecord(config.version_metadata) ? config.version_metadata : undefined;
   if (
     metadataBindings.length > 1 ||
-    (metadataBindings.length === 1 && metadata?.binding !== metadataBindings[0]!.name) ||
+    (metadataBindings.length === 1 && metadata?.binding !== metadataBindings[0].name) ||
     (metadataBindings.length === 0 && config.version_metadata !== undefined)
   ) {
     throw new Error(
@@ -588,7 +605,14 @@ export function assertExistingCloudflareConfig(
       );
     }
   }
-  const supported: Record<string, [string, string, string]> = {
+  interface BindingConfigFields {
+    readonly [type: string]: readonly [
+      configField: string,
+      localIdField: string,
+      remoteIdField: string,
+    ];
+  }
+  const supported: BindingConfigFields = {
     d1: ['d1_databases', 'database_id', 'id'],
     kv_namespace: ['kv_namespaces', 'id', 'namespace_id'],
     r2_bucket: ['r2_buckets', 'bucket_name', 'bucket_name'],
@@ -621,7 +645,9 @@ export function assertExistingCloudflareConfig(
     const [field, localId, remoteId] = mapping;
     const entries = config[field];
     const matches = Array.isArray(entries)
-      ? entries.filter((entry) => isRecord(entry) && entry.binding === binding.name)
+      ? (entries as Array<unknown>).filter(
+          (entry) => isRecord(entry) && entry.binding === binding.name,
+        )
       : [];
     const entry = matches[0];
     if (
@@ -669,8 +695,8 @@ function newApprovedKvBindings(
     if (previous.length > 0) {
       if (
         previous.length !== 1 ||
-        previous[0]!.type !== 'kv_namespace' ||
-        previous[0]!.namespace_id !== binding.id
+        previous[0].type !== 'kv_namespace' ||
+        previous[0].namespace_id !== binding.id
       ) {
         throw new Error(
           `The approved KV binding ${binding.binding} cannot replace an existing binding.`,

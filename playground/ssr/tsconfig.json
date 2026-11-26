@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "noEmit": true,
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
@@ -11,5 +12,5 @@
     "types": ["vite/client", "void/env"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "routes", "middleware", "jobs"]
+  "include": ["env.d.ts", "src", "routes", "middleware", "jobs"]
 }

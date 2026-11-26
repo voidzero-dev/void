@@ -1,26 +1,29 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { join } from 'node:path';
+import type { UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as Vue from 'vue';
 import { compileScript, parse } from 'vue/compiler-sfc';
 import { renderToString } from 'vue/server-renderer';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 
 type HookWithHandler<T> = { handler: T };
+type ConfigHook = (
+  config: Record<string, unknown>,
+  env: { command: 'serve' | 'build' },
+) => UserConfig | void;
 type PagesPluginHooks = {
   transform?: HookWithHandler<(code: string, id: string) => { code: string } | undefined>;
   handleHotUpdate?: HookWithHandler<(ctx: { file: string; read: () => Promise<string> }) => void>;
   buildStart?: (() => Promise<void>) | HookWithHandler<() => Promise<void>>;
   configureServer?: (server: unknown) => void;
-  config?:
-    | ((config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown)
-    | HookWithHandler<
-        (config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown
-      >;
+  config?: ConfigHook | HookWithHandler<ConfigHook>;
   load?:
     | ((id: string) => Promise<string | undefined> | string | undefined)
     | HookWithHandler<(id: string) => Promise<string | undefined> | string | undefined>;
@@ -42,7 +45,7 @@ function writePage(relativePath: string, source: string): void {
   writeFileSync(full, source);
 }
 
-type PatchProps = (comp: Record<string, unknown>, props: Record<string, unknown>) => void;
+type PatchProps = (comp: Vue.Component, props: Record<string, unknown>) => void;
 
 function compilePage(source: string): Vue.Component & Record<string, unknown> {
   const transform = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages-transform') as
@@ -53,10 +56,11 @@ function compilePage(source: string): Vue.Component & Record<string, unknown> {
   const compiled = compileScript(descriptor, { id: 'test-page', inlineTemplate: true });
   // Evaluate the real SFC compiler output using the same Vue instance as the renderer.
   const code = stripTypeScriptTypes(compiled.content)
-    .replace(/import \{([^}]+)\} from ['"]vue['"]/g, (_, names: string) => {
-      return `const {${names.replace(/\s+as\s+/g, ':')}} = Vue;`;
+    .replaceAll(/import \{([^}]+)\} from ['"]vue['"]/g, (_, names: string) => {
+      return `const {${names.replaceAll(/\s+as\s+/g, ':')}} = Vue;`;
     })
     .replace('export default', 'return');
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function('Vue', code)(Vue) as Vue.Component & Record<string, unknown>;
 }
 
@@ -73,6 +77,7 @@ function extractPatchProps(moduleSource: string): PatchProps {
     throw new Error('Expected patchProps runtime boundary in generated module.');
   }
   const block = moduleSource.slice(start, end);
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(`${block}; return patchProps;`)() as PatchProps;
 }
 
@@ -132,7 +137,11 @@ describe('pagesPlugin generated patchProps', () => {
       title: { type: String, default: 'DEFAULT' },
       count: { type: Number, required: true },
     };
-    const comp: Record<string, unknown> = { props: { ...declared } };
+    interface ComponentFixture {
+      props: typeof declared;
+      __voidPatched?: boolean;
+    }
+    const comp: ComponentFixture = { props: { ...declared } };
 
     rendererPatchProps(comp, { count: -1 });
     expect(comp.props).toEqual(declared);
@@ -305,6 +314,25 @@ describe('pagesPlugin transform paths', () => {
 describe('pagesPlugin dev HMR', () => {
   afterEach(() => {
     rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('names Vue for the client and its server renderer for the Worker in dev', async () => {
+    writePage('index.vue', '<template><h1>Home</h1></template>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages') as
+      | PagesPluginHooks
+      | undefined;
+    if (!plugin) {
+      throw new Error('Expected void-vue:pages plugin.');
+    }
+
+    // oxlint-disable-next-line typescript/await-thenable -- Preserve the fixture's microtask boundary around the synchronous hook.
+    expect(await getHookHandler(plugin.config)({}, { command: 'serve' })).toMatchObject({
+      optimizeDeps: { include: ['vue'] },
+      environments: {
+        void_worker: { optimizeDeps: { include: ['vue', 'vue/server-renderer'] } },
+      },
+    });
   });
 
   it('rescans dev renderer loads after adding a page file', async () => {

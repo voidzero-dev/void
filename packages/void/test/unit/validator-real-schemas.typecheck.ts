@@ -1,8 +1,8 @@
 import { type } from 'arktype';
-import * as v from 'valibot';
+import { email as valibotEmail, minLength, object, pipe, string } from 'valibot';
 import { describe, it } from 'vite-plus/test';
 import { z } from 'zod';
-import { defineHandler } from '../../src/runtime/handler.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
 
 describe('withValidator + zod', () => {
   const CreateUser = z.object({
@@ -17,7 +17,7 @@ describe('withValidator + zod', () => {
       // @ts-expect-error - 'age' does not exist on { name: string; email: string }
       void body.age;
       // @ts-expect-error - name is string, toFixed exists only on number
-      void body.name.toFixed();
+      void body.name.toFixed;
       return body;
     });
 
@@ -31,9 +31,9 @@ describe('withValidator + zod', () => {
 });
 
 describe('withValidator + valibot', () => {
-  const CreateUser = v.object({
-    name: v.pipe(v.string(), v.minLength(1)),
-    email: v.pipe(v.string(), v.email()),
+  const CreateUser = object({
+    name: pipe(string(), minLength(1)),
+    email: pipe(string(), valibotEmail()),
   });
 
   it('type: infers body and query types from schema', () => {
@@ -43,12 +43,12 @@ describe('withValidator + valibot', () => {
       // @ts-expect-error - 'age' does not exist on { name: string; email: string }
       void body.age;
       // @ts-expect-error - name is string, toFixed exists only on number
-      void body.name.toFixed();
+      void body.name.toFixed;
       return body;
     });
 
     defineHandler.withValidator({
-      query: v.object({ q: v.string() }),
+      query: object({ q: string() }),
     })((_c, { query }) => {
       // @ts-expect-error - 'page' does not exist on { q: string }
       void query.page;
@@ -70,7 +70,7 @@ describe('withValidator + arktype', () => {
       // @ts-expect-error - 'age' does not exist on { name: string; email: string }
       void body.age;
       // @ts-expect-error - name is string, toFixed exists only on number
-      void body.name.toFixed();
+      void body.name.toFixed;
       return body;
     });
 

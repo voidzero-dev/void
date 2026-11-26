@@ -2,26 +2,33 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { promptForLoginToken, runLoginCommand } from '../../src/cli/login.ts';
 import { pc } from '../../src/cli/output.ts';
 
-const mockWarn = vi.fn();
-const mockError = vi.fn();
-const mockInfo = vi.fn();
-const mockSuccess = vi.fn();
-const mockStep = vi.fn();
-const mockIntro = vi.fn();
-const mockOutro = vi.fn();
-const mockSpinnerStart = vi.fn();
-const mockSpinnerStop = vi.fn();
-const mockSpinnerMessage = vi.fn();
-const mockSelect = vi.fn();
-const mockGetToken = vi.fn();
-const mockGetApiUrl = vi.fn();
-const mockGetTokenSource = vi.fn();
-const mockRemoveToken = vi.fn();
-const mockRunPlatformLogin = vi.fn();
-const mockSavePlatformToken = vi.fn();
-const mockWhoami = vi.fn();
-const mockIsExpiredTokenError = vi.fn();
-const mockDiscoverPlatform = vi.fn();
+const mockWarn = vi.fn<(...args: Array<unknown>) => void>();
+const mockError = vi.fn<(...args: Array<unknown>) => void>();
+const mockInfo = vi.fn<(...args: Array<unknown>) => void>();
+const mockSuccess = vi.fn<(...args: Array<unknown>) => void>();
+const mockStep = vi.fn<(...args: Array<unknown>) => void>();
+const mockIntro = vi.fn<(...args: Array<unknown>) => void>();
+const mockOutro = vi.fn<(...args: Array<unknown>) => void>();
+const mockSpinnerStart = vi.fn<(...args: Array<unknown>) => void>();
+const mockSpinnerStop = vi.fn<(...args: Array<unknown>) => void>();
+const mockSpinnerMessage = vi.fn<(...args: Array<unknown>) => void>();
+const mockSelect = vi.fn<(...args: Array<unknown>) => Promise<string | symbol>>();
+const mockGetToken = vi.fn<(...args: Array<unknown>) => string | null>();
+const mockGetApiUrl = vi.fn<(...args: Array<unknown>) => string>();
+const mockGetTokenSource = vi.fn<(...args: Array<unknown>) => 'ci' | 'manual'>();
+const mockRemoveToken = vi.fn<(...args: Array<unknown>) => boolean>();
+const mockRunPlatformLogin = vi.fn<(...args: Array<unknown>) => Promise<string>>();
+const mockSavePlatformToken = vi.fn<(...args: Array<unknown>) => void>();
+const mockWhoami = vi.fn<(...args: Array<unknown>) => Promise<{ login: string; plan: string }>>();
+const mockIsExpiredTokenError = vi.fn<(...args: Array<unknown>) => boolean>();
+const mockDiscoverPlatform =
+  vi.fn<
+    (
+      ...args: Array<unknown>
+    ) => Promise<
+      Partial<Awaited<ReturnType<typeof import('../../src/cli/platform-cmd.ts').discoverPlatform>>>
+    >
+  >();
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   settings: { accessible: false },

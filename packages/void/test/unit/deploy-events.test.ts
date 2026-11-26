@@ -28,7 +28,8 @@ import {
   warnIgnoredNotFoundForFramework,
   warnUnpublishedRouting,
 } from '../../src/cli/deploy-managed-events.ts';
-import { openDeployLog, type CliLogger } from '../../src/cli/log-file.ts';
+import { openDeployLog } from '../../src/cli/log-file.ts';
+import type { CliLogger } from '../../src/cli/log-file.ts';
 import type { DeployEvent } from '../../src/cli/types.ts';
 
 type DoneEvent = Extract<DeployEvent, { event: 'done' }>;

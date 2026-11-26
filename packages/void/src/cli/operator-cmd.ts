@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as delay } from 'node:timers/promises';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import {
   aiLoggingChangeLines,
   aiLoggingPreviewLines,
@@ -19,6 +20,7 @@ import {
 import { OperatorClient, OperatorClientError } from './operator-client.ts';
 import { dim, printSuccess, sanitizeTerminalText } from './output.ts';
 import { MINIMAL_RUNTIME_LOGS_NOTE } from './platform-runtime-logs.ts';
+import { OPEN_PUBLIC_REQUEST_STATES } from './security-api-types.ts';
 
 const MAX_RUNTIME_FOLLOW_ROWS = 10_000;
 export const BUILD_LOG_DRAIN_TIMEOUT_MS: number = 2 * 60_000;
@@ -76,7 +78,7 @@ function table(rows: Array<unknown>, indent: string): Array<string> {
     indent +
     values
       .map((value, index) => {
-        const width = widths[index]!;
+        const width = widths[index];
         return (value.length > width ? `${value.slice(0, width - 1)}…` : value).padEnd(width);
       })
       .join('  ')
@@ -97,7 +99,7 @@ function eventLines(events: Array<unknown>, indent: string): Array<string> {
   ]);
 }
 
-const LABEL_WORDS: Record<string, string> = {
+const LABEL_WORDS = {
   api: 'API',
   dns: 'DNS',
   github: 'GitHub',
@@ -108,16 +110,34 @@ const LABEL_WORDS: Record<string, string> = {
   oidc: 'OIDC',
   url: 'URL',
   urls: 'URLs',
-};
+} satisfies Record<string, string>;
+
+// API field names are camelCase or snake_case. Any other key is data, such as
+// a worker name ('email-gateway') or a model ID ('@cf/zai-org/glm-5.3'), and
+// prints as it is.
+function isFieldName(key: string): boolean {
+  for (const char of key) {
+    const letterOrDigit =
+      (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9');
+    if (!letterOrDigit && char !== '_') {
+      return false;
+    }
+  }
+  return true;
+}
 
 function fieldLabel(key: string): string {
+  if (!isFieldName(key)) {
+    return key;
+  }
   const words = key
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replaceAll(/([a-z0-9])([A-Z])/g, '$1 $2')
     .split(/[\s_-]+/)
     .filter(Boolean)
-    .map((word) => LABEL_WORDS[word.toLowerCase()] ?? word.toLowerCase());
+    .map((word) => word.toLowerCase())
+    .map((word) => (hasOwnKey(LABEL_WORDS, word) ? LABEL_WORDS[word] : word));
   if (words[0]) {
-    words[0] = words[0][0]!.toUpperCase() + words[0].slice(1);
+    words[0] = words[0][0].toUpperCase() + words[0].slice(1);
   }
   return words.join(' ');
 }
@@ -144,17 +164,32 @@ export function humanLines(value: unknown, indent = ''): Array<string> {
   });
 }
 
-function output(value: unknown, json: boolean): void {
+export function output(value: unknown, json: boolean): void {
   console.log(json ? JSON.stringify(value) : humanLines(value).join('\n'));
 }
 
-function outputMutation(result: Record<string, unknown>, args: OperatorArgs): void {
+const ZERO_TRUST_STATUS_COMMAND = '`void platform zero-trust status`';
+
+export function outputMutation(result: Record<string, unknown>, args: OperatorArgs): void {
   output(result, args.json);
   // Some successful HTTP responses checkpoint work rather than complete it.
   const configuration = result.configuration as { status?: string } | undefined;
+  if (
+    !args.json &&
+    args.group === 'zero-trust' &&
+    (configuration?.status === 'configuring' || configuration?.status === 'disabling')
+  ) {
+    // Each request applies one step and releases the saved operation to scheduled maintenance.
+    console.log(
+      `Zero Trust is still applying this change. Void continues it within a few minutes; follow it with ${ZERO_TRUST_STATUS_COMMAND}.`,
+    );
+  }
   const project = result.project as { state?: string; last_error?: string | null } | undefined;
+  // A public request that is still open has not made the project public.
+  const publicRequest = result.publicRequest as { state?: string } | null | undefined;
   if (
     args.json ||
+    (publicRequest?.state !== undefined && OPEN_PUBLIC_REQUEST_STATES.has(publicRequest.state)) ||
     result.ok === false ||
     result.partial === true ||
     result.complete === false ||
@@ -258,16 +293,7 @@ function outputLogs(
   }
 }
 
-function operationRecoveryFence(value: unknown): {
-  stepId: string;
-  attempt: number;
-  requestDigest: string;
-  resourceIdentity: string;
-  connectionId: string;
-  desiredGeneration: number;
-  routeId: string | null;
-  routeDesiredGeneration: number | null;
-} {
+function operationRecoveryFence(value: unknown) {
   const target =
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -442,7 +468,7 @@ export async function followOperatorLogs(
   client: OperatorClient,
   args: OperatorArgs,
   signal?: AbortSignal,
-  pollIntervalMs = 2_000,
+  pollIntervalMs = 2000,
 ): Promise<void> {
   const controller = new AbortController();
   const stop = () => controller.abort();
@@ -671,14 +697,29 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
     return runAuth(origin, args);
   }
   const client = new OperatorClient(origin, readOperatorToken(origin));
+  // Fail before contacting the server when unattended mutation authorization is missing.
+  // The security probe is a check, not a change, so it needs no confirmation.
+  if (
+    args.method === 'POST' &&
+    !(args.group === 'security' && args.action === 'probe') &&
+    !args.plan &&
+    !args.yes &&
+    (!process.stdin.isTTY || !process.stderr.isTTY)
+  ) {
+    throw new OperatorClientError(
+      'Mutations in non-interactive mode require --yes or --plan.',
+      'confirmation_required',
+    );
+  }
+  if (args.group === 'security') {
+    const { runSecurityOperatorCommand } = await import('./operator-security.ts');
+    return runSecurityOperatorCommand(client, origin, args, {
+      output,
+      outputMutation,
+      confirm: confirmOperatorMutation,
+    });
+  }
   if (args.method === 'POST') {
-    // Fail before contacting the server when unattended mutation authorization is missing.
-    if (!args.plan && !args.yes && (!process.stdin.isTTY || !process.stderr.isTTY)) {
-      throw new OperatorClientError(
-        'Mutations in non-interactive mode require --yes or --plan.',
-        'confirmation_required',
-      );
-    }
     if (args.group === 'deployment' && args.action === 'migrate-assets') {
       return migrateDeploymentAssets(client, origin, args);
     }
@@ -710,7 +751,9 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
         'invalid_preview',
       );
     }
-    let recoveryFence: Record<string, unknown> =
+    let recoveryFence: Partial<ReturnType<typeof operationRecoveryFence>> & {
+      recoveryFence?: string;
+    } =
       args.group === 'email' && args.action === 'operation-resolve'
         ? operationRecoveryFence(preview.target)
         : {};
@@ -757,10 +800,18 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
         : {}),
       ...recoveryFence,
     };
+    const zeroTrustOperation =
+      args.group === 'zero-trust' &&
+      (args.action === 'configure' || args.action === 'reconcile' || args.action === 'disable');
     const result = await client.request(args.path, {
       method: 'POST',
       body,
       timeoutMs: args.timeoutMs,
+      ...(zeroTrustOperation
+        ? {
+            unknownOutcome: `Void continues a started Zero Trust change within a few minutes; follow it with ${ZERO_TRUST_STATUS_COMMAND} before retrying.`,
+          }
+        : {}),
     });
     if (aiLogging && !args.json) {
       console.log(aiLoggingChangeLines(aiLoggingProjectId(args), result).join('\n'));

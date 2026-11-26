@@ -1,23 +1,14 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { expectTypeOf } from 'vite-plus/test';
-import {
-  routeUrl,
-  type Href,
-  type RouteDestination,
-  type RouteUrl,
-  type RouteUrlInput,
-} from 'void/routes';
+import { routeUrl } from 'void/routes';
+import type { Href, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
 import type { VoidRouter } from '../../src/pages/client.ts';
-import {
-  defineHandler,
-  defineMiddleware,
-  type CloudContext,
-  type CloudEnv,
-} from '../../src/runtime/handler.ts';
-import { revalidate } from '../../src/runtime/isr.ts';
-import { connectLiveStream } from '../../src/runtime/live-client.ts';
-import { connectEventStream } from '../../src/runtime/sse-client.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
+import type { CloudContext, CloudEnv } from '../../src/runtime/handler/index.ts';
+import { revalidate } from '../../src/runtime/isr/index.ts';
+import { connectLiveStream } from '../../src/runtime/live/client.ts';
+import { connectEventStream } from '../../src/runtime/sse/client.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {
@@ -73,7 +64,7 @@ export function checkTypedServerDestinations(c: CloudContext): void {
     hash: 'details',
   });
   const dynamic: string = 'https://example.com/callback';
-  c.redirect(dynamic as Href);
+  c.redirect(dynamic);
   void c.rewrite('/unknown');
   // @ts-expect-error typed rewrite destinations require params
   void c.rewrite({ pathname: '/typed-navigation/:id' });

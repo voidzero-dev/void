@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import {
   buildFrameworkManifest,
   buildStaticManifest,
@@ -13,7 +15,7 @@ import {
 } from '../../src/cli/package.ts';
 import type { InferredBindings } from '../../src/inference/walk.ts';
 
-const TMP = join(import.meta.dirname, '.tmp-package-test');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-package-test');
 
 function makeBindings(overrides: Partial<InferredBindings> = {}): InferredBindings {
   return {
@@ -38,6 +40,51 @@ afterEach(() => {
 });
 
 describe('worker packaging', () => {
+  it.each([undefined, false, true])(
+    'publishes explicit D1 replication settings: %s',
+    (readReplication) => {
+      for (const dialect of ['sqlite', 'postgresql', 'mysql'] as const) {
+        for (const needsD1 of [false, true]) {
+          const bindings = makeBindings({ needsD1 });
+          for (const manifest of [
+            buildVoidManifest({ bindings, dialect, database: { readReplication } }),
+            buildFrameworkManifest({
+              frameworkName: 'nuxt',
+              workerMain: 'index.mjs',
+              bindings,
+              dialect,
+              database: { readReplication },
+            }),
+          ]) {
+            if (needsD1 && dialect === 'sqlite' && readReplication !== undefined) {
+              expect(manifest.database).toEqual({ readReplication });
+            } else {
+              expect(manifest).not.toHaveProperty('database');
+            }
+          }
+        }
+      }
+    },
+  );
+  it.each([true, false])('only includes the storage hint when R2 is used: %s', (needsR2) => {
+    const bindings = makeBindings({ needsR2 });
+    for (const manifest of [
+      buildVoidManifest({ bindings, storage: { locationHint: 'apac' } }),
+      buildFrameworkManifest({
+        frameworkName: 'nuxt',
+        workerMain: 'index.mjs',
+        bindings,
+        storage: { locationHint: 'apac' },
+      }),
+    ]) {
+      expect(manifest.version).toBe(needsR2 ? 5 : 3);
+      if (needsR2) {
+        expect(manifest.storage).toEqual({ locationHint: 'apac' });
+      } else {
+        expect(manifest).not.toHaveProperty('storage');
+      }
+    }
+  });
   it.each([true, false, undefined])(
     'preserves alwaysUseHttps %s in every app manifest',
     (value) => {
@@ -52,6 +99,7 @@ describe('worker packaging', () => {
         }),
       ];
       for (const manifest of manifests) {
+        // oxlint-disable-next-line unicorn/prefer-structured-clone -- Compare the package manifest as it is written to JSON.
         const published = JSON.parse(JSON.stringify(manifest));
         expect(published.alwaysUseHttps).toBe(value);
         expect(Object.hasOwn(published, 'alwaysUseHttps')).toBe(value !== undefined);
@@ -112,6 +160,13 @@ describe('buildVoidManifest', () => {
         { bindingName: 'WORKSPACE', className: 'WorkspaceDurableObject', storage: 'sqlite' },
       ],
     });
+    const withStorage = buildVoidManifest({
+      bindings: makeBindings({ needsR2: true }),
+      durableObjects: [{ bindingName: 'WORKSPACE', className: 'WorkspaceDurableObject' }],
+      storage: { locationHint: 'apac' },
+    });
+    expect(withStorage.version).toBe(5);
+    expect(withStorage.durableObjects).toEqual(durable.durableObjects);
   });
   it('advertises authenticated email protocol only for a managed inbound handler', () => {
     expect(
@@ -172,9 +227,9 @@ describe('manifest limits (worker.limits.cpu_ms)', () => {
       frameworkName: 'astro',
       workerMain: 'index.mjs',
       bindings: makeBindings(),
-      packageOptions: { cpuMs: 30000 },
+      packageOptions: { cpuMs: 30_000 },
     });
-    expect(manifest.limits).toEqual({ cpuMs: 30000 });
+    expect(manifest.limits).toEqual({ cpuMs: 30_000 });
   });
 
   it('omits the limits key entirely when packageOptions.cpuMs is unset (framework manifest)', () => {

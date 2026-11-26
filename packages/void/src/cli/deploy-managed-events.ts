@@ -1,23 +1,26 @@
 import { createHash } from 'node:crypto';
 import { createDeployArtifact, createDeployUploadPayload } from '@void/deploy-core';
 import { getContentType } from '@void/edge';
-import { type SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
-import { type NotFoundHandling, type RoutingConfig } from '../config.ts';
+import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
+import type { NotFoundHandling, RoutingConfig } from '../config.ts';
 import { getTokenSource } from './auth.ts';
-import { PlatformClient, type ManifestOnlyDeployPayload } from './client.ts';
+import type { PlatformClient } from './client.ts';
+import type { ManifestOnlyDeployPayload } from './client.ts';
 import {
   formatConnectionLostMessage,
   formatDeployFailureMessage,
   formatStreamDeployError,
 } from './deploy-errors.ts';
 import { log, DeployEventError } from './deploy-helpers.ts';
-import { type ApplyDeployEventResult, type StreamDeployResult } from './deploy-types.ts';
-import { uploadAssetsToR2, type DirectR2PutItem } from './direct-r2-upload.ts';
-import { type GitDeployMetadata } from './git-metadata.ts';
+import { readSecurityPackageClaims } from './deploy-security-packages.ts';
+import type { ApplyDeployEventResult, StreamDeployResult } from './deploy-types.ts';
+import { uploadAssetsToR2 } from './direct-r2-upload.ts';
+import type { DirectR2PutItem } from './direct-r2-upload.ts';
+import type { GitDeployMetadata } from './git-metadata.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './headers.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { formatCount } from './output.ts';
-import { type AssetManifestEntry } from './package.ts';
+import type { AssetManifestEntry } from './package.ts';
 import type { DeployEvent, DeployManifest, DeployWorkerInput } from './types.ts';
 
 /**
@@ -28,6 +31,11 @@ import type { DeployEvent, DeployManifest, DeployWorkerInput } from './types.ts'
  */
 export function applyDeployEvent(event: DeployEvent, s: SpinnerResult): ApplyDeployEventResult {
   switch (event.event) {
+    case 'asset_upload_done':
+    case 'prerender_done':
+    case 'provisioning_done':
+    case 'worker_upload_done':
+      return { kind: 'continue' };
     case 'start':
       s.message('Deploying...');
       return { kind: 'start', deploymentId: event.deploymentId };
@@ -283,6 +291,7 @@ export async function streamDirectR2Deploy({
   gitMetadata,
   preflightUsed,
   workerFiles,
+  root,
   spinner: s,
   cliLog,
 }: {
@@ -296,9 +305,21 @@ export async function streamDirectR2Deploy({
   /** Whether preflight let the server reuse any stored asset. */
   preflightUsed: boolean;
   workerFiles?: Map<string, Buffer>;
+  /** The project folder: its nearest lockfile gives the security package claims. */
+  root?: string;
   spinner: SpinnerResult;
   cliLog?: CliLogger;
 }): Promise<StreamDeployResult> {
+  // Check before any upload: an older platform would accept the manifest and
+  // leave replication on.
+  if (manifest.database?.readReplication !== undefined) {
+    await client.requireD1ReadReplicationSupport();
+  }
+  // Read before the upload, which empties `workerFiles`.
+  const securityPackages =
+    root && workerFiles && workerFiles.size > 0
+      ? readSecurityPackageClaims(root, workerFiles)
+      : null;
   const workerInput =
     workerFiles && workerFiles.size > 0 && (await client.supportsDirectWorkerUpload())
       ? await uploadWorkerModules(client, projectId, workerFiles, s, cliLog)
@@ -431,6 +452,9 @@ export async function streamDirectR2Deploy({
     },
     workerInput,
   );
+  if (securityPackages) {
+    payload.securityPackages = securityPackages;
+  }
 
   s.message('Finalizing deploy...');
   cliLog?.info('finalize_start', {

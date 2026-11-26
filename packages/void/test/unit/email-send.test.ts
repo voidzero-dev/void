@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { sendEmail } from '../../src/runtime/email.ts';
 import {
   clearDevBuffer,
   DEV_INBOX_ENV_VAR,
   listDevMessages,
 } from '../../src/runtime/email/dev-inbox.ts';
+import { sendEmail } from '../../src/runtime/email/index.ts';
 import { createEmailTestHarness } from '../../src/runtime/email/testing.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 afterEach(() => {
   clearDevBuffer();
@@ -324,7 +324,7 @@ describe('sendEmail (error mapping)', () => {
         from: 'a@x.dev',
         to: 'b@y.dev',
         subject: 's',
-      } as Parameters<typeof sendEmail>[0]);
+      });
       expect(result.ok).toBe(false);
       if (!result.ok && 'error' in result) {
         expect(result.error.code).toBe('MIME_ERROR');
@@ -457,7 +457,31 @@ describe('sendEmail (from defaulting)', () => {
     }
   });
 
-  it('returns INVALID_FROM when from is omitted and neither binding is available', async () => {
+  it('returns BINDING_MISSING when from is omitted and no transport is configured', async () => {
+    const result = await withRuntimeEnv({}, () =>
+      sendEmail({ to: 'b@y.dev', subject: 's', text: 't' }),
+    );
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'BINDING_MISSING',
+        message: expect.stringContaining('void email setup --platform cloudflare'),
+      },
+    });
+  });
+
+  it.each([
+    { name: 'native binding', env: { SEND_EMAIL: { send: vi.fn() } } },
+    { name: 'platform proxy', env: { __VOID_PROXY: { fetch: vi.fn() }, ...PROXY_ENV_KEYS } },
+    { name: 'dev inbox', env: { [DEV_INBOX_ENV_VAR]: 'ASSETS', ASSETS: { fetch: vi.fn() } } },
+  ])('returns INVALID_FROM when from is omitted with a $name', async ({ env }) => {
+    const result = await withRuntimeEnv(env, () =>
+      sendEmail({ to: 'b@y.dev', subject: 's', text: 't' }),
+    );
+    expect(result).toMatchObject({ ok: false, error: { code: 'INVALID_FROM' } });
+  });
+
+  it('returns INVALID_FROM when from is omitted with a test sink', async () => {
     const harness = createEmailTestHarness();
     try {
       const result = await withRuntimeEnv({}, () =>
@@ -1180,35 +1204,38 @@ describe('sendEmail (deprecated sendInDev)', () => {
 
   // `void dev` binds neither `__VOID_PROXY` nor `SEND_EMAIL`, so there
   // `sendInDev: true` reaches no transport.
-  it('returns BINDING_MISSING under a real `void dev` env (no transport to fall through to)', async () => {
-    const assets = {
-      calls: 0,
-      async fetch() {
-        this.calls += 1;
-        return new Response('unreachable', { status: 500 });
-      },
-    };
-    const result = await withRuntimeEnv({ [DEV_INBOX_ENV_VAR]: 'ASSETS', ASSETS: assets }, () =>
-      sendEmail({
-        from: 'a@x.dev',
-        to: 'b@y.dev',
-        subject: 's',
-        text: 't',
-        sendInDev: true,
-      }),
-    );
-    // The inbox was bypassed: nothing was posted to the dev server, and
-    // nothing was buffered.
-    expect(assets.calls).toBe(0);
-    expect(listDevMessages()).toHaveLength(0);
-    expect(result.ok).toBe(false);
-    if (!result.ok && 'error' in result) {
-      expect(result.error.code).toBe('BINDING_MISSING');
-      expect(result.error.message).toContain(
-        'bypassed by the deprecated `sendInDev: true` (it never delivers)',
+  it.each([undefined, 'a@x.dev'])(
+    'returns BINDING_MISSING in dev when the inbox is bypassed (from: %s)',
+    async (from) => {
+      const assets = {
+        calls: 0,
+        async fetch() {
+          this.calls += 1;
+          return new Response('unreachable', { status: 500 });
+        },
+      };
+      const result = await withRuntimeEnv({ [DEV_INBOX_ENV_VAR]: 'ASSETS', ASSETS: assets }, () =>
+        sendEmail({
+          from,
+          to: 'b@y.dev',
+          subject: 's',
+          text: 't',
+          sendInDev: true,
+        }),
       );
-    }
-  });
+      // The inbox was bypassed: nothing was posted to the dev server, and
+      // nothing was buffered.
+      expect(assets.calls).toBe(0);
+      expect(listDevMessages()).toHaveLength(0);
+      expect(result.ok).toBe(false);
+      if (!result.ok && 'error' in result) {
+        expect(result.error.code).toBe('BINDING_MISSING');
+        expect(result.error.message).toContain(
+          'bypassed by the deprecated `sendInDev: true` (it never delivers)',
+        );
+      }
+    },
+  );
 });
 
 describe('sendEmail platform idempotency', () => {

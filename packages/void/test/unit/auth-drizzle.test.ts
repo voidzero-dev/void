@@ -6,6 +6,56 @@ import {
 } from '../../src/auth/drizzle.ts';
 
 describe('Better Auth Drizzle codegen', () => {
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'preserves plugin table indexes and renamed columns in the %s schema',
+    (dialect) => {
+      const runtime = {
+        dialect,
+        providers: null,
+        userConfig: {
+          user: { modelName: 'members', fields: { createdAt: 'joined_at' } },
+          plugins: [
+            {
+              id: 'table-indexes',
+              schema: {
+                user: {
+                  fields: {},
+                  indexes: [
+                    { name: 'members_joined_idx', fields: ['createdAt'] as const },
+                    {
+                      name: 'members_name_joined_uidx',
+                      fields: ['name', 'createdAt'] as const,
+                      unique: true,
+                    },
+                    { fields: ['createdAt', 'email'] as const },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      };
+      const code = generateVoidAuthDrizzleSchema(runtime);
+      expect(code).toContain('index("members_joined_idx").on(table["joined_at"])');
+      expect(code).toContain(
+        'uniqueIndex("members_name_joined_uidx").on(table["name"], table["joined_at"])',
+      );
+      expect(code).toContain(
+        'index("members_joined_at_email_idx").on(table["joined_at"], table["email"])',
+      );
+      expect(code).toContain('index("session_userId_idx").on(table["userId"])');
+      expect(
+        resolveVoidAuthMigrationSchema(runtime).tables.find((table) => table.name === 'members'),
+      ).toMatchObject({
+        indexes: [
+          { name: 'members_joined_idx', columns: ['joined_at'] },
+          { name: 'members_name_joined_uidx', columns: ['name', 'joined_at'], unique: true },
+          { name: 'members_joined_at_email_idx', columns: ['joined_at', 'email'] },
+        ],
+      });
+    },
+  );
+
   it('generates sqlite auth tables with Drizzle-friendly types', () => {
     const code = generateVoidAuthDrizzleSchema({
       dialect: 'sqlite',

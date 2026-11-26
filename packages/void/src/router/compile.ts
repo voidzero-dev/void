@@ -7,10 +7,11 @@ import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { createBoundaryManifest } from '../pages/boundary-plans.ts';
 import { resolveLayoutIds } from '../pages/layout-resolution.ts';
 import { patternToRegex } from '../pages/manifest.ts';
-import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
+import { cloudflareQueueName } from '../queues/cloudflare-names.ts';
+import type { CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
-import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env-raw.ts';
-import { ASSET_EXTENSIONS } from '../runtime/routing-assets.ts';
+import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env/raw.ts';
+import { ASSET_EXTENSIONS } from '../runtime/routing/assets.ts';
 import { DEFAULT_SANDBOX_CLASS_NAME } from '../sandbox/config.ts';
 import type { ScanResult } from './scan.ts';
 
@@ -20,8 +21,8 @@ const ROUTING_RUNTIME_PATH = fileURLToPath(import.meta.resolve('#self/runtime/ro
 function pushDefaultErrorPageHelpers(lines: Array<string>, options: CompileOptions): void {
   lines.push(
     `const __errorRenderer = __createErrorRenderer(${JSON.stringify({ dev: options.dev === true, projectRoot: options.projectRoot, homeDir: options.homeDir })});`,
+    'app.onError(__createPageErrorHandler(__matchedRoutes, __errorRenderer.onError));',
   );
-  lines.push('app.onError(__errorRenderer.onError);');
 }
 
 export type AuthCompileOptions = {
@@ -35,10 +36,6 @@ export type AuthCompileOptions = {
 
 export type CompileOptions = {
   trailingSlash?: boolean;
-  /** Absolute path to the hono module entry */
-  honoPath: string;
-  /** Absolute path to `hono/route` from the same Hono copy as `honoPath` */
-  honoRoutePath: string;
   /** Absolute path to the void/_env module */
   runtimeEnvPath: string;
   /** Absolute path to the project's `email/` directory; enables `__emailHandler`. */
@@ -191,11 +188,15 @@ export function compileRouteTable(
   const managedDispatch =
     options.nodeTarget !== true && options.dev !== true && options.managedDispatch === true;
 
-  lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
-  lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { AsyncLocalStorage } from "node:async_hooks";`,
+    `import { Hono, createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
+  if (pages) {
+    lines.push(
+      `import { createPageErrorHandler as __createPageErrorHandler } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    );
+  }
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
   } else {
@@ -209,9 +210,7 @@ export function compileRouteTable(
     }
     lines.push(
       `import { ${authImports.join(', ')} } from ${JSON.stringify(auth.authRuntimePath)};`,
-    );
-    lines.push(`import { __voidAuthDatabase } from ${JSON.stringify(auth.authDatabasePath)};`);
-    lines.push(
+      `import { __voidAuthDatabase } from ${JSON.stringify(auth.authDatabasePath)};`,
       `import { migrationSchema as __voidAuthMigrationSchema } from ${JSON.stringify(auth.authSchemaPath)};`,
     );
     if (auth.authConfigPath) {
@@ -223,7 +222,7 @@ export function compileRouteTable(
     options.webSocketRuntimePath
   ) {
     lines.push(
-      `import { createWebSocketDurableObject as __createWebSocketDurableObject, createWebSocketTombstoneDurableObject as __createWebSocketTombstoneDurableObject, forwardWebSocketRequest as __forwardWebSocketRequest } from ${JSON.stringify(options.webSocketRuntimePath)};`,
+      `import { createWebSocketDurableObject as __createWebSocketDurableObject, createWebSocketTombstoneDurableObject as __createWebSocketTombstoneDurableObject, forwardWebSocketRequest as __forwardWebSocketRequest, __registerWebSocketRoutes } from ${JSON.stringify(options.webSocketRuntimePath)};`,
     );
   }
   if (options.hasLive && options.liveRuntimePath) {
@@ -233,7 +232,6 @@ export function compileRouteTable(
   }
   lines.push('');
 
-  // Generate eager imports for middleware
   for (let i = 0; i < scan.middleware.length; i++) {
     const mw = scan.middleware[i];
     lines.push(`import middleware${i} from ${JSON.stringify(`${middlewareDir}/${mw.filePath}`)};`);
@@ -277,17 +275,17 @@ export function compileRouteTable(
   for (const p of routePatterns) {
     const m = /\.([A-Za-z0-9]+)$/.exec(p);
     if (m) {
-      usedExts.add(m[1]!.toLowerCase());
+      usedExts.add(m[1].toLowerCase());
     }
   }
   const blockedExts = ASSET_EXTENSIONS.filter((e) => !usedExts.has(e));
   lines.push(
     `const __routingRuntime = __createRoutingRuntime(app, ${JSON.stringify({ dev: options.dev === true, nodeTarget: options.nodeTarget === true, managedDispatch, blockedAssetExtensions: blockedExts })});`,
+    'export const requestContext = __routingRuntime.requestContext;',
+    'app.use(__routingRuntime.contextMiddleware);',
+    'app.use(__routingRuntime.requestMiddleware);',
+    '',
   );
-  lines.push('export const requestContext = __routingRuntime.requestContext;');
-  lines.push('app.use(__routingRuntime.contextMiddleware);');
-  lines.push('app.use(__routingRuntime.requestMiddleware);');
-  lines.push('');
 
   // Edge routing middleware. Every target without managed platform dispatch
   // owns routing end-to-end, including native Cloudflare production builds.
@@ -306,11 +304,13 @@ export function compileRouteTable(
 
   // After routing rules, which ignore the action key as platform dispatch does,
   // and before auth and user middleware, so their c.redirect() drops it too.
-  if (pages && scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+  if (pages) {
     lines.push(
-      `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(options.honoRoutePath)};`,
+      `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
     );
-    lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
+    if (scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+      lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
+    }
   }
 
   const headerRules = emitEdgeRules ? options.headerRules : undefined;
@@ -321,17 +321,18 @@ export function compileRouteTable(
     if (headerRules?.length) {
       lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules, "auth-error"));');
     }
-    lines.push('app.use(async (c, next) => {');
-    lines.push('  return runVoidAuthMiddleware(c, next, __voidAuthOptions, __voidAuthDatabase);');
-    lines.push('});');
-    lines.push('');
+    lines.push(
+      'app.use(async (c, next) => {',
+      '  return runVoidAuthMiddleware(c, next, __voidAuthOptions, __voidAuthDatabase);',
+      '});',
+      '',
+    );
   }
 
   if (headerRules?.length) {
     lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules));');
   }
 
-  // Register user middleware
   for (let i = 0; i < scan.middleware.length; i++) {
     lines.push(`app.use(middleware${i});`);
   }
@@ -345,28 +346,28 @@ export function compileRouteTable(
   // kinds share a path, while non-upgrade requests continue through normally.
   for (let i = 0; i < webSockets.length; i++) {
     const route = webSockets[i];
-    lines.push(`app.all(${JSON.stringify(route.pattern)}, async (c, next) => {`);
     lines.push(
+      `app.all(${JSON.stringify(route.pattern)}, async (c, next) => {`,
       `  if (c.req.raw.headers.get("upgrade")?.toLowerCase() !== "websocket") return next();`,
-    );
-    lines.push(
       `  return __forwardWebSocketRequest(c.req.raw, c.env, __voidWebSocketRoutes[${i}]);`,
+      '});',
     );
-    lines.push('});');
   }
   if (webSockets.length > 0) {
     lines.push('');
   }
 
   if (auth) {
-    lines.push('app.all("/api/auth", __markRouteHandler(async (c) => {');
-    lines.push('  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);');
-    lines.push('}));');
-    lines.push('');
-    lines.push('app.all("/api/auth/*", __markRouteHandler(async (c) => {');
-    lines.push('  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);');
-    lines.push('}));');
-    lines.push('');
+    lines.push(
+      'app.all("/api/auth", __markRouteHandler(async (c) => {',
+      '  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);',
+      '}));',
+      '',
+      'app.all("/api/auth/*", __markRouteHandler(async (c) => {',
+      '  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);',
+      '}));',
+      '',
+    );
   }
 
   // Register routes with lazy-loaded handlers (shared loader per file)
@@ -409,27 +410,33 @@ export function compileRouteTable(
             params: route.params,
             className: route.className,
             bindingName: route.bindingName,
+            mode: route.mode,
             ...(route.name !== undefined && { name: route.name }),
           },
         )}, ${auth ? '__voidAuthOptions' : 'undefined'}, ${auth ? '__resolveVoidAuthState' : 'undefined'});`,
       );
     }
-    lines.push('');
     lines.push(
+      '',
       `const __voidWebSocketRoutes = ${JSON.stringify(
         webSockets.map((route) => ({
           pattern: route.pattern,
           params: route.params,
           className: route.className,
           bindingName: route.bindingName,
+          mode: route.mode,
           ...(route.name !== undefined && { name: route.name }),
         })),
       )};`,
+      '',
     );
-    lines.push('');
   }
   for (let i = 0; i < webSockets.length; i++) {
     lines.push(`__voidWebSocketRoutes[${i}].key = websocket${i}.key;`);
+  }
+  if (webSockets.length > 0 && options.webSocketRuntimePath) {
+    // Register after `key` is attached so getRoom() shares the client's addressing.
+    lines.push('__registerWebSocketRoutes(__voidWebSocketRoutes);');
   }
   for (const className of options.webSocketTombstones ?? []) {
     lines.push(
@@ -441,8 +448,7 @@ export function compileRouteTable(
   }
 
   if (options.hasLive) {
-    lines.push('export const VoidLiveStreamDurableObject = __createLiveDurableObject();');
-    lines.push('');
+    lines.push('export const VoidLiveStreamDurableObject = __createLiveDurableObject();', '');
   }
 
   // Pages mode — generate page route handlers
@@ -529,25 +535,23 @@ export function compileRouteTable(
       const job = scan.jobs[i];
       lines.push(`const job${i}Crons = ${JSON.stringify(job.crons)};`);
     }
-    lines.push('');
-    // Workers log capture keeps only an error's own name, message and stack (not
-    // AggregateError.errors or cause), so each job logs its own error, with the job file
-    // and cron, as soon as it fails.
-    lines.push('export async function scheduled(controller, env, ctx) {');
-    lines.push('  const run = async (job, loadJob) => {');
-    lines.push('    try {');
-    lines.push('      const mod = await loadJob();');
     lines.push(
+      '',
+      // Workers log capture keeps only an error's own name, message and stack (not
+      // AggregateError.errors or cause), so each job logs its own error, with the job file
+      // and cron, as soon as it fails.
+      'export async function scheduled(controller, env, ctx) {',
+      '  const run = async (job, loadJob) => {',
+      '    try {',
+      '      const mod = await loadJob();',
       "      if (typeof mod.default === 'function') await mod.default(controller, env, ctx);",
-    );
-    lines.push('    } catch (error) {');
-    lines.push(
+      '    } catch (error) {',
       '      console.error(`[void] Scheduled job ${job} failed for cron "${controller.cron}":`, error);',
+      '      return { job, error };',
+      '    }',
+      '  };',
+      '  const tasks = [];',
     );
-    lines.push('      return { job, error };');
-    lines.push('    }');
-    lines.push('  };');
-    lines.push('  const tasks = [];');
     for (let i = 0; i < scan.jobs.length; i++) {
       const job = scan.jobs[i];
       const filePath = JSON.stringify(`${jobsDir}/${job.filePath}`);
@@ -556,43 +560,42 @@ export function compileRouteTable(
         `  if (job${i}Crons.includes(controller.cron)) tasks.push(run(${label}, () => import(${filePath})));`,
       );
     }
-    lines.push('  const failures = (await Promise.all(tasks)).filter(Boolean);');
-    lines.push('  if (failures.length) {');
     lines.push(
+      '  const failures = (await Promise.all(tasks)).filter(Boolean);',
+      '  if (failures.length) {',
       '    throw new AggregateError(failures.map((failure) => failure.error), `Scheduled jobs failed: ${failures.map((failure) => failure.job).join(", ")}`);',
+      '  }',
+      '}',
+      '',
     );
-    lines.push('  }');
-    lines.push('}');
-    lines.push('');
   } else {
-    lines.push('export async function scheduled() {}');
-    lines.push('');
+    lines.push('export async function scheduled() {}', '');
   }
 
   if (scan.jobs.length > 0 || scan.queues.length > 0) {
-    lines.push('function __voidTriggerUnauthorized(c) {');
-    lines.push('  const __token = c.req.header("x-void-internal");');
-    lines.push('  const __expected = __getRawEnv()?.__VOID_PROXY_TOKEN;');
-    lines.push('  const __devToken = c.req.header("x-void-dev-trigger");');
     lines.push(
+      'function __voidTriggerUnauthorized(c) {',
+      '  const __token = c.req.header("x-void-internal");',
+      '  const __expected = __getRawEnv()?.__VOID_PROXY_TOKEN;',
+      '  const __devToken = c.req.header("x-void-dev-trigger");',
       '  return __VOID_SERVE ? __devToken !== __VOID_DEV_TRIGGER_TOKEN : __expected ? __token !== __expected : __token !== __VOID_BUILD_KEY;',
+      '}',
+      '',
     );
-    lines.push('}');
-    lines.push('');
   }
 
   if (scan.jobs.length > 0) {
-    lines.push('const __scheduledHandler = async (c) => {');
     lines.push(
+      'const __scheduledHandler = async (c) => {',
       '  if (__voidTriggerUnauthorized(c)) return c.json({ error: "unauthorized" }, 401);',
+      '  const { cron, scheduledTime } = await c.req.json();',
+      '  const controller = { cron, scheduledTime, noRetry() {} };',
+      '  await scheduled(controller, c.env, c.executionCtx);',
+      '  return c.json({ ok: true });',
+      '};',
+      'app.post("/__void/scheduled", __markRouteHandler(__scheduledHandler));',
+      '',
     );
-    lines.push('  const { cron, scheduledTime } = await c.req.json();');
-    lines.push('  const controller = { cron, scheduledTime, noRetry() {} };');
-    lines.push('  await scheduled(controller, c.env, c.executionCtx);');
-    lines.push('  return c.json({ ok: true });');
-    lines.push('};');
-    lines.push('app.post("/__void/scheduled", __markRouteHandler(__scheduledHandler));');
-    lines.push('');
   }
 
   if (scan.queues.length > 0) {
@@ -603,84 +606,73 @@ export function compileRouteTable(
         queueNames,
         cloudflareNames && queueNames.map((name) => cloudflareQueueName(name, cloudflareNames)),
       ),
+      '',
     );
-    lines.push('');
     const queueLabels = scan.queues.map((queue) =>
       relative(options.projectRoot, `${queuesDir}/${queue.filePath}`),
     );
-    lines.push(`const __queueLabels = ${JSON.stringify(queueLabels)};`);
-    // Queue dispatch as a standalone function — called directly by native queue handler
-    // and via the authenticated HTTP route. No global mutable state needed.
-    // It logs why a batch failed: the native handler throws only "queue: Handler failed.",
-    // the HTTP route returns no handler error, and the Void Cloud relay ignores `error`.
-    lines.push('export async function __processQueue(payload, env) {');
-    lines.push('  const queueSuffix = payload.queue;');
-    lines.push('  const __queueIndex = __resolveQueueIndex(queueSuffix);');
-    lines.push('  if (__queueIndex === -1) {');
     lines.push(
+      `const __queueLabels = ${JSON.stringify(queueLabels)};`,
+      // Queue dispatch as a standalone function — called directly by native queue handler
+      // and via the authenticated HTTP route. No global mutable state needed.
+      // It logs why a batch failed: the native handler throws only "queue: Handler failed.",
+      // the HTTP route returns no handler error, and the Void Cloud relay ignores `error`.
+      'export async function __processQueue(payload, env) {',
+      '  const queueSuffix = payload.queue;',
+      '  const __queueIndex = __resolveQueueIndex(queueSuffix);',
+      '  if (__queueIndex === -1) {',
       '    const __error = `No unambiguous queue handler matches "${String(queueSuffix)}"`;',
-    );
-    lines.push('    console.error(`[void] ${__error}`);');
-    lines.push('    return { ok: false, error: __error };');
-    lines.push('  }');
-    lines.push('  const __decisions = new Map();');
-    lines.push('  function __wrapMsg(m) {');
-    lines.push('    let decided = false;');
-    lines.push('    return {');
-    lines.push(
+      '    console.error(`[void] ${__error}`);',
+      '    return { ok: false, error: __error };',
+      '  }',
+      '  const __decisions = new Map();',
+      '  function __wrapMsg(m) {',
+      '    let decided = false;',
+      '    return {',
       '      id: m.id, timestamp: new Date(m.timestamp), body: m.body, attempts: m.attempts,',
-    );
-    lines.push(
       '      ack() { if (!decided) { decided = true; __decisions.set(m.id, { action: "ack" }); } },',
-    );
-    lines.push(
       '      retry(opts) { if (!decided) { decided = true; __decisions.set(m.id, { action: "retry", ...(opts?.delaySeconds != null ? { delaySeconds: opts.delaySeconds } : {}) }); } },',
+      '    };',
+      '  }',
+      '  const __msgs = payload.messages.map(__wrapMsg);',
+      '  const batch = {',
+      '    queue: queueSuffix,',
+      '    messages: __msgs,',
+      '    ackAll() { for (const m of __msgs) m.ack(); },',
+      '    retryAll(opts) { for (const m of __msgs) m.retry(opts); },',
+      '  };',
+      '  let __ok = true;',
+      '  try {',
+      '    switch (__queueIndex) {',
     );
-    lines.push('    };');
-    lines.push('  }');
-    lines.push('  const __msgs = payload.messages.map(__wrapMsg);');
-    lines.push('  const batch = {');
-    lines.push('    queue: queueSuffix,');
-    lines.push('    messages: __msgs,');
-    lines.push('    ackAll() { for (const m of __msgs) m.ack(); },');
-    lines.push('    retryAll(opts) { for (const m of __msgs) m.retry(opts); },');
-    lines.push('  };');
-    lines.push('  let __ok = true;');
-    lines.push('  try {');
-    lines.push('    switch (__queueIndex) {');
     for (let i = 0; i < scan.queues.length; i++) {
       const q = scan.queues[i];
-      lines.push(`      case ${i}: {`);
       lines.push(
+        `      case ${i}: {`,
         `        const mod = await import(${JSON.stringify(`${queuesDir}/${q.filePath}`)});`,
+        "        if (typeof mod.default === 'function') await mod.default(batch, env);",
+        '        break;',
+        '      }',
       );
-      lines.push("        if (typeof mod.default === 'function') await mod.default(batch, env);");
-      lines.push('        break;');
-      lines.push('      }');
     }
-    lines.push('    }');
-    lines.push('  } catch (error) {');
     lines.push(
+      '    }',
+      '  } catch (error) {',
       '    console.error(`[void] Queue handler ${__queueLabels[__queueIndex]} failed for queue "${String(queueSuffix)}":`, error);',
-    );
-    lines.push('    __ok = false;');
-    lines.push('  }');
-    lines.push(
+      '    __ok = false;',
+      '  }',
       '  return { ok: __ok, ...(__decisions.size > 0 ? { decisions: Object.fromEntries(__decisions) } : {}) };',
-    );
-    lines.push('}');
-    lines.push('');
-
-    lines.push('const __queueHandler = async (c) => {');
-    lines.push(
+      '}',
+      '',
+      'const __queueHandler = async (c) => {',
       '  if (__voidTriggerUnauthorized(c)) return c.json({ error: "unauthorized" }, 401);',
+      '  const payload = await c.req.json();',
+      '  const result = await __processQueue(payload, c.env);',
+      '  return c.json(result);',
+      '};',
+      'app.post("/__void/queue", __markRouteHandler(__queueHandler));',
+      '',
     );
-    lines.push('  const payload = await c.req.json();');
-    lines.push('  const result = await __processQueue(payload, c.env);');
-    lines.push('  return c.json(result);');
-    lines.push('};');
-    lines.push('app.post("/__void/queue", __markRouteHandler(__queueHandler));');
-    lines.push('');
   }
 
   // Inbound email: the first recipient pattern in scanner order wins, then `_default`.
@@ -709,55 +701,56 @@ export function compileRouteTable(
       }
       lines.push('];');
     }
-    lines.push('');
-    lines.push('export async function __emailHandler(message, env, ctx, __opts) {');
-    // Match the wire recipient: `createMessageProxy` already stripped the slug from `message.to`.
-    // Keep the case; patterns use the `i` flag so captured tags stay intact.
-    lines.push('  const __platformTo = message ? message.__voidPlatformTo : undefined;');
-    lines.push('  const __to = String((__platformTo ?? (message && message.to)) || "");');
-    lines.push('  const __localFull = __to.split("@")[0] || "";');
-    // With a slug configured, `<slug>[+<tag>]` routes on the tag; a bare `<slug>@` has an empty tag.
-    lines.push('  let __local = __localFull;');
-    lines.push('  if (__opts && __opts.slug) {');
-    lines.push('    const __plus = __localFull.indexOf("+");');
-    lines.push('    __local = __plus === -1 ? "" : __localFull.slice(__plus + 1);');
-    lines.push('  }');
+    lines.push(
+      '',
+      'export async function __emailHandler(message, env, ctx, __opts) {',
+      // Match the wire recipient: `createMessageProxy` already stripped the slug from `message.to`.
+      // Keep the case; patterns use the `i` flag so captured tags stay intact.
+      '  const __platformTo = message ? message.__voidPlatformTo : undefined;',
+      '  const __to = String((__platformTo ?? (message && message.to)) || "");',
+      '  const __localFull = __to.split("@")[0] || "";',
+      // With a slug configured, `<slug>[+<tag>]` routes on the tag; a bare `<slug>@` has an empty tag.
+      '  let __local = __localFull;',
+      '  if (__opts && __opts.slug) {',
+      '    const __plus = __localFull.indexOf("+");',
+      '    __local = __plus === -1 ? "" : __localFull.slice(__plus + 1);',
+      '  }',
+    );
     if (email.addresses.length > 0) {
-      lines.push('  for (const __p of __emailPatterns) {');
-      lines.push('    const __m = __p.re.exec(__local);');
-      lines.push('    if (!__m) continue;');
-      lines.push('    const __params = {};');
-      lines.push('    for (let __i = 0; __i < __p.params.length; __i++) {');
-      lines.push('      __params[__p.params[__i]] = __m[__i + 1];');
-      lines.push('    }');
-      lines.push('    const __mod = await __p.load();');
-      lines.push('    if (typeof __mod.default !== "function") {');
       lines.push(
+        '  for (const __p of __emailPatterns) {',
+        '    const __m = __p.re.exec(__local);',
+        '    if (!__m) continue;',
+        '    const __params = {};',
+        '    for (let __i = 0; __i < __p.params.length; __i++) {',
+        '      __params[__p.params[__i]] = __m[__i + 1];',
+        '    }',
+        '    const __mod = await __p.load();',
+        '    if (typeof __mod.default !== "function") {',
         '      throw new Error("email handler at " + __p.path + " has no default export");',
+        '    }',
+        '    return await __mod.default(message, env, ctx, { params: __params });',
+        '  }',
       );
-      lines.push('    }');
-      lines.push('    return await __mod.default(message, env, ctx, { params: __params });');
-      lines.push('  }');
     }
     if (email.defaultHandler) {
       const defaultPath = `${emailDir}/${email.defaultHandler}`;
-      lines.push('  const __dmod = await __emailDefault();');
-      lines.push('  if (typeof __dmod.default !== "function") {');
       lines.push(
+        '  const __dmod = await __emailDefault();',
+        '  if (typeof __dmod.default !== "function") {',
         `    throw new Error("email handler at " + ${JSON.stringify(defaultPath)} + " has no default export");`,
+        '  }',
+        '  return await __dmod.default(message, env, ctx, { params: {} });',
       );
-      lines.push('  }');
-      lines.push('  return await __dmod.default(message, env, ctx, { params: {} });');
     } else {
       // Reject unmatched mail so the sender gets a bounce instead of silent loss.
-      lines.push('  if (typeof message.setReject === "function") {');
       lines.push(
-        '    message.setReject("no handler matched recipient \\"" + __to + "\\" — add email/_default.ts to handle unmatched mail");',
+        '  if (typeof message.setReject === "function") {',
+        String.raw`    message.setReject("no handler matched recipient \"" + __to + "\" — add email/_default.ts to handle unmatched mail");`,
+        '  }',
       );
-      lines.push('  }');
     }
-    lines.push('}');
-    lines.push('');
+    lines.push('}', '');
   }
 
   // /__void/migrate handler — runs bundled DB + auth migrations in-worker
@@ -765,9 +758,9 @@ export function compileRouteTable(
     const d1BindingName = options.bindingNames?.d1;
     lines.push(
       `import { createMigrationHandler as __createMigrationHandler } from ${JSON.stringify(options.migrationHandlerPath)};`,
+      `const __migrations = ${JSON.stringify(options.migrations)};`,
+      `const __migrationPlanBundle = ${JSON.stringify(options.migrationPlanBundle)};`,
     );
-    lines.push(`const __migrations = ${JSON.stringify(options.migrations)};`);
-    lines.push(`const __migrationPlanBundle = ${JSON.stringify(options.migrationPlanBundle)};`);
     if (d1BindingName) {
       lines.push(
         `function __voidGetMigrationEnv() {
@@ -781,10 +774,10 @@ export function compileRouteTable(
     }
     lines.push(
       'function __voidCreateMigrationRequestHandler(includeAuthMigrations, includePlanBundle) {',
+      '  return __createMigrationHandler(',
+      '    __voidGetMigrationEnv(),',
+      '    __migrations,',
     );
-    lines.push('  return __createMigrationHandler(');
-    lines.push('    __voidGetMigrationEnv(),');
-    lines.push('    __migrations,');
     if (auth) {
       lines.push(
         '    includeAuthMigrations ? () => runVoidAuthMigrations(__voidGetMigrationEnv(), __voidAuthOptions, __voidAuthMigrationSchema) : undefined,',
@@ -792,48 +785,38 @@ export function compileRouteTable(
     } else {
       lines.push('    undefined,');
     }
-    lines.push('    includePlanBundle ? __migrationPlanBundle : undefined,');
-    lines.push('  );');
-    lines.push('}');
-    lines.push('export async function __voidHandleInternalRoute(request) {');
-    lines.push('  const url = new URL(request.url);');
-    lines.push('  if (request.method === "POST" && url.pathname === "/__void/migrate") {');
     lines.push(
+      '    includePlanBundle ? __migrationPlanBundle : undefined,',
+      '  );',
+      '}',
+      'export async function __voidHandleInternalRoute(request) {',
+      '  const url = new URL(request.url);',
+      '  if (request.method === "POST" && url.pathname === "/__void/migrate") {',
       `    return __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, false)(request);`,
-    );
-    lines.push('  }');
-    lines.push(
+      '  }',
       '  if (request.method === "GET" && url.pathname === "/__void/migrate/capabilities") {',
-    );
-    lines.push(
       `    return __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, true)(request);`,
-    );
-    lines.push('  }');
-    lines.push('  if (request.method === "POST" && url.pathname === "/__void/migrate/app") {');
-    lines.push('    return __voidCreateMigrationRequestHandler(false, true)(request);');
-    lines.push('  }');
-    lines.push(
+      '  }',
+      '  if (request.method === "POST" && url.pathname === "/__void/migrate/app") {',
+      '    return __voidCreateMigrationRequestHandler(false, true)(request);',
+      '  }',
       '  if (request.method === "GET" && url.pathname.startsWith("/__void/migrate/app/attempt/")) {',
+      '    return __voidCreateMigrationRequestHandler(false, true)(request);',
+      '  }',
     );
-    lines.push('    return __voidCreateMigrationRequestHandler(false, true)(request);');
-    lines.push('  }');
     if (auth) {
-      lines.push('  if (request.method === "POST" && url.pathname === "/__void/migrate/auth") {');
-      lines.push('    return __voidCreateMigrationRequestHandler(true, true)(request);');
-      lines.push('  }');
+      lines.push(
+        '  if (request.method === "POST" && url.pathname === "/__void/migrate/auth") {',
+        '    return __voidCreateMigrationRequestHandler(true, true)(request);',
+        '  }',
+      );
     }
-    lines.push('  return null;');
-    lines.push('}');
     lines.push(
+      '  return null;',
+      '}',
       `app.post("/__void/migrate", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, false)(c.req.raw)));`,
-    );
-    lines.push(
       `app.get("/__void/migrate/capabilities", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, true)(c.req.raw)));`,
-    );
-    lines.push(
       'app.post("/__void/migrate/app", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw)));',
-    );
-    lines.push(
       'app.get("/__void/migrate/app/attempt/:attemptId", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw)));',
     );
     if (auth) {
@@ -843,57 +826,54 @@ export function compileRouteTable(
     }
     lines.push('');
   } else {
-    lines.push('export async function __voidHandleInternalRoute() { return null; }');
-    lines.push('');
+    lines.push('export async function __voidHandleInternalRoute() { return null; }', '');
   }
 
   // /__void/* handler — native binding access via WfP dispatch (always injected for CF targets)
   if (options.bindingHandlerPath) {
     lines.push(
       `import { createBindingHandler as __createBindingHandler } from ${JSON.stringify(options.bindingHandlerPath)};`,
-    );
-    lines.push('let __voidBindingApp;');
-    lines.push('app.all("/__void/*", __markRouteHandler(async (c) => {');
-    lines.push(
+      'let __voidBindingApp;',
+      'app.all("/__void/*", __markRouteHandler(async (c) => {',
       '  if (!__voidBindingApp) __voidBindingApp = __createBindingHandler(__getRawEnv());',
+      '  const url = new URL(c.req.url);',
+      '  url.pathname = url.pathname.slice(7);',
+      '  return __voidBindingApp.fetch(new Request(url.toString(), c.req.raw));',
+      '}));',
+      '',
     );
-    lines.push('  const url = new URL(c.req.url);');
-    lines.push('  url.pathname = url.pathname.slice(7);');
-    lines.push('  return __voidBindingApp.fetch(new Request(url.toString(), c.req.raw));');
-    lines.push('}));');
-    lines.push('');
   }
 
   // Request-scoped raw env — safe for concurrent requests (uses ALS, not a module global).
   // The worker entry wraps each request in __withRawEnv(env, fn). Internal route handlers
   // read it via __getRawEnv() which returns the per-request value from AsyncLocalStorage.
-  lines.push('const __rawEnvStore = new AsyncLocalStorage();');
-  lines.push('export function __withRawEnv(env, fn) { return __rawEnvStore.run(env, fn); }');
-  lines.push('function __getRawEnv() { return __rawEnvStore.getStore(); }');
-  // Build-time key for internal route auth when __VOID_PROXY_TOKEN is absent.
-  // Embedded in the compiled route table — only same-build callers know it.
-  lines.push(`export const __VOID_BUILD_KEY = ${JSON.stringify(crypto.randomUUID())};`);
   lines.push(
+    'const __rawEnvStore = new AsyncLocalStorage();',
+    'export function __withRawEnv(env, fn) { return __rawEnvStore.run(env, fn); }',
+    'function __getRawEnv() { return __rawEnvStore.getStore(); }',
+    // Build-time key for internal route auth when __VOID_PROXY_TOKEN is absent.
+    // Embedded in the compiled route table — only same-build callers know it.
+    `export const __VOID_BUILD_KEY = ${JSON.stringify(crypto.randomUUID())};`,
     `export const __VOID_DEV_TRIGGER_TOKEN = ${JSON.stringify(options.devTriggerToken ?? crypto.randomUUID())};`,
+    // Manual trigger auth (`/__void/scheduled`, `/__void/queue`) is fixed when the
+    // module is compiled, not read from `import.meta.env.DEV`: a build with
+    // NODE_ENV=development still has DEV=true, and must keep the proxy-token /
+    // build-key rule. Only the Vite dev server compiles with `dev: true`.
+    `const __VOID_SERVE = ${JSON.stringify(options.dev === true)};`,
+    // Baked ISR policy. The ordered page table preserves explicit opt-outs and
+    // object-config inheritance before the flat fallback map is consulted.
+    // `__VOID_ISR_DEPLOYMENT_ID` MUST be a COMPILE-TIME LITERAL —
+    // stringified here at build time exactly like `__VOID_BUILD_KEY` above — so every
+    // isolate of a deployment shares one id (edge-cache keys, KV keys, and the
+    // `revalidate()` purge path must all agree). A runtime `crypto.randomUUID()` in the
+    // emitted source would mint a fresh id per isolate and break cache reads + purge.
+    `export const __VOID_ISR_REVALIDATE = ${JSON.stringify(mergedRevalidate)};`,
+    `export const __VOID_ISR_PAGES = ${JSON.stringify(isrPages)};`,
+    `export const __VOID_ISR_PATH_REVALIDATE = ${JSON.stringify(isrPathRevalidate)};`,
+    `export const __VOID_ISR_DEPLOYMENT_ID = ${JSON.stringify(crypto.randomUUID())};`,
+    '',
+    `export default app;`,
   );
-  // Manual trigger auth (`/__void/scheduled`, `/__void/queue`) is fixed when the
-  // module is compiled, not read from `import.meta.env.DEV`: a build with
-  // NODE_ENV=development still has DEV=true, and must keep the proxy-token /
-  // build-key rule. Only the Vite dev server compiles with `dev: true`.
-  lines.push(`const __VOID_SERVE = ${JSON.stringify(options.dev === true)};`);
-  // Baked ISR policy. The ordered page table preserves explicit opt-outs and
-  // object-config inheritance before the flat fallback map is consulted.
-  // `__VOID_ISR_DEPLOYMENT_ID` MUST be a COMPILE-TIME LITERAL —
-  // stringified here at build time exactly like `__VOID_BUILD_KEY` above — so every
-  // isolate of a deployment shares one id (edge-cache keys, KV keys, and the
-  // `revalidate()` purge path must all agree). A runtime `crypto.randomUUID()` in the
-  // emitted source would mint a fresh id per isolate and break cache reads + purge.
-  lines.push(`export const __VOID_ISR_REVALIDATE = ${JSON.stringify(mergedRevalidate)};`);
-  lines.push(`export const __VOID_ISR_PAGES = ${JSON.stringify(isrPages)};`);
-  lines.push(`export const __VOID_ISR_PATH_REVALIDATE = ${JSON.stringify(isrPathRevalidate)};`);
-  lines.push(`export const __VOID_ISR_DEPLOYMENT_ID = ${JSON.stringify(crypto.randomUUID())};`);
-  lines.push('');
-  lines.push(`export default app;`);
 
   return lines.join('\n');
 }
@@ -917,8 +897,10 @@ function compilePrerenderCollector(
   );
   const explicitPaths = options.explicitPrerenderPaths ?? [];
 
-  lines.push(`export async function __voidCollectPrerenderPaths(request, env, ctx) {`);
-  lines.push(`  return withRuntimeEnv(env, async () => {`);
+  lines.push(
+    `export async function __voidCollectPrerenderPaths(request, env, ctx) {`,
+    `  return withRuntimeEnv(env, async () => {`,
+  );
   if (options.nodeTarget) {
     lines.push(`    return requestContext.run({ request }, async () => {`);
   } else {
@@ -932,37 +914,41 @@ function compilePrerenderCollector(
 
   for (const page of dynamicPages) {
     const loaderName = `_pload_${pageNames(page.componentId)}`;
-    lines.push(`      {`);
-    lines.push(`        const mod = await ${loaderName}();`);
-    lines.push(`        if (typeof mod.getPrerenderPaths === "function") {`);
-    lines.push(`          const paramSets = await mod.getPrerenderPaths();`);
-    lines.push(`          if (Array.isArray(paramSets)) {`);
+    lines.push(
+      `      {`,
+      `        const mod = await ${loaderName}();`,
+      `        if (typeof mod.getPrerenderPaths === "function") {`,
+      `          const paramSets = await mod.getPrerenderPaths();`,
+      `          if (Array.isArray(paramSets)) {`,
+    );
     // Name the file that defines getPrerenderPaths() in build errors.
     const file = [pagesDirRelative, page.serverPath ?? page.componentPath]
       .filter(Boolean)
       .join('/');
-    lines.push(`            for (let index = 0; index < paramSets.length; index++) {`);
     lines.push(
+      `            for (let index = 0; index < paramSets.length; index++) {`,
       `              paths.push(__buildPrerenderPath(${JSON.stringify(page.pattern)}, paramSets[index], ${JSON.stringify(file)}, index));`,
+      `            }`,
+      `          }`,
+      `        }`,
+      `      }`,
     );
-    lines.push(`            }`);
-    lines.push(`          }`);
-    lines.push(`        }`);
-    lines.push(`      }`);
   }
 
   if (ssr) {
-    lines.push(`      {`);
-    lines.push(`        const mod = await import(${JSON.stringify(ssr.serverEntryPath)});`);
-    lines.push(`        if (typeof mod.getPrerenderPaths === "function") {`);
-    lines.push(`          const ssrPaths = await mod.getPrerenderPaths();`);
-    lines.push(`          if (Array.isArray(ssrPaths)) {`);
-    lines.push(`            for (const path of ssrPaths) {`);
-    lines.push(`              if (typeof path === "string") paths.push(path);`);
-    lines.push(`            }`);
-    lines.push(`          }`);
-    lines.push(`        }`);
-    lines.push(`      }`);
+    lines.push(
+      `      {`,
+      `        const mod = await import(${JSON.stringify(ssr.serverEntryPath)});`,
+      `        if (typeof mod.getPrerenderPaths === "function") {`,
+      `          const ssrPaths = await mod.getPrerenderPaths();`,
+      `          if (Array.isArray(ssrPaths)) {`,
+      `            for (const path of ssrPaths) {`,
+      `              if (typeof path === "string") paths.push(path);`,
+      `            }`,
+      `          }`,
+      `        }`,
+      `      }`,
+    );
   }
 
   for (const path of explicitPaths) {
@@ -973,12 +959,14 @@ function compilePrerenderCollector(
     options.trailingSlash
       ? `      return [...new Set(paths.map((path) => path.endsWith("/") ? path : path + "/"))];`
       : `      return [...new Set(paths)];`,
+    `    });`,
+    `  });`,
+    `}`,
+    '',
   );
-  lines.push(`    });`);
-  lines.push(`  });`);
-  lines.push(`}`);
-  lines.push('');
 }
+
+const virtualDevUrl = (id: string): string => '/@id/__x00__' + id;
 
 function compilePageRoutes(
   lines: Array<string>,
@@ -987,21 +975,16 @@ function compilePageRoutes(
   options: CompileOptions,
   pageNames: (componentId: string) => string,
 ): void {
-  // Import protocol helpers and renderer
   lines.push(`import { renderPage } from "virtual:void-pages-renderer";`);
   if (options.dev) {
     lines.push(`import { getVoidPagesDevCss } from "virtual:void-pages-dev-assets";`);
   }
 
-  // Import island renderer if any island pages exist
   const hasIslandPages = scan.pages.pages.some((p) => p.renderMode === 'island');
   if (hasIslandPages) {
     lines.push(`import { renderIslandPage } from "virtual:void-islands-renderer";`);
   }
-  lines.push('');
-  // Emit head config constant from void.json
-  lines.push(`const __voidHeadConfig = ${JSON.stringify(pages.headConfig ?? null)};`);
-  lines.push('');
+  lines.push('', `const __voidHeadConfig = ${JSON.stringify(pages.headConfig ?? null)};`, '');
   pushDefaultErrorPageHelpers(lines, options);
 
   // Build manifest-key mapping for each page and its layout chain
@@ -1013,7 +996,6 @@ function compilePageRoutes(
   const projectRoot = options.projectRoot;
   const toDevRootUrl = (absolutePath: string): string =>
     '/' + absolutePath.replaceAll('\\', '/').slice(projectRoot.replaceAll('\\', '/').length + 1);
-  const virtualDevUrl = (id: string): string => '/@id/__x00__' + id;
   for (const page of scan.pages.pages) {
     const keys: Array<string> = [];
     const routeRootPhases: Array<Array<string>> = [
@@ -1029,7 +1011,6 @@ function compilePageRoutes(
     const layoutIds = resolveLayoutIds(page, scan.pages.layouts, scan.pages.namedLayouts);
     const layoutRoots: Array<string> = [];
     for (const layoutId of layoutIds) {
-      // Map layout IDs back to file paths
       const layout = scan.pages.layouts.find(
         (l) => (l.directory ? `${l.directory}/layout` : 'layout') === layoutId,
       );
@@ -1048,28 +1029,25 @@ function compilePageRoutes(
       }
     }
     keys.push(`${relPagesDir}/${page.componentPath}`);
-    routeRootPhases.push(layoutRoots);
-    routeRootPhases.push([toDevRootUrl(`${pages.pagesDir}/${page.componentPath}`)]);
+    routeRootPhases.push(layoutRoots, [toDevRootUrl(`${pages.pagesDir}/${page.componentPath}`)]);
     pageCssKeys[page.componentId] = keys;
     pageDevRootPhases[page.componentId] = routeRootPhases.filter((phase) => phase.length > 0);
   }
   for (const plan of Object.values(boundaryManifest.plans)) {
-    const files = [...scan.pages.layouts, ...scan.pages.namedLayouts]
-      .filter((layout) => {
-        const id =
-          'name' in layout
-            ? layout.directory
-              ? layout.directory + '/_layouts/' + layout.name
-              : '_layouts/' + layout.name
-            : layout.directory
-              ? layout.directory + '/layout'
-              : 'layout';
-        const key = scan.pages.pages.some((page) => page.componentId === id)
-          ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
-          : id;
-        return plan.layouts.includes(key);
-      })
-      .map((layout) => layout.filePath);
+    const files = [...scan.pages.layouts, ...scan.pages.namedLayouts].flatMap((layout) => {
+      const id =
+        'name' in layout
+          ? layout.directory
+            ? layout.directory + '/_layouts/' + layout.name
+            : '_layouts/' + layout.name
+          : layout.directory
+            ? layout.directory + '/layout'
+            : 'layout';
+      const key = scan.pages.pages.some((page) => page.componentId === id)
+        ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
+        : id;
+      return plan.layouts.includes(key) ? [layout.filePath] : [];
+    });
     files.push(plan.filePath);
     pageCssKeys[plan.id] = files.map((file) => `${relPagesDir}/${file}`);
     pageDevRootPhases[plan.id] = [
@@ -1100,18 +1078,15 @@ function compilePageRoutes(
     );
   }
 
-  // Generate lazy loaders and route registrations for each page
   const seenServerFiles = new Set<string>();
   for (const page of scan.pages.pages) {
     const safeId = pageNames(page.componentId);
 
-    // Determine server module path
     let serverImportPath: string | null = null;
     if (page.serverPath) {
       serverImportPath = `${pages.pagesDir}/${page.serverPath}`;
     }
 
-    // Generate lazy loader for server module (if any)
     if (serverImportPath && !seenServerFiles.has(serverImportPath)) {
       seenServerFiles.add(serverImportPath);
       const loaderName = `_pload_${safeId}`;
@@ -1144,7 +1119,8 @@ function compilePageRoutes(
     const trailingCatchAll = options.trailingSlash && page.catchAll;
     const pattern = trailingCatchAll ? page.pattern.slice(0, -1) : page.pattern;
     const catchAllParam = page.pattern.match(/:([^/{}]+)\{\.\+\}\/$/)?.[1];
-    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}${trailingCatchAll ? `trailingSlash: true, catchAllParam: ${JSON.stringify(catchAllParam)}, ` : ''}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}), ...(boundaryManifest.pages[page.componentId] && { boundaries: boundaryManifest.pages[page.componentId] }) })} }`;
+    const middlewareBoundaries = `middlewareBoundaries: ${JSON.stringify({ notFound: boundaryManifest.root, errors: (boundaryManifest.pages[page.componentId]?.errors ?? []).filter((id) => !boundaryManifest.plans[id].directory) })}, `;
+    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}${trailingCatchAll ? `trailingSlash: true, catchAllParam: ${JSON.stringify(catchAllParam)}, ` : ''}${middlewareBoundaries}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}), ...(boundaryManifest.pages[page.componentId] && { boundaries: boundaryManifest.pages[page.componentId] }) })} }`;
     lines.push(`app.get(${JSON.stringify(pattern)}, __createPageGetHandler(${routeOptions}));`);
     if (page.methods.includes('action') || page.methods.includes('actions')) {
       lines.push(
@@ -1473,7 +1449,6 @@ ${entryClass}`;
  */
 export function compileNodeApp(
   target: 'node' | 'bun' | 'deno',
-  honoPath: string,
   envSchemaModule?: { importPath: string; helperPath: string },
 ): string {
   const staticImport =
@@ -1497,9 +1472,8 @@ export function compileNodeApp(
 
   return `${staticImport}
 import { fileURLToPath } from "node:url";
-import { Hono } from ${JSON.stringify(honoPath)};
 import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes";
-import { prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
+import { Hono, prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
 ${envSchemaImport}
 // dist/client, created on first use so a server that supplies its own ASSETS
 // (a single executable, for one) never looks for a directory it doesn't have.
@@ -1582,9 +1556,11 @@ function compileRoutingRulesMiddleware(
   rules: Array<DevRedirectRule>,
   dev: boolean,
 ): void {
-  lines.push('// Routing rules: redirects + rewrites (applied before route handlers)');
-  lines.push(`const __routingRules = ${JSON.stringify(dev ? rules : stripOriginForProd(rules))};`);
-  lines.push('app.use("*", __routingRuntime.routingMiddleware(__routingRules));');
+  lines.push(
+    '// Routing rules: redirects + rewrites (applied before route handlers)',
+    `const __routingRules = ${JSON.stringify(dev ? rules : stripOriginForProd(rules))};`,
+    'app.use("*", __routingRuntime.routingMiddleware(__routingRules));',
+  );
 }
 
 /** Generate the server-side fetch client, which calls `app.fetch()` with the current request's credentials. */

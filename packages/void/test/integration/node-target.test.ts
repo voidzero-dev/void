@@ -6,10 +6,10 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { renderPrerenderPaths } from '../../src/prerender-render.ts';
-import { buildPrerenderPath } from '../../src/runtime/prerender-path.ts';
+import { buildPrerenderPath } from '../../src/runtime/routing/prerender-path.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 let DEV_BASE: string;
@@ -113,7 +113,7 @@ describe('playground/node-app build + production', () => {
     expect(existsSync(join(playground.root, 'dist/ssr/index.js'))).toBe(true);
     expect(existsSync(join(playground.root, 'dist/client'))).toBe(true);
 
-    const index = readFileSync(join(playground.root, 'dist/ssr/index.js'), 'utf-8');
+    const index = readFileSync(join(playground.root, 'dist/ssr/index.js'), 'utf8');
     expect(index).toContain('@hono/node-server');
   });
 

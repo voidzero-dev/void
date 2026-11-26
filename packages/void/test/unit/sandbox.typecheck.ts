@@ -1,5 +1,5 @@
 import { expectTypeOf } from 'vite-plus/test';
-import type { SandboxClient, SandboxProcess } from '../../src/runtime/sandbox.ts';
+import type { SandboxClient, SandboxProcess } from '../../src/runtime/sandbox/index.ts';
 
 declare const sandboxClient: SandboxClient;
 declare const process: SandboxProcess;

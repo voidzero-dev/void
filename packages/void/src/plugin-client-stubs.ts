@@ -1,15 +1,15 @@
-import { type Plugin } from 'vite';
+import type { Plugin } from 'vite';
 
 export function createClientStubsPlugin(): Plugin {
   const STUB_PREFIX = '\0void-client-stub:';
-  const SERVER_ONLY_STUBS: Record<string, string> = {
+  const SERVER_ONLY_STUBS = {
     'void/db': 'export const db = {}; export const createDb = () => ({});',
     'void/kv': 'export const kv = {}; export const createKV = () => ({});',
     'void/ai': 'export const ai = {};',
     'void/queues': 'export const queues = {};',
     'void/storage': 'export const storage = {}; export const createStorage = () => ({});',
     'void/isr': 'export const revalidate = async () => {};',
-    // Client stub must mirror the real runtime/sandbox.ts surface so any
+    // Client stub must mirror the real runtime/sandbox/index.ts surface so any
     // client-side `instanceof` check for either runtime error doesn't crash with a
     // TypeError, and async `await getSandbox(...)` callers don't silently
     // mis-handle a sync return. Throwing here makes accidental client imports
@@ -33,7 +33,7 @@ export function createClientStubsPlugin(): Plugin {
       }
       export const sandbox = { get: getSandbox };
     `,
-    // `void/email` reaches `runtime/env-raw.ts` (`node:async_hooks`), so an
+    // `void/email` reaches `runtime/env/raw.ts` (`node:async_hooks`), so an
     // unstubbed client import builds with only a warning and white-screens on
     // load. `void/email/testing` needs its own entry (the filter is anchored)
     // because it pulls build-time router code and Node built-ins. Both throw,
@@ -60,10 +60,13 @@ export function createClientStubsPlugin(): Plugin {
     'void/live': '',
     'void/durable': '',
   };
+  const stubSources = new Map(Object.entries(SERVER_ONLY_STUBS));
   const STUB_RESOLVE_FILTER = new RegExp(
-    `^(${Object.keys(SERVER_ONLY_STUBS).join('|').replaceAll('/', '\\/')})$`,
+    `^(${Array.from(stubSources.keys())
+      .join('|')
+      .replaceAll('/', String.raw`\/`)})$`,
   );
-  // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
+  // Vite virtual module null-byte prefix
   const STUB_LOAD_FILTER = new RegExp(`^\\0void-client-stub:`);
 
   const clientStubsPlugin: Plugin = {
@@ -87,7 +90,7 @@ export function createClientStubsPlugin(): Plugin {
     load: {
       filter: { id: STUB_LOAD_FILTER },
       handler(id) {
-        return SERVER_ONLY_STUBS[id.slice(STUB_PREFIX.length)] ?? 'export default {};';
+        return stubSources.get(id.slice(STUB_PREFIX.length)) ?? 'export default {};';
       },
     },
   };

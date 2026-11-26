@@ -30,8 +30,7 @@ async function runConfigureServer(plugin: ReturnType<typeof devTriggersHintPlugi
   }
   vi.useFakeTimers();
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (fn as any)(server);
+    await (fn as (fixture: typeof server) => void | Promise<void>)(server);
     server.httpServer.emit('listening');
     // afterServerReady prints 100 ms after 'listening'.
     vi.advanceTimersByTime(100);

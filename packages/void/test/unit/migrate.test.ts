@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { migrateLegacyVoidConfig, runMigrateCommand } from '../../src/cli/migrate.ts';
 import { readConfig } from '../../src/config.ts';
 
-const root = join(import.meta.dirname, '.tmp-migrate-test');
+const root = packageFixturePath(import.meta.dirname, '.tmp-migrate-test');
 
 function setup(config: string): void {
   rmSync(root, { recursive: true, force: true });

@@ -17,8 +17,8 @@ import {
   setActiveDeployment,
   updateProjectType,
   TERMINAL_DEPLOYMENT_STATUSES,
-  type Db,
 } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectQueueName } from '../naming.ts';
 import { resolvePlanLimits } from '../plans.ts';
@@ -33,7 +33,9 @@ import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.
 import { requestRotationIfReplacingUntrustedCode } from '../proxy-token-rotation.ts';
 import { projectRouteKey } from '../routing.ts';
 import { buildRoutingJson, buildStaticRoutingJson, computeDispatchLimits } from '../routing.ts';
-import { type DeployManifest, type Deployment, type Project } from '../types.ts';
+import { enqueueSecurityScanInTx } from '../security/enqueue.ts';
+import type { SecurityScanEnqueued } from '../security/enqueue.ts';
+import type { DeployManifest, Deployment, Project } from '../types.ts';
 import {
   resolveProjectZeroTrustRouting,
   resolveProjectZeroTrustRoutingForPublication,
@@ -60,6 +62,9 @@ export const cutoverCompensatedKey = (deploymentId: string): string =>
  * Flip a protected cutover to live under the project lock. Aborts when the
  * project is being deleted, another owner took over the cutover markers, the
  * deployment was canceled, or the bound build was superseded.
+ *
+ * Writes the security scan row in the same transaction (spec §6.1) and returns it;
+ * the caller hands it to `finishSecurityScanEnqueue` after this resolves.
  */
 export async function commitCutoverLive(
   db: Db,
@@ -71,10 +76,11 @@ export async function commitCutoverLive(
     cutoverOwnerId: string;
     deployBuild: string | undefined;
     projectType: Project['type'];
+    env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>;
   }>,
-): Promise<void> {
+): Promise<SecurityScanEnqueued | null> {
   const { projectId, deploymentId, cutoverOwnerId } = input;
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(drizzleSql`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`);
     const lockedProject = await getProject(tx, projectId);
     if (!lockedProject || lockedProject.status === 'deleting') {
@@ -108,6 +114,7 @@ export async function commitCutoverLive(
     await requestRotationIfReplacingUntrustedCode(tx, projectId, deploymentId);
     await setActiveDeployment(tx, projectId, deploymentId);
     await markDeploymentRetained(tx, deploymentId, true);
+    return enqueueSecurityScanInTx(tx, input.env, { projectId, deploymentId, trigger: 'deploy' });
   });
 }
 
@@ -324,16 +331,15 @@ export async function replayDeploymentCutover(
   const historicalQueueNames = await persistedQueueNames(db, project.id);
   const desiredQueues = isStatic ? [] : (manifest.queues ?? []);
   const desiredQueueNames = new Set(desiredQueues.map((queue) => queue.name));
-  const desiredQueueResources = new Map<string, (typeof resources)[number]>();
-  for (const queue of desiredQueues) {
+  const desiredQueueResources = desiredQueues.map((queue) => {
     const resource = resources.find(
       (entry) => entry.type === 'queue' && entry.binding_name === queue.name,
     );
     if (!resource) {
       throw new Error(`cutover recovery is missing queue resource ${queue.name}`);
     }
-    desiredQueueResources.set(queue.name, resource);
-  }
+    return { queue, resource };
+  });
   const needsProxyToken = !isStatic && (!!manifest.schedules?.length || desiredQueues.length > 0);
   // The token the replayed Worker holds, which may be older than the issued one.
   const proxyToken = needsProxyToken
@@ -344,28 +350,38 @@ export async function replayDeploymentCutover(
   await env.ROUTING.put(projectRouteKey(project), routingJson);
   await reconcileProjectDomainRoutes(env, domains, routingJson);
   if (!isStatic && manifest.schedules?.length) {
+    if (!proxyToken) {
+      throw new Error('cutover recovery requires the Worker proxy token for schedules');
+    }
     await syncCronScheduler(env, project.id, {
       workerName,
       schedules: manifest.schedules,
-      proxyToken: proxyToken!,
+      proxyToken,
     });
   } else {
     await clearCronScheduler(env, project.id);
   }
 
   const dispatchWorkerName = env.DISPATCH_WORKER_NAME ?? 'void-dispatch';
-  for (const queue of desiredQueues) {
-    const resource = desiredQueueResources.get(queue.name)!;
+  for (const { queue, resource } of desiredQueueResources) {
     const consumer = await addQueueConsumer(
       env.CF_ACCOUNT_ID,
       env.CF_API_TOKEN,
       resource.cf_id,
       dispatchWorkerName,
       {
-        ...(queue.maxBatchSize != null && { batch_size: queue.maxBatchSize }),
-        ...(queue.maxBatchTimeout != null && { max_wait_time_ms: queue.maxBatchTimeout * 1000 }),
-        ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
-        ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
+        ...(queue.maxBatchSize !== null &&
+          queue.maxBatchSize !== undefined && { batch_size: queue.maxBatchSize }),
+        ...(queue.maxBatchTimeout !== null &&
+          queue.maxBatchTimeout !== undefined && {
+            max_wait_time_ms: queue.maxBatchTimeout * 1000,
+          }),
+        ...(queue.maxRetries !== null &&
+          queue.maxRetries !== undefined && { max_retries: queue.maxRetries }),
+        ...(queue.maxConcurrency !== null &&
+          queue.maxConcurrency !== undefined && { max_concurrency: queue.maxConcurrency }),
+        ...(queue.retryDelay !== null &&
+          queue.retryDelay !== undefined && { retry_delay: queue.retryDelay }),
       },
     );
     if (consumer.status === 'conflict') {

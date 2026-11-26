@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { toSlash } from 'pathslash';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   EMAIL_MAX_RESPONSE_BYTES,
   encodeEmailActions,
@@ -11,12 +12,7 @@ import {
 } from '../../../platform/src/email-protocol.ts';
 import { compileRouteTable } from '../../src/router/compile.ts';
 import { compileWorkerEntry } from '../../src/router/compile.ts';
-import {
-  compileEmailPattern,
-  hasEmailHandlers,
-  scanEmailHandlersSync,
-} from '../../src/router/email.ts';
-import * as emailBarrel from '../../src/runtime/email.ts';
+import { hasEmailHandlers, scanEmailHandlersSync } from '../../src/router/email.ts';
 import {
   buildReplyMessage,
   createMessageProxy,
@@ -28,8 +24,12 @@ import {
   parseEmail,
   ParseEmailError,
   replyEmail,
-  type EmailEnvelope,
 } from '../../src/runtime/email/inbound.ts';
+import type { EmailEnvelope } from '../../src/runtime/email/inbound.ts';
+import {
+  MimeError as emailBarrelMimeError,
+  ParseEmailError as emailBarrelParseEmailError,
+} from '../../src/runtime/email/index.ts';
 import { MAX_MESSAGE_BYTES, MimeError } from '../../src/runtime/email/mime.ts';
 
 /** The one shape message the address rule (`email-validator`) throws; it never echoes the address. */
@@ -37,7 +37,7 @@ const INVALID_ADDRESS =
   'address is not a valid email address (ASCII local part and dotted domain, RFC 5322 dot-atom; ' +
   "at most 64 characters before the '@' and 254 in total).";
 import { createInboundTestHarness } from '../../src/runtime/email/testing.ts';
-import { envContext } from '../../src/runtime/env-raw.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
 
 vi.mock('cloudflare:email', () => ({
   EmailMessage: class MockEmailMessage {
@@ -49,7 +49,7 @@ vi.mock('cloudflare:email', () => ({
   },
 }));
 
-const TMP = join(import.meta.dirname, '.tmp-email-inbound');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-email-inbound');
 
 function setupRoot(files: Record<string, string>): string {
   rmSync(TMP, { recursive: true, force: true });
@@ -183,68 +183,6 @@ describe('scanEmailHandlersSync', () => {
   });
 });
 
-describe('compileEmailPattern', () => {
-  it('compiles static address', () => {
-    expect(compileEmailPattern('support')).toEqual({
-      kind: 'static',
-      regexSource: '^support$',
-      paramNames: [],
-    });
-  });
-
-  it('compiles static + tag', () => {
-    expect(compileEmailPattern('support+[ticket]')).toEqual({
-      kind: 'static-tag',
-      regexSource: '^support\\+([^+@]+)$',
-      paramNames: ['ticket'],
-    });
-  });
-
-  it('compiles dynamic', () => {
-    expect(compileEmailPattern('[user]')).toEqual({
-      kind: 'dynamic',
-      regexSource: '^([^+@]+)$',
-      paramNames: ['user'],
-    });
-  });
-
-  it('compiles dynamic + tag', () => {
-    expect(compileEmailPattern('[user]+[tag]')).toEqual({
-      kind: 'dynamic-tag',
-      regexSource: '^([^+@]+)\\+([^+@]+)$',
-      paramNames: ['user', 'tag'],
-    });
-  });
-
-  it('escapes literal dots', () => {
-    expect(compileEmailPattern('alerts.ops')).toEqual({
-      kind: 'static',
-      regexSource: '^alerts\\.ops$',
-      paramNames: [],
-    });
-  });
-
-  it('returns null for too many `+` separators', () => {
-    expect(compileEmailPattern('a+b+c')).toBeNull();
-  });
-
-  it('returns null for invalid literal chars', () => {
-    expect(compileEmailPattern('hello world')).toBeNull();
-  });
-
-  it('lowercases uppercase basenames before compilation', () => {
-    // Patterns are lowercased to match the lowercased recipient — uppercase
-    // in the filename is fine, just normalized.
-    expect(compileEmailPattern('[Foo]')?.paramNames).toEqual(['foo']);
-    expect(compileEmailPattern('Support')?.regexSource).toBe('^support$');
-  });
-
-  it('returns null for invalid param shapes', () => {
-    expect(compileEmailPattern('[1abc]')).toBeNull(); // starts with digit
-    expect(compileEmailPattern('[]')).toBeNull(); // empty
-  });
-});
-
 describe('parseEmail', () => {
   it('parses a minimal RFC 5322 message via postal-mime', async () => {
     const raw =
@@ -282,8 +220,6 @@ describe('parseEmail', () => {
 });
 
 const COMPILE_OPTIONS = {
-  honoPath: 'hono',
-  honoRoutePath: 'hono/route',
   runtimeEnvPath: 'void/_env',
   projectRoot: '/project',
   homeDir: '/home/test',
@@ -310,8 +246,7 @@ function compile(email: any): string {
     '/j',
     '/q',
     null,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    COMPILE_OPTIONS as any,
+    COMPILE_OPTIONS,
   );
 }
 
@@ -344,9 +279,9 @@ function buildEmailDispatcher(
   const body = code
     .slice(start, fnEnd + 3)
     .replace('export async function __emailHandler', 'async function __emailHandler')
-    .replace(/\(\) => import\((".*?")\)/g, '() => __modules[$1]');
+    .replaceAll(/\(\) => import\((".*?")\)/g, '() => __modules[$1]');
 
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function('__modules', `${body}\nreturn __emailHandler;`)(modules) as never;
 }
 
@@ -363,7 +298,7 @@ describe('generated __emailHandler dispatch (behavioural)', () => {
         filePath: 'support+[ticket].ts',
         pattern: {
           kind: 'dynamic-tag',
-          regexSource: '^support\\+([^+@]+)$',
+          regexSource: String.raw`^support\+([^+@]+)$`,
           paramNames: ['ticket'],
         },
       },
@@ -756,7 +691,7 @@ describe('compileWorkerEntry (email)', () => {
     const method = code.match(/ {2}async email\(message\) \{[\s\S]*?\n {2}\}/)?.[0];
     expect(method).toBeDefined();
     const handleEmail = vi.fn(async () => [{ type: 'reject', reason: 'test' }]);
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
     const entryEmail = new Function(
       '__isForwardableEmailMessage',
       'handleEmail',
@@ -1572,7 +1507,7 @@ describe('reply threading survives a hostile inbound header', () => {
 
   /** The `References` value of a rendered reply, unfolded; `undefined` when absent. */
   function referencesOf(text: string): string | undefined {
-    const headers = text.split('\r\n\r\n')[0].replace(/\r\n(?=[ \t])/g, '');
+    const headers = text.split('\r\n\r\n')[0].replaceAll(/\r\n(?=[ \t])/g, '');
     return headers
       .split('\r\n')
       .find((line) => line.startsWith('References: '))
@@ -1688,14 +1623,14 @@ describe('reply threading survives a hostile inbound header', () => {
     // `\x01` or DEL pass a WHATWG `Headers`, but an RFC 5322 §3.6.4 `msg-id`
     // admits no control: such an id is dropped on its own, never a throw.
     // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-    const rawControl = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
+    const rawControl = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
     function headersOf(text: string): string {
       return text.slice(0, text.indexOf('\r\n\r\n'));
     }
 
     it('drops a parent Message-ID carrying one: no In-Reply-To, absent from References, reply still sent', async () => {
-      const parent = '<abc\x01def@remote.dev>';
+      const parent = '<abc\u0001def@remote.dev>';
       const text = await replyText('<r1@remote.dev>', parent);
       expect(text).toContain('Subject: Re: hi');
       expect(text).not.toContain('In-Reply-To:');
@@ -1710,7 +1645,9 @@ describe('reply threading survives a hostile inbound header', () => {
 
     it('drops only the id carrying DEL from a References chain; the rest and the parent stay in order', async () => {
       for (const separator of [' ', '\t']) {
-        const chain = ['<r1@remote.dev>', '<r\x7f2@remote.dev>', '<r3@remote.dev>'].join(separator);
+        const chain = ['<r1@remote.dev>', '<r\u007f2@remote.dev>', '<r3@remote.dev>'].join(
+          separator,
+        );
         const text = await replyText(chain);
         expect(text).toContain(`In-Reply-To: ${MESSAGE_ID}\r\n`);
         expect(referencesOf(text)).toBe(`<r1@remote.dev> <r3@remote.dev> ${MESSAGE_ID}`);
@@ -1860,7 +1797,7 @@ describe('reply subject survives a hostile inbound header', () => {
   // over falls back. `\x01` rather than a tab, because `Headers` strips
   // leading and trailing HTTP whitespace and the count must be exact.
   it('repairs a subject exactly at the bound and falls back one character over', async () => {
-    const atBound = 'a\x01'.repeat(2048); // 4096 code units
+    const atBound = 'a\u0001'.repeat(2048); // 4096 code units
     const kept = await buildReplyMessage(inbound(atBound), { text: 'thanks', from: FROM });
     expect(kept.subject).toBe(`Re: ${'a '.repeat(2048).trim()}`);
     expect(maxLine(kept)).toBeLessThanOrEqual(998);
@@ -1968,8 +1905,8 @@ describe('parseEmail error contract', () => {
   // `void/email` is the only public path to the error classes, so a handler
   // can `instanceof` them only through it.
   it('reports an oversized message as INBOUND_TOO_LARGE, with the classes void/email exports', async () => {
-    expect(emailBarrel.ParseEmailError).toBe(ParseEmailError);
-    expect(emailBarrel.MimeError).toBe(MimeError);
+    expect(emailBarrelParseEmailError).toBe(ParseEmailError);
+    expect(emailBarrelMimeError).toBe(MimeError);
     const raw = new TextEncoder().encode('Subject: hi\r\n\r\nbody\r\n');
     const { message } = createMessageProxy(
       {
@@ -1984,7 +1921,7 @@ describe('parseEmail error contract', () => {
 
     await expect(parseEmail(message)).rejects.toSatisfy(
       (e: unknown) =>
-        e instanceof emailBarrel.ParseEmailError &&
+        e instanceof emailBarrelParseEmailError &&
         e.code === 'INBOUND_TOO_LARGE' &&
         /exceeds maximum/.test(e.message),
     );
@@ -2792,7 +2729,7 @@ describe('end-to-end: envelope → handler → action queue', () => {
     // A reason built from the inbound message can be as large as the message
     // and carry a remote sender's CRLF.
     const { message, getActions } = createMessageProxy(makeEnvelope());
-    message.setReject(`${'x'.repeat(5 * 1024 * 1024)}\r\n\x00`);
+    message.setReject(`${'x'.repeat(5 * 1024 * 1024)}\r\n\u0000`);
     const [action] = getActions();
     expect(action).toEqual({ type: 'reject', reason: 'x'.repeat(1000) });
   });

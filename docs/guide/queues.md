@@ -27,7 +27,7 @@ interface Message {
 export default defineQueue<Message>(async (batch, env) => {
   for (const msg of batch.messages) {
     console.log(`Send to ${msg.body.to}: ${msg.body.subject}`);
-    msg.ack(); // Acknowledge successful processing
+    msg.ack();
   }
 });
 ```
@@ -45,8 +45,6 @@ import { queues } from 'void/queues';
 
 export const POST = defineHandler(async (c) => {
   const order = await c.req.json();
-  // Fully typed: body must match the
-  // Message interface from queues/emails.ts
   await queues.emails.send({
     to: order.email,
     subject: 'Order confirmed',
@@ -64,9 +62,9 @@ export default defineQueue<Message>(async (batch, env) => {
   for (const msg of batch.messages) {
     try {
       await processMessage(msg.body);
-      msg.ack(); // Remove from queue
+      msg.ack();
     } catch {
-      msg.retry({ delaySeconds: 30 }); // Re-deliver after 30s
+      msg.retry({ delaySeconds: 30 });
     }
   }
 });
@@ -96,6 +94,7 @@ interface Message {
 
 export const maxBatchSize = 50;
 export const maxBatchTimeout = 10; // seconds
+export const maxConcurrency = 2;
 export const maxRetries = 5;
 export const retryDelay = 30; // seconds
 
@@ -108,10 +107,15 @@ export default defineQueue<Message>(async (batch, env) => {
 
 - `maxBatchSize`: maximum number of messages per batch (default `10`)
 - `maxBatchTimeout`: maximum seconds to wait before delivering an incomplete batch (default `5`)
+- `maxConcurrency`: maximum number of batches processed concurrently, from `1` to `250` (default: Cloudflare automatic scaling)
 - `maxRetries`: maximum number of retries before delivery is exhausted (default `3`)
 - `retryDelay`: seconds to wait between retries (default `0`)
 
 Export each option directly from the queue file as a whole number, such as `export const maxRetries = 5`. Computed values and re-exports aren't supported; repeat shared settings in each queue file.
+
+Set `maxConcurrency` when your consumer calls a rate-limited API or another service that needs bounded parallel work. `maxBatchSize` limits messages in each batch; `maxConcurrency` limits how many batches run at once. It applies to both direct Cloudflare and Void-managed deployments. Omit it to let Cloudflare scale automatically; see [consumer concurrency](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/).
+
+Void-managed deployments require platform version 1.10.0 or later.
 
 Void-managed queues do not configure a dead-letter queue. Cloudflare permanently
 deletes messages that exhaust their retries without one; see

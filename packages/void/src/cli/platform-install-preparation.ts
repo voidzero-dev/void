@@ -3,9 +3,9 @@ import {
   createPlatformDeploymentManifest,
   platformDashboardUrl,
   transitionInstallation,
-  type PlatformDeploymentManifest,
   parsePlatformAuthenticationSetup,
 } from '@void/platform';
+import type { PlatformDeploymentManifest } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { ensurePlatformAccessHealthChecks } from './platform-access-health.ts';
 import { verifyInstalledPlatformAccessProtection } from './platform-access-preflight.ts';
@@ -22,11 +22,11 @@ import {
   checkpointAuthenticationResources,
   createPlatformHealthProbeToken,
 } from './platform-installer-secrets.ts';
-import {
-  type PlatformDatabaseLifecycleLock,
-  type PlatformInstallerDependencies,
-  type PlatformInstallRunState,
-  mergePlatformLiveAuthenticationDeployment,
+import { mergePlatformLiveAuthenticationDeployment } from './platform-installer-types.ts';
+import type {
+  PlatformDatabaseLifecycleLock,
+  PlatformInstallerDependencies,
+  PlatformInstallRunState,
 } from './platform-installer-types.ts';
 import {
   readPendingInstallationSecrets,
@@ -308,7 +308,7 @@ export async function prepareInstallationAuthentication(input: {
     state.plan.deployment.authentication.accessProtection ||
     (appAccessSetupRequired &&
       state.secrets.appAccessSetupJson &&
-      JSON.parse(state.secrets.appAccessSetupJson).managed === true)
+      (JSON.parse(state.secrets.appAccessSetupJson) as { managed?: unknown }).managed === true)
   ) {
     dependencies.onProgress?.('Preparing Access for authenticated platform health checks');
     try {
@@ -331,7 +331,7 @@ export async function prepareInstallationAuthentication(input: {
       if (
         appAccessSetupRequired &&
         state.secrets.appAccessSetupJson &&
-        JSON.parse(state.secrets.appAccessSetupJson).managed &&
+        (JSON.parse(state.secrets.appAccessSetupJson) as { managed?: unknown }).managed &&
         error instanceof PlatformCloudflareApiError &&
         [401, 403].includes(error.status)
       ) {

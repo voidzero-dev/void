@@ -59,6 +59,6 @@ describe('cron scheduler client', () => {
       snapshotCronScheduler({ CRON_SCHEDULER: cronNamespace(fetch) }, 'proj_3'),
     ).resolves.toEqual(state);
     expect(fetch).toHaveBeenCalledOnce();
-    expect(fetch.mock.calls[0]![0].url).toBe('https://do/snapshot');
+    expect(fetch.mock.calls[0][0].url).toBe('https://do/snapshot');
   });
 });

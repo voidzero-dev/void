@@ -1,14 +1,18 @@
-import { execSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Browser, type Page } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
+import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
   waitForServer,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
   registerSharedClientTests,
@@ -40,9 +44,11 @@ type PageHead = {
 };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
-const REACT_PAGES_ROOT = join(ROOT, 'playground/react-pages');
-const REACT_PAGES_LAYOUT = join(REACT_PAGES_ROOT, 'pages/layout.tsx');
-const LATE_WORKER_DEPS_ROOT = join(REACT_PAGES_ROOT, 'node_modules/@void-repro');
+// Both server groups build and serve one isolated copy of the playground, never its source.
+let fixture: IsolatedPlayground | undefined;
+let REACT_PAGES_ROOT: string;
+let REACT_PAGES_LAYOUT: string;
+let LATE_WORKER_DEPS_ROOT: string;
 const OPTIMIZER_PROBE_FILES = {
   '_optimizer-helper.ts': `import { value } from '@void-repro/worker-only';
 export const readWorkerValue = () => value;`,
@@ -198,15 +204,23 @@ export default function Layout({ children }: { children: ReactNode }) {
 }
 
 beforeAll(async () => {
+  fixture = createIsolatedPlayground(ROOT, 'playground/react-pages');
+  REACT_PAGES_ROOT = fixture.root;
+  REACT_PAGES_LAYOUT = join(REACT_PAGES_ROOT, 'pages/layout.tsx');
+  LATE_WORKER_DEPS_ROOT = join(REACT_PAGES_ROOT, 'node_modules/@void-repro');
   browser = await launchPagesBrowser();
 });
 
 afterAll(async () => {
   await browser?.close();
+  fixture?.cleanup();
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
-  describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
+  // Cold dev clients each load the unbundled module graph. Keep that smoke
+  // group serial; the full production contract still runs concurrently.
+  const clientSuite = coverage === 'smoke' ? describe : describe.concurrent;
+  clientSuite('shared client behavior', () => registerClientTests(getBase, coverage));
   describe.concurrent('deferred hydration', () => defineDeferredHydrationTests(getBase));
 }
 
@@ -266,7 +280,7 @@ function defineDeferredHydrationTests(getBase: () => string) {
   });
 }
 
-function defineTransitionAwaitTests(getBase: () => string) {
+function defineTransitionAwaitTests(getBase: () => string, serverOutput: () => string = () => '') {
   describe.concurrent('React action completion', { retry: 0 }, () => {
     const cases = ['transition', 'form-action', 'action-state', 'plain', 'use-form'] as const;
 
@@ -276,6 +290,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
         async (mode, { expect }) => {
           const context = await browser.newContext();
           const page = await context.newPage();
+          const diagnostics = collectBrowserDiagnostics(page);
           const errors: Array<string> = [];
           page.on('pageerror', (error) => errors.push(error.message));
           let releaseResponse!: () => void;
@@ -284,7 +299,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
           });
           try {
             const url = `${getBase()}/transition-await`;
-            await page.goto(url);
+            const documentResponse = await page.goto(url);
+            expect(documentResponse?.status()).toBe(200);
             await page.waitForSelector('#app[data-hydrated="true"]');
             await page.getByTestId('operation').selectOption(operation);
             await page.route('**/transition-await*', async (route) => {
@@ -318,6 +334,10 @@ function defineTransitionAwaitTests(getBase: () => string) {
             await expect.poll(() => button.textContent()).toBe('run');
             expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
             expect(errors).toEqual([]);
+          } catch (error) {
+            throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, {
+              cause: error,
+            });
           } finally {
             releaseResponse();
             await context.close();
@@ -329,6 +349,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
     it.for(cases)('action resolves when awaited from %s', async (mode, { expect }) => {
       const context = await browser.newContext();
       const page = await context.newPage();
+      const diagnostics = collectBrowserDiagnostics(page);
       const errors: Array<string> = [];
       page.on('pageerror', (error) => errors.push(error.message));
       let releaseResponse!: () => void;
@@ -337,7 +358,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
       });
 
       try {
-        await page.goto(`${getBase()}/transition-await`);
+        const documentResponse = await page.goto(`${getBase()}/transition-await`);
+        expect(documentResponse?.status()).toBe(200);
         await page.waitForSelector('#app[data-hydrated="true"]');
         await expect.poll(() => page.getByTestId('revision').textContent()).toBe('initial');
         await page.route('**/transition-await*', async (route) => {
@@ -370,6 +392,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
         await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
         await expect.poll(() => button.textContent()).toBe('run');
         expect(errors).toEqual([]);
+      } catch (error) {
+        throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, { cause: error });
       } finally {
         releaseResponse();
         await context.close();
@@ -381,6 +405,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
       async (operation, { expect }) => {
         const context = await browser.newContext();
         const page = await context.newPage();
+        const diagnostics = collectBrowserDiagnostics(page);
         const errors: Array<string> = [];
         page.on('pageerror', (error) => errors.push(error.message));
         let releaseResponse!: () => void;
@@ -389,7 +414,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
         });
         try {
           const url = `${getBase()}/transition-await`;
-          await page.goto(url);
+          const documentResponse = await page.goto(url);
+          expect(documentResponse?.status()).toBe(200);
           await page.waitForSelector('#app[data-hydrated="true"]');
           await page.getByTestId('operation').selectOption(operation);
           const method = operation === 'action' ? 'POST' : 'GET';
@@ -427,7 +453,10 @@ function defineTransitionAwaitTests(getBase: () => string) {
           // optimistic state and URL must stay until React can commit the new UI.
           await page.evaluate(() => window.dispatchEvent(new Event('finish-action')));
           await page.evaluate(
-            () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+            () =>
+              new Promise<void>((resolve) => {
+                requestAnimationFrame(() => resolve());
+              }),
           );
           expect(await button.textContent()).toBe('pending');
           expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
@@ -440,6 +469,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
           await expect.poll(() => button.textContent()).toBe('run');
           expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
           expect(errors).toEqual([]);
+        } catch (error) {
+          throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, { cause: error });
         } finally {
           releaseResponse();
           await context.close();
@@ -450,6 +481,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
 }
 
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
+  const diagnostics = new WeakMap<Page, () => string>();
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
     return;
@@ -464,11 +496,17 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     const context = await browser.newContext();
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
+    diagnostics.set(page, collectBrowserDiagnostics(page));
     return page;
   }
 
   async function waitForHydration(page: Page) {
-    await page.waitForSelector('#app[data-hydrated="true"]');
+    try {
+      await page.waitForSelector('#app[data-hydrated="true"]');
+    } catch (error) {
+      console.error(diagnostics.get(page)?.());
+      throw error;
+    }
   }
 
   it('hydrates without React errors', async () => {
@@ -513,7 +551,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         await page.waitForFunction(() =>
           document.querySelector('h1')?.textContent?.includes('Users'),
         );
-        await page.waitForFunction(() => window.__visitAwaitObserved != null);
+        await page.waitForFunction(
+          () => window.__visitAwaitObserved !== null && window.__visitAwaitObserved !== undefined,
+        );
 
         const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
         expect(observedHeading).toBe('Users');
@@ -611,7 +651,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await waitForHydration(page);
 
       await page.evaluate(() => {
-        (document.querySelector('nav') as NavElement | null)!.__stamp = 1;
+        document.querySelector<NavElement>('nav')!.__stamp = 1;
       });
 
       await page.click('a[href="/users"]');
@@ -619,9 +659,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         document.querySelector('h1')?.textContent?.includes('Users'),
       );
 
-      const stamp = await page.evaluate(
-        () => (document.querySelector('nav') as NavElement | null)?.__stamp,
-      );
+      const stamp = await page.evaluate(() => document.querySelector<NavElement>('nav')?.__stamp);
       expect(stamp).toBe(1);
 
       const navText = await page.textContent('nav');
@@ -637,7 +675,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     try {
       await page.route('**/users?keep-visible=1', async (route) => {
         if (route.request().headers()['x-voidpages']) {
-          await new Promise((resolve) => setTimeout(resolve, 750));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 750);
+          });
         }
         await route.continue();
       });
@@ -742,6 +782,18 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await page.waitForFunction(() =>
         document.querySelector('h1')?.textContent?.includes('Users'),
       );
+      await page.goBack();
+      await page.waitForFunction(() =>
+        document.querySelector('h1')?.textContent?.includes('Welcome'),
+      );
+      expect(await page.title()).toBe('Home | React Pages Demo');
+
+      await page.click('a[href="/deferred"]');
+      await page.waitForFunction(() =>
+        document.querySelector('h1')?.textContent?.includes('Deferred'),
+      );
+      expect(await page.title()).toBe('');
+
       await page.goBack();
       await page.waitForFunction(() =>
         document.querySelector('h1')?.textContent?.includes('Welcome'),
@@ -949,19 +1001,19 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
 describe('react-pages client (dev)', () => {
   let child: ChildProcess | undefined;
   let stderr = '';
+  let serverOutput = () => '';
   let originalLayout: string | undefined;
   const coldStartResponses: Array<{ path: string; status: number; body: string }> = [];
 
   beforeAll(
     async () => {
-      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf-8');
+      originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf8');
       installLateWorkerDeps();
       writeFileSync(REACT_PAGES_LAYOUT, lateWorkerDepLayout());
-      rmSync(join(REACT_PAGES_ROOT, 'node_modules/.vite'), { recursive: true, force: true });
 
       const serverTimeout = process.platform === 'win32' ? 45_000 : 20_000;
       const server = await startServer((port) => {
-        child = spawnPlaygroundServer(ROOT, 'react-pages', 'dev', port);
+        child = spawnFixtureServer(REACT_PAGES_ROOT, 'dev', port);
         stderr = '';
         child.stderr!.on('data', (chunk: Buffer) => {
           stderr += String(chunk);
@@ -969,6 +1021,7 @@ describe('react-pages client (dev)', () => {
         return child;
       }, serverTimeout);
       DEV_BASE = server.base;
+      serverOutput = server.output;
       const paths = ['/', '/users', '/action-error', '/router-params/alpha', '/visit-await'];
       coldStartResponses.push(
         ...(await Promise.all(
@@ -1074,13 +1127,13 @@ describe('react-pages client (dev)', () => {
     });
     expect(inertiaRoot.status).toBe(200);
     expect(inertiaRoot.headers.get('X-VoidPages')).toBe('true');
-    const rootPage = decodePageData(await inertiaRoot.json()) as {
+    const rootPage = decodePageData<{
       component: string;
       props: Record<string, unknown>;
       shared: Record<string, unknown>;
       url: string;
       head: PageHead;
-    };
+    }>(await inertiaRoot.json());
     expect(rootPage.component).toBe('index');
     expect(rootPage.props).toHaveProperty('title', 'Home');
     expect(rootPage.shared).toHaveProperty('appName', 'React Pages Demo');
@@ -1097,10 +1150,10 @@ describe('react-pages client (dev)', () => {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUsers.status).toBe(200);
-    const usersPage = decodePageData(await inertiaUsers.json()) as {
+    const usersPage = decodePageData<{
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
-    };
+    }>(await inertiaUsers.json());
     expect(usersPage.component).toBe('users');
     expect(usersPage.props.users).toHaveLength(2);
     expect(usersPage.props.users[0].name).toBe('Alice');
@@ -1120,11 +1173,11 @@ describe('react-pages client (dev)', () => {
       body: JSON.stringify({ name: 'Charlie', email: 'charlie@example.com' }),
     });
     expect(postValid.status).toBe(200);
-    const validPage = decodePageData(await postValid.json()) as {
+    const validPage = decodePageData<{
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
-    };
+    }>(await postValid.json());
     expect(validPage.errors).toBeNull();
     expect(validPage.props.users).toHaveLength(3);
     expect(validPage.props.users[2].name).toBe('Charlie');
@@ -1139,11 +1192,11 @@ describe('react-pages client (dev)', () => {
       body: JSON.stringify({ name: '', email: '' }),
     });
     expect(postInvalid.status).toBe(200);
-    const invalidPage = decodePageData(await postInvalid.json()) as {
+    const invalidPage = decodePageData<{
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
-    };
+    }>(await postInvalid.json());
     expect(invalidPage.errors).not.toBeNull();
     expect(invalidPage.errors!.name).toBe('Name is required');
     expect(invalidPage.errors!.email).toBe('Email is required');
@@ -1153,11 +1206,11 @@ describe('react-pages client (dev)', () => {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUser.status).toBe(200);
-    const userPage = decodePageData(await inertiaUser.json()) as {
+    const userPage = decodePageData<{
       component: string;
       props: { user: { id: number; name: string; email: string } };
       head: PageHead;
-    };
+    }>(await inertiaUser.json());
     expect(userPage.component).toBe('users/[id]');
     expect(userPage.props.user.name).toBe('Alice');
     expect(userPage.head.title).toBe('Alice | React Pages Demo');
@@ -1166,10 +1219,10 @@ describe('react-pages client (dev)', () => {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaCharlie.status).toBe(200);
-    const charliePage = decodePageData(await inertiaCharlie.json()) as {
+    const charliePage = decodePageData<{
       component: string;
       props: { user: { id: number; name: string; email: string } };
-    };
+    }>(await inertiaCharlie.json());
     expect(charliePage.component).toBe('users/[id]');
     expect(charliePage.props.user.name).toBe('Charlie');
     expect(charliePage.props.user.email).toBe('charlie@example.com');
@@ -1235,7 +1288,10 @@ describe('react-pages client (dev)', () => {
   });
 
   defineClientTests(() => DEV_BASE, 'smoke');
-  defineTransitionAwaitTests(() => DEV_BASE);
+  defineTransitionAwaitTests(
+    () => DEV_BASE,
+    () => serverOutput(),
+  );
   defineSharedIslandTests(
     () => DEV_BASE,
     () => browser,
@@ -1259,7 +1315,9 @@ describe('react-pages client (dev)', () => {
       let lastStatus = 0;
       let lastBody = '';
       while (Date.now() - start < 10_000) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => {
+          setTimeout(r, 100);
+        });
         const res = await fetch(`${DEV_BASE}/hmr-new-route`);
         lastStatus = res.status;
         lastBody = await res.text();
@@ -1280,28 +1338,25 @@ describe('react-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(REACT_PAGES_ROOT, 'pages/blog/_Counter.tsx'),
-    islandFile: join(REACT_PAGES_ROOT, 'pages/blog/index.island.tsx'),
+    counterFile: () => join(REACT_PAGES_ROOT, 'pages/blog/_Counter.tsx'),
+    islandFile: () => join(REACT_PAGES_ROOT, 'pages/blog/index.island.tsx'),
     hmrKeepsState: true,
   });
 });
 
 describe('react-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
+  let serverOutput = () => '';
 
   beforeAll(async () => {
-    if (!existsSync(join(ROOT, 'playground/react-pages/dist'))) {
-      execSync('vp run --filter ./playground/react-pages build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
-    }
+    execFileSync('vp', ['run', 'build'], { cwd: REACT_PAGES_ROOT, stdio: 'pipe' });
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'react-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(REACT_PAGES_ROOT, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;
+    serverOutput = server.output;
   });
 
   afterAll(async () => {
@@ -1311,7 +1366,10 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   });
 
   defineClientTests(() => PREVIEW_BASE);
-  defineTransitionAwaitTests(() => PREVIEW_BASE);
+  defineTransitionAwaitTests(
+    () => PREVIEW_BASE,
+    () => serverOutput(),
+  );
   defineSharedIslandTests(
     () => PREVIEW_BASE,
     () => browser,

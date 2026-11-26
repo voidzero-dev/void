@@ -11,6 +11,7 @@ export const SANDBOX_MIGRATION_TAG = 'void-sandbox-v2';
 
 export type SandboxInstanceType =
   | 'lite'
+  | 'basic'
   | 'standard-1'
   | 'standard-2'
   | 'standard-3'
@@ -115,7 +116,14 @@ function resolveSandboxImage(image: string, root: string): string {
   return join(root, image);
 }
 
-export function sandboxContainerConfig(sandbox: ResolvedSandboxConfig): Record<string, unknown> {
+type SandboxContainerConfig = {
+  name: string;
+  class_name: string;
+  scheduling_policy: 'durable_object';
+  images: { default: { dockerfile: string; build_context?: string } | { image: string } };
+};
+
+export function sandboxContainerConfig(sandbox: ResolvedSandboxConfig): SandboxContainerConfig {
   return {
     name: sandbox.containerName,
     class_name: sandbox.className,
@@ -172,7 +180,9 @@ export function assertSandboxNamespaceConfig(
   config: Record<string, unknown>,
   sandbox: ResolvedSandboxConfig,
 ): void {
-  const containers = Array.isArray(config.containers) ? config.containers : [];
+  const containers = Array.isArray(config.containers)
+    ? (config.containers as Array<{ class_name?: unknown; scheduling_policy?: unknown }>)
+    : [];
   const durable = config.durable_objects as
     | {
         bindings?: Array<{

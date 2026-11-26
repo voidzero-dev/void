@@ -13,7 +13,6 @@
  */
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { compileWorkerEntry } from '../../src/router/compile.ts';
-import { sendEmail } from '../../src/runtime/email.ts';
 import {
   createMessageProxy,
   enactEmailActions,
@@ -21,10 +20,11 @@ import {
   parseEmail,
   replyEmail,
 } from '../../src/runtime/email/inbound.ts';
+import { sendEmail } from '../../src/runtime/email/index.ts';
 import { MimeError } from '../../src/runtime/email/mime.ts';
 import { createEmailTestHarness } from '../../src/runtime/email/testing.ts';
-import { envContext } from '../../src/runtime/env-raw.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 // Stand-in for workerd's `EmailMessage`. It only needs to be a recognisable
 // class that keeps its constructor arguments, so a test can assert which
@@ -328,7 +328,7 @@ function buildHandleEmail(
   expect(start).toBeGreaterThan(-1);
   const end = code.indexOf('\n}\n', start);
   const body = code.slice(start, end + 3);
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
   return new Function(
     '__filterInternalBindings',
     '__createMessageProxy',

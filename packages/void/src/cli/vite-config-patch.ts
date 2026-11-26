@@ -77,6 +77,29 @@ function lineIndent(code: string, index: number): string {
 }
 
 /** Add the plugin only when the exported Vite configuration has an editable object and array. */
+/**
+ * Whether a Vite config imports `voidPlugin` from `void`. Only then does the
+ * build split into `dist/client` and `dist/ssr`; a project can install `void`
+ * for its CLI alone and keep Vite's plain `dist` output.
+ */
+export function viteConfigImportsVoidPlugin(filePath: string, code: string): boolean {
+  let program: Node;
+  try {
+    program = parseSync(filePath, code).program as Node;
+  } catch {
+    return false;
+  }
+  return (program.body ?? []).some(
+    (node) =>
+      node.type === 'ImportDeclaration' &&
+      node.source?.value === 'void' &&
+      (node.specifiers ?? []).some(
+        (specifier) =>
+          specifier.type === 'ImportSpecifier' && specifier.imported?.name === 'voidPlugin',
+      ),
+  );
+}
+
 export function patchViteConfigWithVoidPlugin(filePath: string, code: string): string | undefined {
   if (filePath.endsWith('.cjs') || filePath.endsWith('.cts')) {
     return undefined;
@@ -84,7 +107,7 @@ export function patchViteConfigWithVoidPlugin(filePath: string, code: string): s
 
   let program: Node;
   try {
-    program = parseSync(filePath, code).program as unknown as Node;
+    program = parseSync(filePath, code).program as Node;
   } catch {
     return undefined;
   }
@@ -129,7 +152,7 @@ export function patchViteConfigWithVoidPlugin(filePath: string, code: string): s
         ms.overwrite(insertAt, plugins.end - 1, `${pluginName}()`);
       }
     } else {
-      const indent = lineIndent(code, pluginProperties[0]!.start);
+      const indent = lineIndent(code, pluginProperties[0].start);
       const next = code[insertAt];
       ms.appendLeft(
         insertAt,
@@ -161,12 +184,7 @@ export function patchViteConfigWithVoidPlugin(filePath: string, code: string): s
   }
 
   if (!importedName) {
-    const insertAt =
-      imports.length > 0
-        ? imports[imports.length - 1]!.end
-        : code.startsWith('#!')
-          ? code.indexOf('\n') + 1
-          : 0;
+    const insertAt = imports.at(-1)?.end ?? (code.startsWith('#!') ? code.indexOf('\n') + 1 : 0);
     const prefix = insertAt > 0 && code[insertAt - 1] !== '\n' ? '\n' : '';
     ms.appendLeft(insertAt, `${prefix}import { voidPlugin } from "void";\n`);
   }

@@ -1,6 +1,14 @@
 import { Hono } from 'hono';
-import { getProject, type Db } from '../db.ts';
+import { getProject } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import { SecurityApiError } from '../security/errors.ts';
+import {
+  assertPublicGateOff,
+  openPublicRequestView,
+  publicGateIsOn,
+  publicRequestView,
+} from '../security/public-gate.ts';
 import {
   ZeroTrustConfigurationError,
   ZeroTrustSavedConfigurationError,
@@ -34,6 +42,10 @@ async function requireOperatorProject(db: Db, projectId: string, active: boolean
 
 /** Map Zero Trust failures for operators; the admin UI uses the same mapping. */
 export function zeroTrustOperatorError(error: unknown, failure: string): OperatorError {
+  if (error instanceof SecurityApiError) {
+    // The public gate refuses an installation disable or public-only switch (spec §5.5).
+    return new OperatorError(error.status, error.message, error.code, error.details);
+  }
   if (error instanceof ZeroTrustSavedConfigurationError) {
     // Stored state, not the request, is wrong; retrying the request cannot help.
     return new OperatorError(500, error.message, 'invalid_saved_zero_trust_configuration');
@@ -73,8 +85,12 @@ zeroTrustOperatorRoutes.post('/zero-trust/configure', async (context) => {
     operationError(error);
   }
   if (dryRun(body)) {
-    // A preview must fail wherever the real configure would reject the choice.
+    // A preview must fail wherever, and with the same code as, the real configure.
+    // The gate refusal comes first there (#64), so it does here too.
     try {
+      if (input.publicAccess) {
+        await assertPublicGateOff(context.get('db'), context.env);
+      }
       assertExistingProjectsChoice(
         await readZeroTrustConfigurationStrict(context.get('db')),
         input,
@@ -130,6 +146,11 @@ zeroTrustOperatorRoutes.post('/zero-trust/reconcile', async (context) => {
 zeroTrustOperatorRoutes.post('/zero-trust/disable', async (context) => {
   const body = await readBody(context);
   if (dryRun(body)) {
+    try {
+      await assertPublicGateOff(context.get('db'), context.env);
+    } catch (error) {
+      operationError(error);
+    }
     return context.json(
       preview('zero-trust.disable', 'platform', {
         configuration: redactedZeroTrustConfiguration(
@@ -167,27 +188,47 @@ zeroTrustOperatorRoutes.post('/zero-trust/projects/:id', async (context) => {
   const projectId = context.req.param('id');
   await requireOperatorProject(context.get('db'), projectId, true);
   if (dryRun(body)) {
+    const previous = await getProjectZeroTrustState(context.get('db'), projectId);
+    // Gate on: turning protection off becomes a public request, not a change (spec §5.5).
+    let gateOn = false;
+    try {
+      gateOn = await publicGateIsOn(context.get('db'), context.env);
+    } catch (error) {
+      operationError(error);
+    }
     return context.json(
       preview('zero-trust.project', projectId, {
-        previous: operatorProjectZeroTrustState(
-          await getProjectZeroTrustState(context.get('db'), projectId),
-        ),
+        previous: operatorProjectZeroTrustState(previous),
         protected: body.protected,
+        publicGate: gateOn,
+        publicRequest: await openPublicRequestView(context.get('db'), projectId),
+        heldByGate: gateOn && body.protected === false && previous?.desired_protected === true,
       }),
     );
   }
   try {
-    return context.json({
-      ok: true,
-      project: operatorProjectZeroTrustState(
-        await setProjectZeroTrustProtection(
-          context.env,
-          context.get('db'),
-          projectId,
-          body.protected,
-        ),
-      ),
-    });
+    const result = await setProjectZeroTrustProtection(
+      context.env,
+      context.get('db'),
+      projectId,
+      body.protected,
+      { requester: { userId: context.get('user').id, via: 'operator' } },
+    );
+    const request = result.publicRequest;
+    const held = !!request && result.held && request.state !== 'canceled';
+    return context.json(
+      {
+        ok: true,
+        project: operatorProjectZeroTrustState(result.row),
+        ...(request
+          ? {
+              publicRequest: await publicRequestView(context.get('db'), request),
+              ...(held ? { held: true } : {}),
+            }
+          : {}),
+      },
+      held ? 202 : 200,
+    );
   } catch (error) {
     operationError(error);
   }

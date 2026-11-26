@@ -54,14 +54,14 @@ export function safeDecodePathname(pathname: string): string {
   }
   // Compare up to percent-escape letter case: the URL encoder emits upper-case
   // (`%C3`), but a client may send lower-case (`%c3`), and both are valid.
-  const normalized = normalizePercentCase(pathname).replace(/%5B/g, '[').replace(/%5D/g, ']');
+  const normalized = normalizePercentCase(pathname).replaceAll('%5B', '[').replaceAll('%5D', ']');
   return normalizePercentCase(canonical) === normalized ? decoded : pathname;
 }
 
 /** Uppercase the hex digits of every `%xx` escape so encodings compare equal
  * regardless of the letter case a client used. */
 function normalizePercentCase(pathname: string): string {
-  return pathname.replace(/%[0-9a-fA-F]{2}/g, (escape) => escape.toUpperCase());
+  return pathname.replaceAll(/%[0-9a-fA-F]{2}/g, (escape) => escape.toUpperCase());
 }
 
 /**
@@ -196,8 +196,9 @@ export function resolveStaticPath(
     return matched;
   }
 
-  // Not found handling
   switch (config.not_found_handling ?? 'none') {
+    case 'none':
+      break;
     case 'single-page-application':
       if (manifest['/index.html']) {
         return {
@@ -221,7 +222,11 @@ export function resolveStaticPath(
   return null;
 }
 
-const MIME_TYPES: Record<string, string> = {
+interface MimeTypes {
+  readonly [extension: string]: string | undefined;
+}
+
+const MIME_TYPES: MimeTypes = {
   html: 'text/html; charset=utf-8',
   htm: 'text/html; charset=utf-8',
   css: 'text/css; charset=utf-8',

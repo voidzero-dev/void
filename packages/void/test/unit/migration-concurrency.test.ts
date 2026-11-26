@@ -1,11 +1,12 @@
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import type { SQLInputValue } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { buildMigrationPlanBundle } from '../../src/migrations/plan.ts';
-import {
-  createMigrationHandler,
-  type MigrationEntry,
-  type MigrationResponse,
-} from '../../src/runtime/migration-handler.ts';
+import { createMigrationHandler } from '../../src/runtime/db/migrations/d1-handler.ts';
+import type {
+  MigrationEntry,
+  MigrationResponse,
+} from '../../src/runtime/db/migrations/d1-handler.ts';
 
 const databases: Array<DatabaseSync> = [];
 afterEach(() => {
@@ -127,10 +128,10 @@ describe('D1 migration ownership', () => {
     const pending = owner(apply('owner'));
     await paused.promise;
     try {
-      const recovered = (await (await owner(reconcile('owner'))).json()) as MigrationResponse;
+      const recovered = await (await owner(reconcile('owner'))).json<MigrationResponse>();
       expect(recovered.ok).toBe(false);
       expect(recovered.confirmedSkipped).toEqual(['0001_debit.sql']);
-      const successor = (await (await owner(apply('successor'))).json()) as MigrationResponse;
+      const successor = await (await owner(apply('successor'))).json<MigrationResponse>();
       expect(successor.ok).toBe(true);
       expect(successor.confirmedApplied).toEqual(['0002_debit.sql']);
       expect(successor.confirmedSkipped).toEqual(['0001_debit.sql']);
@@ -165,7 +166,7 @@ describe('D1 migration ownership', () => {
     const pending = owner(apply('legacy'));
     await paused.promise;
     try {
-      const recovered = (await (await owner(reconcile('legacy'))).json()) as MigrationResponse;
+      const recovered = await (await owner(reconcile('legacy'))).json<MigrationResponse>();
       expect(recovered.error).toContain(
         'wait for this migration to finish before retrying recovery',
       );
@@ -191,10 +192,10 @@ describe('D1 migration ownership', () => {
         sql: 'UPDATE balance SET amount = amount - 10; UPDATE balance SET amount = amount - 10;',
       },
     ]);
-    const first = (await (await owner(apply('first'))).json()) as MigrationResponse;
+    const first = await (await owner(apply('first'))).json<MigrationResponse>();
     expect(first.confirmedApplied).toEqual(['legacy.sql']);
     expect(first.warnings ?? []).toEqual([]);
-    const later = (await (await owner(apply('later'))).json()) as MigrationResponse;
+    const later = await (await owner(apply('later'))).json<MigrationResponse>();
     expect(later.confirmedSkipped).toEqual(['legacy.sql']);
     expect(later.warnings ?? []).toEqual([]);
   });
@@ -207,12 +208,12 @@ describe('D1 migration ownership', () => {
         sql: 'CREATE TRIGGER balance_change AFTER UPDATE ON balance BEGIN SELECT 1; END;',
       },
     ]);
-    const first = (await (await owner(apply('first'))).json()) as MigrationResponse;
+    const first = await (await owner(apply('first'))).json<MigrationResponse>();
     expect(first.confirmedApplied).toEqual(['trigger.sql']);
     expect(first.warnings).toEqual([
       'Add a `--> statement-breakpoint` line after each complete SQL statement in migration trigger.sql.',
     ]);
-    const later = (await (await owner(apply('later'))).json()) as MigrationResponse;
+    const later = await (await owner(apply('later'))).json<MigrationResponse>();
     expect(later.confirmedSkipped).toEqual(['trigger.sql']);
     expect(later.warnings ?? []).toEqual([]);
   });
@@ -242,7 +243,7 @@ describe('D1 migration ownership', () => {
     const resume = deferred();
     const { sqlite, handler } = createDatabase({
       beforeBatch: async (sql) => {
-        if (sql.includes(migrations[0]!.sql)) {
+        if (sql.includes(migrations[0].sql)) {
           paused.resolve();
           await resume.promise;
         }
@@ -260,7 +261,7 @@ describe('D1 migration ownership', () => {
     }
     const result = await pending;
     expect(sqlite.prepare('SELECT amount FROM balance').get()?.amount).toBe(100);
-    expect(((await result.json()) as MigrationResponse).ok).toBe(false);
+    expect((await result.json<MigrationResponse>()).ok).toBe(false);
   });
 
   it('does not release ownership when the same attempt is submitted again', async () => {
@@ -268,7 +269,7 @@ describe('D1 migration ownership', () => {
     const resume = deferred();
     const { sqlite, handler } = createDatabase({
       beforeBatch: async (sql) => {
-        if (sql.includes(migrations[0]!.sql)) {
+        if (sql.includes(migrations[0].sql)) {
           paused.resolve();
           await resume.promise;
         }

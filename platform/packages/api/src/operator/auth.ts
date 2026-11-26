@@ -1,5 +1,6 @@
 import { and, eq, gt } from 'drizzle-orm';
-import { Hono, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { signJwt, verifyJwt } from '../auth/jwt.ts';
 import { validateHumanSession } from '../auth/sessions.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';

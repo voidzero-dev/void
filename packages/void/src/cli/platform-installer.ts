@@ -8,9 +8,8 @@ import {
   setInstallationEndpoints,
   platformDashboardUrl,
   transitionInstallation,
-  type PlatformInstallationManifest,
-  type PlatformLifecycleOperation,
 } from '@void/platform';
+import type { PlatformInstallationManifest, PlatformLifecycleOperation } from '@void/platform';
 import { PLATFORM_ADMIN_ASSETS_DIRECTORY, resolvePlatformRuntime } from '@void/platform/installer';
 import { join } from 'pathslash';
 import { ensurePlatformAccessToken } from './cf-access.ts';
@@ -50,23 +49,23 @@ import {
   secretCheckpoint,
   createPlatformHealthProbeToken,
 } from './platform-installer-secrets.ts';
-import {
-  type PlatformInstallerDependencies,
-  type PlatformWorkerRollback,
-  type InstallationCheckpointWriter,
-  PlatformWorkerRecoveryIncompleteError,
-  type PlatformInstallationSecrets,
-  type PlatformInstallationResult,
-  type PlatformInstallRunState,
-  type PlatformWorkerKey,
-  type PlatformWorkerSecretUpdateIntent,
-  type InstallerClient,
-  type PlatformHealthCheckContext,
+import { PlatformWorkerRecoveryIncompleteError } from './platform-installer-types.ts';
+import type {
+  PlatformInstallerDependencies,
+  PlatformWorkerRollback,
+  InstallationCheckpointWriter,
+  PlatformInstallationSecrets,
+  PlatformInstallationResult,
+  PlatformInstallRunState,
+  PlatformWorkerKey,
+  PlatformWorkerSecretUpdateIntent,
+  InstallerClient,
+  PlatformHealthCheckContext,
 } from './platform-installer-types.ts';
+import type { runPlatformWrangler } from './platform-installer-workers.ts';
 import {
   recordWorkerCutoverResolution,
   recordWorkerTrafficState,
-  runPlatformWrangler,
   runPlatformWranglerAtApiBase,
   stablePublicEndpointState,
   interruptedWorkerCutover,
@@ -75,11 +74,8 @@ import {
   nextWorkerCutoverGeneration,
   recordWorkerSecretUpdateState,
 } from './platform-installer-workers.ts';
-import {
-  platformWorkersDevUrl,
-  type PlatformInstallPlan,
-  type PlatformInstallPlanAction,
-} from './platform-plan.ts';
+import { platformWorkersDevUrl } from './platform-plan.ts';
+import type { PlatformInstallPlan, PlatformInstallPlanAction } from './platform-plan.ts';
 import {
   latestPlatformWorkerCutoverGeneration,
   platformWorkerSecretUpdateIntentState,
@@ -89,14 +85,16 @@ import {
 } from './platform-registry.ts';
 import { assertPlatformRuntimeLogsSupported } from './platform-runtime-logs.ts';
 import { assertPlatformWorkerSecretUpdateAuthority } from './platform-secret-update-authority.ts';
+import { assertPlatformSecurityAuditsSupported } from './platform-security-audits.ts';
+import { assertPlatformStorageSupported } from './platform-storage.ts';
 import { platformManagedWorkerTraffic } from './platform-traffic.ts';
 
 export { PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY as REMOTE_INSTALLATION_MANIFEST_KEY } from '@void/platform';
 
 // Preserve the routing gate first; rollback and manifest failure checkpoints
 // follow while the database lifecycle lock is still held by the caller.
-async function recoverFailedPlatformInstallation(
-  error: unknown,
+async function recoverFailedPlatformInstallation<Failure>(
+  error: Failure,
   state: Readonly<{
     manifest: PlatformInstallationManifest;
     plan: PlatformInstallPlan;
@@ -113,7 +111,7 @@ async function recoverFailedPlatformInstallation(
     now: () => string;
     writeRemoteInstallationCheckpoint: InstallationCheckpointWriter;
   }>,
-): Promise<unknown> {
+): Promise<Failure | Error> {
   const {
     plan,
     dependencies,
@@ -129,7 +127,7 @@ async function recoverFailedPlatformInstallation(
     writeRemoteInstallationCheckpoint,
   } = state;
   let { manifest } = state;
-  let failure: unknown = error;
+  let failure: Failure | Error = error;
   const currentWorkerRecoveryIncomplete = error instanceof PlatformWorkerRecoveryIncompleteError;
   if (workerTrafficGuarded) {
     try {
@@ -242,6 +240,8 @@ export async function installPlatform(
     throw new Error('platform: This runtime does not support the installation’s app access setup.');
   }
   assertPlatformRuntimeLogsSupported(plan.deployment, runtime);
+  assertPlatformSecurityAuditsSupported(plan.deployment, runtime);
+  assertPlatformStorageSupported(plan.deployment, runtime);
   const hasEmailGatewayArtifact = runtime.artifacts.emailGateway !== undefined;
   if (
     existing?.steps.some((step) => step.key === 'private-previews-initialized:v1') &&
@@ -301,9 +301,9 @@ export async function installPlatform(
       config: live,
       databaseUrl: secrets.databaseUrl,
       expected: {
+        ...(plan.externalHyperdrive ?? live.origin),
         id: hyperdriveAction.id,
         name: hyperdriveAction.name,
-        host: plan.externalHyperdrive?.host ?? live.origin.host,
         user: plan.externalHyperdrive?.user ?? live.origin.user ?? '',
       },
       ...(recordedHyperdrive ? { recordedHash: recordedHyperdrive.configHash } : {}),
@@ -607,6 +607,7 @@ export async function installPlatform(
       deployment: state.plan.deployment,
       deploymentExecution: runtime.deploymentExecution,
       healthProbeToken: createPlatformHealthProbeToken(state.manifest.ownershipNonce),
+      securityScanScheduler: runtime.securityAudits === 1,
       installationId: state.manifest.id,
       ownershipNonce: state.manifest.ownershipNonce,
       platformVersion: version,
@@ -638,9 +639,10 @@ export async function installPlatform(
     // The Cloudflare CLI asks the operator before it replaces changes made
     // outside Void. Let it ask now: the resources that these configs use
     // exist, and this run has not paused traffic or deployed a Worker.
-    const outsideChangeConfigs = workerKeys
-      .map((key) => enabledConfigs[key])
-      .filter((config) => dependencies.replaceOutsideChanges?.includes(String(config.name)));
+    const outsideChangeConfigs = workerKeys.flatMap((key) => {
+      const config = enabledConfigs[key];
+      return dependencies.replaceOutsideChanges?.includes(String(config.name)) ? [config] : [];
+    });
     if (outsideChangeConfigs.length > 0) {
       await dependencies.uploadOutsideChanges?.(outsideChangeConfigs);
     }
@@ -903,14 +905,18 @@ export async function installPlatform(
       state.plan.deployment.appAccess &&
       !state.manifest.steps.some((step) => step.key === 'app-access-initialized:v1')
     ) {
+      const { appAccessSetupJson, appAccessSetupToken } = state.secrets;
+      if (!appAccessSetupJson || !appAccessSetupToken) {
+        throw new Error('platform: The deployed-app access setup material is missing.');
+      }
       dependencies.onProgress?.('Configuring and verifying deployed-app access');
       try {
         await (dependencies.initializeAppAccess ?? initializeInstalledAppAccess)({
           apiUrl: state.plan.apiUrl,
           installationId: state.manifest.id,
           probeToken: createPlatformHealthProbeToken(state.manifest.ownershipNonce),
-          setupJson: state.secrets.appAccessSetupJson!,
-          setupToken: state.secrets.appAccessSetupToken!,
+          setupJson: appAccessSetupJson,
+          setupToken: appAccessSetupToken,
         });
       } catch (error) {
         if (error instanceof PlatformAppAccessCredentialError) {
@@ -933,7 +939,7 @@ export async function installPlatform(
         {
           key: 'app-access-initialized:v1',
           completedAt: now(),
-          resultHash: hash(state.secrets.appAccessSetupJson!),
+          resultHash: hash(appAccessSetupJson),
         },
         now(),
       );
@@ -1015,7 +1021,10 @@ export async function installPlatform(
           zoneNameServers: zone?.nameServers ?? [],
         };
       }
-      const completedDrain = await prepareSandboxDrain!();
+      if (!prepareSandboxDrain) {
+        throw new Error('platform: No sandbox drain checkpoint. Traffic remains disabled.');
+      }
+      const completedDrain = await prepareSandboxDrain();
       if (completedDrain.state !== 'complete') {
         throw new Error(
           'platform: Sandbox drain completion changed while it was being verified. Traffic remains disabled.',

@@ -1,4 +1,7 @@
-const REQUEST_BODY_DEADLINE_MS = 5_000;
+import { isRecord } from '@void/deploy-core';
+import type { ProxyBody } from './types.ts';
+
+const REQUEST_BODY_DEADLINE_MS = 5000;
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 const DEFAULT_JSON_BODY_MAX_BYTES = 1024 * 1024;
@@ -51,7 +54,7 @@ async function beforeDeadline<T>(deadline: number, run: () => Promise<T>): Promi
 }
 
 /** Bound public request bodies before JSON parsing or authentication. */
-export async function readRequestJson(request: Request, maxBytes: number): Promise<unknown> {
+export async function readRequestJson(request: Request, maxBytes: number): Promise<ProxyBody> {
   const declaredLength = request.headers.get('content-length');
   if (
     declaredLength !== null &&
@@ -70,7 +73,7 @@ export async function readRequestJson(request: Request, maxBytes: number): Promi
     throw new RequestBodyError('invalid request body', 400);
   }
   const expectedLength = declaredLength === null ? null : Number(declaredLength);
-  const reader = request.body.getReader();
+  const reader: ReadableStreamDefaultReader<unknown> = request.body.getReader();
   let bytes = new Uint8Array(Math.min(1024, maxBytes));
   const deadline = Date.now() + REQUEST_BODY_DEADLINE_MS;
   let size = 0;
@@ -79,6 +82,9 @@ export async function readRequestJson(request: Request, maxBytes: number): Promi
       const chunk = await beforeDeadline(deadline, () => reader.read());
       if (chunk.done) {
         break;
+      }
+      if (!(chunk.value instanceof Uint8Array)) {
+        throw new RequestBodyError('invalid request body', 400);
       }
       const nextSize = size + chunk.value.byteLength;
       if (nextSize > maxBytes) {
@@ -101,5 +107,9 @@ export async function readRequestJson(request: Request, maxBytes: number): Promi
   if (size === 0 || (expectedLength !== null && size !== expectedLength)) {
     throw new RequestBodyError('invalid request body length', 400);
   }
-  return JSON.parse(decoder.decode(bytes.subarray(0, size)));
+  const body: unknown = JSON.parse(decoder.decode(bytes.subarray(0, size)));
+  if (!isRecord(body)) {
+    throw new RequestBodyError('invalid JSON body', 400);
+  }
+  return body;
 }

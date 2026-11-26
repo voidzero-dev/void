@@ -4,39 +4,30 @@ import type { Writable } from 'node:stream';
 import { isCancel, log as clackLog, text } from '@voidzero-dev/vite-plus-prompts';
 import { join, resolve } from 'pathslash';
 import { findEnvFile } from '../codegen/env-types.ts';
-import { type DatabaseDialect, type VoidConfig, isNodeTarget } from '../config.ts';
+import { isNodeTarget } from '../config.ts';
+import type { DatabaseDialect, VoidConfig } from '../config.ts';
 import type { JobDefinition } from '../crons/scan.ts';
-import {
-  assertJournalCoherence,
-  validateMigrations,
-  type MigrationFile,
-} from '../migrations/validate.ts';
+import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
+import type { MigrationFile } from '../migrations/validate.ts';
 import type { QueueDefinition } from '../queues/scan.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
-import { PlatformClient, type DeploymentResponse, type ProjectResponse } from './client.ts';
+import type { PlatformClient } from './client.ts';
+import type { DeploymentResponse, ProjectResponse } from './client.ts';
 import { formatCloudflareUserMessage } from './cloudflare-user-output.ts';
 import { promptAndCreateProject, reportProjectCreationWarnings } from './create-project.ts';
-import {
-  type PrerenderSourceInputs,
-  type NonPageBackendInputs,
-  type ResourceSummary,
-  type RunDeployOptions,
+import type {
+  PrerenderSourceInputs,
+  NonPageBackendInputs,
+  ResourceSummary,
+  RunDeployOptions,
 } from './deploy-types.ts';
 import { fetchRemoteSecretNames, formatEnvReport, validateProdEnv } from './env-validation.ts';
-import { type CliLogger } from './log-file.ts';
+import type { CliLogger } from './log-file.ts';
 import { formatCount, getErrorMessage, pc, progressOptions } from './output.ts';
-import {
-  detectPreset,
-  formatProjectCommand,
-  resolveProjectCommand,
-  type StaticPreset,
-} from './preset.ts';
-import {
-  attachSelectedPlatform,
-  shouldLinkDeployProject,
-  writeProjectConfig,
-  type ProjectConfig,
-} from './project.ts';
+import { detectPreset, formatProjectCommand, resolveProjectCommand } from './preset.ts';
+import type { StaticPreset } from './preset.ts';
+import { attachSelectedPlatform, shouldLinkDeployProject, writeProjectConfig } from './project.ts';
+import type { ProjectConfig } from './project.ts';
 import { promptProjectSelection, promptProjectSetupAction } from './prompt.ts';
 import type { DeployManifest, QueueMeta, ScheduleMeta } from './types.ts';
 import {
@@ -45,9 +36,8 @@ import {
   ensureWranglerCompat,
   resolveLiveBindingConfig,
   syncWranglerBindings,
-  type LiveBindingConfig,
-  type WranglerCompat,
 } from './wrangler.ts';
+import type { LiveBindingConfig, WranglerCompat } from './wrangler.ts';
 import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper, generateWrapper } from './wrapper.ts';
 
@@ -181,7 +171,7 @@ export function getExitCode(error: unknown): number {
     typeof error === 'object' &&
     error !== null &&
     'status' in error &&
-    typeof (error as { status: unknown }).status === 'number'
+    typeof error.status === 'number'
   ) {
     return (error as { status: number }).status;
   }
@@ -221,7 +211,7 @@ export function resolveDeployWorkerMain(
     return undefined;
   }
   try {
-    const wrangler = JSON.parse(readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf-8')) as {
+    const wrangler = JSON.parse(readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf8')) as {
       main?: unknown;
     };
     return typeof wrangler.main === 'string' && wrangler.main.length > 0
@@ -313,6 +303,8 @@ export function resolveStaticBuildCommand(
   return buildOverride ?? preset.buildCommand;
 }
 
+type ResolvedBuildCommand = { label: string; command: string };
+
 /**
  * Resolve the build command for a FULL (Class A / Void app) deploy.
  *
@@ -332,7 +324,7 @@ export function resolveFullDeployBuildCommand(
   root: string,
   buildOverride?: string,
   fallbackBuildCommand = 'vite build',
-): { label: string; command: string } {
+): ResolvedBuildCommand {
   if (buildOverride) {
     return { label: buildOverride, command: buildOverride };
   }
@@ -452,19 +444,16 @@ export function getGitCommit(root: string): string | null {
     // credentials like the build spawns. No `localBinRoot`: `git` must never
     // resolve to a binary shipped in the project's node_modules/.bin.
     const gitEnv = buildEnv();
-    // Check if in a git repo
     execSync('git rev-parse --is-inside-work-tree', { cwd: root, stdio: 'ignore', env: gitEnv });
-    // Check if working tree is clean
     const status = execSync('git status --porcelain', {
       cwd: root,
-      encoding: 'utf-8',
+      encoding: 'utf8',
       env: gitEnv,
     }).trim();
     if (status !== '') {
       return null;
     }
-    // Get current commit hash
-    return execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf-8', env: gitEnv }).trim();
+    return execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf8', env: gitEnv }).trim();
   } catch {
     return null;
   }
@@ -538,24 +527,30 @@ export async function ensureManagedHyperdrive(
     log.info('Deploy cancelled.');
     process.exit(0);
   }
-  await client.provisionDatabase(projectId, connectionString as string);
+  await client.provisionDatabase(projectId, connectionString);
   log.step('Hyperdrive provisioned.');
 }
+
+type ManifestSchedulesAndQueues = { schedules: Array<ScheduleMeta>; queues: Array<QueueMeta> };
 
 /** Convert scanned cron jobs and queues into deploy-manifest entries. */
 export function toManifestSchedulesAndQueues(
   jobs: Array<JobDefinition>,
   queues: Array<QueueDefinition>,
-): { schedules: Array<ScheduleMeta>; queues: Array<QueueMeta> } {
+): ManifestSchedulesAndQueues {
   return {
     schedules: jobs.flatMap((job) => job.crons.map((cron) => ({ name: job.name, cron }))),
     queues: queues.map((q) => ({
       name: q.name,
       bindingName: q.bindingName,
-      ...(q.maxBatchSize != null && { maxBatchSize: q.maxBatchSize }),
-      ...(q.maxBatchTimeout != null && { maxBatchTimeout: q.maxBatchTimeout }),
-      ...(q.maxRetries != null && { maxRetries: q.maxRetries }),
-      ...(q.retryDelay != null && { retryDelay: q.retryDelay }),
+      ...(q.maxBatchSize !== null &&
+        q.maxBatchSize !== undefined && { maxBatchSize: q.maxBatchSize }),
+      ...(q.maxBatchTimeout !== null &&
+        q.maxBatchTimeout !== undefined && { maxBatchTimeout: q.maxBatchTimeout }),
+      ...(q.maxConcurrency !== null &&
+        q.maxConcurrency !== undefined && { maxConcurrency: q.maxConcurrency }),
+      ...(q.maxRetries !== null && q.maxRetries !== undefined && { maxRetries: q.maxRetries }),
+      ...(q.retryDelay !== null && q.retryDelay !== undefined && { retryDelay: q.retryDelay }),
     })),
   };
 }
@@ -572,7 +567,7 @@ export async function assertEnvSchemaValid(
   workerVars: Record<string, string> | undefined,
 ): Promise<void> {
   // Skip the remote secret round-trip when the project has no typed env schema.
-  if (findEnvFile(root) == null) {
+  if (findEnvFile(root) === null) {
     return;
   }
 

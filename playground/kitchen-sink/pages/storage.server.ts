@@ -1,4 +1,5 @@
-import { defineHandler, type InferProps } from 'void';
+import { defineHandler } from 'void';
+import type { InferProps } from 'void';
 import { storage } from 'void/storage';
 
 export type Props = InferProps<typeof loader>;
@@ -18,7 +19,6 @@ export const action = defineHandler(async (c) => {
   const contentType = c.req.header('content-type') || '';
 
   if (contentType.includes('multipart/form-data')) {
-    // File upload via native FormData
     const formData = await c.req.parseBody();
     const file = formData['file'] as File;
     if (file && file.size > 0) {

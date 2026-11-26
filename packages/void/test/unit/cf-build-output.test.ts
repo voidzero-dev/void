@@ -32,14 +32,16 @@ import {
 } from '@void/deploy-cloudflare';
 import { toSlash } from 'pathslash';
 import { createBuilder } from 'vite';
-import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { afterAll, afterEach, expect, it as serialIt, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
-  type CfBuildOutput,
   prepareCfFrameworkBuildOutput,
   prepareCfStaticBuildOutput,
 } from '../../src/cli/cf-build-output.ts';
+import type { CfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { resolveGeneratedDeployConfigPathDefault } from '../../src/cli/deploy-artifact-validation.ts';
 import { deployPointerPath } from '../../src/cli/deploy-binding-snapshot.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { writeWranglerPublishedTrafficSnapshot } from '../../src/cli/wrangler.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
@@ -50,10 +52,18 @@ const roots: Array<string> = [];
 const CF_BUILD_TIMEOUT_MS = process.platform === 'win32' ? 45_000 : 15_000;
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+// Concurrent tests share this list, so directories are removed when the file ends.
+afterAll(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// Most tests here wait for a real cf child process with their own directory and local API
+// server, so they run concurrently. Tests that use `vi` run alone through serialIt: they patch
+// globals, and Vitest clears every mock's call history whenever another test starts.
+const it = serialIt.concurrent;
 
 function worker(config: Record<string, unknown>): string {
   const root = mkdtempSync(join(tmpdir(), 'void-cf-build-output-test-'));
@@ -90,19 +100,58 @@ function expectCfDryRun(directory: string, command = ['workers', 'versions', 'cr
   const dryRun = spawnSync(process.execPath, [cf, ...command, '--prebuilt', '--dry-run'], {
     cwd: directory,
     encoding: 'utf8',
+    // As Void runs cf. Otherwise each call reports to Cloudflare and waits for the answer.
+    env: { ...process.env, CF_SEND_TELEMETRY: 'false' },
   });
   expect(dryRun.status, `${dryRun.stdout}\n${dryRun.stderr}`).toBe(0);
   return dryRun;
 }
 
+it('requires a rebuild of old native artifacts without changing their files', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'void-cf-old-output-'));
+  roots.push(root);
+  const output = join(root, '.cloudflare/output/v0');
+  const worker = join(output, 'workers/default');
+  mkdirSync(join(worker, 'bundle'), { recursive: true });
+  const files = {
+    [join(output, 'config.json')]: JSON.stringify({
+      accountId: 'account-id',
+      buildContext: { isPreview: false, mode: 'production' },
+    }),
+    [join(worker, 'worker.config.json')]: JSON.stringify({
+      name: 'old-worker',
+      compatibilityDate: '2026-10-12',
+      manifest: {
+        type: 'complete',
+        mainModule: 'index.js',
+        modules: { 'index.js': { type: 'esm' } },
+      },
+    }),
+    [join(worker, 'bundle/index.js')]: 'export default { fetch() { return new Response("old") } };',
+  };
+  for (const [path, content] of Object.entries(files)) {
+    writeFileSync(path, content);
+  }
+  // Dispose even if a regression unexpectedly accepts the old artifact.
+  await expect(
+    prepareCfBuildOutput(root).then(async (prepared) => {
+      await prepared?.dispose();
+    }),
+  ).rejects.toThrow(/rebuild/i);
+  for (const [path, content] of Object.entries(files)) {
+    expect(readFileSync(path, 'utf8')).toBe(content);
+  }
+});
+
 async function nativeBuild() {
   const root = mkdtempSync(join(tmpdir(), 'void-native-cf-output-'));
   roots.push(root);
-  await writeRootConfig(
+  await writeRootConfig({
     root,
-    { accountId: 'account-id', complianceRegion: 'public' },
-    { isPreview: false, mode: 'staging' },
-  );
+    settings: { accountId: 'account-id', complianceRegion: 'public' },
+    buildContext: { isPreview: false, mode: 'staging' },
+    producer: { name: 'test-builder', version: '1.0.0' },
+  });
   const bundle = getWorkerBundleDir(root);
   mkdirSync(join(bundle, 'assets'), { recursive: true });
   writeFileSync(
@@ -134,6 +183,22 @@ async function nativeBuild() {
   writeFileSync(join(getWorkerAssetsDir(root), 'index.html'), '<h1>native</h1>');
   return root;
 }
+
+it('prepares native artifacts whose build context omits the optional mode', async () => {
+  const root = await nativeBuild();
+  const path = getRootConfigPath(root);
+  const config = JSON.parse(readFileSync(path, 'utf8'));
+  delete config.buildContext.mode;
+  const original = JSON.stringify(config);
+  writeFileSync(path, original);
+  await withPrepared(prepareCfBuildOutput(root), async (prepared) => {
+    expect((await readBuildOutput(prepared.directory)).rootConfig.buildContext).toEqual({
+      isPreview: false,
+      mode: 'production',
+    });
+  });
+  expect(readFileSync(path, 'utf8')).toBe(original);
+});
 
 it.each(['native', 'legacy'])(
   'keeps %s package context outside uploaded modules and preserves installed dependencies on disposal',
@@ -223,8 +288,8 @@ it(
     await withPrepared(prepareCfBuildOutput(root), async (prepared) => {
       const result = await readBuildOutput(prepared.directory);
       expect(result.rootConfig).toMatchObject({
-        accountId: 'account-id',
-        complianceRegion: 'public',
+        settings: { accountId: 'account-id', complianceRegion: 'public' },
+        producer: { name: 'test-builder', version: '1.0.0' },
         buildContext: { mode: 'staging', isPreview: false },
       });
       expect(result.workers.default.config.manifest).toMatchObject({
@@ -306,7 +371,7 @@ it('preserves native auxiliary Workers and already-built Container declarations'
   );
 });
 
-it.each(['../outside.js', '/outside.js', 'C:/outside.js', 'assets\\outside.js'])(
+it.each(['../outside.js', '/outside.js', 'C:/outside.js', String.raw`assets\outside.js`])(
   'rejects a native manifest module outside its portable bundle: %s',
   async (module) => {
     const root = await nativeBuild();
@@ -365,7 +430,7 @@ it('returns only the public fields of the prepared output', async () => {
   });
 });
 
-it.skipIf(process.platform === 'win32')(
+serialIt.skipIf(process.platform === 'win32')(
   'rejects a legacy asset symlink outside the asset directory',
   async () => {
     const output = worker({
@@ -386,13 +451,13 @@ it.skipIf(process.platform === 'win32')(
   },
 );
 
-it.skipIf(process.platform === 'win32')('rejects symlinked native modules', async () => {
+serialIt.skipIf(process.platform === 'win32')('rejects symlinked native modules', async () => {
   const root = await nativeBuild();
   symlinkSync('index.js', join(getWorkerBundleDir(root), 'alias.js'));
   await expect(prepareCfBuildOutput(root)).rejects.toThrow('Symlinks are not permitted');
 });
 
-it.skipIf(process.platform === 'win32')('rejects symlinked native assets', async () => {
+serialIt.skipIf(process.platform === 'win32')('rejects symlinked native assets', async () => {
   const root = await nativeBuild();
   const secret = join(root, 'secret.txt');
   writeFileSync(secret, 'private');
@@ -427,7 +492,7 @@ it.each([undefined, 'account-id'])(
     const authored = readFileSync(join(output, 'wrangler.json'), 'utf8');
     const disposed = await withPrepared(prepareCfBuildOutput(output), async (prepared) => {
       const built = await readBuildOutput(prepared.directory);
-      expect(built.rootConfig.accountId).toBe(accountId);
+      expect(built.rootConfig.settings?.accountId).toBe(accountId);
       expect(built.rootConfig.buildContext).toEqual({ isPreview: false, mode: 'production' });
       expect(built.workers.default.config.manifest?.mainModule).toBe('index.js');
       expect(readFileSync(join(output, 'wrangler.json'), 'utf8')).toBe(authored);
@@ -447,7 +512,7 @@ it('records an explicit build mode and matching target account', async () => {
     prepareCfBuildOutput(output, { accountId: 'account-id', mode: 'staging' }),
     async (prepared) => {
       const built = await readBuildOutput(prepared.directory);
-      expect(built.rootConfig.accountId).toBe('account-id');
+      expect(built.rootConfig.settings?.accountId).toBe('account-id');
       expect(built.rootConfig.buildContext).toEqual({ isPreview: false, mode: 'staging' });
     },
   );
@@ -468,8 +533,8 @@ it('rejects a mismatching explicit target account', async () => {
 it(
   'preserves additional module types from a real Cloudflare Vite build',
   async () => {
-    // Vite canonicalizes root; use the same path for Cloudflare's output directory.
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-')));
+    // Match Vite's native realpath so Windows short-path aliases use one build root.
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-')));
     roots.push(root);
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const assets = {
@@ -539,11 +604,9 @@ export default { fetch() {
           );
           expect(moduleName).toBeDefined();
           expect(manifest.modules[moduleName!]).toEqual({ type });
-          expect(
-            readFileSync(
-              join(prepared.directory, '.cloudflare/output/v0/workers/default/bundle', moduleName!),
-            ),
-          ).toEqual(readFileSync(join(output, moduleName!)));
+          expect(readFileSync(join(getWorkerBundleDir(prepared.directory), moduleName!))).toEqual(
+            readFileSync(join(output, moduleName!)),
+          );
         }
         expect(manifest.modules['.vite/manifest.json']).toBeUndefined();
         expect(Object.keys(manifest.modules).some((name) => name.endsWith('.css'))).toBe(false);
@@ -576,7 +639,7 @@ it(
       prepareCfBuildOutput(output, { accountId: 'account-id' }),
       async (prepared) => {
         const built = await readBuildOutput(prepared.directory);
-        expect(built.rootConfig.accountId).toBe('account-id');
+        expect(built.rootConfig.settings?.accountId).toBe('account-id');
         expect(built.workers.default.config.env?.CACHE).toEqual({
           type: 'kv',
           id: 'namespace-id',
@@ -802,7 +865,7 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
-it(
+serialIt(
   'keeps local .env client values out of framework Worker output',
   async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-env-test-'));
@@ -887,7 +950,7 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
-it.each(['../index.js', '/index.js', 'C:\\index.js'])(
+it.each(['../index.js', '/index.js', String.raw`C:\index.js`])(
   'rejects an out-of-bundle entry %s',
   async (main) => {
     const output = worker({ name: 'void-test', compatibility_date: '2026-09-29', main });
@@ -1072,11 +1135,7 @@ it('copies an internal symlinked Worker module into the prebuilt artifact', asyn
     async (prepared) => {
       const built = await readBuildOutput(prepared.directory);
       expect(built.workers.default.config.manifest?.modules['chunk.js']).toEqual({ type: 'esm' });
-      expect(
-        existsSync(
-          join(prepared.directory, '.cloudflare/output/v0/workers/default/bundle/chunk.js'),
-        ),
-      ).toBe(true);
+      expect(existsSync(join(getWorkerBundleDir(prepared.directory), 'chunk.js'))).toBe(true);
     },
   );
 });
@@ -1116,10 +1175,14 @@ it('keeps Durable Objects, Queue triggers, and Containers in cf prebuilt output'
   );
 }, 15_000);
 
-it('bundles a generated static Worker and staged assets into prebuilt cf output', async () => {
-  const root = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), '.tmp-cf-static-'));
+it.each([
+  ['implicit CommonJS', undefined, 'index.mjs'],
+  ['explicit CommonJS', 'commonjs', 'index.mjs'],
+  ['ES module', 'module', 'index.js'],
+])('bundles a generated static Worker and staged assets in %s', async (_label, type, main) => {
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-cf-static-'));
   roots.push(root);
-  writeFileSync(join(root, 'package.json'), '{"name":"static-app","type":"module"}');
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'static-app', type }));
   mkdirSync(join(root, 'node_modules'));
   symlinkSync(
     fileURLToPath(new URL('../../', import.meta.url)),
@@ -1168,7 +1231,7 @@ it('bundles a generated static Worker and staged assets into prebuilt cf output'
         readFileSync(join(root, 'package.json')),
       );
       const built = await readBuildOutput(prepared.directory);
-      expect(built.workers.default.config.manifest?.mainModule).toBe('index.js');
+      expect(built.workers.default.config.manifest?.mainModule).toBe(main);
       expect(built.workers.default.assetsDir).toBeDefined();
       expect(prepared.assetsDirectory).toBe(toSlash(assets));
       expect(built.rootConfig.buildContext.isPreview).toBe(false);
@@ -1285,7 +1348,7 @@ it('reads a framework config as JSONC and still rejects one that is not an objec
   }
 });
 
-it.skipIf(process.platform === 'win32')(
+serialIt.skipIf(process.platform === 'win32')(
   'builds a named Sandbox image into cf prebuilt output and cleans up its local tag',
   async () => {
     const output = worker({
@@ -1324,7 +1387,7 @@ it.skipIf(process.platform === 'win32')(
       prepareCfBuildOutput(output, { accountId: 'account-id' }),
       async (prepared) => {
         const built = await readBuildOutput(prepared.directory);
-        const container = built.containers[0]!.config;
+        const container = built.containers[0].config;
         expect(container.schedulingPolicy).toBe('durable-object');
         if (container.schedulingPolicy !== 'durable-object') {
           throw new Error('Expected a managed container');
@@ -1342,7 +1405,7 @@ it.skipIf(process.platform === 'win32')(
     const calls = readFileSync(log, 'utf8')
       .trim()
       .split('\n')
-      .map((line) => JSON.parse(line));
+      .map((line): unknown => JSON.parse(line));
     expect(calls[0]).toEqual([
       'build',
       '--platform',

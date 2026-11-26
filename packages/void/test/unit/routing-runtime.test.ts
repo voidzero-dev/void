@@ -1,4 +1,5 @@
-import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { etag } from 'hono/etag';
 import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
@@ -8,11 +9,23 @@ import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
-import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env-public.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
-import { defineHandler, defineMiddleware, type CloudContext } from '../../src/runtime/handler.ts';
-import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
-import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env/public.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
+import { defineHandler, defineHead, defineMiddleware } from '../../src/runtime/handler/index.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
+import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing/assets.ts';
+import type { ClientManifest, ManifestLoader } from '../../src/runtime/routing/assets.ts';
+import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
+import {
+  createHttpRouteHandler,
+  createModuleLoader,
+  createRoutingRuntime,
+} from '../../src/runtime/routing/index.ts';
+import type {
+  RoutingContext,
+  RoutingHeaderRule,
+  RoutingRuntime,
+} from '../../src/runtime/routing/index.ts';
 import {
   createAssetNotFound,
   createPageGetHandler,
@@ -21,23 +34,15 @@ import {
   createNamedActionMarker,
   createSsrFallback,
   markRouteHandler,
-} from '../../src/runtime/routing-pages.ts';
+} from '../../src/runtime/routing/pages.ts';
 import {
   applyAssetCachePolicy,
   createAssetCachePolicy,
   createAssetFallback,
   createWorkerFetch,
   filterInternalBindings,
-  type RuntimeEnvironment,
-} from '../../src/runtime/routing-worker.ts';
-import {
-  createHttpRouteHandler,
-  createModuleLoader,
-  createRoutingRuntime,
-  type RoutingContext,
-  type RoutingHeaderRule,
-  type RoutingRuntime,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/worker.ts';
+import type { RuntimeEnvironment } from '../../src/runtime/routing/worker.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };
@@ -782,7 +787,7 @@ describe('typed asset fallthrough', () => {
       applyAssetCachePolicy(request, cookie, 'static', true).headers.get('cache-control'),
     ).toBe('no-store');
   });
-  it.each([null, { client: { file: 'assets/client-abcdefgh.js' } }])(
+  it.each<ClientManifest>([{}, { client: { file: 'assets/client-abcdefgh.js' } }])(
     'uses conservative cache policy without build provenance: %j',
     async (manifest) => {
       const load = vi.fn(async () => manifest);
@@ -803,18 +808,104 @@ describe('typed asset fallthrough', () => {
       expect(load).toHaveBeenCalledTimes(1);
     },
   );
-  it('keeps assets available when optional manifest lookup fails', async () => {
-    const policy = createAssetCachePolicy('assets', async () => {
-      throw new Error('unavailable');
-    });
-    const response = await policy(
-      new Request('https://app.test/assets/app-settings.json'),
+  it.each(['missing', 'rejected'])(
+    'serves assets and retries after a %s manifest lookup',
+    async (failure) => {
+      const path = 'assets/client-abcdefgh.js';
+      const load = vi
+        .fn<ManifestLoader>()
+        .mockImplementationOnce(async () => {
+          if (failure === 'rejected') {
+            throw new Error('unavailable');
+          }
+          return null;
+        })
+        .mockResolvedValue({ client: { file: path, immutableFiles: [path] } });
+      const policy = createAssetCachePolicy('assets', load);
+      const request = () => new Request(`https://app.test/${path}`);
+      const response = await policy(request(), {}, new Response('asset'));
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      await expect(response.text()).resolves.toBe('asset');
+      const recovered = await policy(request(), {}, new Response('asset'));
+      expect(recovered.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      await policy(request(), {}, new Response('asset'));
+      expect(load).toHaveBeenCalledTimes(2);
+    },
+  );
+  it('keeps a stalled manifest lookup from blocking later asset requests', async () => {
+    const load = vi
+      .fn<ManifestLoader>()
+      .mockImplementationOnce(() => new Promise<ClientManifest | null>(() => {}))
+      .mockImplementation(async () => ({
+        client: {
+          file: 'assets/client-abcdefgh.js',
+          immutableFiles: ['assets/client-abcdefgh.js'],
+        },
+      }));
+    const policy = createAssetCachePolicy('assets', load);
+    // The first request's lookup never settles, as a canceled request's fetch may not.
+    void policy(
+      new Request('https://app.test/assets/stalled-11111111.js'),
       {},
       new Response('asset'),
     );
-    expect(response.headers.get('cache-control')).toBe('no-store');
-    await expect(response.text()).resolves.toBe('asset');
+    const response = await policy(
+      new Request('https://app.test/assets/client-abcdefgh.js'),
+      {},
+      new Response('asset', {
+        headers: { 'cache-control': 'public, max-age=0, must-revalidate' },
+      }),
+    );
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(load).toHaveBeenCalledTimes(2);
   });
+  it.each(['success', 'miss'])(
+    'caches the successful manifest when %s resolves first',
+    async (first) => {
+      let resolveHit!: (manifest: ClientManifest | null) => void;
+      let resolveMiss!: (manifest: ClientManifest | null) => void;
+      const hit = new Promise<ClientManifest | null>((resolve) => {
+        resolveHit = resolve;
+      });
+      const miss = new Promise<ClientManifest | null>((resolve) => {
+        resolveMiss = resolve;
+      });
+      const load = vi.fn<ManifestLoader>((request) =>
+        new URL(request.url).pathname.includes('/hit-') ? hit : miss,
+      );
+      const policy = createAssetCachePolicy('assets', load);
+      const asset = () =>
+        new Response('asset', {
+          headers: { 'cache-control': 'public, max-age=0, must-revalidate' },
+        });
+      const ranHit = policy(new Request('https://app.test/assets/hit-11111111.js'), {}, asset());
+      const ranMiss = policy(new Request('https://app.test/assets/miss-22222222.js'), {}, asset());
+      const finishHit = () =>
+        resolveHit({
+          client: {
+            file: 'assets/client-abcdefgh.js',
+            immutableFiles: ['assets/client-abcdefgh.js'],
+          },
+        });
+      if (first === 'success') {
+        finishHit();
+        await ranHit;
+        resolveMiss(null);
+      } else {
+        resolveMiss(null);
+        await ranMiss;
+        finishHit();
+      }
+      await Promise.all([ranHit, ranMiss]);
+      const response = await policy(
+        new Request('https://app.test/assets/client-abcdefgh.js'),
+        {},
+        asset(),
+      );
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(load).toHaveBeenCalledTimes(2);
+    },
+  );
   it('preserves non-success, redirects and mutation responses', () => {
     for (const source of [
       new Response('missing', { status: 404 }),
@@ -1047,7 +1138,7 @@ describe('typed Pages and SSR execution', () => {
           },
         }),
       );
-      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
+      expect(decodePageData<{ url: string }>(await response.json()).url).toBe('/named?page=2');
     });
 
     it('marks the request for a one-argument middleware that answers first', async () => {
@@ -1163,7 +1254,7 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
-      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
+      expect(decodePageData<{ url: string }>(await response.json()).url).toBe('/named?page=2');
     });
   });
   it.each([
@@ -1231,7 +1322,7 @@ describe('typed Pages and SSR execution', () => {
         headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       }),
     );
-    expect((decodePageData(await response.json()) as { props: unknown }).props).toEqual({
+    expect(decodePageData<{ props: unknown }>(await response.json()).props).toEqual({
       title: 'loaded',
     });
   });
@@ -1257,10 +1348,44 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
-      return (decodePageData(await response.json()) as { head?: { title?: string } }).head?.title;
+      return decodePageData<{ head?: { title?: string } }>(await response.json()).head?.title;
     };
     expect(await title('/admin/users')).toBe('Users | Admin');
     expect(await title('/users')).toBe('Users | My Site');
+  });
+  it('lets a page head replace or skip the titleTemplate', async () => {
+    const app = new Hono();
+    app.use(
+      '/admin/*',
+      defineMiddleware(async (c, next) => {
+        c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '%s | Admin' });
+        await next();
+      }),
+    );
+    const own = defineHead(() => ({ title: 'Reports', titleTemplate: '%s - Team' }));
+    const skip = defineHead(() => ({ title: 'My App | Q&A', titleTemplate: '' }));
+    const page = (head: typeof own) =>
+      createPageGetHandler({
+        ...pageOptions,
+        headConfig: { titleTemplate: '%s | My App' },
+        load: async () => ({ loader: () => ({}), head }),
+      });
+    app.get('/admin/reports', page(own));
+    app.get('/reports', page(own));
+    app.get('/admin/home', page(skip));
+    app.get('/', page(skip));
+    const title = async (path: string) => {
+      const response = await app.fetch(
+        new Request('https://app.test' + path, {
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        }),
+      );
+      return decodePageData<{ head?: { title?: string } }>(await response.json()).head?.title;
+    };
+    expect(await title('/admin/reports')).toBe('Reports - Team');
+    expect(await title('/reports')).toBe('Reports - Team');
+    expect(await title('/admin/home')).toBe('My App | Q&A');
+    expect(await title('/')).toBe('My App | Q&A');
   });
   it('redirects extensionless Pages requests to trailing slashes without changing APIs or files', async () => {
     const app = new Hono();
@@ -1585,17 +1710,50 @@ describe('typed client asset tags', () => {
     expect(binding).toHaveBeenCalledTimes(1);
   });
 
-  it('shares one manifest fetch between concurrent cold loads', async () => {
+  it('keeps a stalled manifest fetch from blocking later requests', async () => {
+    const binding = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+      .mockImplementation(async () => Response.json({ page: { file: 'page.js' } }));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
+    // The first request's fetch never settles, as a canceled request's fetch may not.
+    void loader(new Request('https://app.test/first'), env);
+    await expect(loader(new Request('https://app.test/second'), env)).resolves.toEqual({
+      page: { file: 'page.js' },
+    });
+    expect(binding).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches the parsed manifest instead of the fetch', async () => {
     const binding = vi.fn(async () => Response.json({ page: { file: 'page.js' } }));
     const loader = createManifestLoader();
     const env = { ASSETS: { fetch: binding } };
+    const first = await loader(new Request('https://app.test/page'), env);
+    await expect(loader(new Request('https://app.test/other'), env)).resolves.toBe(first);
+    expect(binding).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back from an invalid injected manifest and retries malformed asset responses', async () => {
+    const manifest = { page: { file: 'page.js' } };
+    const binding = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(new Response('invalid JSON'))
+      .mockResolvedValueOnce(Response.json({ page: { imports: [false] } }))
+      .mockImplementation(async () => Response.json(manifest));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
     const request = new Request('https://app.test/page');
-    const manifests = await Promise.all(Array.from({ length: 8 }, () => loader(request, env)));
-    expect(binding).toHaveBeenCalledTimes(1);
-    expect(new Set(manifests).size).toBe(1);
-    expect(manifests[0]).toEqual({ page: { file: 'page.js' } });
-    expect(await loader(request, env)).toBe(manifests[0]);
-    expect(binding).toHaveBeenCalledTimes(1);
+    vi.stubGlobal('__VITE_MANIFEST__', { page: null });
+    try {
+      expect(await loader(request, env)).toBeNull();
+      expect(await loader(request, env)).toBeNull();
+      expect(await loader(request, env)).toEqual(manifest);
+      expect(await loader(request, env)).toEqual(manifest);
+      expect(binding).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('retries the manifest after a missing response or a rejected fetch', async () => {
@@ -1610,9 +1768,7 @@ describe('typed client asset tags', () => {
     const request = new Request('https://app.test/page');
     expect(await loader(request, env)).toBeNull();
     expect(binding).toHaveBeenCalledTimes(1);
-    const rejected = [loader(request, env), loader(request, env)];
-    await expect(rejected[0]).rejects.toThrow('assets unavailable');
-    await expect(rejected[1]).rejects.toThrow('assets unavailable');
+    await expect(loader(request, env)).rejects.toThrow('assets unavailable');
     expect(binding).toHaveBeenCalledTimes(2);
     expect(await loader(request, env)).toEqual(manifest);
     expect(binding).toHaveBeenCalledTimes(3);
@@ -1858,10 +2014,116 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     const app = createPageApp({ loader: defineHandler(passThrough, () => ({ notes: ['a'] })) });
     const json = await get(app);
     expect(json.status).toBe(200);
-    expect((decodePageData(await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
+    expect(decodePageData<PageJson>(await json.json()).props).toEqual({ notes: ['a'] });
     const html = await get(app, {});
     expect(html.status).toBe(200);
     expect(await html.text()).toContain('{"notes":["a"]}');
+  });
+
+  describe.each(['HTML', 'Pages JSON'] as const)(
+    'Application-defined page status codes (%s)',
+    (format) => {
+      it.each(
+        ([403, 503] as const).flatMap((status) =>
+          (['loader', 'validated loader', 'app middleware', 'handler middleware'] as const).map(
+            (source) => ({
+              status,
+              source,
+            }),
+          ),
+        ),
+      )('renders the page with HTTP $status set by $source', async ({ status, source }) => {
+        const message = status === 403 ? 'Your account is banned' : 'Down for maintenance';
+        const setStatus = defineMiddleware(async (c, next) => {
+          c.status(status);
+          c.header('Retry-After', '120');
+          await next();
+        });
+        const loader = vi.fn((c: CloudContext) => {
+          if (source === 'loader' || source === 'validated loader') {
+            c.status(status);
+            c.header('Retry-After', '120');
+          }
+          return { message };
+        });
+        const app = createPageApp(
+          {
+            loader:
+              source === 'handler middleware'
+                ? defineHandler(setStatus, loader)
+                : source === 'validated loader'
+                  ? defineHandler.withValidator({})(loader)
+                  : defineHandler(loader),
+          },
+          async (c, next) => {
+            c.header('Set-Cookie', 'session=renewed; HttpOnly', { append: true });
+            c.header('Set-Cookie', 'locale=en', { append: true });
+            if (source === 'app middleware') {
+              return setStatus(c, next);
+            }
+            await next();
+          },
+        );
+        const response = await get(app, format === 'HTML' ? {} : undefined);
+        const body = await response.text();
+
+        expect(loader).toHaveBeenCalledTimes(1);
+        expect(response.headers.get('Retry-After')).toBe('120');
+        expect(response.headers.getSetCookie()).toEqual(['session=renewed; HttpOnly', 'locale=en']);
+        if (format === 'Pages JSON') {
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          expect(decodePageData(JSON.parse(body))).toMatchObject({
+            component: 'page',
+            props: { message },
+          });
+        } else {
+          expect(response.headers.get('Content-Type')).toContain('text/html');
+          expect(body).toContain(message);
+        }
+        expect(response.status).toBe(status);
+      });
+
+      it('preserves the loader status while streaming deferred props', async () => {
+        const app = createPageApp({
+          loader: defineHandler((c) => {
+            c.status(429);
+            return { slow: defer(async () => 'Try again later') };
+          }),
+        });
+        const response = await get(app, format === 'HTML' ? {} : undefined);
+        const body = await response.text();
+        expect(response.status).toBe(429);
+        if (format === 'Pages JSON') {
+          expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          expect(body).toContain(
+            serializePageData({ __deferred: 'slow', data: 'Try again later' }),
+          );
+        } else {
+          expect(body).toContain('__resolveDeferred');
+          expect(body).toContain('Try again later');
+        }
+      });
+    },
+  );
+
+  it('preserves the loader status when prefetching deferred page data', async () => {
+    const app = createPageApp({
+      loader: defineHandler((c) => {
+        c.status(503);
+        return { slow: defer(async () => 'Try again later') };
+      }),
+    });
+    const response = await get(app, {
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      Purpose: 'prefetch',
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Content-Type')).toBe('application/json');
+    expect(decodePageData(await response.json())).toMatchObject({
+      props: { slow: 'Try again later' },
+    });
   });
 
   it('re-renders the page after an action with middleware, or shows its field errors', async () => {
@@ -1945,7 +2207,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       expect(response.status).toBe(200);
       expect(response.headers.get('X-Before')).toBe('1');
       expect(response.headers.get('X-After')).toBe('1');
-      expect((decodePageData(await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
+      expect(decodePageData<PageJson>(await response.json()).shared).toEqual({ user: 'u1' });
     }
   });
 
@@ -1957,7 +2219,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       await next();
     };
     const sharedOf = async (response: Response) =>
-      (decodePageData(await response.json()) as PageJson).shared;
+      decodePageData<PageJson>(await response.json()).shared;
     const setCount = (n: number) => (c: CloudContext) => {
       c.set('shared', { ...(c.get('shared') as object), ...count(n) });
     };

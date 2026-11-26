@@ -3,16 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { PlatformClient } from '../../src/cli/client.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 
-const mockCancel = vi.fn();
-const mockConfirm = vi.fn();
-const mockGetToken = vi.fn();
-const mockListProjects = vi.fn();
-const mockCreateProject = vi.fn();
-const mockText = vi.fn();
-const mockOutro = vi.fn();
-const mockSelect = vi.fn();
+const mockCancel = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').cancel>();
+const mockConfirm = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').confirm>();
+const mockGetToken = vi.fn<typeof import('../../src/cli/auth.ts').getToken>();
+const mockListProjects = vi.fn<PlatformClient['listProjects']>();
+const mockCreateProject = vi.fn<PlatformClient['createProject']>();
+const mockText = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').text>();
+const mockOutro = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').outro>();
+const mockSelect = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').select<string>>();
 
 const existingProject = {
   id: 'proj_1',
@@ -21,22 +22,23 @@ const existingProject = {
   type: 'worker',
   created_at: '2026-05-27T00:00:00.000Z',
   custom_domain: null,
+  role: 'owner' as const,
 };
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
-  cancel: (...args: Array<unknown>) => mockCancel(...args),
-  confirm: (...args: Array<unknown>) => mockConfirm(...args),
+  cancel: (...args: Parameters<typeof mockCancel>) => mockCancel(...args),
+  confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
   intro: vi.fn(),
   isCancel: (value: unknown) => value === Symbol.for('cancel'),
   log: { warn: vi.fn(), step: vi.fn() },
-  outro: (...args: Array<unknown>) => mockOutro(...args),
-  select: (...args: Array<unknown>) => mockSelect(...args),
-  text: (...args: Array<unknown>) => mockText(...args),
+  outro: (...args: Parameters<typeof mockOutro>) => mockOutro(...args),
+  select: (...args: Parameters<typeof mockSelect>) => mockSelect(...args),
+  text: (...args: Parameters<typeof mockText>) => mockText(...args),
 }));
 
 vi.mock('../../src/cli/auth', () => ({
   getSiteDomain: () => 'void.app',
-  getToken: (...args: Array<unknown>) => mockGetToken(...args),
+  getToken: (...args: Parameters<typeof mockGetToken>) => mockGetToken(...args),
 }));
 
 vi.mock('../../src/cli/client', () => ({
@@ -44,10 +46,10 @@ vi.mock('../../src/cli/client', () => ({
   PlatformClient: class {
     readonly apiUrl = 'https://api.void.cloud';
 
-    listProjects(...args: Array<unknown>) {
-      return mockListProjects(...args);
+    listProjects() {
+      return mockListProjects();
     }
-    createProject(...args: Array<unknown>) {
+    createProject(...args: Parameters<PlatformClient['createProject']>) {
       return mockCreateProject(...args);
     }
   },
@@ -117,7 +119,7 @@ describe('runLink', () => {
       message:
         'Linking to an existing project. Running `void deploy` will overwrite the current deployment of existing-app.void.app. Continue?',
     });
-    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf-8'))).toEqual({
+    expect(JSON.parse(readFileSync(join(root, '.void', 'project.json'), 'utf8'))).toEqual({
       applicationDomain: 'void.app',
       platform: 'void',
       platformUrl: 'https://api.void.cloud',
@@ -136,9 +138,9 @@ describe('runLink', () => {
     mockListProjects.mockResolvedValueOnce([existingProject]);
     mockSelect.mockResolvedValueOnce('proj_1');
     mockConfirm.mockResolvedValueOnce(false);
-    vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+    vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
       throw new Error(`exit ${code}`);
-    }) as never);
+    });
 
     await expect(runLink(root)).rejects.toThrow('exit 0');
 

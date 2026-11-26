@@ -64,7 +64,7 @@ export function isUnmaskActive(): boolean {
     unmaskResolved = false;
   }
   if (unmaskResolved) {
-    // eslint-disable-next-line no-console -- explicit operator warning.
+    // explicit operator warning.
     console.error(
       `[void/env] ${UNMASK_ENV_VAR}=1 is set — env validation errors will include raw values. Unset it before sharing logs.`,
     );

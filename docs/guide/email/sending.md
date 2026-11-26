@@ -23,7 +23,6 @@ if (!result.ok) {
     // A request-level failure; OUTCOME_UNKNOWN may already have been submitted.
     console.error(result.error.code, result.error.message);
   } else {
-    // Some recipients failed. `deliveries` says which.
     for (const d of result.deliveries.filter((d) => !d.ok)) {
       console.error(d.recipient, d.error.code, d.error.message);
     }
@@ -88,7 +87,7 @@ You can send to at most 50 recipients across `to`, `cc`, and `bcc`. Use standard
 
 On the platform the sender is pinned to your project. `from` must be your project's own platform address — `<project-slug>@<mail-domain>` or `<project-slug>+<tag>@<mail-domain>`, optionally with a display name — or any address on a domain registered with `void email domain add` (see [Your own domain on the platform](./domains.md#your-own-domain-on-the-platform)). For example, if your platform's mail domain is `mail.example.com`, you can use `Acme <acme+noreply@mail.example.com>`. Anything else is rejected with `INVALID_FROM`. Omit `from` and Void fills in `<project-slug>+noreply@<mail-domain>` for you. If the project owner set an [email alias](../../reference/cli/email.md#void-email-alias), `<alias>@<mail-domain>` and `<alias>+<tag>@<mail-domain>` are accepted too; the default stays the slug address.
 
-On your own Cloudflare account, `from` defaults to `email.from` from `void.config.ts` and must be on a domain your account can send from; Cloudflare rejects any other sender and `sendEmail` reports it as `INVALID_FROM`.
+On your own Cloudflare account, `from` defaults to `email.from` from `void.config.ts` and must be on a domain your account can send from; Cloudflare rejects any other sender and `sendEmail` reports it as `INVALID_FROM`. If the Worker has no email binding, run `void email setup --platform cloudflare` and redeploy to resolve `BINDING_MISSING`.
 
 ## Reply later {#reply-later}
 
@@ -158,6 +157,23 @@ await sendEmail({
 ```
 
 Void infers `contentType` from the filename if you omit it. An explicit value must be a valid media type. `contentId` names the image referenced by `cid:<id>` in HTML; use an ID such as `logo` or `logo@acme.dev`. The encoded message is limited to 5 MiB and custom headers to 16 KiB. Invalid attachment fields or oversized messages return `MIME_ERROR`.
+
+## Calendar invitations
+
+Pass iCalendar text in `calendar.content` to include a calendar invitation in an email. Set `calendar.method` to `REQUEST` for an invitation or update, or to `CANCEL` for a cancellation. Use the same `METHOD` in the iCalendar text and include a `text` or `html` message for recipients whose mail client does not render invitations.
+
+```ts
+import { sendEmail } from 'void/email';
+
+function sendInvite(to: string, icsText: string) {
+  return sendEmail({
+    to,
+    subject: 'Project kickoff',
+    text: 'Please join the project kickoff. See the invite for the time.',
+    calendar: { method: 'REQUEST', content: icsText },
+  });
+}
+```
 
 ## Result and errors {#result-and-errors}
 

@@ -57,6 +57,7 @@ export const platformAccessProtection: MiddlewareHandler<ApiEnv> = async (contex
     );
     if (identity.kind === 'human') {
       context.set('companyIdentity', { issuer: identity.issuer, subject: identity.subject });
+      // oxlint-disable-next-line typescript/return-await -- Downstream route failures must reach the normal HTTP error handler.
       return next();
     }
     const path = context.req.path;
@@ -76,6 +77,7 @@ export const platformAccessProtection: MiddlewareHandler<ApiEnv> = async (contex
       (method === 'POST' && /^\/oauth\/previews\/proj_[a-z0-9]+\/launch$/.test(path)) ||
       (method === 'GET' && path === '/oauth/userinfo')
     ) {
+      // oxlint-disable-next-line typescript/return-await -- Downstream route failures must reach the normal HTTP error handler.
       return next();
     }
     const probe =
@@ -94,14 +96,17 @@ export const platformAccessProtection: MiddlewareHandler<ApiEnv> = async (contex
           (path === '/internal/platform/domain-preflight' && method === 'POST') ||
           (path === '/internal/platform/domain-activate' && method === 'POST')))
     ) {
+      // oxlint-disable-next-line typescript/return-await -- Downstream route failures must reach the normal HTTP error handler.
       return next();
     }
     if (path === '/auth/github-oidc' && method === 'POST') {
       // The route additionally verifies GitHub's scoped workload identity.
+      // oxlint-disable-next-line typescript/return-await -- Downstream route failures must reach the normal HTTP error handler.
       return next();
     }
     if (path === '/internal/platform/auth-initialize' && method === 'POST') {
       // This route also requires its own installation-specific setup HMAC, never a health token.
+      // oxlint-disable-next-line typescript/return-await -- Downstream route failures must reach the normal HTTP error handler.
       return next();
     }
     if (path === '/projects' || path.startsWith('/projects/')) {
@@ -111,6 +116,7 @@ export const platformAccessProtection: MiddlewareHandler<ApiEnv> = async (contex
         : null;
       if (payload?.project && ['deploy', 'oauth-deploy', 'oauth-preview'].includes(payload.aud)) {
         // Normal API middleware still enforces the exact project/build/endpoint scope.
+        // oxlint-disable-next-line typescript/return-await -- Downstream route failures must reach the normal HTTP error handler.
         return next();
       }
     }

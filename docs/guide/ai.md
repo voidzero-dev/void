@@ -80,7 +80,6 @@ Use `ai.models()` to list available models:
 ```ts
 const models = await ai.models();
 
-// Filter by task
 const textModels = await ai.models({ task: 'Text Generation' });
 ```
 
@@ -142,7 +141,9 @@ const result = await ai.run('google/gemini-2.5-flash', {
 });
 ```
 
-Pass AI Gateway options as the third argument: `ai.run(model, inputs, { gateway: { skipCache: true } })`. On a team platform, the platform chooses the gateway and sets its metadata and logging; options such as `skipCache` and `cacheTtl` still apply. The platform's logging setting also covers `void dev` in a linked project; an unlinked project uses your own Cloudflare account and its gateway settings.
+Pass AI Gateway options as the third argument: `ai.run(model, inputs, { gateway: { skipCache: true } })`.
+
+On a team platform, Void selects the gateway and request metadata, and administrators control the [logging policy](./platform/administration/projects.md#ai-logging). Apps can still set cache options such as `skipCache` and `cacheTtl`. The same logging policy applies during `void dev` for a linked project. An unlinked project uses your own Cloudflare account and gateway settings.
 
 For provider-native requests on a direct deployment, configure [`ai.gateway`](../integrations/cloudflare.md#ai-self-host).
 
@@ -154,6 +155,19 @@ and retains the provider's native HTTP shape. On a team platform, it also passes
 through that installation's proxy. AI Gateway cache, timeout and retry headers,
 such as `cf-aig-cache-ttl` and `cf-aig-max-attempts`, still apply there; the
 platform ignores logging, metadata and cost headers.
+
+Pass an `AbortSignal` to cancel a request or stop reading its response stream:
+
+```ts
+import { ai } from 'void/ai';
+
+const response = await ai.provider('openai').fetch('/chat/completions', {
+  signal: AbortSignal.timeout(30_000),
+  body: { model: 'gpt-4o', messages: [{ role: 'user', content: 'Hello' }] },
+});
+```
+
+If the signal aborts while you read a streaming response, reading it rejects with the signal's reason instead of ending with a `void:error` event.
 
 ### OpenAI
 

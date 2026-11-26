@@ -17,8 +17,8 @@ it('declares only the exact canonical 0.22.0 predecessor and fences legacy delet
   const baseline = journal.entries.filter((entry) => entry.idx <= 55);
   expect(baseline.at(-1)?.tag).toBe('0055_durable_deployment_execution');
   expect(baseline.slice(-2)).toMatchObject([
-    { idx: 54, tag: '0054_project_mode', when: 1790841384175 },
-    { idx: 55, tag: '0055_durable_deployment_execution', when: 1790864531640 },
+    { idx: 54, tag: '0054_project_mode', when: 1_790_841_384_175 },
+    { idx: 55, tag: '0055_durable_deployment_execution', when: 1_790_864_531_640 },
   ]);
   const migration = journal.entries.find((entry) => entry.idx === 56);
   expect(migration).toMatchObject({ idx: 56, tag: '0056_email_shared_recipients' });

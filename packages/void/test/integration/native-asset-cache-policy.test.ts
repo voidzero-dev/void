@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { build, type Manifest } from 'vite';
+import { build } from 'vite';
+import type { Manifest } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   renderCloudflareStaticEntry,
@@ -14,12 +15,10 @@ import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import {
   GENERATED_ASSET_HEADERS_MARKER,
   resolveAssetWorkerBypass,
-  type AssetWorkerBypassFacts,
 } from '../../src/asset-worker-bypass.ts';
-import {
-  planStaticEdgeRouting,
-  type StaticEdgeRouting,
-} from '../../src/cli/deploy-cloudflare-static.ts';
+import type { AssetWorkerBypassFacts } from '../../src/asset-worker-bypass.ts';
+import { planStaticEdgeRouting } from '../../src/cli/deploy-cloudflare-static.ts';
+import type { StaticEdgeRouting } from '../../src/cli/deploy-cloudflare-static.ts';
 import type { RoutingConfig } from '../../src/config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 
@@ -54,7 +53,8 @@ let customAsset: string;
 let uncachedAsset: string;
 
 beforeAll(async () => {
-  directory = mkdtempSync(join(tmpdir(), 'void-native-asset-policy-'));
+  // Match Vite's native realpath before deriving input paths and manifest keys.
+  directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-native-asset-policy-')));
   const assets = join(directory, 'client');
   const output = join(directory, 'output');
   const clientRoot = join(directory, 'app');
@@ -193,10 +193,10 @@ beforeAll(async () => {
     `
     import { Hono } from ${JSON.stringify(fileURLToPath(import.meta.resolve('hono')))};
     import { compress } from ${JSON.stringify(fileURLToPath(import.meta.resolve('hono/compress')))};
-    import { createPagesFallback, createSsrFallback, createAssetNotFound } from ${JSON.stringify(runtimeSource('routing-pages.ts'))};
-    import { applyAssetCachePolicy, createAssetFallback } from ${JSON.stringify(runtimeSource('routing-worker.ts'))};
-    import { createRoutingRuntime } from ${JSON.stringify(runtimeSource('routing.ts'))};
-    import { createErrorRenderer } from ${JSON.stringify(runtimeSource('routing-errors.ts'))};
+    import { createPagesFallback, createSsrFallback, createAssetNotFound } from ${JSON.stringify(runtimeSource('routing/pages.ts'))};
+    import { applyAssetCachePolicy, createAssetFallback } from ${JSON.stringify(runtimeSource('routing/worker.ts'))};
+    import { createRoutingRuntime } from ${JSON.stringify(runtimeSource('routing/index.ts'))};
+    import { createErrorRenderer } from ${JSON.stringify(runtimeSource('routing/errors.ts'))};
     const apps = {};
     for (const mode of ['pages', 'ssr', 'static', 'headers', 'compressed']) {
       const pages = mode === 'pages' || mode === 'compressed';

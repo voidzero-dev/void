@@ -10,22 +10,22 @@ import {
   mergeDataIntoHref,
   ssrProxy,
   submitAction,
-  type VoidRouterConfig,
 } from '../../src/pages/client.ts';
+import type { VoidRouterConfig } from '../../src/pages/client.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import type { PageDefinition } from '../../src/pages/types.ts';
-import type { CloudContext } from '../../src/runtime/handler.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
 import {
   createPageGetHandler,
   createPageMutationHandler,
   createNamedActionMarker,
   createRoutingRuntime,
-  type RoutingContext,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/index.ts';
+import type { RoutingContext } from '../../src/runtime/routing/index.ts';
 
 type DeferredTestWindow = Window & {
   __resolveDeferred(group: string, data: unknown): void;
@@ -43,7 +43,7 @@ type TestRouterConfig = Partial<Omit<VoidRouterConfig, 'adapter'>> & {
 
 function stubClientGlobals(origin = 'http://localhost') {
   const documentStub = {
-    createElement: vi.fn(() => ({})),
+    createElement: vi.fn(() => ({ appendChild: vi.fn(), style: {} })),
     getElementById: vi.fn((id: string) => {
       if (id === '__VOID_PAGE_DATA__') {
         return {
@@ -65,6 +65,7 @@ function stubClientGlobals(origin = 'http://localhost') {
       querySelector: vi.fn(() => null),
       querySelectorAll: vi.fn(() => []),
     },
+    body: { replaceChildren: vi.fn() },
     querySelector: vi.fn(() => null),
   };
 
@@ -133,6 +134,344 @@ function createTestRouter({ adapter, ...config }: TestRouterConfig = {}) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+describe('Pages build recovery', () => {
+  function staleJson(body: unknown): Response {
+    return Response.json(body, {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Build': 'build-1' },
+    });
+  }
+
+  const stalePage = {
+    component: 'home',
+    props: { title: 'post' },
+    url: '/next?tab=1',
+    errors: null,
+  };
+
+  it('reloads the destination when another build answered the navigation', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    const fetch = vi.fn(async () => staleJson(stalePage));
+    vi.stubGlobal('fetch', fetch);
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next?tab=1#details');
+
+    // This tab names its own build, so the server can answer for it.
+    expect(fetch).toHaveBeenCalledWith(
+      '/next?tab=1',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-VoidPages-Build': 'build-2' }),
+      }),
+    );
+    // A document load keeps the query and the fragment, and never renders stale props.
+    expect(window.location.href).toBe('/next?tab=1#details');
+    expect(applyUpdate).not.toHaveBeenCalled();
+  });
+
+  it('drops a prefetch from another build and reloads on the visit instead', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const { router } = await createTestRouter();
+
+    await router.prefetch('/next');
+    expect(window.location.href).toBeUndefined();
+
+    await router.visit('/next');
+    expect(window.location.href).toBe('/next');
+  });
+
+  it('treats a response from a server with no build id as unchanged', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    // An older Void names no build. It is not evidence of a new one.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(stalePage, { headers: { 'X-VoidPages': 'true' } })),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next');
+
+    expect(window.location.href).toBeUndefined();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
+
+  function stubReloadGuard(): void {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+      removeItem: (key: string) => void stored.delete(key),
+    });
+  }
+
+  // The shape the server actually sends: a reload response, not page props.
+  const staleReloadResponse = () =>
+    new Response(null, {
+      headers: { 'X-VoidPages-Build': 'build-1', 'Cache-Control': 'no-store' },
+    });
+
+  it.each([
+    ['page props from another build', () => staleJson(stalePage)],
+    ['a reload response for another build', staleReloadResponse],
+  ])('reloads a destination once, then stops on %s', async (_, response) => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response()),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next');
+    expect(window.location.href).toBe('/next');
+
+    // The document came back from the old build anyway. Reloading again would
+    // loop, so the tab stops on the recovery page instead.
+    const documentUrl = 'http://localhost/';
+    (window.location as unknown as { href?: string }).href = documentUrl;
+    await router.visit('/next');
+    expect(window.location.href).toBe(documentUrl);
+    expect(applyUpdate).not.toHaveBeenCalled();
+    expect(document.body.replaceChildren).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the first reload', false],
+    ['the recovery page', true],
+  ])('skips %s when a newer visit took over', async (_, reloadSpent) => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    if (reloadSpent) {
+      sessionStorage.setItem(
+        '__void_pages_deploy_reload',
+        JSON.stringify({ build: 'build-1', url: '/old', at: Date.now() }),
+      );
+    }
+    // The old visit's response arrives after the newer visit aborted it, as a
+    // fetch that already resolved does.
+    const stale = controlledPromise<Response>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/old'
+          ? stale.promise
+          : Response.json(
+              { ...stalePage, url: '/new' },
+              { headers: { 'X-VoidPages': 'true', 'X-VoidPages-Build': 'build-2' } },
+            ),
+      ),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    const oldVisit = router.visit('/old');
+    await Promise.resolve();
+    const newVisit = router.visit('/new');
+    stale.resolve(staleReloadResponse());
+
+    // A superseded GET visit settles quietly.
+    await expect(oldVisit).resolves.toBeUndefined();
+    await newVisit;
+    expect(window.location.href).toBeUndefined();
+    expect(document.body.replaceChildren).not.toHaveBeenCalled();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
+
+  it('reloads when a refresh of a URL with a fragment is answered by another build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const reload = vi.fn();
+    Object.assign(window.location, { pathname: '/docs', hash: '#install', reload });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+
+    await router.refresh();
+
+    // Assigning the same URL with a fragment only scrolls, so the tab would keep
+    // its stale page without loading anything.
+    expect(reload).toHaveBeenCalledOnce();
+    expect(window.location.href).toBeUndefined();
+  });
+
+  it('reloads a refresh with a fragment inside a Capacitor app', async () => {
+    stubClientGlobals('capacitor://localhost');
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const reload = vi.fn();
+    Object.assign(window.location, { pathname: '/docs', hash: '#install', reload });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+
+    await router.refresh();
+
+    // A custom scheme has an opaque URL origin, so the current page must still match.
+    expect(reload).toHaveBeenCalledOnce();
+    expect(window.location.href).toBeUndefined();
+  });
+
+  it('shows the recovery page inside a Capacitor app when the retry is stale too', async () => {
+    stubClientGlobals('capacitor://localhost');
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+
+    await router.visit('/next');
+    (window.location as unknown as { href?: string }).href = 'capacitor://localhost/';
+    await router.visit('/next');
+
+    expect(document.body.replaceChildren).toHaveBeenCalled();
+  });
+
+  it('reloads a back/forward visit to an entry with a fragment answered by another build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const reload = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+    // The browser has already moved the address to the entry it went back to.
+    Object.assign(window.location, { pathname: '/b', hash: '#h', reload });
+
+    await router.visit('/b#h', { preserveState: true, _popstate: true });
+
+    expect(reload).toHaveBeenCalledOnce();
+    expect(history.replaceState).not.toHaveBeenCalled();
+  });
+
+  it('reloads a back/forward visit whose prefetch was answered by another build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    const reload = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const { router } = await createTestRouter();
+    await router.prefetch('/b');
+    Object.assign(window.location, { pathname: '/b', hash: '#h', reload });
+
+    await router.visit('/b#h', { preserveState: true, _popstate: true });
+
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it('spends one reload on a stale prefetch, then stops when the retry is stale too', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.prefetch('/next');
+    await router.visit('/next');
+    expect(window.location.href).toBe('/next');
+
+    // The reload came back from the old build: a new document of the same build,
+    // where the user hovers and clicks again.
+    const documentUrl = 'http://localhost/';
+    (window.location as unknown as { href?: string }).href = documentUrl;
+    const { router: reloaded } = await createTestRouter({ adapter: { applyUpdate } });
+    await reloaded.prefetch('/next');
+    await reloaded.visit('/next');
+
+    expect(window.location.href).toBe(documentUrl);
+    expect(applyUpdate).not.toHaveBeenCalled();
+    expect(document.body.replaceChildren).toHaveBeenCalled();
+  });
+
+  /** The transport's redirect handshake, then the destination's answer. */
+  function redirectThen(status: 303 | 307, answer: Response) {
+    return vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          headers: { 'X-VoidPages-Redirect': String(status), Location: '/items/1' },
+        }),
+      )
+      .mockResolvedValueOnce(answer);
+  }
+
+  it('reloads the page a mutation redirected to when another build rendered it', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const fetch = redirectThen(303, staleJson({ ...stalePage, url: '/items/1' }));
+    vi.stubGlobal('fetch', fetch);
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/items', { method: 'POST' });
+
+    // The action ran once; only the page it redirected to is loaded again.
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ method: 'GET' });
+    expect(window.location.href).toBe('/items/1');
+    expect(applyUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps a mutation response that a 307 redirect answered, from any build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    vi.stubGlobal('fetch', redirectThen(307, staleJson({ ...stalePage, url: '/items/1' })));
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/items', { method: 'POST' });
+
+    // The POST ran at the new URL, so reloading would lose its result.
+    expect(window.location.href).toBeUndefined();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
+
+  it('applies a mutation answered by another build and never reloads', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/next', { method: 'POST' });
+
+    // The action already ran: a page load would replay nothing and lose its result.
+    expect(window.location.href).toBeUndefined();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
 });
 
 describe('Pages serialization compatibility', () => {
@@ -176,7 +515,7 @@ describe('Pages serialization compatibility', () => {
       const result = await router.visit('/next', operation === 'action' ? { method: 'POST' } : {});
       expect(result).toMatchObject({ props: { date: new Date('2026-11-08'), count: 42n } });
       expect(requests).toHaveLength(1);
-      expect(requests[0]!.headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
+      expect(requests[0].headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
       expect(window.location.href).toBeUndefined();
     },
   );
@@ -208,14 +547,14 @@ describe('Pages serialization compatibility', () => {
       expect(loader).not.toHaveBeenCalled();
       expect(action).toHaveBeenCalledTimes(operation === 'action' ? 1 : 0);
       expect(responses).toHaveLength(1);
-      expect(responses[0]!.status).toBe(200);
-      expect(responses[0]!.headers.has('X-VoidPages')).toBe(false);
-      expect(responses[0]!.headers.get('Content-Type')).toContain('text/plain');
-      expect(responses[0]!.headers.get('Cache-Control')).toBe('no-store');
-      expect(responses[0]!.headers.get('Vary')).toContain('X-VoidPages-Version');
-      expect(await responses[0]!.text()).toBe('');
+      expect(responses[0].status).toBe(200);
+      expect(responses[0].headers.has('X-VoidPages')).toBe(false);
+      expect(responses[0].headers.get('Content-Type')).toContain('text/plain');
+      expect(responses[0].headers.get('Cache-Control')).toBe('no-store');
+      expect(responses[0].headers.get('Vary')).toContain('X-VoidPages-Version');
+      expect(await responses[0].text()).toBe('');
       if (operation === 'action') {
-        expect(responses[0]!.headers.get('Set-Cookie')).toContain('saved=yes');
+        expect(responses[0].headers.get('Set-Cookie')).toContain('saved=yes');
       }
     },
   );
@@ -351,6 +690,7 @@ describe('createVoidRouter', () => {
         { pages: [page], layouts: [], namedLayouts: [] },
         '/project/pages',
       );
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
       const manifest = new Function(`${source}\nreturn { routeMeta, matchRoute };`)() as Pick<
         VoidRouterConfig,
         'routeMeta' | 'matchRoute'
@@ -727,7 +1067,9 @@ describe('createVoidRouter', () => {
     response.resolve(pageJson(pageData));
     const component = {};
     page.resolve({ default: component });
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     expect(applyUpdate).not.toHaveBeenCalled();
     const layoutComponent = {};
     layout.resolve({ default: layoutComponent });
@@ -763,7 +1105,9 @@ describe('createVoidRouter', () => {
       const visit = router.visit('/users');
       // Let a speculative rejection settle before the server responds. Vitest also
       // fails this test if that rejection escapes as an unhandled promise.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
       expect(pageLoader).toHaveBeenCalledOnce();
       expect(destinationLoader).not.toHaveBeenCalled();
       const pageData = { component: 'destination', props: {}, url: '/destination' };
@@ -805,7 +1149,9 @@ describe('createVoidRouter', () => {
 
     const visit = router.visit('/users');
     const rejected = expect(visit).rejects.toBe(failure);
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     response.resolve(pageJson({ component: 'users', props: {} }));
     await rejected;
     expect(pageLoader).toHaveBeenCalledOnce();
@@ -839,7 +1185,9 @@ describe('createVoidRouter', () => {
     await router.visit('/');
     await expect(abandonedVisit).resolves.toBeUndefined();
     page.reject(new Error('Abandoned chunk failed'));
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     expect(applyUpdate).toHaveBeenCalledOnce();
     expect(applyUpdate.mock.calls[0][0].component).toBe('home');
   });
@@ -922,6 +1270,75 @@ describe('createVoidRouter', () => {
 
     await expect(router.prefetch('/users')).resolves.toEqual(pageData);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('streams navigation without waiting for an unfinished prefetch', async () => {
+    stubClientGlobals();
+    const prefetched = controlledPromise<Response>();
+    const applyUpdate = vi.fn();
+    const resolveDeferred = vi.fn((_ref: unknown, value: unknown) => value);
+    const encoder = new TextEncoder();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const pageData = {
+      component: 'users',
+      props: { title: 'Users' },
+      deferredKeys: { stats: 'stats' },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init: RequestInit) => {
+        if (new Headers(init.headers).get('Purpose') === 'prefetch') {
+          return prefetched.promise;
+        }
+        return Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                stream = controller;
+                controller.enqueue(encoder.encode(serializePageData(pageData) + '\n'));
+              },
+            }),
+            { headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/x-ndjson' } },
+          ),
+        );
+      }),
+    );
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+      adapter: {
+        applyUpdate,
+        resolveDeferred,
+        createDeferred: () => ({ loading: true }),
+        isLoading: () => true,
+      },
+    });
+    const prefetch = router.prefetch('/users');
+    const visit = router.visit('/users');
+    try {
+      await vi.waitFor(
+        () =>
+          expect(applyUpdate.mock.calls[0]?.[0]).toEqual(
+            expect.objectContaining({
+              props: { title: 'Users', stats: { loading: true } },
+            }),
+          ),
+        { timeout: 500 },
+      );
+      stream.enqueue(
+        encoder.encode(serializePageData({ __deferred: 'stats', data: { count: 42 } }) + '\n'),
+      );
+      await vi.waitFor(() =>
+        expect(resolveDeferred).toHaveBeenCalledWith({ loading: true }, { count: 42 }),
+      );
+    } finally {
+      stream?.close();
+      prefetched.resolve(
+        pageJson({ ...pageData, props: { title: 'Users', stats: { count: 42 } } }),
+      );
+      await Promise.all([prefetch, visit]);
+      router.flushAll();
+    }
   });
 
   it.each(['replace', 'mutate'])(
@@ -1031,10 +1448,14 @@ describe('createVoidRouter', () => {
     });
 
     await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { v: 1 } });
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 30);
+    });
     // Visit while stale: serves v:1 and fires the background revalidate to v:2.
     await router.visit('/users');
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 30);
+    });
     // The next read must return the revalidated v:2, not the discarded-refresh stale v:1.
     await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { v: 2 } });
   });
@@ -1128,7 +1549,9 @@ describe('createVoidRouter', () => {
       await router.prefetch('/users');
       await router.visit('/users');
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
       await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 1 } });
       expect(fetchMock).toHaveBeenCalledTimes(2);
     } finally {
@@ -1157,7 +1580,9 @@ describe('createVoidRouter', () => {
       window.location.pathname = '/users';
       await expect(router.refresh()).resolves.toMatchObject({ props: { version: 3 } });
       background.resolve(pageJson({ component: 'users', props: { version: 2 } }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => {
+        setTimeout(resolve, 0);
+      });
       await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 3 } });
       expect(fetchMock).toHaveBeenCalledTimes(3);
     } finally {
@@ -1590,7 +2015,9 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     const fastVisit = router.visit('/fast');
     await slowVisit;
@@ -1643,7 +2070,9 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
     await router.visit('/fast');
 
     await expect(slowVisit).resolves.toBeUndefined();
@@ -1798,7 +2227,9 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     await router.visit('/docs#section', {
       preserveState: true,
@@ -1874,13 +2305,14 @@ describe('createVoidRouter', () => {
       return null;
     });
 
-    const initialRef = { loading: true, value: null, error: null };
-    const resolveDeferred = vi.fn((ref, value) => {
+    type DeferredRef = { loading: boolean; value: unknown; error: Error | null };
+    const initialRef: DeferredRef = { loading: true, value: null, error: null };
+    const resolveDeferred = vi.fn((ref: DeferredRef, value: unknown) => {
       ref.loading = false;
       ref.value = value;
       return ref;
     });
-    const rejectDeferred = vi.fn((ref, error) => {
+    const rejectDeferred = vi.fn((ref: DeferredRef, error: string) => {
       ref.loading = false;
       ref.error = new Error(error);
       return ref;
@@ -2022,7 +2454,9 @@ describe('createVoidRouter', () => {
 
     start();
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     (window as unknown as DeferredTestWindow).__resolveDeferred('stats', { count: 42 });
     expect(resolveDeferred).toHaveBeenCalledWith(expect.anything(), { count: 42 });
@@ -2091,13 +2525,17 @@ describe('createVoidRouter', () => {
     });
 
     const slowVisit = router.visit('/slow').catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
     await router.visit('/fast');
 
     slowStreamController.enqueue(
       encoder.encode(JSON.stringify({ __deferred: 'stats', data: { count: 1 } }) + '\n'),
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
     await slowVisit;
 
     expect(resolveDeferred).not.toHaveBeenCalled();
@@ -2364,7 +2802,7 @@ describe('superseded navigation commits (#507)', () => {
     const documentStub = stubClientGlobals();
     Object.assign(documentStub, { title: 'Home' });
     const writeHistory = (_state: unknown, _title: string, url?: string | URL | null) => {
-      if (url != null) {
+      if (url !== null && url !== undefined) {
         const target = new URL(url, window.location.origin);
         Object.assign(window.location, {
           pathname: target.pathname,
@@ -2397,7 +2835,7 @@ describe('superseded navigation commits (#507)', () => {
       rendered.push(pageData.url ?? '');
       return updateGates.get(pageData.url ?? '');
     });
-    const rejectDeferred = vi.fn((_ref, error) => error);
+    const rejectDeferred = vi.fn((_ref: unknown, error: unknown) => error);
     return { documentStub, fetchGates, updateGates, rendered, applyUpdate, rejectDeferred };
   }
 

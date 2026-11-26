@@ -87,7 +87,7 @@ describe('parseDotenvFile', () => {
     expect(parseDotenvFile(file)).toEqual([{ name: 'API_KEY', value: 'abc' }]);
   });
 
-  it('reads multi-line quoted values and \\n in double quotes', () => {
+  it(String.raw`reads multi-line quoted values and \n in double quotes`, () => {
     const file = writeTemp(
       'PEM="-----BEGIN KEY-----\nAAAA\n-----END KEY-----"\nCERT="line1\\nline2"',
     );

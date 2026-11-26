@@ -1,7 +1,7 @@
 import type { DeployManifest, QueueMeta } from './index.ts';
 
 export type DeployResource =
-  | { type: 'd1'; bindingName: string }
+  | { type: 'd1'; bindingName: string; readReplication?: boolean }
   | { type: 'kv'; bindingName: string }
   | { type: 'r2'; bindingName: string }
   | { type: 'queue'; bindingName: string; resourceName: string; consumer: QueueMeta }
@@ -28,7 +28,13 @@ export function createDeployResourcePlan(manifest: DeployManifest): DeployResour
   const resources: Array<DeployResource> = [];
 
   for (const bindingName of manifest.bindings.d1 ?? []) {
-    resources.push({ type: 'd1', bindingName });
+    resources.push({
+      type: 'd1',
+      bindingName,
+      ...(manifest.database?.readReplication !== undefined && {
+        readReplication: manifest.database.readReplication,
+      }),
+    });
   }
   for (const bindingName of manifest.bindings.kv ?? []) {
     resources.push({ type: 'kv', bindingName });

@@ -88,7 +88,29 @@ In middleware, `c.notFound()` shows the root `_not-found` without running a page
 
 `_error` handles unexpected loader and rendering failures. In production, visitors see a generic message and error details stay in your server logs. Development shows the error message.
 
-Action errors that reach a client boundary keep their HTTP status and public message. Redirects, authentication responses, and API errors keep their usual behavior.
+Action errors that reach a client boundary keep their HTTP status and public message. See [Actions & Forms](./actions-and-forms.md) for handling failures inline.
+
+## HTTP exceptions
+
+Throw an `HTTPException` to show a specific error in your page's layout. For example, a suspended account can return `403` with an explanation:
+
+```ts
+// pages/account.server.ts
+import { HTTPException } from 'hono/http-exception';
+import { defineHandler } from 'void/handler';
+
+export const loader = defineHandler(() => {
+  throw new HTTPException(403, { message: 'Your account is suspended' });
+});
+```
+
+The nearest `_error` receives `{ status: 403, message: 'Your account is suspended' }`, and the response uses HTTP `403`. This works for both document requests and client-side page navigation. Use only messages that are safe to show to visitors.
+
+Use a 4xx or 5xx status; `404` shows `_not-found`. If middleware throws before the loader runs, Void shows the root error component and skips the loader. Without a matching error component, Void returns the exception's response.
+
+Error components handle these exceptions on page GET and HEAD requests. API routes and actions keep their own error handling. Return `c.text()` or `c.json()` to send a custom response, or [throw a redirect](../../integrations/hono.md#redirects) to send the visitor elsewhere. Checks that determine the response status must finish before deferred streaming starts.
+
+Use [`c.status()`](./loaders.md#response-status) instead when you want an error status while rendering the requested page with its normal props.
 
 ## Nested errors
 

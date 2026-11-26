@@ -1,12 +1,13 @@
-import {
-  normalizePlatformDashboardUrl,
-  PLATFORM_LOGIN_KINDS,
-  type PlatformLoginKind,
-  type PlatformAppAccess,
-} from '@void/platform';
-import { operatorGroups, parseOperatorArgs, type OperatorArgs } from './operator-args.ts';
-import { parsePlatformConfigArgs, type PlatformConfigArgs } from './platform-config-args.ts';
-import { parsePlatformPlansArgs, type PlatformPlansArgs } from './platform-plans-args.ts';
+import { normalizePlatformDashboardUrl, PLATFORM_LOGIN_KINDS } from '@void/platform';
+import type { PlatformLoginKind, PlatformAppAccess } from '@void/platform';
+import { operatorGroups, parseOperatorArgs } from './operator-args.ts';
+import type { OperatorArgs } from './operator-args.ts';
+import { parsePlatformConfigArgs } from './platform-config-args.ts';
+import type { PlatformConfigArgs } from './platform-config-args.ts';
+import { parsePlatformPlansArgs } from './platform-plans-args.ts';
+import type { PlatformPlansArgs } from './platform-plans-args.ts';
+import { parsePlatformStorageLocation } from './platform-storage.ts';
+import type { PlatformStorageLocation } from './platform-storage.ts';
 import type { SubcommandDef } from './subcommand-prompt.ts';
 
 export const platformSubcommands: Array<SubcommandDef> = [
@@ -81,6 +82,7 @@ export type PlatformArgs =
       noControlPlaneDomain?: true;
       dedicatedZoneSpecified?: true;
       customDomains?: true;
+      securityAudits?: true;
       account: string;
       applicationDomain: string;
       controlPlaneDomain: string;
@@ -96,6 +98,7 @@ export type PlatformArgs =
       workersDev?: boolean;
       /** Omitted keeps the recorded value; `full` clears it. */
       runtimeLogs?: PlatformRuntimeLogsChoice;
+      storageLocation?: PlatformStorageLocation;
     }
   | {
       subcommand: 'upgrade' | 'repair' | 'disable' | 'enable';
@@ -103,8 +106,10 @@ export type PlatformArgs =
       authConfig?: string;
       dashboardUrl?: string;
       customDomains?: true;
+      securityAudits?: true;
       /** upgrade only: omitted keeps the recorded value; `full` clears it. */
       runtimeLogs?: PlatformRuntimeLogsChoice;
+      storageLocation?: PlatformStorageLocation;
       selector: string;
       plan: boolean;
       runtime: string;
@@ -149,7 +154,7 @@ function parseSelector(
   rest: Array<string>,
   subcommand: string,
   options: { allowYes?: boolean } = {},
-): { selector: string; plan: boolean; yes: boolean } {
+) {
   let selector = '';
   let plan = false;
   let yes = false;
@@ -175,26 +180,18 @@ function parseSelector(
 function parseLifecycleSelector(
   rest: Array<string>,
   subcommand: 'upgrade' | 'rollback' | 'repair' | 'disable' | 'enable',
-): {
-  selector: string;
-  plan: boolean;
-  runtime: string;
-  fromRuntime: string;
-  yes: boolean;
-  authConfig?: string;
-  dashboardUrl?: string;
-  customDomains?: true;
-  runtimeLogs?: PlatformRuntimeLogsChoice;
-} {
+) {
   const positional: Array<string> = [];
   let runtimeLogs: PlatformRuntimeLogsChoice | undefined;
+  let storageLocation: PlatformStorageLocation | undefined;
   let runtime = '';
   let fromRuntime = '';
   let authConfig: string | undefined;
   let dashboardUrl: string | undefined;
   let customDomains = false;
+  let securityAudits = false;
   for (let index = 0; index < rest.length; index++) {
-    const arg = rest[index]!;
+    const arg = rest[index];
     if (arg === '--runtime') {
       if (subcommand === 'disable') {
         throw new Error("platform: Unknown flag '--runtime'.");
@@ -211,6 +208,15 @@ function parseLifecycleSelector(
       (subcommand === 'upgrade' || subcommand === 'repair')
     ) {
       customDomains = true;
+    } else if (
+      arg === '--security-audits' &&
+      (subcommand === 'upgrade' || subcommand === 'repair')
+    ) {
+      securityAudits = true;
+    } else if (arg === '--storage-location' && subcommand === 'upgrade') {
+      const [value, next] = readValue(rest, index, arg);
+      storageLocation = parsePlatformStorageLocation(value);
+      index = next;
     } else if (arg === '--runtime-logs' && subcommand === 'upgrade') {
       const [value, next] = readValue(rest, index, arg);
       runtimeLogs = parseRuntimeLogs(value);
@@ -238,7 +244,9 @@ function parseLifecycleSelector(
     ...(authConfig !== undefined ? { authConfig } : {}),
     ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
     ...(customDomains ? { customDomains: true as const } : {}),
+    ...(securityAudits ? { securityAudits: true as const } : {}),
     ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
+    ...(storageLocation !== undefined ? { storageLocation } : {}),
   };
 }
 
@@ -281,7 +289,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let yes = false;
     let dedicatedZone = false;
     for (let index = 1; index < rest.length; index++) {
-      const arg = rest[index]!;
+      const arg = rest[index];
       if (arg === '--installation' || arg === '--zone') {
         const [value, next] = readValue(rest, index, arg);
         index = next;
@@ -325,7 +333,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     let account = '';
     let selector = '';
     for (let index = 0; index < rest.length; index++) {
-      const arg = rest[index]!;
+      const arg = rest[index];
       if (arg === '--account' || arg === '--installation') {
         const [value, next] = readValue(rest, index, arg);
         if (arg === '--account') {
@@ -358,7 +366,9 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       authConfig,
       dashboardUrl,
       customDomains,
+      securityAudits,
       runtimeLogs,
+      storageLocation,
     } = parseLifecycleSelector(rest, subcommand);
     return subcommand === 'rollback'
       ? { subcommand, selector, plan, runtime, fromRuntime, yes }
@@ -371,7 +381,9 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
           ...(authConfig !== undefined ? { authConfig } : {}),
           ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
           ...(customDomains ? { customDomains } : {}),
+          ...(securityAudits ? { securityAudits } : {}),
           ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
+          ...(storageLocation !== undefined ? { storageLocation } : {}),
         };
   }
   if (subcommand === 'uninstall') {
@@ -412,12 +424,14 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       '--name',
       '--runtime',
       '--runtime-logs',
+      '--storage-location',
       '--zone',
     ]);
     let workersDev = false;
     let customDomains = false;
+    let securityAudits = false;
     for (let i = 0; i < rest.length; i++) {
-      const arg = rest[i]!;
+      const arg = rest[i];
       if (valueFlags.has(arg)) {
         const [value, next] = readValue(rest, i, arg);
         values.set(arg, value);
@@ -444,6 +458,8 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
         workersDev = true;
       } else if (arg === '--custom-domains') {
         customDomains = true;
+      } else if (arg === '--security-audits') {
+        securityAudits = true;
       } else {
         throw new Error(`platform: Unexpected argument '${arg}'.`);
       }
@@ -468,9 +484,17 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     if (appAccess !== undefined && !['public', 'platform', 'custom'].includes(appAccess)) {
       throw new Error('platform: --app-access accepts public, platform, or custom.');
     }
-    const runtimeLogs = values.has('--runtime-logs')
-      ? parseRuntimeLogs(values.get('--runtime-logs')!)
-      : undefined;
+    const runtimeLogsInput = values.get('--runtime-logs');
+    const runtimeLogs =
+      runtimeLogsInput === undefined ? undefined : parseRuntimeLogs(runtimeLogsInput);
+    const storageLocationInput = values.get('--storage-location');
+    const storageLocation =
+      storageLocationInput === undefined
+        ? undefined
+        : parsePlatformStorageLocation(storageLocationInput);
+    const hyperdrive = values.get('--hyperdrive');
+    const authConfig = values.get('--auth-config');
+    const dashboardUrl = values.get('--dashboard-url');
     const loginMethods = values.get('--login-methods')?.split(',');
     if (
       loginMethods &&
@@ -498,7 +522,8 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(noControlPlaneDomain ? { noControlPlaneDomain: true as const } : {}),
       ...(noDedicatedZone ? { dedicatedZoneSpecified: true as const } : {}),
       ...(customDomains ? { customDomains: true as const } : {}),
-      ...(values.has('--hyperdrive') ? { hyperdrive: values.get('--hyperdrive')! } : {}),
+      ...(securityAudits ? { securityAudits: true as const } : {}),
+      ...(hyperdrive !== undefined ? { hyperdrive } : {}),
       ...(loginMethods
         ? { loginMethods: [...new Set(loginMethods)] as Array<PlatformLoginKind> }
         : {}),
@@ -506,12 +531,13 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(appAccess !== undefined ? { appAccess: appAccess as PlatformAppAccess } : {}),
       ...(workersDev ? { workersDev: true } : {}),
       ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
-      ...(values.has('--auth-config') ? { authConfig: values.get('--auth-config')! } : {}),
+      ...(storageLocation !== undefined ? { storageLocation } : {}),
+      ...(authConfig !== undefined ? { authConfig } : {}),
       account: values.get('--account') ?? '',
       applicationDomain: values.get('--application-domain') ?? '',
       controlPlaneDomain: values.get('--control-plane-domain') ?? '',
-      ...(values.has('--dashboard-url')
-        ? { dashboardUrl: normalizePlatformDashboardUrl(values.get('--dashboard-url')!) }
+      ...(dashboardUrl !== undefined
+        ? { dashboardUrl: normalizePlatformDashboardUrl(dashboardUrl) }
         : {}),
       dedicatedZone,
       displayName: values.get('--display-name') ?? '',

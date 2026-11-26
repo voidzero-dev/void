@@ -2,14 +2,10 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { objectToFormData } from '../../src/pages/navigation-engine.ts';
-import {
-  defineHandler,
-  defineMiddleware,
-  type CloudContext,
-  type TypedHandler,
-} from '../../src/runtime/handler.ts';
-import { convertReturnValue } from '../../src/runtime/response.ts';
-import { createHttpRouteHandler } from '../../src/runtime/routing.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
+import type { CloudContext, TypedHandler } from '../../src/runtime/handler/index.ts';
+import { convertReturnValue } from '../../src/runtime/handler/response.ts';
+import { createHttpRouteHandler } from '../../src/runtime/routing/index.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {
@@ -20,7 +16,7 @@ type ValidationIssueBody = {
   }>;
 };
 
-/** Wraps the handler the way createHttpRouteHandler in runtime/routing.ts does. */
+/** Wraps the handler the way createHttpRouteHandler in runtime/routing/index.ts does. */
 function createApp(handler: (c: CloudContext) => unknown) {
   const app = new Hono();
   app.get('/test', async (c) => {
@@ -235,7 +231,7 @@ describe('defineHandler.withValidator', () => {
     );
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as ValidationIssueBody;
+    const json = await res.json<ValidationIssueBody>();
     expect(json.error).toBe('Validation failed');
     expect(json.issues[0].slot).toBe('body');
     expect(json.issues[0].issues[0].message).toBe('name is required');
@@ -259,7 +255,7 @@ describe('defineHandler.withValidator', () => {
     );
 
     expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: string };
+    const json = await res.json<{ error: string }>();
     expect(json.error).toBe('Invalid JSON body');
   });
 
@@ -518,7 +514,7 @@ describe('defineHandler.withValidator', () => {
         }
       } else {
         // Append syntax must share the same allocation budget across arrays.
-        for (let i = 0; i < 6_000; i++) {
+        for (let i = 0; i < 6000; i++) {
           form.append('first[]', 'value');
           form.append('second[]', 'value');
         }
@@ -607,7 +603,7 @@ describe('defineHandler.withValidator', () => {
       }),
     );
     expect(malformed.status).toBe(400);
-    expect(((await malformed.json()) as { error: string }).error).toBe('Invalid form body');
+    expect((await malformed.json<{ error: string }>()).error).toBe('Invalid form body');
 
     const invalid = await app.request(
       new Request('http://localhost/test', {
@@ -616,7 +612,7 @@ describe('defineHandler.withValidator', () => {
       }),
     );
     expect(invalid.status).toBe(400);
-    const json = (await invalid.json()) as ValidationIssueBody;
+    const json = await invalid.json<ValidationIssueBody>();
     expect(json.error).toBe('Validation failed');
     expect(json.issues[0]?.slot).toBe('body');
     expect(json.issues[0]?.issues[0]?.message).toBe('title is required');

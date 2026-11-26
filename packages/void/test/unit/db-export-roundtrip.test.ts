@@ -14,6 +14,7 @@ import {
   vi,
 } from 'vite-plus/test';
 import { getLocalD1Target, runDbCommand } from '../../src/cli/db.ts';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const state = vi.hoisted(() => ({ pg: null as PGlite | null }));
 vi.mock('pg', () => ({

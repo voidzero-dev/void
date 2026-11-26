@@ -9,9 +9,8 @@ import {
   recordInstallationStep,
   setInstallationEndpoints,
   transitionInstallation,
-  type InstallationResourceKind,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { InstallationResourceKind, PlatformInstallationManifest } from '@void/platform';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { hyperdriveOriginConfigHash } from '../../src/cli/platform-cloudflare.ts';
 import { REMOTE_INSTALLATION_MANIFEST_KEY } from '../../src/cli/platform-installer.ts';
@@ -276,11 +275,11 @@ describe('platform recovery', () => {
     let headers = new Headers();
     let redirect: RequestRedirect | undefined;
 
-    await verifyInstallationEndpoint(manifest, (async (_input, init) => {
+    await verifyInstallationEndpoint(manifest, async (_input, init) => {
       headers = new Headers(init?.headers);
       redirect = init?.redirect;
       return Response.json({ installationId: manifest.id });
-    }) as typeof fetch);
+    });
 
     expect(headers.get('CF-Access-Client-Id')).toBe('service-id');
     expect(headers.get('CF-Access-Client-Secret')).toBe('service-secret');
@@ -318,6 +317,67 @@ describe('platform recovery', () => {
     });
   });
 
+  it('recovers a Workers VPC Hyperdrive by origin identity even when caching is enabled', async () => {
+    const directory = useRegistryDir();
+    const remote = remoteManifest();
+    const resource = remote.resources.find((entry) => entry.key === 'hyperdrive')!;
+    const manifest = recordInstallationResource(
+      remote,
+      {
+        ...resource,
+        ownership: 'adopted',
+        configHash: 'fa8ba14273c6fe1dce2e7b58bfac73a3049b0a8a7e30e37d59f47544cc1702f2',
+      },
+      remote.updatedAt,
+    );
+    const live = {
+      id: resource.id,
+      name: resource.name,
+      cachingDisabled: true,
+      origin: {
+        database: 'void',
+        scheme: 'postgresql' as const,
+        serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+        user: 'user',
+      },
+    };
+    const fake = client(manifest);
+    await expect(
+      recoverPlatformInstallations(
+        {
+          ...fake,
+          getHyperdriveConfig: async () => ({
+            ...live,
+            origin: { ...live.origin, serviceId: live.origin.serviceId.toUpperCase() },
+          }),
+        },
+        'account',
+        async () => {},
+      ),
+    ).resolves.toHaveLength(1);
+    expect(listInstallationManifests(directory)[0]?.id).toBe(remote.id);
+    await expect(
+      recoverPlatformInstallations(
+        {
+          ...fake,
+          getHyperdriveConfig: async () => ({
+            ...live,
+            origin: { ...live.origin, serviceId: 'different-service' },
+          }),
+        },
+        'account',
+        async () => {},
+      ),
+    ).rejects.toThrow('changed configuration');
+    await expect(
+      recoverPlatformInstallations(
+        { ...fake, getHyperdriveConfig: async () => ({ ...live, cachingDisabled: false }) },
+        'account',
+        async () => {},
+      ),
+    ).resolves.toHaveLength(1);
+  });
+
   it('recovers a verified installation with a missing owned Worker so repair can recreate it', async () => {
     const directory = useRegistryDir();
     const remote = remoteManifest();
@@ -336,7 +396,7 @@ describe('platform recovery', () => {
     expect(recovered).toHaveLength(1);
     expect(listInstallationManifests(directory)).toEqual(recovered);
     expect(endpointChecks).toBe(0);
-    const manifest = recovered[0]!;
+    const manifest = recovered[0];
     const repairPlan = await createPlatformInstallPlan(
       fake,
       {

@@ -3,8 +3,8 @@ import {
   parsePlatformAdmissionPolicy,
   platformProtectionProofMessage,
   validatePlatformAdmissionPolicy,
-  type PlatformAccessProtection,
 } from '@void/platform';
+import type { PlatformAccessProtection } from '@void/platform';
 import { eq, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import {
@@ -23,7 +23,8 @@ import {
 } from './configuration.ts';
 import { hmacVerifyState } from './hmac.ts';
 import type { AuthenticationActor } from './management.ts';
-import { validateHumanSession, type CompanyIdentity } from './sessions.ts';
+import { validateHumanSession } from './sessions.ts';
+import type { CompanyIdentity } from './sessions.ts';
 
 /** The CLI verifies Cloudflare coverage using installation authority; no management token enters runtime. */
 export async function verifyProtectionAuthority(input: {
@@ -37,7 +38,7 @@ export async function verifyProtectionAuthority(input: {
   expiresAt: unknown;
   signature: unknown;
 }): Promise<void> {
-  const expiry = typeof input.expiresAt === 'string' ? Date.parse(input.expiresAt) : NaN;
+  const expiry = typeof input.expiresAt === 'string' ? Date.parse(input.expiresAt) : Number.NaN;
   if (
     !input.installationId ||
     !input.secret ||

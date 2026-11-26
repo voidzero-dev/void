@@ -9,6 +9,7 @@ It owns platform auth, projects, deployments, domains, secrets, provisioning, ro
 - **Platform DB**: PostgreSQL via `HYPERDRIVE.connectionString`
 - **Public API**: CLI and dashboard-facing JSON routes
 - **Internal API**: resource resolution and revalidation used by other platform workers
+- **Application D1 replication**: provisioning applies explicit `database.readReplication` values from the deploy manifest: true enables replicas and false disables them. Omitted leaves existing replication unchanged; new databases default to off.
 - **Admin UI**: React pages under `/admin/*`, server-rendered for first load and backed by a private Fate endpoint
 - **Lifecycle status**: `/admin/status` and its GET JSON endpoint project display fields from the installer-owned PostgreSQL checkpoint. Maintenance admits these routes and administrator sign-in through normal Access and admin authentication. Keep the exception narrow, retain existing Sandbox drain operator access, and keep the Fate POST endpoint and administrator writes gated.
 - **Self-hosted owner setup**: dashboard OAuth and normal signup share the first-user transaction and configured GitHub identity check. Dashboard login can create the first owner without a CLI login; it never promotes existing users. Void Cloud keeps its existing admin-only login behavior.
@@ -359,6 +360,15 @@ Every admin write is additionally same-origin checked in `admin/middleware/auth.
   removes those legacy bindings but is not required for trusted gate metering.
 - **Scheduled enforcement** runs hourly from the worker cron and reconciles request/AI usage against plan limits.
 - **Per-request runtime limits** are carried in routing data and enforced by `dispatch`.
+- **The two-minute cron is idle unless armed.** It returns before opening a
+  database connection when the `fast-maintenance` marker is absent from routing
+  KV, so an idle installation lets a scale-to-zero PostgreSQL suspend. A
+  mutating API request, a deployment Queue delivery, or a tick that left work
+  unfinished arms it for 30 minutes (`src/fast-maintenance.ts`). Work created
+  any other way, such as a row written directly to the database, waits for the
+  hourly cron. A new fast-tier step that must keep running past that window
+  sets `fastTier.unfinished` in `scheduled()`, and only for work that ends by
+  itself.
 
 Build cancellation invalidates pending startup immediately. If container startup
 has already begun, the manager stops any late producer before publishing final

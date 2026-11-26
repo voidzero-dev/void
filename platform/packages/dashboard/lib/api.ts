@@ -1,6 +1,7 @@
 import type { ApiRoutes } from '@voidcloud/api/api';
 import type { Context } from 'hono';
-import { hc, type InferResponseType } from 'hono/client';
+import { hc } from 'hono/client';
+import type { InferResponseType } from 'hono/client';
 import { getCookie } from 'hono/cookie';
 import { dashboardRequestOrigin, isLocalDashboardHost } from './origin.ts';
 
@@ -31,7 +32,7 @@ export function getPublicApiUrl(context: Context): string {
 function getApiFetch(context: Context): typeof fetch {
   const binding = (context.env as { API?: Fetcher }).API;
   if (binding && !isLocalDashboardHost(context.req.header('host') ?? '')) {
-    return ((input: RequestInfo | URL, init?: RequestInit) => {
+    return (input: RequestInfo | URL, init?: RequestInit) => {
       // The service binding is internal. Preserve the browser's actual protected origin so
       // the API verifies the dashboard application's audience, not the API application's.
       // No forwarded-host header participates in this choice.
@@ -42,7 +43,7 @@ function getApiFetch(context: Context): typeof fetch {
         url.protocol = source.protocol;
       }
       return binding.fetch(input instanceof Request ? new Request(url, input) : url, init);
-    }) as typeof fetch;
+    };
   }
   return globalThis.fetch;
 }
@@ -67,11 +68,21 @@ function withTimeout(init: RequestInit | undefined, timeoutMs: number): RequestI
 function getTimedApiFetch(context: Context): typeof fetch {
   const apiFetch = getApiFetch(context);
   const timeoutMs = getApiTimeoutMs(context);
-  return ((input: RequestInfo | URL, init?: RequestInit) =>
-    apiFetch(input, withTimeout({ ...init, redirect: 'manual' }, timeoutMs))) as typeof fetch;
+  return (input: RequestInfo | URL, init?: RequestInit) =>
+    apiFetch(input, withTimeout({ ...init, redirect: 'manual' }, timeoutMs));
 }
 
-function getCfAccessHeaders(context: Context): Record<string, string> {
+type AccessHeaders = Partial<
+  Record<
+    | 'Cf-Access-Jwt-Assertion'
+    | 'cf-access-token'
+    | 'CF-Access-Client-Id'
+    | 'CF-Access-Client-Secret',
+    string
+  >
+>;
+
+function getCfAccessHeaders(context: Context): AccessHeaders {
   const env = context.env as Record<string, string | undefined>;
   // The API independently checks the application audience and bound company subject.
   // Prefer this browser's proof; a dashboard service token cannot represent a human.
@@ -198,7 +209,7 @@ export async function readApiJson<T>(res: ApiResponse): Promise<T | null> {
   const contentType = res.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
     const body = await res.text();
-    const preview = body.trim().replace(/\s+/g, ' ').slice(0, 160);
+    const preview = body.trim().replaceAll(/\s+/g, ' ').slice(0, 160);
     console.warn(
       `[dashboard] expected JSON from API, got ${contentType || 'unknown content type'}${preview ? `: ${preview}` : ''}`,
     );
@@ -214,6 +225,27 @@ export async function readApiJson<T>(res: ApiResponse): Promise<T | null> {
     return null;
   }
 }
+
+/**
+ * The typed API client for server code: every call goes through `fetchApi`, so it carries
+ * the session token, the Access headers, the timeout and the service binding.
+ */
+export function apiClient(context: Context): Client {
+  return hc<ApiRoutes>(getPublicApiUrl(context), {
+    fetch: ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      return fetchApi(context, `${url.pathname}${url.search}`, init);
+    }) as typeof fetch,
+  });
+}
+
+/** `GET /projects` items. */
+export type ProjectListItem = InferResponseType<Client['projects']['$get'], 200>[number];
+export type {
+  ProjectSecurityBody,
+  ProjectSecurityFindingsBody,
+  ProjectSecurityScansBody,
+} from '@voidcloud/api/api';
 
 export async function getCurrentUser(context: Context): Promise<API<'me'> | null> {
   let res: Response;

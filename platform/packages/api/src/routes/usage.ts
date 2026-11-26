@@ -2,7 +2,8 @@ import { and, eq, gt, isNull, lt, or } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { uploadPool } from '../concurrency.ts';
 import type { Db } from '../db.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { deriveAiUsageTag } from '../proxy-token.ts';
 import { projectOwnershipPeriods, projects as projectsTable } from '../schema.ts';
 import { getCurrentBillingPeriodStart } from '../tiers.ts';
@@ -226,7 +227,7 @@ async function queryProjectUsage(
     throw new Error(`Usage query failed with HTTP ${response.status}`);
   }
 
-  const result = (await response.json()) as { data: ReadonlyArray<AnalyticsRow> };
+  const result = await response.json<{ data: ReadonlyArray<AnalyticsRow> }>();
   const row = result.data?.[0];
   return {
     requests: Math.round(row?.requests ?? 0),
@@ -297,7 +298,7 @@ async function getAccountUsageProjectWindows(
 }
 
 function analyticsStringLiteral(value: string): string {
-  return `'${value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}'`;
+  return `'${value.replaceAll('\\', String.raw`\\`).replaceAll("'", String.raw`\'`)}'`;
 }
 
 async function queryBatchProjectUsageWindows(
@@ -335,7 +336,7 @@ async function queryBatchProjectUsageWindows(
       }
       return new Map();
     }
-    const json = (await response.json()) as { data: ReadonlyArray<BatchAnalyticsRow> };
+    const json = await response.json<{ data: ReadonlyArray<BatchAnalyticsRow> }>();
     for (const row of json.data ?? []) {
       const previous = usage.get(row.blob1) ?? ZERO_USAGE;
       usage.set(row.blob1, {
@@ -369,7 +370,7 @@ export async function sumAiUsageForWindows(
       interval.end,
       true,
     );
-    totals[index]! += usage.neurons;
+    totals[index] += usage.neurons;
   });
   return totals;
 }
@@ -407,7 +408,7 @@ async function queryTopProjectTraffic(
     return [];
   }
 
-  const json = (await response.json()) as { data: ReadonlyArray<TopProjectTrafficRow> };
+  const json = await response.json<{ data: ReadonlyArray<TopProjectTrafficRow> }>();
   return (json.data ?? []).map((row) => ({
     projectId: row.blob1,
     requests: Math.round(row.requests ?? 0),
@@ -491,7 +492,7 @@ async function queryProjectRequestOverview(
       return overview;
     }
 
-    json = (await response.json()) as { data: ReadonlyArray<ProjectRequestOverviewRow> };
+    json = await response.json<{ data: ReadonlyArray<ProjectRequestOverviewRow> }>();
   } catch {
     return overview;
   }
@@ -551,7 +552,7 @@ type AiGatewayResponse = Readonly<{
 
 const COST_PER_NEURON = 0.000011;
 
-function aiUsageGraphqlErrors(errors: ReadonlyArray<unknown>, apiToken: string): string {
+export function aiUsageGraphqlErrors(errors: ReadonlyArray<unknown>, apiToken: string): string {
   return errors
     .slice(0, 3)
     .map((error) => {
@@ -571,8 +572,8 @@ function aiUsageGraphqlErrors(errors: ReadonlyArray<unknown>, apiToken: string):
       }
       return (
         message
-          .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
-          .replace(/\s+/g, ' ')
+          .replaceAll(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+          .replaceAll(/\s+/g, ' ')
           .replace(/\{.*$/, '[query omitted]')
           .trim()
           .slice(0, 200) || 'Unknown GraphQL error'
@@ -633,15 +634,16 @@ async function queryProjectAiUsage(
 
   let result: AiGatewayResponse | null;
   try {
-    result = (await response.json()) as AiGatewayResponse | null;
+    result = await response.json<AiGatewayResponse | null>();
   } catch (error) {
     if (failOnError) {
+      // oxlint-disable-next-line preserve-caught-error -- The upstream JSON parser error may contain response data.
       throw new Error('AI usage query returned invalid JSON');
     }
     throw error;
   }
 
-  if (failOnError && result?.errors != null) {
+  if (failOnError && result?.errors !== null && result?.errors !== undefined) {
     if (!Array.isArray(result.errors)) {
       throw new Error('AI usage query returned invalid GraphQL errors');
     }
@@ -662,7 +664,7 @@ async function queryProjectAiUsage(
     if (requests.length === 0) {
       return { neurons: 0 };
     }
-    const cost = requests[0]?.sum?.cost;
+    const cost = (requests[0] as { sum?: { cost?: unknown } } | undefined)?.sum?.cost;
     if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) {
       throw new Error('AI usage query returned invalid cost data');
     }

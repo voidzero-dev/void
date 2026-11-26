@@ -1,10 +1,8 @@
-import {
-  parsePlatformAuthenticationSetup,
-  PLATFORM_AUTH_SETUP_PROOF_PREFIX,
-  type PlatformAuthenticationSetup,
-} from '@void/platform';
+import { parsePlatformAuthenticationSetup, PLATFORM_AUTH_SETUP_PROOF_PREFIX } from '@void/platform';
+import type { PlatformAuthenticationSetup } from '@void/platform';
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
-import { createOAuthAccount, createUser, type Db } from '../db.ts';
+import { createOAuthAccount, createUser } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getDefaultPlan, lockPlanCatalog } from '../plans.ts';
 import { encryptPlatformCredential } from '../project-secrets.ts';
@@ -28,7 +26,8 @@ import {
 import { bindCompanyIdentity } from './identities.ts';
 import type { PlatformOidcIdentity } from './oidc.ts';
 import { hashLoginProof, randomLoginProof } from './proofs.ts';
-import { createHumanSession, type CompanyIdentity } from './sessions.ts';
+import { createHumanSession } from './sessions.ts';
+import type { CompanyIdentity } from './sessions.ts';
 
 export const AUTH_SETUP_PROOF_PREFIX = PLATFORM_AUTH_SETUP_PROOF_PREFIX;
 const SETUP_SECONDS = 30 * 60;
@@ -99,7 +98,8 @@ export async function initializeAuthentication(
       400,
     );
   }
-  if (setup.protection) {
+  const { protection } = setup;
+  if (protection) {
     if (!env.PROXY_URL) {
       throw new AuthenticationConfigurationError(
         'Access protection requires the platform proxy origin.',
@@ -110,8 +110,7 @@ export async function initializeAuthentication(
     const requiredOrigins = [apiOrigin, new URL(env.PROXY_URL).origin];
     if (
       requiredOrigins.some(
-        (origin) =>
-          !setup.protection!.applications.some((application) => application.origin === origin),
+        (origin) => !protection.applications.some((application) => application.origin === origin),
       )
     ) {
       throw new AuthenticationConfigurationError(
@@ -178,7 +177,7 @@ export async function initializeAuthentication(
       const id = entry.configuration.id;
       const secret = await encryptPlatformCredential(
         env,
-        env.PLATFORM_INSTALLATION_ID!,
+        env.PLATFORM_INSTALLATION_ID,
         JSON.stringify([id, 1]),
         entry.clientSecret,
       );
@@ -191,7 +190,7 @@ export async function initializeAuthentication(
     }
     const expiresAt = new Date(Date.now() + SETUP_SECONDS * 1000).toISOString();
     await transaction.insert(platformAuthBootstrap).values({
-      installation_id: env.PLATFORM_INSTALLATION_ID!,
+      installation_id: env.PLATFORM_INSTALLATION_ID,
       request_hash: requestHash,
       credential_hash: setup.bootstrapCredentialHash,
       connection_id: setup.administratorConnectionId,

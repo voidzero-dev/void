@@ -3,14 +3,8 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vite-
 import { signJwt } from '../../src/auth/jwt.ts';
 import app from '../../src/index.ts';
 import { users } from '../../src/schema.ts';
-import {
-  setupEnv,
-  teardownEnv,
-  clearTables,
-  createTestUser,
-  JWT_SECRET,
-  type TestEnv,
-} from './helpers.ts';
+import { setupEnv, teardownEnv, clearTables, createTestUser, JWT_SECRET } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -134,7 +128,7 @@ describe('GET /me', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as MeResponse;
+    const body = await res.json<MeResponse>();
     expect(body.login).toBe('usage-limited');
   });
 
@@ -148,7 +142,7 @@ describe('GET /me', () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as MeResponse;
+    const body = await res.json<MeResponse>();
     expect(body.login).toBe('alice');
     expect(body.plan).toBe('free');
     expect(body.provider).toBe('github');

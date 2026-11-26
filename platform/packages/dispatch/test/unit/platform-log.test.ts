@@ -32,7 +32,7 @@ function writePlatformLog(overrides: Partial<Parameters<typeof recordPlatformLog
     method: 'GET',
     url: 'https://my-app.void.app/slow',
     status: 503,
-    timeoutMs: 10000,
+    timeoutMs: 10_000,
     ...overrides,
   });
   return { dp: writes[0] as DataPoint, writes };
@@ -158,7 +158,7 @@ describe('recordPlatformLog', () => {
       method: 'GET',
       url: 'https://my-app.void.app/slow',
       status: 503,
-      timeoutMs: 10000,
+      timeoutMs: 10_000,
     });
 
     expect(writes).toHaveLength(1);
@@ -187,7 +187,7 @@ describe('recordPlatformLog', () => {
         method: 'GET',
         url: 'https://my-app.void.app/slow',
         status: 503,
-        timeoutMs: 10000,
+        timeoutMs: 10_000,
       }),
     ).not.toThrow();
   });
@@ -201,7 +201,7 @@ describe('recordPlatformLog', () => {
         method: 'GET',
         url: 'https://my-app.void.app/slow',
         status: 503,
-        timeoutMs: 10000,
+        timeoutMs: 10_000,
       }),
     ).not.toThrow();
   });
@@ -219,7 +219,7 @@ describe('recordPlatformLog with minimal runtime logs', () => {
       method: 'GET',
       url: 'https://my-app.void.app/private/path?token=secret',
       status: 503,
-      timeoutMs: 10000,
+      timeoutMs: 10_000,
     });
     expect(writes).toHaveLength(1);
     return writes[0] as DataPoint;

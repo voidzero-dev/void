@@ -1,3 +1,5 @@
+import type { R2LocationHint } from '@void/deploy-core';
+
 /** Typed provider operations shared by app deployment and platform installation. */
 type ConfigTarget = { configPath?: string };
 type WorkerTarget = ConfigTarget & { workerName?: string };
@@ -9,7 +11,11 @@ export type CloudflareOperation =
     } & ConfigTarget)
   | ({ type: 'd1.info'; name: string } & ConfigTarget)
   | { type: 'd1.create'; name: string; binding: string; configPath: string }
-  | { type: 'd1.execute'; database: string; sql: string; configPath: string }
+  | ({ type: 'd1.execute'; database: string; configPath: string } & (
+      | { sql: string; file?: never }
+      | { file: string; sql?: never }
+    ))
+  | { type: 'd1.import'; database: string; file: string; configPath: string }
   | { type: 'd1.migrations.list' | 'd1.migrations.apply'; database: string; configPath: string }
   | { type: 'd1.time-travel.bookmark'; database: string; configPath: string }
   | {
@@ -20,7 +26,13 @@ export type CloudflareOperation =
     }
   | { type: 'kv.namespace.create'; name: string; binding: string; configPath: string }
   | ({ type: 'r2.bucket.info'; name: string } & ConfigTarget)
-  | { type: 'r2.bucket.create'; name: string; binding: string; configPath: string }
+  | {
+      type: 'r2.bucket.create';
+      name: string;
+      binding: string;
+      configPath: string;
+      locationHint?: R2LocationHint;
+    }
   | { type: 'hyperdrive.create'; name: string; binding: string; configPath: string }
   | ({ type: 'queues.info' | 'queues.create'; name: string } & ConfigTarget)
   | ({ type: 'queues.consumer.remove'; queueName: string; workerName: string } & ConfigTarget)

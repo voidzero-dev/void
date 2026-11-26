@@ -1,5 +1,113 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
+import { validateManifestShape } from '../../src/index.ts';
+import type { DeployManifest } from '../../src/index.ts';
+
+describe('D1 read replication', () => {
+  it.each([undefined, false, true])('accepts readReplication %s', (readReplication) => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: { d1: ['DB'] },
+        database: { readReplication },
+      }),
+    ).toBeNull();
+  });
+  it.each([null, true, { readReplication: 'true' }, { readReplication: 1 }, { replicas: true }])(
+    'rejects invalid database preferences %j',
+    (database) => {
+      expect(
+        validateManifestShape({
+          version: 3,
+          bindings: { d1: ['DB'] },
+          database,
+        }),
+      ).toContain('database.readReplication');
+    },
+  );
+  it('rejects database preferences without a D1 binding', () => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: { hyperdrive: ['HYPERDRIVE'] },
+        database: { readReplication: true },
+      }),
+    ).toContain('requires a D1 binding');
+  });
+});
+
+describe('queue concurrency', () => {
+  it.each([undefined, 1, 2, 250])('accepts maxConcurrency = %s', (maxConcurrency) => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: {},
+        queues: [{ name: 'jobs', bindingName: 'QUEUE_JOBS', maxConcurrency }],
+      }),
+    ).toBeNull();
+  });
+
+  it.each([0, -1, 251, 1.5, Infinity, Number.NaN, '2', null])(
+    'rejects invalid maxConcurrency = %s',
+    (maxConcurrency) => {
+      expect(
+        validateManifestShape({
+          version: 3,
+          bindings: {},
+          queues: [{ name: 'jobs', bindingName: 'QUEUE_JOBS', maxConcurrency }],
+        }),
+      ).toBe(
+        'invalid manifest shape: queues entry maxConcurrency must be an integer between 1 and 250',
+      );
+    },
+  );
+});
+
+describe('R2 location hints', () => {
+  it('accepts custom Durable Objects alongside a location hint', () => {
+    expect(
+      validateManifestShape({
+        version: 5,
+        bindings: { r2: ['STORAGE'] },
+        storage: { locationHint: 'apac' },
+        durableObjects: {
+          bindings: [
+            { bindingName: 'WORKSPACE', className: 'WorkspaceDurableObject', storage: 'sqlite' },
+          ],
+        },
+      }),
+    ).toBeNull();
+  });
+  it.each(['apac', 'eeur', 'enam', 'weur', 'wnam', 'oc'])(
+    'accepts %s in manifest v5',
+    (locationHint) => {
+      expect(
+        validateManifestShape({
+          version: 5,
+          bindings: { r2: ['STORAGE'] },
+          storage: { locationHint },
+        }),
+      ).toBeNull();
+    },
+  );
+  it.each(['APAC', '', null, {}, true])('rejects invalid hint %j', (locationHint) => {
+    expect(
+      validateManifestShape({
+        version: 5,
+        bindings: { r2: ['STORAGE'] },
+        storage: { locationHint },
+      }),
+    ).toContain('locationHint');
+  });
+  it('requires manifest v5 so older platforms cannot silently ignore the hint', () => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: { r2: ['STORAGE'] },
+        storage: { locationHint: 'apac' },
+      }),
+    ).toContain('version 5');
+  });
+});
 
 describe('migration execution mode', () => {
   it.each(['apply', 'skip', undefined])('accepts %s', (migrationMode) => {

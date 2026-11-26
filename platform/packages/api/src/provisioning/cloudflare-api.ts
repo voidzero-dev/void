@@ -1,3 +1,5 @@
+import type { R2LocationHint } from '@void/deploy-core';
+
 export const CF_API_BASE = 'https://api.cloudflare.com/client/v4/accounts';
 const CF_ZONE_API_BASE = 'https://api.cloudflare.com/client/v4/zones';
 
@@ -51,18 +53,21 @@ export async function cfFetch<T>(url: string, apiToken: string, init?: RequestIn
   const signal = init?.signal ? AbortSignal.any([init.signal, deadline.signal]) : deadline.signal;
   try {
     signal.throwIfAborted();
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${apiToken}`);
+    }
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     const response = await fetch(url, {
       ...init,
       signal,
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        'Content-Type': 'application/json',
-        ...init?.headers,
-      },
+      headers,
     });
     // Keep the same deadline through the body read: receiving headers does
     // not prove a stalled provider response has completed. Never replay writes.
-    const json = (await response.json()) as CfApiResult<T>;
+    const json = await response.json<CfApiResult<T>>();
     if (!json.success) {
       const message = json.errors.map((error) => error.message).join(', ');
       throw new CloudflareApiError(
@@ -91,21 +96,28 @@ export async function createD1Database(
   accountId: string,
   apiToken: string,
   name: string,
+  options: { readReplication?: boolean } = {},
 ): Promise<D1DatabaseInfo> {
   return cfFetch<D1DatabaseInfo>(`${CF_API_BASE}/${accountId}/d1/database`, apiToken, {
     method: 'POST',
-    body: JSON.stringify({ name, read_replication: { mode: 'auto' } }),
+    body: JSON.stringify({
+      name,
+      ...(options.readReplication !== undefined && {
+        read_replication: { mode: options.readReplication ? 'auto' : 'disabled' },
+      }),
+    }),
   });
 }
 
-export async function enableD1ReadReplication(
+export async function setD1ReadReplication(
   accountId: string,
   apiToken: string,
   databaseId: string,
+  readReplication: boolean,
 ): Promise<void> {
   await cfFetch<D1DatabaseInfo>(`${CF_API_BASE}/${accountId}/d1/database/${databaseId}`, apiToken, {
     method: 'PUT',
-    body: JSON.stringify({ read_replication: { mode: 'auto' } }),
+    body: JSON.stringify({ read_replication: { mode: readReplication ? 'auto' : 'disabled' } }),
   });
 }
 
@@ -133,10 +145,11 @@ export async function createR2Bucket(
   accountId: string,
   apiToken: string,
   name: string,
+  locationHint?: R2LocationHint,
 ): Promise<R2BucketInfo> {
   return cfFetch<R2BucketInfo>(`${CF_API_BASE}/${accountId}/r2/buckets`, apiToken, {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(locationHint ? { locationHint } : {}) }),
   });
 }
 
@@ -236,6 +249,7 @@ export async function createQueue(
 export type QueueConsumerSettings = Readonly<{
   batch_size?: number;
   max_wait_time_ms?: number;
+  max_concurrency?: number;
   max_retries?: number;
   retry_delay?: number;
 }>;

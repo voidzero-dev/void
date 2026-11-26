@@ -15,29 +15,27 @@ describe('parseCacheFor', () => {
   });
 
   it('parses s suffix', () => {
-    expect(parseCacheFor('30s')).toEqual({ stale: 30000, expires: 30000 });
+    expect(parseCacheFor('30s')).toEqual({ stale: 30_000, expires: 30_000 });
   });
 
   it('parses m suffix', () => {
-    expect(parseCacheFor('2m')).toEqual({ stale: 120000, expires: 120000 });
+    expect(parseCacheFor('2m')).toEqual({ stale: 120_000, expires: 120_000 });
   });
 
   it('parses h suffix', () => {
-    expect(parseCacheFor('1h')).toEqual({ stale: 3600000, expires: 3600000 });
+    expect(parseCacheFor('1h')).toEqual({ stale: 3_600_000, expires: 3_600_000 });
   });
 
   it('parses d suffix', () => {
-    expect(parseCacheFor('1d')).toEqual({ stale: 86400000, expires: 86400000 });
+    expect(parseCacheFor('1d')).toEqual({ stale: 86_400_000, expires: 86_400_000 });
   });
 
   it('parses SWR tuple [stale, expires]', () => {
-    expect(parseCacheFor(['30s', '1m'])).toEqual({ stale: 30000, expires: 60000 });
+    expect(parseCacheFor(['30s', '1m'])).toEqual({ stale: 30_000, expires: 60_000 });
   });
 
   it('throws on invalid string', () => {
-    expect(() =>
-      parseCacheFor('invalid' as unknown as Parameters<typeof parseCacheFor>[0]),
-    ).toThrow('Invalid');
+    expect(() => parseCacheFor('invalid')).toThrow('Invalid');
   });
 });
 
@@ -50,7 +48,7 @@ describe('PrefetchCache', () => {
   it('set then get returns the entry', () => {
     const cache = new PrefetchCache();
     const response = Promise.resolve({ users: [] });
-    cache.set('http://example.com/api/users', 'GET', response, { stale: 5000, expires: 10000 });
+    cache.set('http://example.com/api/users', 'GET', response, { stale: 5000, expires: 10_000 });
     const entry = cache.get('http://example.com/api/users');
     expect(entry).not.toBeNull();
     expect(entry!.url).toBe('http://example.com/api/users');
@@ -84,7 +82,7 @@ describe('PrefetchCache', () => {
     const cache = new PrefetchCache();
     cache.set('http://example.com/api/data', 'GET', Promise.resolve({}), {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     cache.consume('http://example.com/api/data');
     expect(cache.get('http://example.com/api/data')).not.toBeNull();
@@ -94,11 +92,11 @@ describe('PrefetchCache', () => {
     const cache = new PrefetchCache();
     cache.set('http://example.com/api/a', 'GET', Promise.resolve({}), {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     cache.set('http://example.com/api/b', 'GET', Promise.resolve({}), {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     cache.flush('http://example.com/api/a');
     expect(cache.get('http://example.com/api/a')).toBeNull();
@@ -109,11 +107,11 @@ describe('PrefetchCache', () => {
     const cache = new PrefetchCache();
     cache.set('http://example.com/api/a', 'GET', Promise.resolve({}), {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     cache.set('http://example.com/api/b', 'GET', Promise.resolve({}), {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     cache.flushAll();
     expect(cache.get('http://example.com/api/a')).toBeNull();
@@ -123,8 +121,8 @@ describe('PrefetchCache', () => {
   it('isFresh returns true when Date.now() < staleAt', () => {
     const cache = new PrefetchCache();
     cache.set('http://example.com/api/data', 'GET', Promise.resolve({}), {
-      stale: 10000,
-      expires: 20000,
+      stale: 10_000,
+      expires: 20_000,
     });
     const entry = cache.get('http://example.com/api/data')!;
     expect(cache.isFresh(entry)).toBe(true);
@@ -134,7 +132,7 @@ describe('PrefetchCache', () => {
     const cache = new PrefetchCache();
     cache.set('http://example.com/api/data', 'GET', Promise.resolve({}), {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     const entry = cache.get('http://example.com/api/data')!;
     expect(cache.isUsable(entry)).toBe(true);
@@ -143,8 +141,8 @@ describe('PrefetchCache', () => {
   it('expired entries are not returned by get', () => {
     const cache = new PrefetchCache();
     cache.set('http://example.com/api/data', 'GET', Promise.resolve({}), {
-      stale: 10000,
-      expires: 10000,
+      stale: 10_000,
+      expires: 10_000,
     });
     const entry = cache.get('http://example.com/api/data')!;
     (entry as { expiresAt: number }).expiresAt = Date.now() - 1;
@@ -155,7 +153,7 @@ describe('PrefetchCache', () => {
     const cache = new PrefetchCache();
     cache.set('http://example.com/api/data', 'GET', Promise.resolve({}), {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     expect(cache.has('http://example.com/api/data')).toBe(true);
     expect(cache.has('http://example.com/api/other')).toBe(false);
@@ -167,11 +165,11 @@ describe('PrefetchCache', () => {
     const second = Promise.resolve({ version: 2 });
     cache.set('http://example.com/api/data', 'GET', first, {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     cache.set('http://example.com/api/data', 'GET', second, {
       stale: 5000,
-      expires: 10000,
+      expires: 10_000,
     });
     const entry = cache.get('http://example.com/api/data')!;
     expect(entry.response).toBe(first);

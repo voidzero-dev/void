@@ -6,9 +6,10 @@
     "build": "vp build",
     "dev": "vp dev",
     "preview": "vp preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "devDependencies": {
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

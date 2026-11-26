@@ -1,18 +1,19 @@
 import {
   parseCloudflareVersionMessage,
   readCloudflareVersionMigrationTag,
-  type CloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
+import type { CloudflareTriggerConfig } from '@void/deploy-cloudflare';
 import {
   createPlatformResourceOwnershipMarker,
   parsePlatformResourceOwnershipMarker,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
+import type { ReadCloudflare } from './platform-cloudflare.ts';
 import { assertCleanPlatformWrangler } from './platform-installer-errors.ts';
 import { runPlatformWrangler } from './platform-installer-process.ts';
-import {
-  type PlatformWorkerDeployment,
-  type WorkerInspectionClient,
+import type {
+  PlatformWorkerDeployment,
+  WorkerInspectionClient,
 } from './platform-installer-types.ts';
 
 export class PlatformWorkerOwnershipError extends Error {}
@@ -104,7 +105,7 @@ export function readActivePlatformWorkerDeployment(
  * for example a version deployed outside Void.
  */
 export async function platformWorkerVersionHasTriggerRecord(
-  readCloudflare: (path: string) => Promise<unknown>,
+  readCloudflare: ReadCloudflare,
   accountId: string,
   workerName: string,
   versionId: string,
@@ -183,6 +184,12 @@ export async function readPlatformWorkerDeployments(
     .map(({ id, versions }) => ({ id, versions }));
 }
 
+const normalize = (deployment: PlatformWorkerDeployment) =>
+  deployment.versions
+    .filter((version) => version.percentage > 0)
+    .map((version) => `${version.versionId}@${version.percentage}`)
+    .sort();
+
 export function samePlatformWorkerTraffic(
   left: PlatformWorkerDeployment | undefined,
   right: PlatformWorkerDeployment,
@@ -190,11 +197,6 @@ export function samePlatformWorkerTraffic(
   if (!left) {
     return false;
   }
-  const normalize = (deployment: PlatformWorkerDeployment) =>
-    deployment.versions
-      .filter((version) => version.percentage > 0)
-      .map((version) => `${version.versionId}@${version.percentage}`)
-      .sort();
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 

@@ -1,12 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
-import {
-  getActiveDeployment,
-  getDeployment,
-  getProject,
-  getProjectResources,
-  type Db,
-} from '../db.ts';
+import { getActiveDeployment, getDeployment, getProject, getProjectResources } from '../db.ts';
+import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { getProjectDeploymentWorkerName, getProjectQueueName } from '../naming.ts';
 import { hasLiveDeployment, isQueueId } from '../project-state.ts';

@@ -250,7 +250,7 @@ describe('platform email identity', () => {
       await sendWelcomeEmail(env, 'member@example.com', 'new-member');
       await sendDeployFailedEmail(env, 'member@example.com', 'my-project', 'failed');
       await sendErrorAlertEmail(env, 'member@example.com', 'my-project', 5, null);
-      expect(sent.map(({ from }) => from)).toEqual(Array(5).fill(defaultSender));
+      expect(sent.map(({ from }) => from)).toEqual(Array.from({ length: 5 }, () => defaultSender));
     });
 
     it('keeps an explicit EMAIL_FROM and the hosted sender ahead of it', async () => {

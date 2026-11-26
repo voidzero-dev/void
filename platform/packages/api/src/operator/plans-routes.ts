@@ -1,4 +1,5 @@
 import { PLAN_EDITABLE_LIMIT_KEYS, parsePlatformPlanId } from '@void/platform/plans';
+import { planSecurityCap } from '@void/platform/security-policy';
 import { Hono } from 'hono';
 import { planAiLoggingMode } from '../ai-logging-plans.ts';
 import type { ApiEnv } from '../env.ts';
@@ -19,7 +20,7 @@ planOperatorRoutes.get('/config/plans', async (context) =>
   }),
 );
 planOperatorRoutes.get('/config/plans/:id', async (context) => {
-  const { catalog, accounts, aiLogging } = await getOperatorPlanCatalog(context);
+  const { catalog, accounts, aiLogging, securityCaps } = await getOperatorPlanCatalog(context);
   const plan = catalog.plans.find((plan) => plan.id === context.req.param('id'));
   if (!plan) {
     throw new OperatorError(404, 'Plan not found.', 'not_found');
@@ -33,6 +34,8 @@ planOperatorRoutes.get('/config/plans/:id', async (context) => {
     aiLoggingPublish: aiLogging.publish
       ? { ...aiLogging.publish, remaining: aiLogging.remaining }
       : null,
+    /** Cents, `none` or `inherit` (M27). */
+    securityCap: planSecurityCap(securityCaps, plan.id),
   });
 });
 planOperatorRoutes.post('/config/plans/add', async (context) =>

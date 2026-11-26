@@ -33,7 +33,9 @@ export function verifyRuntimeArtifacts(
     try {
       contents = readFileSync(path);
     } catch (error) {
-      throw new Error(`platform: Runtime artifact is missing: ${getErrorMessage(error)}`);
+      throw new Error(`platform: Runtime artifact is missing: ${getErrorMessage(error)}`, {
+        cause: error,
+      });
     }
     if (contents.byteLength !== artifact.size || hash(contents) !== artifact.sha256) {
       throw new Error(`platform: Runtime artifact failed integrity verification: ${path}.`);
@@ -53,6 +55,7 @@ export function verifyPlatformDatabaseArtifacts(
   } catch (error) {
     throw new Error(
       `platform: Runtime database migration journal is missing: ${getErrorMessage(error)}`,
+      { cause: error },
     );
   }
   if (hash(journal) !== database.journalSha256) {
@@ -66,7 +69,10 @@ export function verifyPlatformDatabaseArtifacts(
     try {
       contents = readFileSync(path);
     } catch (error) {
-      throw new Error(`platform: Runtime database migration is missing: ${getErrorMessage(error)}`);
+      throw new Error(
+        `platform: Runtime database migration is missing: ${getErrorMessage(error)}`,
+        { cause: error },
+      );
     }
     if (hash(contents) !== migration.sha256) {
       throw new Error(

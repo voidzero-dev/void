@@ -2,11 +2,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import {
-  createPlatformResourceOwnershipMarker,
-  type InstallationResource,
-  type PlatformInstallationManifest,
-} from '@void/platform';
+import { createPlatformResourceOwnershipMarker } from '@void/platform';
+import type { InstallationResource, PlatformInstallationManifest } from '@void/platform';
 import { note } from '@voidzero-dev/vite-plus-prompts';
 import { expect, vi } from 'vite-plus/test';
 import {

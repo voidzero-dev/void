@@ -1,17 +1,52 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { assert, describe, expect, it } from 'vite-plus/test';
+import { formatCloudflareUserMessage } from '../../src/cli/cloudflare-user-output.ts';
 import {
   hyperdriveOriginConfigHash,
   hyperdriveOriginFromConnectionString,
   parsePostgresConnectionString,
   PlatformCloudflareApiError,
   PlatformCloudflareClient,
+  PlatformCloudflarePrerequisiteError,
   PlatformRuntimeTokenEmailPermissionError,
   PlatformWorkerCustomDomainsChangedError,
   verifyPlatformRuntimeTokenEmailPermissions,
   verifyPlatformRuntimeTokenPermissions,
 } from '../../src/cli/platform-cloudflare.ts';
 
+const expectedRejection = (): never => {
+  throw new Error('expected a rejection');
+};
+
 describe('platform Cloudflare client', () => {
+  it.each([
+    {
+      format: 'Headers',
+      headers: new Headers({ 'Content-Type': 'text/plain', 'X-Request-Id': 'test-request' }),
+    },
+    {
+      format: 'header tuples',
+      headers: [
+        ['Content-Type', 'text/plain'],
+        ['X-Request-Id', 'test-request'],
+      ] as Array<[string, string]>,
+    },
+  ])('preserves caller headers and fills in API defaults for $format', async ({ headers }) => {
+    const client = new PlatformCloudflareClient('operator-token', {
+      fetcher: async (_input, init) => {
+        const actual = new Headers(init?.headers);
+        expect(actual.get('Content-Type')).toBe('text/plain');
+        expect(actual.get('X-Request-Id')).toBe('test-request');
+        expect(actual.get('Authorization')).toBe('Bearer operator-token');
+        expect(actual.get('Accept')).toBe('application/json');
+        return Response.json({ success: true, result: 'ok' });
+      },
+    });
+
+    await expect(client.request('/test', { method: 'POST', body: 'test', headers })).resolves.toBe(
+      'ok',
+    );
+  });
+
   it('uses the runtime credential only for AI Gateway operations while keeping the API origin pinned', async () => {
     const requests: Array<{ path: string; authorization: string | null }> = [];
     const client = new PlatformCloudflareClient('operator-token', {
@@ -49,7 +84,7 @@ describe('platform Cloudflare client', () => {
     });
     const error = await client
       .request('/accounts/account/ai-gateway/gateways?secret=query-value')
-      .catch((error) => error as Error);
+      .catch((error: unknown) => error as Error);
     expect((error as Error).message).toContain(
       'HTTP 403; GET /accounts/account/ai-gateway/gateways',
     );
@@ -59,14 +94,14 @@ describe('platform Cloudflare client', () => {
 
   it.each([
     {
-      code: 10042,
+      code: 10_042,
       path: '/accounts/account/r2/buckets',
       message: 'Please enable R2 through the Cloudflare Dashboard.',
       guidance: 'Cloudflare R2 is not enabled for this account (code 10042).',
       dashboard: 'https://dash.cloudflare.com/account/r2/overview',
     },
     {
-      code: 10121,
+      code: 10_121,
       path: '/accounts/account/workers/dispatch/namespaces',
       message:
         'You do not have access to dispatch namespaces. Purchase at https://dash.cloudflare.com?to=/:account/workers-for-platforms',
@@ -82,7 +117,9 @@ describe('platform Cloudflare client', () => {
           { status: 403 },
         ),
     });
-    const error = await client.request(`${test.path}?secret=query-value`).catch((error) => error);
+    const error = await client
+      .request(`${test.path}?secret=query-value`)
+      .catch((error: unknown) => error);
     if (!(error instanceof PlatformCloudflareApiError)) {
       throw new Error('Expected a Cloudflare API error', { cause: error });
     }
@@ -102,15 +139,15 @@ describe('platform Cloudflare client', () => {
     expect(error.message).not.toContain('--resume');
     expect(error.message).not.toContain('query-value');
     expect(error.message).not.toContain('secret-token');
-    if (test.code === 10121) {
+    if (test.code === 10_121) {
       expect(error.message).toContain('Enterprise customers');
     }
   });
 
   it.each([
-    { status: 401, code: 10000, path: '/accounts/account/r2/buckets' },
-    { status: 403, code: 10000, path: '/accounts/account/r2/buckets' },
-    { status: 403, code: 10042, path: '/accounts/account/ai-gateway/gateways' },
+    { status: 401, code: 10_000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10_000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10_042, path: '/accounts/account/ai-gateway/gateways' },
     { status: 500, code: 7000, path: '/accounts/account/ai-gateway/gateways' },
   ])('keeps unrelated provider errors unchanged: $status/$code', async ({ status, code, path }) => {
     const client = new PlatformCloudflareClient('token', {
@@ -134,7 +171,9 @@ describe('platform Cloudflare client', () => {
         fetcher: async () =>
           Response.json({ success: false, errors: [{ message: 'provider failure' }] }, { status }),
       });
-      const error = await client.getWorkersSubdomain('account').catch((error) => error as Error);
+      const error = await client
+        .getWorkersSubdomain('account')
+        .catch((error: unknown) => error as Error);
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toContain(`HTTP ${status}`);
       expect((error as Error).message).not.toContain('finish Workers onboarding');
@@ -478,10 +517,85 @@ describe('platform Cloudflare client', () => {
         accessClientId: 'tunnel-client-id',
       },
     });
-    expect(hyperdriveOriginConfigHash(config.origin)).not.toBe(
-      hyperdriveOriginConfigHash({ ...config.origin, accessClientId: 'different-client-id' }),
+    const origin = config.origin;
+    if (origin.serviceId !== undefined) {
+      throw new Error('Expected a Tunnel-backed origin.');
+    }
+    expect(hyperdriveOriginConfigHash(origin)).not.toBe(
+      hyperdriveOriginConfigHash({ ...origin, accessClientId: 'different-client-id' }),
+    );
+    expect(hyperdriveOriginConfigHash(config.origin)).toBe(
+      '299b4b480634c413c7bad8cee0e3419c836da5bf8e6227af3cbb3273d0a359df',
     );
     expect(JSON.stringify(config)).not.toContain('secret');
+  });
+
+  it('reads and lowers the Hyperdrive origin connection limit', async () => {
+    const requests: Array<{ method: string; body: unknown }> = [];
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async (_input, init) => {
+        requests.push({
+          method: init?.method ?? 'GET',
+          body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        });
+        return Response.json({
+          success: true,
+          result: {
+            id: 'hyperdrive-id',
+            name: 'void-db',
+            caching: { disabled: true },
+            origin_connection_limit: 60,
+            origin: {
+              database: 'void',
+              host: 'db.example.com',
+              port: 5432,
+              scheme: 'postgres',
+              user: 'void-user',
+            },
+          },
+        });
+      },
+    });
+
+    const config = await client.getHyperdriveConfig('account', 'hyperdrive-id');
+    expect(config.originConnectionLimit).toBe(60);
+    await client.setHyperdriveOriginConnectionLimit('account', 'hyperdrive-id', 17);
+    expect(requests).toEqual([
+      { method: 'GET', body: undefined },
+      { method: 'PATCH', body: { origin_connection_limit: 17 } },
+    ]);
+  });
+
+  it('reads a Workers VPC origin without a hostname or port', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async () =>
+        Response.json({
+          success: true,
+          result: {
+            id: 'hyperdrive-id',
+            name: 'managed-db',
+            caching: { disabled: true },
+            origin: {
+              database: 'void',
+              service_id: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+              scheme: 'postgres',
+              user: 'runtime-user',
+            },
+          },
+        }),
+    });
+
+    await expect(client.getHyperdriveConfig('account', 'hyperdrive-id')).resolves.toEqual({
+      id: 'hyperdrive-id',
+      name: 'managed-db',
+      cachingDisabled: true,
+      origin: {
+        database: 'void',
+        serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+        scheme: 'postgresql',
+        user: 'runtime-user',
+      },
+    });
   });
 
   it.each([undefined, null, 0, 65_536, 5432.5, 'invalid', true, [5432]])(
@@ -547,7 +661,7 @@ describe('platform Cloudflare client', () => {
       'GET /client/v4/accounts/account/hyperdrive/configs',
       'POST /client/v4/zones/zone/purge_cache',
     ]);
-    const purge = JSON.parse(requests[1]!.body) as { files: ReadonlyArray<string> };
+    const purge = JSON.parse(requests[1].body) as { files: ReadonlyArray<string> };
     expect(purge.files).toHaveLength(1);
     expect(purge.files[0]).toMatch(
       /^https:\/\/apps\.example\.com\/\.well-known\/void\/runtime-token-preflight-[a-f0-9-]+$/,
@@ -593,16 +707,18 @@ describe('platform Cloudflare client', () => {
         applicationDomain: '',
         customDomains: false,
         zoneId: null,
-      }).catch((error: Error) => error);
+      }).catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(Error);
       const message = String(failure);
       expect(message).toContain(`HTTP ${status}`);
       expect(message).not.toContain(secret);
       expect(message).not.toContain('upstream echoed');
       if (status === 401 || status === 403) {
-        expect(message).toContain('Cloudflare denied');
-        expect(message).toContain('token is valid, scoped to this account');
+        expect(message).toContain('Cloudflare denied the runtime token');
         expect(message).toContain('Hyperdrive → Write');
+        expect(message).toContain(
+          status === 401 ? 'did not accept the token' : 'the token works but is missing',
+        );
       } else if (status === 429) {
         expect(message).toContain('rate-limited');
       } else {
@@ -693,7 +809,7 @@ describe('platform Cloudflare client', () => {
           : Response.json({ success: true, result: [] }),
       );
 
-      const failure = await verifyEmail(client).catch((error: Error) => error);
+      const failure = await verifyEmail(client).catch((error: unknown) => error);
 
       expect(failure).toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
       expect((failure as PlatformRuntimeTokenEmailPermissionError).tokenNotValid).toBe(false);
@@ -724,14 +840,14 @@ describe('platform Cloudflare client', () => {
                 errors: [
                   pathname === '/client/v4/zones/mail-zone'
                     ? { code: 9109, message: 'Invalid access token synthetic-runtime-secret' }
-                    : { code: 10000, message: 'Authentication error synthetic-runtime-secret' },
+                    : { code: 10_000, message: 'Authentication error synthetic-runtime-secret' },
                 ],
               },
               { status: pathname === '/client/v4/zones/mail-zone' ? 403 : 401 },
             ),
       );
 
-      const failure = await verifyEmail(client).catch((error: Error) => error);
+      const failure = await verifyEmail(client).catch((error: unknown) => error);
 
       expect(failure).toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
       expect((failure as PlatformRuntimeTokenEmailPermissionError).tokenNotValid).toBe(true);
@@ -753,16 +869,16 @@ describe('platform Cloudflare client', () => {
           accountId: 'account',
           zoneId: 'mail-zone',
           ...(savedToken === undefined ? {} : { savedToken }),
-        }).catch((error: Error) => error.message);
+        }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)));
 
       await expect(check(true)).resolves.toBe(
-        'platform: The runtime API token saved on this machine cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.',
+        'platform: The runtime token saved on this machine cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.',
       );
       // A token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN, or one that
       // the run sends to the Workers, keeps the message.
       for (const savedToken of [undefined, false]) {
         await expect(check(savedToken)).resolves.toBe(
-          'platform: The runtime API token cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Check that the token is valid and that its zone permissions include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.',
+          'platform: The runtime token cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Check that the token is valid and that its zone permissions include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.',
         );
       }
     });
@@ -878,8 +994,8 @@ describe('platform Cloudflare client', () => {
       ['PUT', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk', 1],
       ['POST', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk/delete', 1],
     ]);
-    expect(requests[0]!.body[0]).toEqual(entries[0]);
-    expect(requests[2]!.body).toEqual(['ai-logging:gone']);
+    expect(requests[0].body[0]).toEqual(entries[0]);
+    expect(requests[2].body).toEqual(['ai-logging:gone']);
 
     failed = ['ai-logging:p1'];
     await expect(client.putKvBulk('account', 'routing', entries.slice(0, 2))).rejects.toThrow(
@@ -1144,7 +1260,7 @@ describe('platform Cloudflare client', () => {
         requests.push(`${method} ${url.pathname}${url.search}`);
         if (url.pathname.endsWith('/gone')) {
           return Response.json(
-            { success: false, errors: [{ code: 10007, message: 'not found' }] },
+            { success: false, errors: [{ code: 10_007, message: 'not found' }] },
             { status: 404 },
           );
         }
@@ -1381,7 +1497,7 @@ describe('platform Cloudflare client', () => {
             success: false,
             errors: [
               {
-                code: 100109,
+                code: 100_109,
                 message:
                   'Cannot delete this Worker as it is a Tail Worker consumer for other Workers.',
               },
@@ -1728,9 +1844,7 @@ describe('platform Cloudflare client', () => {
       },
       method: 'PUT',
     });
-    expect(requests[1]!.url).toContain(
-      '/accounts/account/workers/scripts/void-api/domains/records',
-    );
+    expect(requests[1].url).toContain('/accounts/account/workers/scripts/void-api/domains/records');
     expect(requests[2]).toMatchObject({ method: 'GET' });
   });
 
@@ -1810,6 +1924,314 @@ describe('platform Cloudflare client', () => {
     ]);
     expect(requestUrl).toContain(
       '/accounts/account/workers/services/worker/environments/production/routes?show_zonename=true',
+    );
+  });
+});
+
+describe('naming the Cloudflare credential in errors', () => {
+  const denyingFetcher =
+    (status: number, deny: (pathname: string) => boolean = () => true): typeof fetch =>
+    async (input) => {
+      const { pathname } = new URL(String(input));
+      return deny(pathname)
+        ? Response.json(
+            { success: false, errors: [{ message: 'Authentication error' }] },
+            { status },
+          )
+        : Response.json({ success: true, result: [] });
+    };
+  const failure = (promise: Promise<unknown>) =>
+    promise.then(
+      () => {
+        throw new Error('expected a failure');
+      },
+      (error: unknown) => error as PlatformCloudflareApiError,
+    );
+
+  it.each([
+    [
+      403,
+      'Void used the management token from CF_API_TOKEN. HTTP 403 means the token works but is missing Account → Queues → Edit',
+    ],
+    [
+      401,
+      'Void used the management token from CF_API_TOKEN. HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set CF_API_TOKEN to a valid management token, then retry.',
+    ],
+  ])(
+    'adds the credential and what to do to an HTTP %s answer, and keeps the error class',
+    async (status, help) => {
+      const client = new PlatformCloudflareClient('operator-token', {
+        credential: {
+          role: 'management',
+          source: 'environment',
+          environmentVariable: 'CF_API_TOKEN',
+        },
+        fetcher: denyingFetcher(status),
+      });
+      const error = await failure(client.listQueues('account', 'usage'));
+      expect(error).toBeInstanceOf(PlatformCloudflareApiError);
+      expect(error.status).toBe(status);
+      expect(error.requestPath).toBe('/accounts/account/queues');
+      expect(error.message).toContain(`(HTTP ${status}; GET /accounts/account/queues).`);
+      expect(error.message).toContain(help);
+      expect(error.message).not.toContain('operator-token');
+    },
+  );
+
+  it('leaves errors from a client without a label unchanged', async () => {
+    const client = new PlatformCloudflareClient('token', { fetcher: denyingFetcher(403) });
+    const error = await failure(client.listQueues('account', 'usage'));
+    expect(error.message).toBe(
+      'Cloudflare API error: Authentication error (HTTP 403; GET /accounts/account/queues).',
+    );
+  });
+
+  it('does not relabel a known account prerequisite', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      credential: { role: 'management', source: 'saved' },
+      fetcher: async () =>
+        Response.json(
+          { success: false, errors: [{ code: 10_042, message: 'Please enable R2' }] },
+          { status: 403 },
+        ),
+    });
+    const error = await failure(client.listR2Buckets('account'));
+    expect(error).toBeInstanceOf(PlatformCloudflarePrerequisiteError);
+    expect(error.message).not.toContain('Void used');
+  });
+
+  it.each([
+    ['environment', 'runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN'],
+    ['saved', 'runtime token saved on this machine'],
+  ] as const)(
+    'says browser login used the %s runtime token for AI Gateway',
+    async (source, name) => {
+      const client = new PlatformCloudflareClient('browser-token', {
+        credential: { role: 'management', source: 'oauth' },
+        fetcher: denyingFetcher(401, (pathname) => pathname.includes('/ai-gateway/')),
+      }).withAiGatewayToken('runtime-token', { role: 'runtime', source });
+      const error = await failure(client.listAiGateways('account'));
+      expect(error).toBeInstanceOf(PlatformCloudflareApiError);
+      expect(error.status).toBe(401);
+      expect(error.requestPath).toBe('/accounts/account/ai-gateway/gateways');
+      expect(error.message).toContain(
+        `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit. HTTP 401 means Cloudflare did not accept the token: it is not valid, has expired, or was replaced. Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token, then retry.`,
+      );
+      expect(error.message).not.toContain('management token from');
+      expect(error.message).not.toContain('runtime-token');
+      // Other requests still use browser login.
+      await expect(client.listWorkerNames('account')).resolves.toEqual([]);
+    },
+  );
+
+  it('says browser login cannot use AI Gateway when no runtime token is available', async () => {
+    const client = new PlatformCloudflareClient('browser-token', {
+      credential: { role: 'management', source: 'oauth' },
+      fetcher: denyingFetcher(403),
+    });
+    const error = await failure(client.createAiGateway('account', 'gateway'));
+    expect(error.status).toBe(403);
+    expect(error.message).toContain(
+      'Browser login cannot use AI Gateway. Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to the platform runtime token, or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit, then retry.',
+    );
+  });
+
+  it('names browser login in words the CLI prints unchanged', async () => {
+    const client = new PlatformCloudflareClient('browser-token', {
+      credential: { role: 'management', source: 'oauth' },
+      fetcher: denyingFetcher(403),
+    });
+    const error = await failure(client.listQueues('account', 'usage'));
+    expect(error.message).toContain('Void used the Cloudflare browser login.');
+    expect(formatCloudflareUserMessage(error.message)).toBe(error.message);
+  });
+
+  it('lists every runtime-token permission Cloudflare denied', async () => {
+    const paths: Array<string> = [];
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: async (input, init) => {
+        const { pathname } = new URL(String(input));
+        paths.push(`${init?.method ?? 'GET'} ${pathname}`);
+        return denyingFetcher(403, (path) => !path.includes('custom_hostnames'))(input, init);
+      },
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: 'apps.example.com',
+      credential: { role: 'runtime', source: 'environment' },
+      customDomains: true,
+      zoneId: 'zone',
+    }).then(expectedRejection, (error: unknown) => error);
+    expect(paths).toEqual([
+      'GET /client/v4/accounts/account/hyperdrive/configs',
+      'POST /client/v4/zones/zone/purge_cache',
+      'GET /client/v4/zones/zone/custom_hostnames',
+    ]);
+    expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    assert.instanceOf(error, Error);
+    expect(error.message).toBe(
+      [
+        'platform: Cloudflare denied the runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN:',
+        '- Account → Hyperdrive → Write (HTTP 403)',
+        '- Zone → Cache Purge → Purge (HTTP 403)',
+        'HTTP 403 means the token works but is missing the permissions listed above, or is not scoped to this account or zone. Add them to the token in the Cloudflare dashboard (the token value stays the same), or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a runtime token that has them, then retry.',
+      ].join('\n'),
+    );
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+  });
+
+  it('names a saved runtime token in the preflight error', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', { fetcher: denyingFetcher(401) });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: '',
+      credential: { role: 'runtime', source: 'saved' },
+      customDomains: false,
+      zoneId: null,
+    }).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
+    expect(error.message).toContain('Cloudflare denied the runtime token saved on this machine:');
+    expect(error.message).toContain(
+      'Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token, then retry.',
+    );
+  });
+
+  it('keeps the email error class only when email is the only problem', async () => {
+    const emailOnly = new PlatformCloudflareClient('runtime-token', {
+      fetcher: denyingFetcher(403, (path) => path.includes('/email/')),
+    });
+    const input = {
+      accountId: 'account',
+      applicationDomain: '',
+      credential: { role: 'runtime', source: 'saved' },
+      customDomains: false,
+      emailZoneId: 'mail-zone',
+      zoneId: null,
+    } as const;
+    await expect(verifyPlatformRuntimeTokenPermissions(emailOnly, input)).rejects.toBeInstanceOf(
+      PlatformRuntimeTokenEmailPermissionError,
+    );
+
+    const mixed = new PlatformCloudflareClient('runtime-token', {
+      fetcher: denyingFetcher(
+        403,
+        (path) => path.includes('/email/') || path.includes('/hyperdrive/'),
+      ),
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(mixed, input).then(
+      expectedRejection,
+      (error: unknown) => error,
+    );
+    // Install drops a saved token that lacks more than email access.
+    expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    assert.instanceOf(error, Error);
+    expect(error.message).toContain('- Account → Hyperdrive → Write (HTTP 403)');
+    expect(error.message).toContain('- Zone → Email Routing Rules → Edit (HTTP 403)');
+    expect(error.message).toContain('- Account → Email Routing Addresses → Edit (HTTP 403)');
+  });
+
+  it('keeps a denial seen before a later check fails for another reason', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: async (input) =>
+        new URL(String(input)).pathname.endsWith('/purge_cache')
+          ? Response.json({ success: false, errors: [{ message: 'Slow down' }] }, { status: 429 })
+          : denyingFetcher(403)(input),
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: 'apps.example.com',
+      credential: { role: 'runtime', source: 'saved' },
+      customDomains: true,
+      zoneId: 'zone',
+    }).then(expectedRejection, (error: unknown) => error);
+    expect(error).not.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+    assert.instanceOf(error, Error);
+    expect(error.message).toContain('Cloudflare denied the runtime token saved on this machine:');
+    expect(error.message).toContain('- Account → Hyperdrive → Write (HTTP 403)');
+    expect(error.message).not.toContain('429');
+    // Install finds the 403 in the cause chain and asks for a new token.
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+    expect((error.cause as PlatformCloudflareApiError).status).toBe(403);
+  });
+
+  it('keeps the email error class when a later check fails for another reason', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: async (input) => {
+        const { pathname } = new URL(String(input));
+        return pathname.endsWith('/purge_cache')
+          ? Response.json({ success: false, errors: [{ message: 'Down' }] }, { status: 503 })
+          : denyingFetcher(403, (path) => path.includes('/email/'))(input);
+      },
+    });
+    await expect(
+      verifyPlatformRuntimeTokenPermissions(client, {
+        accountId: 'account',
+        applicationDomain: 'apps.example.com',
+        credential: { role: 'runtime', source: 'saved' },
+        customDomains: false,
+        emailZoneId: 'mail-zone',
+        zoneId: 'zone',
+      }),
+    ).rejects.toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+  });
+
+  it('names the credential when the workers.dev subdomain read is denied', async () => {
+    const client = new PlatformCloudflareClient('operator-token', {
+      credential: { role: 'management', source: 'saved' },
+      fetcher: denyingFetcher(403),
+    });
+    const error = await failure(client.getWorkersSubdomain('account'));
+    expect(error.message).toBe(
+      'platform: Could not read the workers.dev subdomain for account account (HTTP 403). Void used the management token saved on this machine. HTTP 403 means the token works but is missing Account → Workers → Admin, or is not scoped to this account or zone. Add it to the token in the Cloudflare dashboard (the token value stays the same), or set CLOUDFLARE_API_TOKEN to a management token that has it, then retry.',
+    );
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+  });
+
+  it.each([
+    [
+      'reads a KV value',
+      (client: PlatformCloudflareClient) => client.getKvValue('account', 'namespace', 'manifest'),
+      '/accounts/account/storage/kv/namespaces/namespace/values/manifest',
+      'Account → Workers KV Storage → Edit',
+    ],
+    [
+      'deletes a resource',
+      (client: PlatformCloudflareClient) => client.deleteWorkerRoute('zone', 'route'),
+      '/zones/zone/workers/routes/route',
+      'Zone → Workers Routes → Write',
+    ],
+  ])(
+    'names the credential when Cloudflare denies a request that %s',
+    async (_name, call, path, permission) => {
+      const client = new PlatformCloudflareClient('operator-token', {
+        credential: { role: 'management', source: 'saved' },
+        fetcher: denyingFetcher(403),
+      });
+      const error = await failure(call(client));
+      expect(error).toBeInstanceOf(PlatformCloudflareApiError);
+      expect(error.status).toBe(403);
+      expect(error.requestPath).toBe(path);
+      expect(error.credential).toEqual({ role: 'management', source: 'saved' });
+      expect(error.message).toContain('Void used the management token saved on this machine.');
+      expect(error.message).toContain(`missing ${permission}`);
+      expect(error.message).not.toContain('operator-token');
+    },
+  );
+
+  it('stops at a rate limit and says it is not a missing permission', async () => {
+    const client = new PlatformCloudflareClient('runtime-token', {
+      fetcher: denyingFetcher(429),
+    });
+    const error = await verifyPlatformRuntimeTokenPermissions(client, {
+      accountId: 'account',
+      applicationDomain: '',
+      credential: { role: 'runtime', source: 'environment' },
+      customDomains: false,
+      zoneId: null,
+    }).then(expectedRejection, (error: unknown) => error);
+    assert.instanceOf(error, Error);
+    expect(error.message).toBe(
+      'platform: Cloudflare rate-limited the check of the runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN for Account → Hyperdrive → Write (HTTP 429). Retry shortly; this does not mean the token is missing a permission.',
     );
   });
 });

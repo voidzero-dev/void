@@ -12,10 +12,10 @@ import { generateVoidAuthDrizzleSchema } from '../../src/auth/drizzle.ts';
 import { prepareProject } from '../../src/codegen/prepare.ts';
 import type { DatabaseCasing } from '../../src/config.ts';
 import { drizzlePlugin, voidDbBundlerPlugin } from '../../src/plugin-drizzle.ts';
-import { envContext } from '../../src/runtime/env-raw.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
-import { getHookHandler } from '../helpers/vite-hooks.ts';
+import { loadVirtualModule } from '../helpers/vite-hooks.ts';
 
 type Dialect = 'sqlite' | 'postgresql' | 'mysql';
 type Query = PromiseLike<Array<Record<string, unknown>>>;
@@ -32,7 +32,7 @@ type DbModule = {
 const roots: Array<string> = [];
 // The generated module imports the built runtime env; tests share the source one.
 const builtEnv = JSON.stringify(fileURLToPath(import.meta.resolve('#self/_env')));
-const sourceEnv = JSON.stringify(new URL('../../src/runtime/env.ts', import.meta.url).href);
+const sourceEnv = JSON.stringify(new URL('../../src/runtime/env/runtime.ts', import.meta.url).href);
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -84,8 +84,7 @@ function createRoot(dialect: Dialect): string {
 
 function loadSource(root: string, dialect: Dialect, casing?: DatabaseCasing): string {
   const plugin = drizzlePlugin(root, false, dialect, casing ? { casing } : {});
-  const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-  return load.call({}, '\0virtual:void-db');
+  return loadVirtualModule(plugin.load, '\0virtual:void-db');
 }
 
 /** Load the app's generated `void/db` with drizzle's real drivers. */

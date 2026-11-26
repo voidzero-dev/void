@@ -1,20 +1,19 @@
-import { handleIsr, type IsrCacheEnv } from '@void/isr/runtime';
+import { handleIsr } from '@void/isr/runtime';
+import type { IsrCacheEnv } from '@void/isr/runtime';
 import { memoryAdapter } from 'better-auth/adapters/memory';
-import { Hono, type NotFoundHandler } from 'hono';
+import { Hono } from 'hono';
+import type { NotFoundHandler } from 'hono';
 import { etag } from 'hono/etag';
 import { describe, expect, it } from 'vite-plus/test';
-import { createVoidAuthRuntime } from '../../src/runtime/better-auth-shared.ts';
-import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import { createVoidAuthRuntime } from '../../src/runtime/auth/better-auth-shared.ts';
+import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import type { RoutingContext, RoutingHeaderRule } from '../../src/runtime/routing/index.ts';
 import {
   createAssetNotFound,
   createPagesFallback,
   createSsrFallback,
-} from '../../src/runtime/routing-pages.ts';
-import {
-  createRoutingRuntime,
-  type RoutingContext,
-  type RoutingHeaderRule,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/pages.ts';
 
 const env = { BETTER_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters' };
 const options = { dialect: 'sqlite' as const, providers: null };
@@ -365,7 +364,7 @@ describe('real authenticated Better Auth session cache policy', () => {
     'private, no-cache="set-cookie"',
     'no-cache="x,private,y", public, max-age=600',
     'no-cache="x,no-store,y", public, max-age=600',
-    'no-cache="a\\",no-store,b", public, max-age=600',
+    String.raw`no-cache="a\",no-store,b", public, max-age=600`,
   ])('applies the session lookup no-store to a route policy of %s', async (policy) => {
     const { app, cookie } = await signedInApp(policy ? { 'cache-control': policy } : {});
     const response = await app.request('https://app.test/api/report', { headers: { cookie } }, env);
@@ -480,7 +479,7 @@ describe('real authenticated Better Auth session cache policy', () => {
     );
 
     it('still applies no-store to a signed-in page miss', async () => {
-      const { app, cookie } = await signedInApp({}, { fallback: fallbacks[0]![1] });
+      const { app, cookie } = await signedInApp({}, { fallback: fallbacks[0][1] });
       const response = await fetchAsset(app, '/missing', { cookie });
       expect(response.status).toBe(404);
       expect(response.headers.get('cache-control')).toBe('no-store');

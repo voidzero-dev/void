@@ -351,7 +351,7 @@ export function resolvePathTtl(
   revalidate: number | Record<string, number> | undefined,
   pathname: string,
 ): number {
-  if (revalidate == null) {
+  if (revalidate === null || revalidate === undefined) {
     return 0;
   }
   if (typeof revalidate === 'number') {
@@ -396,9 +396,13 @@ export function resolvePageTtl(
   return resolvePathTtl(revalidate, pathname);
 }
 
+interface SerializedHeaders {
+  [name: string]: string;
+}
+
 /** Extract response headers while removing ISR-managed and private headers. */
-export function serializeHeaders(response: Response): Record<string, string> {
-  const result: Record<string, string> = {};
+export function serializeHeaders(response: Response): SerializedHeaders {
+  const result: SerializedHeaders = {};
   response.headers.forEach((value, key) => {
     if (!SKIP_HEADERS.has(key.toLowerCase())) {
       result[key] = value;
@@ -410,8 +414,16 @@ export function serializeHeaders(response: Response): Record<string, string> {
 /** Validate page data before storing it as the JSON ISR variant. */
 export function normalizePageDataForJsonCache(raw: string): string | null {
   try {
-    const parsed = JSON.parse(raw) as { deferred?: unknown; deferredKeys?: unknown };
-    return parsed.deferred === undefined && parsed.deferredKeys === undefined ? raw : null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed === null ||
+      (typeof parsed === 'object' &&
+        (('deferred' in parsed && parsed.deferred !== undefined) ||
+          ('deferredKeys' in parsed && parsed.deferredKeys !== undefined)))
+    ) {
+      return null;
+    }
+    return raw;
   } catch {
     return null;
   }
@@ -420,5 +432,5 @@ export function normalizePageDataForJsonCache(raw: string): string | null {
 /** Extract validated Void Pages data embedded in an HTML response. */
 export function extractPageDataFromHtml(html: string): string | null {
   const match = html.match(PAGE_DATA_SCRIPT_RE);
-  return match ? normalizePageDataForJsonCache(match[2]!) : null;
+  return match ? normalizePageDataForJsonCache(match[2]) : null;
 }

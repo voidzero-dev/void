@@ -1,3 +1,5 @@
+import type { parseSync } from 'vite';
+
 export type AstNode = {
   type: string;
   start?: number;
@@ -9,6 +11,12 @@ export type AstProgram = AstNode & {
   body?: Array<AstNode>;
 };
 
+/** Oxc uses ESTree node fields without the index signature used by our AST readers. */
+export function asAstProgram(program: ReturnType<typeof parseSync>['program']): AstProgram {
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- Bridge Oxc's typed tree to the shared AST readers.
+  return program as unknown as AstProgram;
+}
+
 export type AstIdentifier = AstNode & {
   type: 'Identifier';
   name: string;
@@ -16,7 +24,7 @@ export type AstIdentifier = AstNode & {
 
 export type AstLiteral = AstNode & {
   type: 'Literal';
-  value: unknown;
+  value: string | number | boolean | bigint | RegExp | null;
 };
 
 export type AstMemberExpression = AstNode & {

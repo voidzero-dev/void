@@ -1,12 +1,7 @@
 import { createSignal, createMemo } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
-import {
-  cloneFormValue,
-  isEqualFormValue,
-  submitIslandAction,
-  type IslandFormState,
-  type VoidActionError,
-} from 'void/pages-client';
+import { cloneFormValue, isEqualFormValue, submitIslandAction } from 'void/pages-client';
+import type { IslandFormState, VoidActionError } from 'void/pages-client';
 import type { RouteUrl } from 'void/routes';
 
 export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'setters'> &
@@ -111,7 +106,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     get data() {
       return data as T;
     },
-    setData: setData as IslandFormReturn<T>['setData'],
+    setData,
     get errors() {
       return errors();
     },

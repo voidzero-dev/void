@@ -1,0 +1,1229 @@
+/**
+ * The model proxy (spec §15.1, §16): the only way a scanner container reaches a model.
+ * The scan id and attempt come from the controller's outbound props, never the container.
+ *
+ *   fence ─► model allowlist (+ third-party credits check and notice) ─► body (only
+ *   function/custom tools) ─► caps (session, scan calls, tokens) ─► `@cf` rate token
+ *   ─► budget hold ─► @cf: env.AI.run │ anthropic / openai: /ai/v1 (or a saved key, M33)
+ *   ─► usage from the JSON or SSE answer ─► settle
+ *
+ * A stop the runner must act on carries `x-void-scan-stop` (402 for credits); other
+ * refusals are retried once. `GET /v1/void/last-failure` returns the last refused call.
+ */
+import {
+  getSecurityModel,
+  isSecurityModelId,
+  isSecurityModelPriced,
+  SECURITY_PROVIDER_NOTICE_VERSION,
+  securityModelCostNanoUsd,
+} from '@void/platform/security-models';
+import type {
+  SecurityModelHost,
+  SecurityModelId,
+  SecurityThirdPartyHost,
+} from '@void/platform/security-models';
+import { SECURITY_ERRORS } from '@void/platform/security-policy';
+import type { SecurityPlanCap, SecurityPolicy } from '@void/platform/security-policy';
+import { eq } from 'drizzle-orm';
+import { createDb } from '../db.ts';
+import type { DbOrTx } from '../db.ts';
+import type { ApiEnv } from '../env.ts';
+import { CF_API_BASE } from '../provisioning/cloudflare-api.ts';
+import { deriveSecurityScanTag } from '../proxy-token.ts';
+import { projects } from '../schema.ts';
+import { errorMessage } from '../zero-trust/errors.ts';
+import {
+  holdSecurityModelCall,
+  securitySpendCaps,
+  securitySpendMonth,
+  settleSecurityModelCall,
+} from './budget.ts';
+import type {
+  SecurityCallHold,
+  SecurityCallRefusal,
+  SecurityCallSettlement,
+  SecuritySpendCaps,
+} from './budget.ts';
+import { SECURITY_MAX_SESSION_INDEX } from './call-ledger.ts';
+import type {
+  AdmitModelCall,
+  AdmitModelCallResult,
+  ModelCallFailure,
+  ModelCallFailureReason,
+} from './call-ledger.ts';
+import { judgeScanFence } from './control.ts';
+import { pokeSecurityScanScheduler, securityScheduler } from './enqueue.ts';
+import { enqueueSecurityCapNotifications, enqueueSecurityCapRefused } from './notifications.ts';
+import { readSecurityPlanCapCell, securityPlanCapSql } from './plan-caps.ts';
+import { readSecurityPolicyLenient } from './policy.ts';
+import {
+  callWithSecurityProviderKey,
+  loadSecurityProviderKey,
+  securityProviderModelName,
+} from './provider-keys.ts';
+import type { SecurityProviderKey } from './provider-keys.ts';
+import { projectSecuritySettings, securityScans } from './schema.ts';
+
+export const SECURITY_STOP_HEADER = 'x-void-scan-stop';
+const SECURITY_SESSION_HEADER = 'x-void-scan-session';
+const SECURITY_MODEL_FAILURE_PATH = '/v1/void/last-failure';
+
+/** Proxy stops the runner maps to a scan status (`status.ts` in the runner). */
+type SecurityProxyStop = 'session_calls' | 'scan_calls' | 'tokens' | 'budget' | 'credits';
+
+type ModelApi = 'chat' | 'messages' | 'responses';
+
+interface ModelRoutes {
+  readonly [path: string]: ModelApi | undefined;
+}
+
+/** One route per engine; each only reaches models of its host. */
+const ROUTES: ModelRoutes = {
+  '/v1/chat/completions': 'chat',
+  '/v1/messages': 'messages',
+  '/v1/responses': 'responses',
+};
+
+const ROUTE_HOST: Readonly<Record<ModelApi, SecurityModelHost>> = {
+  chat: 'workers-ai',
+  messages: 'anthropic',
+  responses: 'openai',
+};
+
+/** A request body above this is refused; 2M input tokens fit with room to spare. */
+const SECURITY_MODEL_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
+/** Output limit of one call when the caller sets none (Engine B sends none). */
+export const SECURITY_DEFAULT_CALL_OUTPUT_TOKENS = 16_384;
+/** Longest wait for a `@cf` rate token before the call fails as infrastructure. */
+export const SECURITY_RATE_WAIT_LIMIT_MS = 120_000;
+/**
+ * `anthropic-beta` values kept on a Messages call. None adds a provider-run tool or a
+ * price the meter does not know (`context-1m-*`); any other value is dropped.
+ */
+const SECURITY_ALLOWED_ANTHROPIC_BETAS: ReadonlySet<string> = new Set([
+  'claude-code-20250219',
+  'interleaved-thinking-2025-05-14',
+  'fine-grained-tool-streaming-2025-05-14',
+  'token-efficient-tools-2025-02-19',
+  'context-management-2025-06-27',
+  'structured-outputs-2025-11-13',
+  'effort-2025-11-24',
+]);
+/** Body fields that make the provider run code, reach a server or answer later. */
+const REFUSED_BODY_FIELDS = ['mcp_servers', 'container', 'background'] as const;
+/** Smallest output limit a route accepts (OpenAI Responses refuses less than 16). */
+const MIN_CALL_OUTPUT: Readonly<Record<ModelApi, number>> = { chat: 1, messages: 1, responses: 16 };
+/** Smallest Anthropic `thinking.budget_tokens`. */
+const MIN_THINKING_BUDGET = 1024;
+const DEFAULT_GATEWAY_ID = 'void';
+/** Longest SSE line kept while looking for usage; longer lines pass through unread. */
+const MAX_SSE_LINE_CHARS = 1024 * 1024;
+
+/** One scan as the proxy sees it, read fresh on every call. */
+export type SecurityModelScan = Readonly<{
+  scanId: string;
+  projectId: string;
+  status: string;
+  attempt: number;
+  leaseUntil: string | null;
+  projectStatus: string;
+  modelUsed: string | null;
+  modelCalls: number;
+  tokensIn: number;
+  tokensOut: number;
+  /** `project_security_settings`; `null` when the project has no row. */
+  projectNoticeVersion: number | null;
+  monthlyCapCents: number | null;
+  capCeilingCents: number | null;
+  /** The cap of the owner's plan (M27), read with the scan on every call. */
+  planCap: SecurityPlanCap;
+}>;
+
+/** The parts of a call that leave the proxy; tests replace them. */
+export type SecurityModelProxyDeps = Readonly<{
+  now(): number;
+  sleep(ms: number): Promise<void>;
+  loadScan(scanId: string): Promise<SecurityModelScan | undefined>;
+  readPolicy(): Promise<SecurityPolicy>;
+  admit(input: AdmitModelCall): Promise<AdmitModelCallResult>;
+  recordFailure(scanId: string, attempt: number, failure: ModelCallFailure): Promise<void>;
+  lastFailure(scanId: string, attempt: number): Promise<ModelCallFailure | null>;
+  /** Workers AI answered 429 for this `@cf` model: back the shared bucket off. */
+  rateLimited(model: string, now: number): Promise<void>;
+  hold(
+    input: Parameters<typeof holdSecurityModelCall>[1],
+  ): Promise<SecurityCallHold | SecurityCallRefusal>;
+  settle(input: Parameters<typeof settleSecurityModelCall>[1]): Promise<SecurityCallSettlement>;
+  /** After a settle: queue the 80% / 100% cap emails (best effort; absent in some tests). */
+  notifyCaps?(
+    input: Readonly<{
+      projectId: string;
+      month: string;
+      caps: SecuritySpendCaps;
+      settlement: SecurityCallSettlement;
+    }>,
+  ): Promise<void>;
+  /** A used-up cap stopped a running scan: queue its 100% email (best effort). */
+  notifyCapRefused?(
+    input: Readonly<{ projectId: string; month: string; cap: 'project' | 'platform' }>,
+  ): Promise<void>;
+  scanTag(scanId: string): Promise<string>;
+  /** A host's saved provider key (M33), `null` for Unified Billing; throws when unreadable. */
+  providerKey?(host: SecurityThirdPartyHost): Promise<SecurityProviderKey | null>;
+  gatewayId: string;
+  accountId: string;
+  apiToken: string;
+  ai: Ai | undefined;
+  fetch: typeof fetch;
+}>;
+
+export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelProxyDeps {
+  const db = createDb(env.HYPERDRIVE.connectionString);
+  const scheduler = () => securityScheduler(env);
+  return {
+    now: () => Date.now(),
+    sleep: (ms) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, ms);
+      }),
+    loadScan: (scanId) => loadSecurityModelScan(db, scanId),
+    readPolicy: () => readSecurityPolicyLenient(db),
+    admit: (input) => scheduler().admitModelCall(input),
+    recordFailure: (scanId, attempt, failure) =>
+      scheduler().recordModelCallFailure(scanId, attempt, failure),
+    lastFailure: (scanId, attempt) => scheduler().modelCallFailure(scanId, attempt),
+    rateLimited: async (model, now) => {
+      await scheduler().backOffModelRate(model, now);
+    },
+    hold: (input) => holdSecurityModelCall(db, input),
+    settle: (input) => settleSecurityModelCall(db, input),
+    notifyCaps: async ({ settlement, ...input }) => {
+      const { projectSpentNano, platformSpentNano } = settlement;
+      if (
+        await enqueueSecurityCapNotifications(db, { ...input, projectSpentNano, platformSpentNano })
+      ) {
+        await pokeSecurityScanScheduler(env);
+      }
+    },
+    notifyCapRefused: async (input) => {
+      if (await enqueueSecurityCapRefused(db, input)) {
+        await pokeSecurityScanScheduler(env);
+      }
+    },
+    scanTag: (scanId) => deriveSecurityScanTag(env.JWT_SECRET, scanId),
+    providerKey: (host) => loadSecurityProviderKey(env, db, host),
+    gatewayId: env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID,
+    accountId: env.CF_ACCOUNT_ID,
+    apiToken: env.CF_API_TOKEN,
+    ai: env.AI,
+    fetch: (input, init) => fetch(input, init),
+  };
+}
+
+export async function loadSecurityModelScan(
+  db: DbOrTx,
+  scanId: string,
+): Promise<SecurityModelScan | undefined> {
+  const [row] = await db
+    .select({
+      scanId: securityScans.id,
+      projectId: securityScans.project_id,
+      status: securityScans.status,
+      attempt: securityScans.attempt,
+      leaseUntil: securityScans.lease_until,
+      projectStatus: projects.status,
+      modelUsed: securityScans.model_used,
+      modelCalls: securityScans.model_calls,
+      tokensIn: securityScans.tokens_in,
+      tokensOut: securityScans.tokens_out,
+      projectNoticeVersion: projectSecuritySettings.provider_notice_version,
+      monthlyCapCents: projectSecuritySettings.monthly_cap_cents,
+      capCeilingCents: projectSecuritySettings.cap_ceiling_cents,
+      planCap: securityPlanCapSql(projects.user_id),
+    })
+    .from(securityScans)
+    .innerJoin(projects, eq(projects.id, securityScans.project_id))
+    .leftJoin(
+      projectSecuritySettings,
+      eq(projectSecuritySettings.project_id, securityScans.project_id),
+    )
+    .where(eq(securityScans.id, scanId))
+    .limit(1);
+  return row ? { ...row, planCap: readSecurityPlanCapCell(row.planCap) } : undefined;
+}
+
+// --- Answers ---
+
+function refuse(status: number, error: string, message: string): Response {
+  return Response.json({ error, message }, { status });
+}
+
+function stop(reason: SecurityProxyStop): Response {
+  return Response.json(
+    { error: 'scan stopped', reason, message: STOP_MESSAGES[reason] },
+    { status: reason === 'credits' ? 402 : 429, headers: { [SECURITY_STOP_HEADER]: reason } },
+  );
+}
+
+const STOP_MESSAGES: Readonly<Record<SecurityProxyStop, string>> = {
+  session_calls: 'This session used all its model calls.',
+  scan_calls: 'This scan used all its model calls.',
+  tokens: 'This scan used all its tokens.',
+  budget: 'The next model call could cross a monthly scan budget.',
+  credits: 'AI credits are used up.',
+};
+
+// --- Rules ---
+
+type SecurityModelVerdict =
+  | Readonly<{ ok: true; model: SecurityModelId }>
+  | Readonly<{ ok: false; status: number; error: string; message: string }>;
+
+function notAllowed(message: string): SecurityModelVerdict {
+  const { status, code } = SECURITY_ERRORS.modelNotAllowed;
+  return { ok: false, status, error: code, message };
+}
+
+/** May this scan call this model through this route now? (spec §15.3 "Model allowlist") */
+export function judgeSecurityModelCall(
+  input: Readonly<{
+    route: ModelApi;
+    bodyModel: unknown;
+    scan: Pick<SecurityModelScan, 'modelUsed' | 'projectNoticeVersion'>;
+    policy: SecurityPolicy;
+  }>,
+): SecurityModelVerdict {
+  const { policy, scan } = input;
+  if (policy.mode === 'disabled') {
+    return {
+      ok: false,
+      status: 409,
+      error: 'security audits off',
+      message: 'Security audits are off.',
+    };
+  }
+  const model = scan.modelUsed;
+  if (!isSecurityModelId(model)) {
+    return notAllowed('This scan has no model on the list.');
+  }
+  if (input.bodyModel !== model && input.bodyModel !== gatewayModelName(model)) {
+    return notAllowed(`This scan runs ${model}; the call asked for another model.`);
+  }
+  const host = getSecurityModel(model).host;
+  if (ROUTE_HOST[input.route] !== host) {
+    return notAllowed(`${model} is not reached through this route.`);
+  }
+  if (policy.blockedModels.includes(model)) {
+    return notAllowed(`${model} is blocked by the platform admin.`);
+  }
+  if (!isSecurityModelPriced(model)) {
+    return notAllowed(`${model} has no list price yet.`);
+  }
+  if (host !== 'workers-ai') {
+    if (policy.entitlement?.hosts[host] !== true) {
+      return notAllowed(`${host}/* models did not pass the platform's credits check.`);
+    }
+    if (scan.projectNoticeVersion !== SECURITY_PROVIDER_NOTICE_VERSION) {
+      const { status, code: error } = SECURITY_ERRORS.providerNoticeNotAccepted;
+      const message = `This project has not accepted the provider notice for ${model}.`;
+      return { ok: false, status, error, message };
+    }
+  }
+  return { ok: true, model };
+}
+
+function toolRefusal(route: ModelApi, tool: unknown, nested: boolean): string | null {
+  const value = asObject(tool);
+  if (!value) {
+    return 'A tool must be an object.';
+  }
+  const type = value.type;
+  if (route === 'messages') {
+    // A plain Messages tool has no type, or `custom`; every typed tool is Anthropic's.
+    return type === undefined || type === 'custom'
+      ? null
+      : `Tool type "${String(type)}" is not allowed.`;
+  }
+  if (type === 'function' || type === 'custom') {
+    return null;
+  }
+  // Codex groups MCP tools in a namespace; each tool in it is checked.
+  if (type === 'namespace' && !nested && Array.isArray(value.tools)) {
+    return firstRefusal(value.tools.map((inner) => toolRefusal(route, inner, true)));
+  }
+  return `Tool type "${String(type)}" is not allowed.`;
+}
+
+function firstRefusal(refusals: ReadonlyArray<string | null>): string | null {
+  return refusals.find((refusal) => refusal !== null) ?? null;
+}
+
+function toolsRefusal(route: ModelApi, tools: unknown): string | null {
+  if (tools === undefined || tools === null) {
+    return null;
+  }
+  if (!Array.isArray(tools)) {
+    return '`tools` must be a list.';
+  }
+  return firstRefusal(tools.map((tool) => toolRefusal(route, tool, false)));
+}
+
+/**
+ * Why a Messages or Responses body asks for something the provider runs itself (out of
+ * reach of the container egress lock, spec T2), or `null`. Only function and custom tools pass.
+ */
+function judgeModelRequestBody(
+  route: ModelApi,
+  body: Readonly<Record<string, unknown>>,
+): string | null {
+  if (route === 'chat') {
+    return null;
+  }
+  for (const field of REFUSED_BODY_FIELDS) {
+    if (body[field] !== undefined && body[field] !== null) {
+      return `\`${field}\` is not allowed in a scan.`;
+    }
+  }
+  const refusal = toolsRefusal(route, body.tools);
+  if (refusal || route !== 'responses' || !Array.isArray(body.input)) {
+    return refusal;
+  }
+  // Codex "responses lite" can send tools in an `additional_tools` input item.
+  return firstRefusal(
+    body.input.map((item: unknown) => {
+      const value = asObject(item);
+      return value?.type === 'additional_tools' ? toolsRefusal(route, value.tools ?? []) : null;
+    }),
+  );
+}
+
+/** The caller's `anthropic-beta` values that are on the allowlist, or `null`. */
+function allowedAnthropicBetas(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const kept = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => SECURITY_ALLOWED_ANTHROPIC_BETAS.has(part));
+  return kept.length > 0 ? [...new Set(kept)].join(',') : null;
+}
+
+/** The gateway's name for a model: `claude-sonnet-5.5` for `anthropic/claude-sonnet-5.5`. */
+function gatewayModelName(model: string): string {
+  return model.startsWith('@cf/') ? model : model.slice(model.indexOf('/') + 1);
+}
+
+/** `x-void-scan-session`: a small decimal index, or absent. */
+function parseSecuritySession(value: string | null): number | null | 'invalid' {
+  if (value === null) {
+    return null;
+  }
+  const digits =
+    value.length > 0 && value.length <= 2 && Array.from(value).every((c) => c >= '0' && c <= '9');
+  return digits && Number(value) <= SECURITY_MAX_SESSION_INDEX ? Number(value) : 'invalid';
+}
+
+function positiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * Caps the call's output at what the scan has left and returns it (the hold's worst case);
+ * `null` when that is below what the provider accepts. A thinking budget is lowered too.
+ */
+function clampCallOutput(
+  route: ModelApi,
+  body: Record<string, unknown>,
+  remaining: number,
+): number | null {
+  const key = route === 'responses' ? 'max_output_tokens' : 'max_tokens';
+  const asked = [positiveInteger(body[key])];
+  if (route === 'chat') {
+    // Workers AI reads `max_tokens`; one limit is kept.
+    asked.push(positiveInteger(body.max_completion_tokens));
+    delete body.max_completion_tokens;
+  }
+  const given = asked.filter((value): value is number => value !== null);
+  const limit = Math.min(
+    given.length > 0 ? Math.min(...given) : SECURITY_DEFAULT_CALL_OUTPUT_TOKENS,
+    remaining,
+  );
+  if (limit < MIN_CALL_OUTPUT[route]) {
+    return null;
+  }
+  const thinking = route === 'messages' ? asObject(body.thinking) : null;
+  const budget = thinking?.type === 'enabled' ? positiveInteger(thinking.budget_tokens) : null;
+  if (thinking && budget !== null && budget >= limit) {
+    if (limit - 1 < MIN_THINKING_BUDGET) {
+      return null;
+    }
+    body.thinking = { ...thinking, budget_tokens: limit - 1 };
+  }
+  body[key] = limit;
+  return limit;
+}
+
+// --- Usage ---
+
+/**
+ * `input` is every input token. Of it, Anthropic cache writes cost 1.25× (5 m) and 2× (1 h)
+ * input; `cachedInput` (chat / Responses `cached_tokens`) costs the cached-input price.
+ */
+type ModelUsage = {
+  input: number;
+  output: number;
+  cacheWrite5m: number;
+  cacheWrite1h: number;
+  cachedInput: number;
+};
+
+/** Input tokens at the plain input price that cost what `usage` input costs. */
+function billedInputTokens(usage: ModelUsage): number {
+  return usage.input + Math.ceil(usage.cacheWrite5m / 4) + usage.cacheWrite1h;
+}
+
+function count(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : null;
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/** Usage in one answer or SSE event: chat / Workers AI, Anthropic Messages or Responses shape. */
+function readModelUsage(value: unknown): ModelUsage | null {
+  const event = asObject(value);
+  if (!event) {
+    return null;
+  }
+  let found: ModelUsage | null = null;
+  for (const holder of [event, asObject(event.message), asObject(event.response)]) {
+    const usage = asObject(holder?.usage);
+    if (!usage) {
+      continue;
+    }
+    const input = count(usage.prompt_tokens) ?? count(usage.input_tokens);
+    const output = count(usage.completion_tokens) ?? count(usage.output_tokens);
+    if (input === null && output === null) {
+      continue;
+    }
+    const detail = asObject(usage.cache_creation);
+    const cacheWrite1h = count(detail?.ephemeral_1h_input_tokens) ?? 0;
+    const cacheWrite5m = Math.max(
+      count(detail?.ephemeral_5m_input_tokens) ?? 0,
+      (count(usage.cache_creation_input_tokens) ?? 0) - cacheWrite1h,
+    );
+    const cacheRead = count(usage.cache_read_input_tokens) ?? 0;
+    // Cached tokens are inside the input total in both shapes.
+    const details = asObject(usage.prompt_tokens_details) ?? asObject(usage.input_tokens_details);
+    const total = (input ?? 0) + cacheWrite5m + cacheWrite1h + cacheRead;
+    found = mergeUsage(found, {
+      input: total,
+      output: output ?? 0,
+      cacheWrite5m,
+      cacheWrite1h,
+      cachedInput: Math.min(count(details?.cached_tokens) ?? 0, input ?? 0),
+    });
+  }
+  return found;
+}
+
+/** Streams repeat cumulative counts (Anthropic `message_start`, then `message_delta`). */
+function mergeUsage(a: ModelUsage | null, b: ModelUsage | null): ModelUsage | null {
+  if (!a || !b) {
+    return a ?? b;
+  }
+  return {
+    input: Math.max(a.input, b.input),
+    output: Math.max(a.output, b.output),
+    cacheWrite5m: Math.max(a.cacheWrite5m, b.cacheWrite5m),
+    cacheWrite1h: Math.max(a.cacheWrite1h, b.cacheWrite1h),
+    cachedInput: Math.max(a.cachedInput, b.cachedInput),
+  };
+}
+
+/** Reads `data:` lines of an SSE stream as they pass, keeping the highest usage seen. */
+class SseUsageReader {
+  private buffer = '';
+  private skipping = false;
+  // Anthropic only: `message_start` seen, final usage seen, an in-band error seen.
+  private started = false;
+  private finished = false;
+  private failed = false;
+  usage: ModelUsage | null = null;
+
+  /** The usage to bill; `null` for an Anthropic stream cut before its final usage. */
+  get final(): ModelUsage | null {
+    return this.started && (this.failed || !this.finished) ? null : this.usage;
+  }
+
+  push(text: string): void {
+    let start = 0;
+    for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', start)) {
+      const line = this.skipping ? '' : this.buffer + text.slice(start, index);
+      this.buffer = '';
+      this.skipping = false;
+      this.line(line);
+      start = index + 1;
+    }
+    if (this.skipping) {
+      return;
+    }
+    this.buffer += text.slice(start);
+    if (this.buffer.length > MAX_SSE_LINE_CHARS) {
+      this.buffer = '';
+      this.skipping = true;
+    }
+  }
+
+  end(): void {
+    if (!this.skipping && this.buffer.length > 0) {
+      this.line(this.buffer);
+    }
+    this.buffer = '';
+  }
+
+  private line(raw: string): void {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (!line.startsWith('data:')) {
+      return;
+    }
+    const data = line.slice(5).trim();
+    if (data.length === 0 || data === '[DONE]') {
+      return;
+    }
+    try {
+      const event: unknown = JSON.parse(data);
+      const usage = readModelUsage(event);
+      const type = asObject(event)?.type;
+      if (type === 'message_start') {
+        this.started = true;
+      } else if (type === 'message_stop' || (type === 'message_delta' && usage)) {
+        this.finished = true;
+      } else if (type === 'error') {
+        this.failed = true;
+      }
+      this.usage = mergeUsage(this.usage, usage);
+    } catch {
+      // Not JSON: nothing to count.
+    }
+  }
+}
+
+/** Passes `source` through and calls `done` once, with `null` when it fails or is canceled. */
+function meteredStream(
+  source: ReadableStream<Uint8Array>,
+  done: (usage: ModelUsage | null) => Promise<void>,
+): ReadableStream<Uint8Array> {
+  const reader = source.getReader();
+  const decoder = new TextDecoder();
+  const sse = new SseUsageReader();
+  let finished = false;
+  const finish = async (usage: ModelUsage | null) => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    await done(usage);
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let chunk: ReadableStreamReadResult<Uint8Array>;
+      try {
+        chunk = await reader.read();
+      } catch (error) {
+        await finish(null);
+        controller.error(error);
+        return;
+      }
+      if (chunk.done) {
+        sse.push(decoder.decode());
+        sse.end();
+        await finish(sse.final);
+        controller.close();
+        return;
+      }
+      sse.push(decoder.decode(chunk.value, { stream: true }));
+      controller.enqueue(chunk.value);
+    },
+    async cancel(reason) {
+      await finish(null);
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
+// --- Upstream ---
+
+type CallPlan = Readonly<{
+  scanId: string;
+  model: SecurityModelId;
+  route: ModelApi;
+  body: Record<string, unknown>;
+  stream: boolean;
+  headers: Headers;
+  /** A saved provider key: the call goes to the provider-native route on it. */
+  ownKey: SecurityProviderKey | null;
+}>;
+
+/** What the upstream answered, before metering. */
+type Upstream =
+  | Readonly<{ kind: 'json'; value: unknown }>
+  | Readonly<{ kind: 'stream'; body: ReadableStream<Uint8Array> }>
+  // Billing unknown (unreadable 2xx, or lost with no status): the worst case stays charged.
+  | Readonly<{ kind: 'paid_unreadable'; detail: string }>
+  | Readonly<{ kind: 'failed'; status: number; credits: boolean; detail: string }>;
+
+/** Provider error codes that mean a policy refusal (spec §8.4). */
+const PROVIDER_POLICY_CODES = ['cyber_policy', 'trusted_access_for_cyber'] as const;
+
+/**
+ * The policy code in a provider error body, or `null`: any `code` or `type` field at any
+ * depth, also in JSON held as text. A cut body is searched for the quoted code.
+ */
+function providerPolicyCode(detail: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(detail);
+  } catch {
+    // Quoted, so the code inside an escaped echo of the request (`\"cyber_policy\"`) is not read.
+    return PROVIDER_POLICY_CODES.find((known) => detail.includes(`"${known}"`)) ?? null;
+  }
+  return policyCodeIn(parsed, 0);
+}
+
+function policyCodeIn(value: unknown, depth: number): string | null {
+  if (depth > 6) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text.startsWith('{') && !text.startsWith('[')) {
+      return null;
+    }
+    try {
+      return policyCodeIn(JSON.parse(text), depth + 1);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+  const entries = Array.isArray(value)
+    ? value.map((item) => ['', item] as const)
+    : Object.entries(value as Record<string, unknown>);
+  for (const [key, item] of entries) {
+    if (key === 'code' || key === 'type') {
+      const match = PROVIDER_POLICY_CODES.find((known) => known === item);
+      if (match) {
+        return match;
+      }
+    }
+    const nested = policyCodeIn(item, depth + 1);
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
+function statusOf(error: unknown): number | null {
+  for (let current = error, depth = 0; current && depth < 4; depth++) {
+    const record = asObject(current);
+    const status = record?.status ?? record?.statusCode;
+    if (typeof status === 'number' && status >= 400 && status <= 599) {
+      return status;
+    }
+    current = record?.cause;
+  }
+  return null;
+}
+
+/**
+ * The leading `<code>:` of a Workers AI binding error, also after a class name
+ * (`AiError: 3040: …`). A code means Workers AI refused, so nothing was billed.
+ */
+function workersAiErrorCode(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  let rest = message.trimStart();
+  for (let part = 0; part < 2; part++) {
+    const colon = rest.indexOf(':');
+    if (colon <= 0) {
+      return null;
+    }
+    const head = rest.slice(0, colon).trim();
+    if (head.length > 0 && Array.from(head).every((char) => char >= '0' && char <= '9')) {
+      return head;
+    }
+    // Not a code: skip one leading class name, then look once more.
+    rest = rest.slice(colon + 1).trimStart();
+  }
+  return null;
+}
+
+/** The binding answer in chat-completions shape, which Engine B reads. */
+function asChatCompletion<T>(model: string, value: T) {
+  const result = asObject(value);
+  if (!result || Array.isArray(result.choices)) {
+    return value;
+  }
+  const raw = Array.isArray(result.tool_calls) ? result.tool_calls : [];
+  const toolCalls = raw.flatMap((entry: unknown, index: number) => {
+    const call = asObject(entry);
+    if (!call) {
+      return [];
+    }
+    if (asObject(call.function)) {
+      return [call];
+    }
+    if (typeof call.name !== 'string') {
+      return [];
+    }
+    return [
+      {
+        id: typeof call.id === 'string' ? call.id : `call_${index}`,
+        type: 'function',
+        function: {
+          name: call.name,
+          arguments:
+            typeof call.arguments === 'string'
+              ? call.arguments
+              : JSON.stringify(call.arguments ?? {}),
+        },
+      },
+    ];
+  });
+  return {
+    object: 'chat.completion',
+    model,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: typeof result.response === 'string' ? result.response : null,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+        },
+        finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+      },
+    ],
+    ...(result.usage === undefined ? {} : { usage: result.usage }),
+  };
+}
+
+async function callWorkersAi(
+  deps: SecurityModelProxyDeps,
+  plan: CallPlan,
+  tag: string,
+): Promise<Upstream> {
+  if (!deps.ai) {
+    return { kind: 'failed', status: 503, credits: false, detail: 'no AI binding' };
+  }
+  const { model: _model, ...inputs } = plan.body;
+  try {
+    const result: unknown = await deps.ai.run(
+      plan.model as keyof AiModels,
+      inputs as never,
+      {
+        gateway: {
+          id: deps.gatewayId,
+          skipCache: true,
+          collectLog: true,
+          metadata: { securityScan: tag },
+        },
+        extraHeaders: { 'cf-aig-collect-log-payload': 'false', 'cf-aig-skip-cache': 'true' },
+      } as never,
+    );
+    if (result instanceof ReadableStream) {
+      return { kind: 'stream', body: result as ReadableStream<Uint8Array> };
+    }
+    return { kind: 'json', value: asChatCompletion(plan.model, result) };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const code = workersAiErrorCode(error);
+    // 3036 (daily free allocation) and 3040 (out of capacity): the account-wide 429.
+    let status = statusOf(error) ?? (code === '3036' || code === '3040' ? 429 : null);
+    if (status === null) {
+      if (code === null) {
+        // No status and no Workers AI code: the model may have answered and billed it.
+        return { kind: 'paid_unreadable', detail };
+      }
+      // A coded refusal (`5006: …`, `5007: No such model`): nothing was billed.
+      status = 502;
+    }
+    // Only a 402 is a credits stop: an error text is not read for it.
+    return { kind: 'failed', status, credits: status === 402, detail };
+  }
+}
+
+async function callGateway(
+  deps: SecurityModelProxyDeps,
+  plan: CallPlan,
+  tag: string,
+): Promise<Upstream> {
+  // Built from nothing: the caller's credentials and `cf-aig-*` headers never pass.
+  const headers = new Headers({
+    authorization: `Bearer ${deps.apiToken}`,
+    'content-type': 'application/json',
+    accept: plan.stream ? 'text/event-stream' : 'application/json',
+    'cf-aig-gateway-id': deps.gatewayId,
+    'cf-aig-metadata': JSON.stringify({ securityScan: tag }),
+    'cf-aig-collect-log': 'true',
+    'cf-aig-collect-log-payload': 'false',
+    'cf-aig-skip-cache': 'true',
+  });
+  if (plan.route === 'messages') {
+    const version = plan.headers.get('anthropic-version');
+    if (version !== null) {
+      headers.set('anthropic-version', version);
+    }
+    const betas = allowedAnthropicBetas(plan.headers.get('anthropic-beta'));
+    if (betas !== null) {
+      headers.set('anthropic-beta', betas);
+    }
+  }
+  const path = plan.route === 'messages' ? 'messages' : 'responses';
+  if (plan.ownKey && !deps.ai) {
+    // Nothing is sent, so nothing is billed.
+    return { kind: 'failed', status: 503, credits: false, detail: 'no AI binding' };
+  }
+  let response: Response;
+  try {
+    if (plan.ownKey) {
+      // The provider-native route on the saved key: no Cloudflare token goes upstream.
+      headers.delete('authorization');
+      headers.delete('cf-aig-gateway-id');
+      response = await callWithSecurityProviderKey(deps.ai, deps.gatewayId, {
+        key: plan.ownKey,
+        body: plan.body,
+        headers: Object.fromEntries(headers),
+      });
+    } else {
+      response = await deps.fetch(`${CF_API_BASE}/${deps.accountId}/ai/v1/${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(plan.body),
+      });
+    }
+  } catch (error) {
+    // Lost on the way: the provider may have answered and billed it.
+    return { kind: 'paid_unreadable', detail: errorMessage(error) };
+  }
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => '')).slice(0, 8000);
+    return { kind: 'failed', status: response.status, credits: response.status === 402, detail };
+  }
+  if (plan.stream && response.body) {
+    return { kind: 'stream', body: response.body as ReadableStream<Uint8Array> };
+  }
+  try {
+    return { kind: 'json', value: await response.json() };
+  } catch {
+    return { kind: 'paid_unreadable', detail: 'answer is not JSON' };
+  }
+}
+
+// --- The call ---
+
+/** The body as text, or `null` past `limit` bytes. */
+async function readLimited(request: Request, limit: number): Promise<string | null> {
+  if (!request.body) {
+    return '';
+  }
+  const reader = (request.body as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+function parseObject(text: string): Record<string, unknown> | null {
+  try {
+    return asObject(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+function notRunning(): Response {
+  return refuse(409, 'scan_not_running', 'This scan attempt is not running.');
+}
+
+/** Handles one container request for scan `scanId`, attempt `attempt`. */
+export async function handleSecurityModelRequest(
+  deps: SecurityModelProxyDeps,
+  scanId: string,
+  attempt: number,
+  request: Request,
+): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method === 'GET' && url.pathname === SECURITY_MODEL_FAILURE_PATH) {
+    return Response.json({ failure: await deps.lastFailure(scanId, attempt) });
+  }
+  const route = ROUTES[url.pathname];
+  if (request.method !== 'POST' || route === undefined) {
+    return refuse(404, 'not_found', 'Unknown model route.');
+  }
+  const session = parseSecuritySession(request.headers.get(SECURITY_SESSION_HEADER));
+  if (session === 'invalid') {
+    return refuse(400, 'invalid_request', `${SECURITY_SESSION_HEADER} must be 0–63.`);
+  }
+  const text = await readLimited(request, SECURITY_MODEL_MAX_REQUEST_BYTES);
+  if (text === null) {
+    return refuse(413, 'request_too_large', 'The model request is too large.');
+  }
+  const body = parseObject(text);
+  if (!body) {
+    return refuse(400, 'invalid_request', 'The model request must be a JSON object.');
+  }
+
+  const failed = async (reason: ModelCallFailureReason, response: Response) => {
+    await deps
+      .recordFailure(scanId, attempt, { reason, httpStatus: response.status, at: deps.now() })
+      .catch((error: unknown) => console.error('[security-model-proxy] record failure', error));
+    return response;
+  };
+  const stopped = (reason: SecurityProxyStop) => failed(reason, stop(reason));
+  const capAlertFailed = (error: unknown) =>
+    console.error('[security-model-proxy] cap alert failed', { scanId, attempt, error });
+
+  const scan = await deps.loadScan(scanId);
+  const fence = judgeScanFence(scan, attempt, deps.now());
+  if (!scan || !fence.ok) {
+    return notRunning();
+  }
+  // The key before the policy: a key removal clears the probe result in one transaction,
+  // so the other order could run on Unified Billing credits the probe never checked.
+  let ownKey: SecurityProviderKey | null = null;
+  if (route !== 'chat' && deps.providerKey) {
+    try {
+      ownKey = await deps.providerKey(ROUTE_HOST[route] as SecurityThirdPartyHost);
+    } catch (error) {
+      // Never a quiet move to Unified Billing credits: the call fails, the runner retries.
+      console.error('[security-model-proxy] saved provider key unreadable', {
+        scanId,
+        attempt,
+        error: errorMessage(error),
+      });
+      return failed(
+        'upstream',
+        refuse(503, 'upstream_failed', 'The platform could not read its saved provider key.'),
+      );
+    }
+  }
+  const policy = await deps.readPolicy();
+  const verdict = judgeSecurityModelCall({ route, bodyModel: body.model, scan, policy });
+  if (!verdict.ok) {
+    return failed('not_allowed', refuse(verdict.status, verdict.error, verdict.message));
+  }
+  const model = verdict.model;
+  const bodyRefusal = judgeModelRequestBody(route, body);
+  if (bodyRefusal) {
+    return failed('not_allowed', refuse(422, 'tool_not_allowed', bodyRefusal));
+  }
+  const limits = policy.limits;
+  if (scan.modelCalls >= limits.modelCallsPerScan) {
+    return stopped('scan_calls');
+  }
+  if (scan.tokensIn >= limits.maxInputTokens || scan.tokensOut >= limits.maxOutputTokens) {
+    return stopped('tokens');
+  }
+
+  if (route === 'responses') {
+    // Always the proxy's own value (spec §15.4): Codex drops its flag without an OpenAI login.
+    body.access_programs = { cyber: 'standard' };
+  }
+  if (route !== 'chat') {
+    body.model = ownKey ? securityProviderModelName(model) : gatewayModelName(model);
+  }
+  const callOutput = clampCallOutput(route, body, limits.maxOutputTokens - scan.tokensOut);
+  if (callOutput === null) {
+    return stopped('tokens');
+  }
+  const stream = body.stream === true;
+  const forwarded = route === 'chat' ? { ...body, model: undefined } : body;
+  // A token is at least one byte, so the body length bounds the input tokens.
+  const worstInput = new TextEncoder().encode(JSON.stringify(forwarded)).byteLength;
+  // An Anthropic input token written to the 1 h cache costs 2× input.
+  const worstBilledInput = route === 'messages' ? worstInput * 2 : worstInput;
+  const worstNano = securityModelCostNanoUsd(model, worstBilledInput, callOutput) ?? 0;
+
+  // Session count and `@cf` rate token. Waiting here does not use a model call.
+  const waitUntil = deps.now() + SECURITY_RATE_WAIT_LIMIT_MS;
+  let waited = false;
+  for (;;) {
+    const admitted = await deps.admit({
+      scanId,
+      attempt,
+      session,
+      rateModel: route === 'chat' ? model : null,
+      now: deps.now(),
+    });
+    if (admitted.ok) {
+      break;
+    }
+    if (admitted.reason === 'session_calls') {
+      return stopped('session_calls');
+    }
+    const left = waitUntil - deps.now();
+    if (left <= 0) {
+      return failed('rate_wait', refuse(503, 'rate_limited', 'Waited too long for a model slot.'));
+    }
+    waited = true;
+    await deps.sleep(Math.min(admitted.waitMs, left));
+  }
+
+  // A cap lowered during the wait applies to this call (spec §16.1, edge #50).
+  const capScan = waited ? await deps.loadScan(scanId) : scan;
+  if (!capScan || !judgeScanFence(capScan, attempt, deps.now()).ok) {
+    return notRunning();
+  }
+  const caps = securitySpendCaps(capScan, (waited ? await deps.readPolicy() : policy).budgets);
+  const hold = await deps.hold({
+    scanId,
+    attempt,
+    projectId: scan.projectId,
+    worstNano,
+    maxCalls: limits.modelCallsPerScan,
+    maxInputTokens: limits.maxInputTokens,
+    maxOutputTokens: limits.maxOutputTokens,
+    caps,
+    now: deps.now(),
+  });
+  if (!hold.ok) {
+    if (hold.reason === 'fence') {
+      return notRunning();
+    }
+    // Only a cap whose spend reached it is used up; a call too big for what is left is not.
+    if (hold.reason === 'budget' && hold.spentNano >= hold.capNano) {
+      await deps
+        .notifyCapRefused?.({
+          projectId: scan.projectId,
+          month: securitySpendMonth(deps.now()),
+          cap: hold.cap,
+        })
+        .catch(capAlertFailed);
+    }
+    return stopped(hold.reason);
+  }
+
+  // `paid`: the model answered. Without usage in that answer the worst case stays
+  // charged, tokens included; a call that failed upstream costs nothing.
+  const settle = async (usage: ModelUsage | null, paid: boolean) => {
+    const tokens =
+      usage ?? (paid ? { input: worstInput, output: callOutput } : { input: 0, output: 0 });
+    const actualNano = usage
+      ? (securityModelCostNanoUsd(
+          model,
+          billedInputTokens(usage),
+          usage.output,
+          usage.cachedInput,
+        ) ?? 0)
+      : paid
+        ? hold.holdNano
+        : 0;
+    try {
+      const settlement = await deps.settle({
+        scanId,
+        projectId: scan.projectId,
+        month: hold.month,
+        holdNano: hold.holdNano,
+        actualNano,
+        inputTokens: tokens.input,
+        outputTokens: tokens.output,
+      });
+      await deps
+        .notifyCaps?.({ projectId: scan.projectId, month: hold.month, caps, settlement })
+        .catch(capAlertFailed);
+    } catch (error) {
+      // The hold stays charged: the meter errs high, never low.
+      console.error('[security-model-proxy] settle failed', { scanId, attempt, error });
+    }
+  };
+
+  const tag = await deps.scanTag(scanId);
+  const plan: CallPlan = { scanId, model, route, body, stream, headers: request.headers, ownKey };
+  const upstream =
+    route === 'chat' ? await callWorkersAi(deps, plan, tag) : await callGateway(deps, plan, tag);
+
+  if (upstream.kind === 'failed') {
+    await settle(null, false);
+    if (route === 'chat' && upstream.status === 429) {
+      // Tenant apps share the account's Workers AI limit: slow every scan on this model.
+      await deps
+        .rateLimited(model, deps.now())
+        .catch((error: unknown) => console.error('[security-model-proxy] rate back-off', error));
+    }
+    if (upstream.credits) {
+      return stopped('credits');
+    }
+    console.error('[security-model-proxy] upstream failed', {
+      scanId,
+      attempt,
+      model,
+      status: upstream.status,
+      detail: upstream.detail.slice(0, 500),
+    });
+    const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+    const policyCode = providerPolicyCode(upstream.detail);
+    if (policyCode) {
+      // A refusal, not an outage: the code goes on so the scan ends `refused` (spike S9).
+      return failed(
+        'refused',
+        refuse(
+          status === 401 ? 400 : status,
+          policyCode,
+          'The model provider refused this request.',
+        ),
+      );
+    }
+    // No bare 402 (the runner reads credits) or 401 (Claude Code retries it for minutes).
+    return failed(
+      'upstream',
+      refuse(
+        status === 402 || status === 401 ? 502 : status,
+        'upstream_failed',
+        'The model call failed.',
+      ),
+    );
+  }
+  if (upstream.kind === 'paid_unreadable') {
+    await settle(null, true);
+    console.error('[security-model-proxy] unreadable answer', {
+      scanId,
+      attempt,
+      model,
+      detail: upstream.detail.slice(0, 500),
+    });
+    return failed(
+      'upstream',
+      refuse(502, 'upstream_failed', 'The model answer could not be read.'),
+    );
+  }
+  if (upstream.kind === 'stream') {
+    return new Response(
+      meteredStream(upstream.body, (usage) => settle(usage, true)),
+      { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' } },
+    );
+  }
+  await settle(readModelUsage(upstream.value), true);
+  return Response.json(upstream.value);
+}

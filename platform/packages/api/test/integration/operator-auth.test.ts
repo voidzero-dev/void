@@ -10,8 +10,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -46,7 +46,7 @@ describe('operator authentication', () => {
     const res = await request('/session', admin.jwt, {});
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
-    const body = (await res.json()) as { token: string; expiresAt: string; user: { id: string } };
+    const body = await res.json<{ token: string; expiresAt: string; user: { id: string } }>();
     const payload = await verifyJwt(body.token, env.JWT_SECRET, 'operator');
     expect(payload).toMatchObject({
       sub: admin.id,
@@ -82,17 +82,17 @@ describe('operator authentication', () => {
     );
     const created = await request('/session', admin.jwt, {});
     expect(created.status).toBe(200);
-    const createdBody = (await created.json()) as { token: string; expiresAt: string };
+    const createdBody = await created.json<{ token: string; expiresAt: string }>();
 
     const confirmed = await request('/session', createdBody.token);
     expect(confirmed.status).toBe(200);
-    const confirmedBody = (await confirmed.json()) as {
+    const confirmedBody = await confirmed.json<{
       apiVersion: number;
       expiresAt: string;
       user: { id: string; login: string; role: string };
       capabilities: Record<string, unknown>;
       hostedWorkerOperations: unknown;
-    };
+    }>();
 
     // The expiry round-trips through Postgres as a timestamp without time zone,
     // and the string-mode column mapping reformats it as SQL text; the handler
@@ -166,7 +166,7 @@ describe('operator authentication', () => {
       maintenanceEnv,
     );
     expect(elevation.status).toBe(200);
-    const { token } = (await elevation.json()) as { token: string };
+    const { token } = await elevation.json<{ token: string }>();
     expect(
       (
         await app.fetch(
@@ -235,7 +235,7 @@ describe('operator authentication', () => {
     );
     expect(res.status).toBe(401);
     expect(res.headers.get('Location')).toBeNull();
-    expect(((await res.json()) as { error: string }).error).toBe('unauthorized');
+    expect((await res.json<{ error: string }>()).error).toBe('unauthorized');
   });
 
   test('revokes sessions on logout and enforces current role and suspension', async () => {

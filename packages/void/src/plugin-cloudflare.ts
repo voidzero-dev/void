@@ -5,7 +5,8 @@ import {
   readBuildOutput,
 } from '@cloudflare/build-output-utils';
 import { convertToWranglerConfig } from '@cloudflare/config';
-import { cloudflare as cloudflareV2, type PluginConfig } from '@cloudflare/vite-plugin';
+import { cloudflare as cloudflareV2 } from '@cloudflare/vite-plugin';
+import type { PluginConfig } from '@cloudflare/vite-plugin';
 import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import type { BuildEnvironment, Plugin } from 'vite';
 import { readGeneratedWranglerConfigFile } from './cli/generated-wrangler-config.ts';
@@ -14,9 +15,8 @@ import {
   nativeAuxiliaryWorkers,
   restoreLocalContainerBindings,
   toNativeCloudflareConfig,
-  type AuxiliaryWorkerConfig,
-  type WorkerConfig,
 } from './plugin-cloudflare-config.ts';
+import type { AuxiliaryWorkerConfig, WorkerConfig } from './plugin-cloudflare-config.ts';
 import { withLocalPreviewBindings } from './plugin-cloudflare-preview.ts';
 import { isVitestServer } from './plugin-dev-config.ts';
 import { writeFileAtomic } from './shared/atomic-write.ts';
@@ -90,7 +90,7 @@ export function cloudflare(options: {
       workerConfig = mergeCloudflareConfig(options.config(base), base);
       native = toNativeCloudflareConfig(workerConfig, root);
       pluginNative = structuredClone(native);
-      if (environment.command === 'build' && native.containers.length > 0) {
+      if (environment.command === 'build' && (native.containers?.length ?? 0) > 0) {
         // Void builds images during deployment preparation. Managed builds consume
         // the Worker bundle and must not acquire a local Docker prerequisite.
         pluginNative.containers = [];
@@ -154,8 +154,11 @@ export function cloudflare(options: {
         const built = await readBuildOutput(root);
         const worker = built.workers.default;
         const environment = options.viteEnvironment.name ?? 'ssr';
-        const destination = outputDirectories.get(environment)!;
-        const client = outputDirectories.get('client')!;
+        const destination = outputDirectories.get(environment);
+        const client = outputDirectories.get('client');
+        if (!destination || !client) {
+          throw new Error('Void requires configured Worker and client output directories.');
+        }
         if (!worker.bundleDir || !worker.config.manifest) {
           throw new Error('Void requires a built Cloudflare Worker.');
         }
@@ -194,9 +197,9 @@ export function cloudflare(options: {
         writeFileAtomic(join(destination, 'wrangler.json'), `${JSON.stringify(config, null, 2)}\n`);
         if (options.finalizeAssets) {
           options.finalizeAssets(client, builder.environments.client);
-          const finalized: WorkerConfig = JSON.parse(
+          const finalized = JSON.parse(
             readFileSync(join(destination, 'wrangler.json'), 'utf8'),
-          );
+          ) as WorkerConfig;
           // Preview and prebuilt uploads must use the same asset routing and cache
           // headers as the validated dist output, including free static requests.
           if (worker.config.assets && finalized.assets) {
@@ -207,7 +210,7 @@ export function cloudflare(options: {
             cpSync(client, worker.assetsDir, { recursive: true });
           }
         }
-        if (native.containers.length > 0) {
+        if ((native.containers?.length ?? 0) > 0) {
           writeFileAtomic(
             join(dirname(getRootConfigPath(root)), 'void-containers.json'),
             JSON.stringify({ workerDirectory: relative(root, destination) }),

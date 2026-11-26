@@ -5,21 +5,26 @@ import {
   readStoredResourceName,
   readWranglerTopLevelString,
   assertExistingCloudflareConfig,
-  type ExistingCloudflareWorker,
-  type ApprovedCloudflareKvBinding,
+} from '@void/deploy-cloudflare';
+import type {
+  ExistingCloudflareWorker,
+  ApprovedCloudflareKvBinding,
 } from '@void/deploy-cloudflare';
 import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { basename, dirname, relative } from 'pathslash';
-import { analyzeApplicationSync, type ApplicationAnalysis } from '../application-analysis.ts';
+import { analyzeApplicationSync } from '../application-analysis.ts';
+import type { ApplicationAnalysis } from '../application-analysis.ts';
 import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
-import { resolveBindingNames, type VoidConfig } from '../config.ts';
-import { detectFramework } from '../plugin-inference.ts';
+import { resolveBindingNames } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
+import type { detectFramework } from '../plugin-inference.ts';
 import { cloudflareQueueName } from '../queues/cloudflare-names.ts';
 import { assertSandboxNamespaceConfig, resolveSandboxConfig } from '../sandbox/config.ts';
 import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import { classifyCloudflareDeployApp } from './cloudflare-deploy/classify.ts';
 import { approvedCloudflareIsrBinding, chooseCloudflareIsr } from './cloudflare-isr.ts';
-import { readCloudflareLink, type CloudflareLink } from './cloudflare-link.ts';
+import { readCloudflareLink } from './cloudflare-link.ts';
+import type { CloudflareLink } from './cloudflare-link.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 import { resolveEnvSchemaFactsDefault } from './deploy-artifact-validation.ts';
 import {
@@ -53,22 +58,19 @@ import {
 } from './deploy-resources.ts';
 import { printDeployContext } from './deploy-summary.ts';
 import { buildSchemaProbeEnv } from './deploy-transport.ts';
-import {
-  type RunDeployOptions,
-  type CloudflareDeployDeps,
-  type EmailAddressMapInput,
+import type {
+  RunDeployOptions,
+  CloudflareDeployDeps,
+  EmailAddressMapInput,
 } from './deploy-types.ts';
 import { createNodeEmailDns, SEND_EMAIL_BINDING } from './email-cloudflare.ts';
 import type { EnvSchemaProbeResult } from './env-schema-probe.ts';
-import { selfHostSchemaFailureMessage, type SelfHostSchemaFacts } from './env-validation.ts';
-import { type CliLogger } from './log-file.ts';
+import { selfHostSchemaFailureMessage } from './env-validation.ts';
+import type { SelfHostSchemaFacts } from './env-validation.ts';
+import type { CliLogger } from './log-file.ts';
 import { getErrorMessage } from './output.ts';
-import {
-  checkCloudflareProvisionDrift,
-  provisionCloudflareResources,
-  type ComplianceRegion,
-  type ProvisionDriftEntry,
-} from './provision.ts';
+import { checkCloudflareProvisionDrift, provisionCloudflareResources } from './provision.ts';
+import type { ComplianceRegion, ProvisionDriftEntry } from './provision.ts';
 import { sameMigrationsDir, writeProvisionedWranglerConfig } from './wrangler.ts';
 
 /** Validate source-level native deploy inputs before account operations or project code. */
@@ -624,6 +626,7 @@ export async function preflightCloudflareWorker(input: {
     options.provision ||
     initiallyMissing.length > 0 ||
     d1NeedsConfigReconciliation ||
+    (!existingWorker && desired.d1?.readReplication !== undefined) ||
     absentQueues.length > 0
   ) {
     await provisionAndVerify();
@@ -647,12 +650,18 @@ export async function preflightCloudflareWorker(input: {
               })),
               consumers: frameworkQueues.map((queue) => ({
                 queue: cloudflareQueueName(queue.name, desired.queueNames),
-                ...(queue.maxBatchSize != null && { max_batch_size: queue.maxBatchSize }),
-                ...(queue.maxBatchTimeout != null && {
-                  max_batch_timeout: queue.maxBatchTimeout,
-                }),
-                ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
-                ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
+                ...(queue.maxBatchSize !== null &&
+                  queue.maxBatchSize !== undefined && { max_batch_size: queue.maxBatchSize }),
+                ...(queue.maxBatchTimeout !== null &&
+                  queue.maxBatchTimeout !== undefined && {
+                    max_batch_timeout: queue.maxBatchTimeout,
+                  }),
+                ...(queue.maxRetries !== null &&
+                  queue.maxRetries !== undefined && { max_retries: queue.maxRetries }),
+                ...(queue.maxConcurrency !== null &&
+                  queue.maxConcurrency !== undefined && { max_concurrency: queue.maxConcurrency }),
+                ...(queue.retryDelay !== null &&
+                  queue.retryDelay !== undefined && { retry_delay: queue.retryDelay }),
               })),
               reconcileVoidOwned: true,
             },

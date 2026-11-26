@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   createDefaultRunWrangler,
   isAlreadyGoneKillError,
@@ -20,14 +21,14 @@ import {
   makeRunner,
   provisionCloudflareResources,
   silentLog,
-  useProvisionTestDir,
+  setupProvisionTestDir,
   waitForDead,
 } from './provision-fixtures.ts';
 
-const { tmpDir, wranglerPath, setup } = useProvisionTestDir('runner-timeouts');
+const { tmpDir, wranglerPath, setup } = setupProvisionTestDir('runner-timeouts');
 
 describe('createDefaultRunWrangler — hard timeout kills the REAL process', () => {
-  const TIMEOUT_TMP = join(import.meta.dirname, '.tmp-timeout-kill');
+  const TIMEOUT_TMP = packageFixturePath(import.meta.dirname, '.tmp-timeout-kill');
   beforeEach(() => {
     rmSync(TIMEOUT_TMP, { recursive: true, force: true });
     mkdirSync(TIMEOUT_TMP, { recursive: true });
@@ -97,7 +98,7 @@ describe('createDefaultRunWrangler — hard timeout kills the REAL process', () 
     const run = createDefaultRunWrangler(TIMEOUT_TMP, {
       launcher: [process.execPath, wrapper],
       // Long enough for the wrapper and grandchild to start under load.
-      timeoutMs: 1_500,
+      timeoutMs: 1500,
     });
     const start = Date.now();
     const result = await run({ type: 'd1.list' }, { accountId: 'acct' });
@@ -106,14 +107,14 @@ describe('createDefaultRunWrangler — hard timeout kills the REAL process', () 
     expect(result.signal).toBe('SIGKILL');
     expect(result.status).not.toBe(0);
     // The process-group kill reaped the grandchild too.
-    const gcPid = Number(readFileSync(gcPidFile, 'utf-8'));
+    const gcPid = Number(readFileSync(gcPidFile, 'utf8'));
     expect(Number.isInteger(gcPid)).toBe(true);
     expect(await waitForDead(gcPid, 10_000)).toBe(true);
   }, 25_000);
 });
 
 describe('withListerDeadline — the deadline holds in a real process', () => {
-  const LISTER_DEADLINE_TMP = join(import.meta.dirname, '.tmp-lister-deadline');
+  const LISTER_DEADLINE_TMP = packageFixturePath(import.meta.dirname, '.tmp-lister-deadline');
   beforeEach(() => {
     rmSync(LISTER_DEADLINE_TMP, { recursive: true, force: true });
     mkdirSync(LISTER_DEADLINE_TMP, { recursive: true });
@@ -157,7 +158,7 @@ describe('withListerDeadline — the deadline holds in a real process', () => {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
-    child.stdout.setEncoding('utf-8');
+    child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       stdout += chunk;
     });
@@ -227,7 +228,7 @@ describe('createDefaultRunWrangler — confirmed child termination + kill classi
       const left = existsSync(killClassifyTmp) ? readdirSync(killClassifyTmp) : [];
       const live = left
         .filter((entry) => entry.endsWith('.pid'))
-        .map((entry) => Number(readFileSync(join(killClassifyTmp, entry), 'utf-8').trim()))
+        .map((entry) => Number(readFileSync(join(killClassifyTmp, entry), 'utf8').trim()))
         .filter((pid) => {
           try {
             process.kill(pid, 0);
@@ -241,14 +242,14 @@ describe('createDefaultRunWrangler — confirmed child termination + kill classi
         `  entries remaining: ${left.length > 0 ? left.join(', ') : '(none)'}\n` +
         `  recorded pids still resolving to a live process: ${live.length > 0 ? live.join(', ') : 'none'}`;
       if (live.length > 0) {
-        throw new Error(`could not remove ${killClassifyTmp}: ${detail}`);
+        throw new Error(`could not remove ${killClassifyTmp}: ${detail}`, { cause: error });
       }
       // Nothing of ours is running, so warn instead of failing on temp-file cleanup.
       console.warn(`warn: leaving ${killClassifyTmp} behind — ${detail}`);
     }
   };
   beforeEach(() => {
-    killClassifyTmp = mkdtempSync(join(import.meta.dirname, '.tmp-kill-classify-'));
+    killClassifyTmp = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-kill-classify-'));
   });
   afterEach(() => {
     rmTmp();
@@ -411,7 +412,7 @@ describe('createDefaultRunWrangler — confirmed child termination + kill classi
     ).rejects.toThrow(/d1 list.*(failed|timeout)/s);
     const pid = spawnedPid!;
     expect(pid).toBeTypeOf('number');
-    expect(await waitForDead(pid, 5_000)).toBe(true);
+    expect(await waitForDead(pid, 5000)).toBe(true);
     expect(existsSync(lockMutex)).toBe(false);
   }, 15_000);
 });

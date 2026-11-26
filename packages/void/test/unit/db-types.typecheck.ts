@@ -1,16 +1,7 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { expectTypeOf } from 'vite-plus/test';
-import {
-  and,
-  asc,
-  createDb,
-  eq,
-  sql,
-  type AnyColumn,
-  type BatchItem,
-  type SQL,
-  type SQLWrapper,
-} from '../../src/runtime/db.ts';
+import { and, asc, createDb, eq, sql } from '../../src/runtime/db/index.ts';
+import type { AnyColumn, BatchItem, SQL, SQLWrapper } from '../../src/runtime/db/index.ts';
 
 const posts = sqliteTable('posts', {
   id: integer('id').primaryKey(),

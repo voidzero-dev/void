@@ -10,8 +10,8 @@ export default function App() {
   const [email, setEmail] = useState('');
 
   useEffect(() => {
-    fetch('/api/hello').then(setHello);
-    fetch('/api/users').then(setUsers);
+    void fetch('/api/hello').then(setHello);
+    void fetch('/api/users').then(setUsers);
   }, []);
 
   async function createUser(e: React.FormEvent) {
@@ -22,7 +22,7 @@ export default function App() {
     });
     setName('');
     setEmail('');
-    fetch('/api/users').then(setUsers);
+    void fetch('/api/users').then(setUsers);
   }
 
   return (

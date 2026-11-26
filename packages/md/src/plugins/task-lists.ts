@@ -3,44 +3,46 @@ import type { RuleCore, Token } from 'markdown-exit';
 
 const markerRE = /^\[([ xX])\][ \t]+(?=\S)/;
 
+const taskListRule: RuleCore = (state) => {
+  const tokens = state.tokens;
+  for (let index = 2; index < tokens.length; index++) {
+    const inline = tokens[index];
+    if (
+      inline.type !== 'inline' ||
+      tokens[index - 1].type !== 'paragraph_open' ||
+      tokens[index - 2].type !== 'list_item_open'
+    ) {
+      continue;
+    }
+    const match = markerRE.exec(inline.content);
+    const children = inline.children;
+    const first = children?.[0];
+    if (!match || !first || first.type !== 'text' || !first.content.startsWith(match[0])) {
+      continue;
+    }
+    const item = tokens[index - 2];
+    const checkbox = new state.Token('html_inline', '', 0);
+    checkbox.content = `<input class="task-list-item-checkbox" type="checkbox" disabled${
+      match[1] === ' ' ? '' : ' checked'
+    }> `;
+    first.content = first.content.slice(match[0].length);
+    inline.content = inline.content.slice(match[0].length);
+    children.unshift(checkbox);
+    item.attrJoin('class', 'task-list-item');
+    const list = findParentList(tokens, index - 2);
+    if (list && !list.attrGet('class')?.split(' ').includes('contains-task-list')) {
+      list.attrJoin('class', 'contains-task-list');
+    }
+  }
+};
+
 /**
  * GitHub-style task lists: `- [ ] todo` and `- [x] done`. Each item gets a
  * disabled checkbox and the `task-list-item` class, and its list gets
  * `contains-task-list`, which the theme styles.
  */
 export function taskListPlugin(md: MarkdownExit): void {
-  const rule: RuleCore = (state) => {
-    const tokens = state.tokens;
-    for (let index = 2; index < tokens.length; index++) {
-      const inline = tokens[index];
-      if (
-        inline.type !== 'inline' ||
-        tokens[index - 1].type !== 'paragraph_open' ||
-        tokens[index - 2].type !== 'list_item_open'
-      ) {
-        continue;
-      }
-      const match = markerRE.exec(inline.content);
-      const first = inline.children?.[0];
-      if (!match || !first || first.type !== 'text' || !first.content.startsWith(match[0])) {
-        continue;
-      }
-      const item = tokens[index - 2];
-      const checkbox = new state.Token('html_inline', '', 0);
-      checkbox.content = `<input class="task-list-item-checkbox" type="checkbox" disabled${
-        match[1] === ' ' ? '' : ' checked'
-      }> `;
-      first.content = first.content.slice(match[0].length);
-      inline.content = inline.content.slice(match[0].length);
-      inline.children!.unshift(checkbox);
-      item.attrJoin('class', 'task-list-item');
-      const list = findParentList(tokens, index - 2);
-      if (list && !list.attrGet('class')?.split(' ').includes('contains-task-list')) {
-        list.attrJoin('class', 'contains-task-list');
-      }
-    }
-  };
-  md.core.ruler.after('inline', 'task_lists', rule);
+  md.core.ruler.after('inline', 'task_lists', taskListRule);
 }
 
 function findParentList(tokens: ReadonlyArray<Token>, itemIndex: number): Token | undefined {

@@ -33,7 +33,7 @@ app.post('/', async (context) => {
   try {
     const headers = readGitHubWebhookHeaders(context.req.raw.headers, { requireDelivery: true });
     event = headers.event;
-    deliveryId = headers.deliveryId!;
+    deliveryId = headers.deliveryId;
     signature = headers.signature;
     raw = await readBoundedGitHubWebhookBody(context.req.raw);
   } catch (error) {

@@ -39,9 +39,10 @@ export function assertLinkPrefetchValue(
   }
 }
 
+// oxlint-disable-next-line quality/no-known-value-widening -- The duration regex restricts its string capture to supported units.
 const UNITS: Record<string, number> = {
   ms: 1,
-  s: 1_000,
+  s: 1000,
   m: 60_000,
   h: 3_600_000,
   d: 86_400_000,
@@ -72,6 +73,7 @@ export type CacheEntry = {
   url: string;
   method: string;
   response: Promise<unknown>;
+  pending: boolean;
   staleAt: number;
   expiresAt: number;
   singleUse: boolean;
@@ -123,11 +125,18 @@ export class PrefetchCache {
       url,
       method,
       response,
+      pending: true,
       staleAt: now + ttl.stale,
       expiresAt: now + ttl.expires,
       singleUse,
       timer: null,
     };
+    void response.then(
+      () => {
+        entry.pending = false;
+      },
+      () => {},
+    );
 
     if (!singleUse && ttl.expires > 0) {
       entry.timer = setTimeout(() => this.entries.delete(k), ttl.expires);

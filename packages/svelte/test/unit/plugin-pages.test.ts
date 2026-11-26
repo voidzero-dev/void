@@ -1,20 +1,22 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 
 type HookWithHandler<T> = { handler: T };
+type ConfigHook = (
+  config: Record<string, unknown>,
+  env: { command: 'serve' | 'build' },
+) => UserConfig | void;
 type PagesPluginHooks = {
   buildStart?: (() => Promise<void>) | HookWithHandler<() => Promise<void>>;
   configureServer?: (server: unknown) => void;
-  config?:
-    | ((config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown)
-    | HookWithHandler<
-        (config: Record<string, unknown>, env: { command: 'serve' | 'build' }) => unknown
-      >;
+  config?: ConfigHook | HookWithHandler<ConfigHook>;
   load?:
     | ((id: string) => Promise<string | undefined> | string | undefined)
     | HookWithHandler<(id: string) => Promise<string | undefined> | string | undefined>;

@@ -1,4 +1,4 @@
-export { routeUrl } from './runtime/route-url.ts';
+export { routeUrl } from './runtime/routing/route-url.ts';
 export type {
   Href,
   RoutePath,
@@ -8,7 +8,7 @@ export type {
   RouteDestination,
   RouteUrl,
   RouteUrlInput,
-} from './runtime/route-url.ts';
+} from './runtime/routing/route-url.ts';
 
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}
@@ -84,7 +84,6 @@ export type ResolveActionBody<U extends string> =
       : PageNamedActionBody<PageActionMap[ParseActionUrl<U>['base']], ParseActionUrl<U>['action']>
     : Record<string, unknown>;
 
-/** Resolve params type */
 export type ResolveActionParams<U extends string> =
   ParseActionUrl<U>['base'] extends keyof PageActionMap
     ? PageActionMap[ParseActionUrl<U>['base']] extends { params: infer P }
@@ -92,7 +91,6 @@ export type ResolveActionParams<U extends string> =
       : never
     : never;
 
-/** Has params check */
 export type HasActionParams<U extends string> = [ResolveActionParams<U>] extends [never]
   ? false
   : ResolveActionParams<U> extends Record<string, string>

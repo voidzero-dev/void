@@ -1,11 +1,15 @@
 import { PLAN_EDITABLE_LIMIT_KEYS } from '@void/platform/plans';
+import { isSecurityModelId } from '@void/platform/security-models';
+import { isSecurityMode, SECURITY_LIMIT_KEYS } from '@void/platform/security-policy';
 import { count, desc, eq } from 'drizzle-orm';
-import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { Hono } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { isAiLoggingMode } from '../ai-logging-policy.ts';
 import { AuthenticationConfigurationError } from '../auth/configuration.ts';
 import type { ApiEnv } from '../env.ts';
 import { isProjectId } from '../id.ts';
 import { operatorEvents } from '../schema.ts';
+import { isSecurityProjectPolicyOverride } from '../security/project-policy.ts';
 import { dryRun, OperatorError, pagination, readBody } from './common.ts';
 
 const WORKER_NAMES = ['dispatch', 'dashboard', 'api', 'tail', 'proxy', 'email-gateway'] as const;
@@ -36,6 +40,39 @@ function boundedList(value: unknown, maxItems: number, maxLength: number, lowerC
   return values.every((entry): entry is string => entry !== undefined)
     ? [...new Set(values)]
     : undefined;
+}
+
+/** Known security model ids from a list, each once; anything else is dropped. */
+function securityModelList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return [...new Set(value.filter((entry) => isSecurityModelId(entry)))];
+}
+
+/** `sweeps` of a policy change: a boolean and a whole number only. */
+function securitySweepsTarget(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+  const { on, everyDays } = value as Record<string, unknown>;
+  return {
+    on: typeof on === 'boolean' ? on : undefined,
+    everyDays: Number.isSafeInteger(everyDays) ? everyDays : undefined,
+  };
+}
+
+/** A dollar amount or `null`; anything else is dropped from the audit target. */
+function securityUsdTarget(value: unknown): number | null | undefined {
+  return value === null || (typeof value === 'number' && Number.isFinite(value))
+    ? value
+    : undefined;
+}
+
+function isSecurityResolution(
+  value: unknown,
+): value is 'fixed' | 'false_positive' | 'accepted_risk' {
+  return value === 'fixed' || value === 'false_positive' || value === 'accepted_risk';
 }
 
 function rollbackVersions(value: unknown) {
@@ -108,6 +145,12 @@ function auditTarget(
       buildInstanceType: boundedString(body.buildInstanceType, 32),
       allowShortSlugs: typeof body.allowShortSlugs === 'boolean' ? body.allowShortSlugs : undefined,
       aiLogging: isAiLoggingMode(body.aiLogging) ? body.aiLogging : undefined,
+      securityCap:
+        body.securityCap === 'none' ||
+        body.securityCap === 'inherit' ||
+        (typeof body.securityCap === 'number' && Number.isFinite(body.securityCap))
+          ? body.securityCap
+          : undefined,
       limits,
     });
   }
@@ -287,6 +330,146 @@ function auditTarget(
           ? { reconcile: true }
           : { protected: body.protected === true }),
       });
+    }
+  }
+  if (segments[0] === 'security' && segments[1] === 'policy' && segments.length === 2) {
+    // Known ids and the new state only; never free text.
+    const limits =
+      body.limits && typeof body.limits === 'object' && !Array.isArray(body.limits)
+        ? Object.fromEntries(
+            Object.entries(body.limits).filter(
+              ([key, value]) =>
+                (SECURITY_LIMIT_KEYS as ReadonlyArray<string>).includes(key) &&
+                Number.isSafeInteger(value),
+            ),
+          )
+        : undefined;
+    return JSON.stringify({
+      expectedRevision: Number.isSafeInteger(body.expectedRevision)
+        ? body.expectedRevision
+        : undefined,
+      mode: isSecurityMode(body.mode) ? body.mode : undefined,
+      defaultModel: isSecurityModelId(body.defaultModel) ? body.defaultModel : undefined,
+      blockedModels: securityModelList(body.blockedModels),
+      block: securityModelList(body.block),
+      unblock: securityModelList(body.unblock),
+      acceptProviderNoticeVersion: Number.isSafeInteger(body.acceptProviderNoticeVersion)
+        ? body.acceptProviderNoticeVersion
+        : undefined,
+      limits,
+      publicGate: typeof body.publicGate === 'boolean' ? body.publicGate : undefined,
+      sweeps: securitySweepsTarget(body.sweeps),
+      fallbackToCf: typeof body.fallbackToCf === 'boolean' ? body.fallbackToCf : undefined,
+      digest: typeof body.digest === 'boolean' ? body.digest : undefined,
+    });
+  }
+  if (segments[0] === 'security' && segments[1] === 'webhook' && segments.length === 2) {
+    // The host only: a webhook path or query can carry a token.
+    let host: string | undefined;
+    if (typeof body.url === 'string') {
+      try {
+        host = boundedString(new URL(body.url).hostname, 253);
+      } catch {
+        host = undefined;
+      }
+    }
+    return JSON.stringify({
+      installation: 'platform',
+      webhook: body.url === null ? 'off' : 'on',
+      host,
+    });
+  }
+  if (segments[0] === 'security' && segments[1] === 'provider-keys' && segments.length === 2) {
+    // The host and set or removed; never the key.
+    return JSON.stringify({
+      installation: 'platform',
+      host: body.host === 'openai' || body.host === 'anthropic' ? body.host : undefined,
+      key: body.key === null ? 'removed' : 'set',
+    });
+  }
+  if (segments[0] === 'security' && segments[1] === 'backfill' && segments.length === 2) {
+    return JSON.stringify({ installation: 'platform', backfill: true });
+  }
+  if (segments[0] === 'security' && segments[1] === 'budget' && segments.length === 2) {
+    return JSON.stringify({
+      expectedRevision: Number.isSafeInteger(body.expectedRevision)
+        ? body.expectedRevision
+        : undefined,
+      platformMonthlyUsd: securityUsdTarget(body.platformMonthlyUsd),
+      projectDefaultMonthlyUsd: securityUsdTarget(body.projectDefaultMonthlyUsd),
+    });
+  }
+  if (segments[0] === 'security' && segments[1] === 'bypasses-seen' && segments.length === 2) {
+    return JSON.stringify({ installation: 'platform' });
+  }
+  if (segments[0] === 'security' && segments[1] === 'probe' && segments.length === 2) {
+    return JSON.stringify({ installation: 'platform' });
+  }
+  if (
+    segments[0] === 'security' &&
+    segments[1] === 'scans' &&
+    segments[3] === 'cancel' &&
+    segments.length === 4
+  ) {
+    return JSON.stringify({ scanId: boundedString(segments[2], 128) });
+  }
+  if (segments[0] === 'projects' && id && segments[2] === 'security') {
+    // Ids, known values and numbers only; never a comment, a reason or a note.
+    const projectId = id;
+    if (segments[3] === 'findings' && segments[4] && segments.length === 6) {
+      const action = segments[5];
+      if (action === 'resolve') {
+        return JSON.stringify({
+          projectId,
+          finding: boundedString(segments[4], 64),
+          action,
+          reason: isSecurityResolution(body.reason) ? body.reason : undefined,
+          expectedRevision: Number.isSafeInteger(body.expectedRevision)
+            ? body.expectedRevision
+            : undefined,
+        });
+      }
+      if (action === 'reopen') {
+        return JSON.stringify({
+          projectId,
+          finding: boundedString(segments[4], 64),
+          action,
+          expectedRevision: Number.isSafeInteger(body.expectedRevision)
+            ? body.expectedRevision
+            : undefined,
+        });
+      }
+      if (action === 'comments') {
+        return JSON.stringify({ projectId, finding: boundedString(segments[4], 64), action });
+      }
+    }
+    if (segments[3] === 'scans' && segments.length === 4) {
+      return JSON.stringify({
+        projectId,
+        rescan: true,
+        clientAssets: body.clientAssets === true ? true : undefined,
+      });
+    }
+    if (segments[3] === 'model' && segments.length === 4) {
+      return JSON.stringify({
+        projectId,
+        model: body.model === null ? null : isSecurityModelId(body.model) ? body.model : undefined,
+        acceptProviderNoticeVersion: Number.isSafeInteger(body.acceptProviderNoticeVersion)
+          ? body.acceptProviderNoticeVersion
+          : undefined,
+      });
+    }
+    if (segments[3] === 'budget' && segments.length === 4) {
+      return JSON.stringify({ projectId, monthlyUsd: securityUsdTarget(body.monthlyUsd) });
+    }
+    if (segments[3] === 'policy' && segments.length === 4) {
+      return JSON.stringify({
+        projectId,
+        override: isSecurityProjectPolicyOverride(body.override) ? body.override : undefined,
+      });
+    }
+    if (segments[3] === 'public-request' && segments[4] === 'bypass') {
+      return JSON.stringify({ projectId });
     }
   }
   if (segments[0] === 'system' && segments[1] === 'backfill-queue-tokens') {

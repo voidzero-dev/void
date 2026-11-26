@@ -1,10 +1,8 @@
-import { isRecord, type AssetConfig } from '@void/deploy-core';
+import { isRecord, isR2LocationHint, R2_LOCATION_HINTS } from '@void/deploy-core';
+import type { AssetConfig, StorageConfig } from '@void/deploy-core';
 import type { RewriteDestination } from 'void/routes';
-import {
-  VOID_AUTH_PROVIDERS,
-  isVoidAuthProvider,
-  type VoidAuthProvider,
-} from './auth/providers.ts';
+import { VOID_AUTH_PROVIDERS, isVoidAuthProvider } from './auth/providers.ts';
+import type { VoidAuthProvider } from './auth/providers.ts';
 import type { DevRedirectRule, HeaderRule } from './cli/types.ts';
 import { loadVoidConfig } from './config-loader.ts';
 import type { HeadConfig } from './pages/head.ts';
@@ -27,6 +25,8 @@ export type DatabaseConfig = {
   dialect?: 'sqlite' | 'pg' | 'mysql';
   /** Column naming for keys without an explicit column name, as in Drizzle's `casing` option. */
   casing?: DatabaseCasing;
+  /** Enable or disable D1 read replication during deployment. Omit to preserve existing settings. */
+  readReplication?: boolean;
 };
 
 /** Curated Worker fields accepted by the `worker` config field. */
@@ -179,6 +179,7 @@ export type CloudflareConfig = Record<string, unknown> & {
 
 /** Shape of the Void project config. All fields optional. */
 export type VoidConfig = {
+  storage?: StorageConfig;
   sourceDir?: string;
   target?: 'cloudflare' | 'node' | 'bun' | 'deno';
   output?: 'server' | 'static';
@@ -221,9 +222,10 @@ const VALID_DATABASE_VALUES = new Set(['pg', 'mysql']);
 const VALID_DATABASE_DIALECTS = new Set(['sqlite', 'pg', 'mysql']);
 const VALID_DATABASE_CASINGS = new Set(['snake_case', 'camelCase']);
 /** Cloudflare's hard maximum for Workers CPU time per request (5 minutes). */
-const MAX_WORKER_CPU_MS = 300000;
+const MAX_WORKER_CPU_MS = 300_000;
 const VALID_SANDBOX_INSTANCE_TYPES = new Set<SandboxInstanceType>([
   'lite',
+  'basic',
   'standard-1',
   'standard-2',
   'standard-3',
@@ -244,7 +246,7 @@ const SANDBOX_KEYS = [...SANDBOX_STRING_KEYS, 'instanceType'];
  * `compilePattern` (`@void/edge`) gives `:name*` its own group, so it never clashes with a splat.
  */
 export function countSplats(source: string): number {
-  return source.replace(/:[A-Za-z0-9_]+\*/g, '').match(/\*/g)?.length ?? 0;
+  return source.replaceAll(/:[A-Za-z0-9_]+\*/g, '').match(/\*/g)?.length ?? 0;
 }
 
 /**
@@ -274,7 +276,7 @@ function assertUniqueCaptureNames(source: string, kind: string): void {
   const captureNameRe = /:([A-Za-z0-9_]+)\*?/g;
   let captureMatch: RegExpExecArray | null;
   while ((captureMatch = captureNameRe.exec(source)) !== null) {
-    const name = captureMatch[1]!;
+    const name = captureMatch[1];
     if (seen.has(name)) {
       dups.add(name);
     }
@@ -402,7 +404,7 @@ function validateRewriteMap(value: unknown, kind: 'Rewrite' | 'Fallback'): void 
 }
 
 /** Old flat keys that have moved into namespaces. */
-const MIGRATION_ERRORS: Record<string, string> = {
+const MIGRATION_ERRORS = {
   bindings: '"bindings" has moved to "inference.bindings"',
   build: '"build" has moved to "inference.build"',
   scanDirs: '"scanDirs" has moved to "inference.scanDirs"',
@@ -415,7 +417,7 @@ const MIGRATION_ERRORS: Record<string, string> = {
   wrangler: '"wrangler" has been renamed to "worker"',
   mode: '"mode" has been renamed to "inference.appType"',
   revalidate: '"revalidate" has moved to "routing.revalidate"',
-};
+} satisfies Record<string, string>;
 
 /** Read and validate the project's typed config, with legacy JSON compatibility. */
 export function readConfig(root: string): VoidConfig {
@@ -429,7 +431,7 @@ export function validateConfig(config: unknown, source: string = CONFIG_FILE): V
     return validateConfigObject(config);
   } catch (error) {
     if (source !== CONFIG_FILE && error instanceof Error) {
-      // No `cause`: Node would print its message too, which names the placeholder.
+      // oxlint-disable-next-line preserve-caught-error -- Node would display the placeholder file name from the original message.
       throw new Error(error.message.replaceAll(CONFIG_FILE, source));
     }
     throw error;
@@ -448,7 +450,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate sourceDir
   if (obj.sourceDir !== undefined) {
     if (typeof obj.sourceDir !== 'string') {
       throw new Error(`config: "sourceDir" in ${CONFIG_FILE} must be a string.`);
@@ -456,7 +457,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     validateSourceDir(obj.sourceDir, CONFIG_FILE);
   }
 
-  // Validate target
   if (obj.target !== undefined) {
     if (typeof obj.target !== 'string' || !VALID_TARGETS.has(obj.target)) {
       throw new Error(
@@ -465,14 +465,32 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate output
   if (obj.output !== undefined) {
     if (typeof obj.output !== 'string' || !VALID_OUTPUTS.has(obj.output)) {
       throw new Error(`config: "output" in ${CONFIG_FILE} must be one of: server, static.`);
     }
   }
 
-  // Validate auth
+  if (obj.storage !== undefined) {
+    if (
+      !isRecord(obj.storage) ||
+      Object.keys(obj.storage).some((key) => key !== 'locationHint') ||
+      (obj.storage.locationHint !== undefined && !isR2LocationHint(obj.storage.locationHint))
+    ) {
+      throw new Error(
+        `config: "storage.locationHint" in ${CONFIG_FILE} must be one of: ${R2_LOCATION_HINTS.join(', ')}.`,
+      );
+    }
+    if (
+      obj.storage.locationHint !== undefined &&
+      isNodeTarget(obj.target as VoidConfig['target'])
+    ) {
+      throw new Error(
+        `config: "storage.locationHint" in ${CONFIG_FILE} requires target: "cloudflare".`,
+      );
+    }
+  }
+
   if (obj.auth !== undefined) {
     if (!isRecord(obj.auth)) {
       throw new Error(`config: "auth" in ${CONFIG_FILE} must be an object.`);
@@ -515,7 +533,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate head
   if (obj.head !== undefined) {
     if (!isRecord(obj.head)) {
       throw new Error(`config: "head" in ${CONFIG_FILE} must be an object.`);
@@ -559,7 +576,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate routing
   if (obj.routing !== undefined) {
     if (!isRecord(obj.routing)) {
       throw new Error(`config: "routing" in ${CONFIG_FILE} must be an object.`);
@@ -592,7 +608,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(`config: "routing.typedRoutes" in ${CONFIG_FILE} must be a boolean.`);
     }
 
-    // Validate routing.notFound
     if (routing.notFound !== undefined) {
       if (typeof routing.notFound !== 'string' || !VALID_NOT_FOUND_HANDLING.has(routing.notFound)) {
         throw new Error(
@@ -605,7 +620,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(`config: "routing.isr" in ${CONFIG_FILE} must be a boolean.`);
     }
 
-    // Validate routing.revalidate
     if (routing.revalidate !== undefined) {
       if (typeof routing.revalidate === 'number') {
         if (!Number.isFinite(routing.revalidate) || routing.revalidate < 0) {
@@ -633,7 +647,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.prerender
     if (routing.prerender !== undefined) {
       if (
         !Array.isArray(routing.prerender) ||
@@ -643,7 +656,7 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "routing.prerender" in ${CONFIG_FILE} must be an array of strings.`,
         );
       }
-      for (const p of routing.prerender as Array<string>) {
+      for (const p of routing.prerender) {
         if (!p.startsWith('/')) {
           throw new Error(
             `config: "routing.prerender" path '${p}' in ${CONFIG_FILE} must start with "/".`,
@@ -652,7 +665,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.headers
     if (routing.headers !== undefined) {
       if (!isRecord(routing.headers)) {
         throw new Error(`config: "routing.headers" in ${CONFIG_FILE} must be an object.`);
@@ -672,7 +684,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.redirects
     if (routing.redirects !== undefined) {
       if (!isRecord(routing.redirects)) {
         throw new Error(`config: "routing.redirects" in ${CONFIG_FILE} must be an object.`);
@@ -713,7 +724,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.revalidateQueryAllowlist
     if (routing.revalidateQueryAllowlist !== undefined) {
       if (!isRecord(routing.revalidateQueryAllowlist)) {
         throw new Error(`"routing.revalidateQueryAllowlist" in ${CONFIG_FILE} must be an object`);
@@ -743,7 +753,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate inference
   if (obj.inference !== undefined) {
     if (!isRecord(obj.inference)) {
       throw new Error(`config: "inference" in ${CONFIG_FILE} must be an object.`);
@@ -756,7 +765,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       );
     }
 
-    // Validate inference.bindings
     if (inf.bindings !== undefined) {
       if (!isRecord(inf.bindings)) {
         throw new Error(`config: "inference.bindings" in ${CONFIG_FILE} must be an object.`);
@@ -784,19 +792,17 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate inference.build
     if (inf.build !== undefined && typeof inf.build !== 'string') {
       throw new Error(`config: "inference.build" in ${CONFIG_FILE} must be a string.`);
     }
 
-    // Validate inference.scanDirs
     if (inf.scanDirs !== undefined) {
       if (!Array.isArray(inf.scanDirs) || !inf.scanDirs.every((d) => typeof d === 'string')) {
         throw new Error(
           `config: "inference.scanDirs" in ${CONFIG_FILE} must be an array of strings.`,
         );
       }
-      for (const d of inf.scanDirs as Array<string>) {
+      for (const d of inf.scanDirs) {
         if (d.startsWith('/') || d.startsWith('..')) {
           throw new Error(
             `config: "inference.scanDirs" path '${d}' in ${CONFIG_FILE} must be a relative directory.`,
@@ -805,7 +811,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate inference.appType
     if (inf.appType !== undefined) {
       if (typeof inf.appType !== 'string' || !VALID_APP_TYPES.has(inf.appType)) {
         throw new Error(
@@ -814,18 +819,15 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate inference.outputDir
     if (inf.outputDir !== undefined && typeof inf.outputDir !== 'string') {
       throw new Error(`config: "inference.outputDir" in ${CONFIG_FILE} must be a string.`);
     }
   }
 
-  // Validate remote
   if (obj.remote !== undefined && typeof obj.remote !== 'boolean') {
     throw new Error(`config: "remote" in ${CONFIG_FILE} must be a boolean.`);
   }
 
-  // Validate sandbox
   if (obj.sandbox !== undefined && typeof obj.sandbox !== 'boolean') {
     if (!isRecord(obj.sandbox)) {
       throw new Error(`config: "sandbox" in ${CONFIG_FILE} must be a boolean or an object.`);
@@ -854,7 +856,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate worker
   if (obj.worker !== undefined) {
     if (!isRecord(obj.worker)) {
       throw new Error(`config: "worker" in ${CONFIG_FILE} must be an object.`);
@@ -960,14 +961,13 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate database
   if (obj.database !== undefined) {
     if (isRecord(obj.database)) {
       const databaseCfg = obj.database;
       for (const key of Object.keys(databaseCfg)) {
-        if (key !== 'dialect' && key !== 'casing') {
+        if (key !== 'dialect' && key !== 'casing' && key !== 'readReplication') {
           throw new Error(
-            `config: Unknown key 'database.${key}' in ${CONFIG_FILE}. Valid: dialect, casing.`,
+            `config: Unknown key 'database.${key}' in ${CONFIG_FILE}. Valid: dialect, casing, readReplication.`,
           );
         }
       }
@@ -988,14 +988,25 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "database.casing" in ${CONFIG_FILE} must be "snake_case" or "camelCase".`,
         );
       }
+      if (databaseCfg.readReplication !== undefined) {
+        if (typeof databaseCfg.readReplication !== 'boolean') {
+          throw new Error(
+            `config: "database.readReplication" in ${CONFIG_FILE} must be a boolean.`,
+          );
+        }
+        if (databaseCfg.dialect !== undefined && databaseCfg.dialect !== 'sqlite') {
+          throw new Error(
+            `config: "database.readReplication" in ${CONFIG_FILE} is only supported for D1 (sqlite).`,
+          );
+        }
+      }
     } else if (typeof obj.database !== 'string' || !VALID_DATABASE_VALUES.has(obj.database)) {
       throw new Error(
-        `config: "database" in ${CONFIG_FILE} must be "pg", "mysql" or an object with "dialect" and "casing".`,
+        `config: "database" in ${CONFIG_FILE} must be "pg", "mysql" or an object with "dialect", "casing" and "readReplication".`,
       );
     }
   }
 
-  // Validate ai
   if (obj.ai !== undefined) {
     if (!isRecord(obj.ai)) {
       throw new Error(`config: "ai" in ${CONFIG_FILE} must be an object.`);
@@ -1016,7 +1027,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate email
   if (obj.email !== undefined) {
     if (!isRecord(obj.email)) {
       throw new Error(`config: "email" in ${CONFIG_FILE} must be an object.`);
@@ -1039,9 +1049,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
   if ('$schema' in obj) {
     const resolved = { ...obj };
     delete resolved.$schema;
-    return resolved as VoidConfig;
+    return resolved;
   }
-  return obj as VoidConfig;
+  return obj;
 }
 
 /**
@@ -1060,6 +1070,7 @@ function parseEmailFrom(value: unknown): void {
     const detail = error instanceof MimeError ? ` ${error.message}` : '';
     throw new Error(
       `config: "email.from" in ${CONFIG_FILE} must be a single email address, optionally with a display name (e.g. "Acme <noreply@mail.acme.com>").${detail}`,
+      { cause: error },
     );
   }
 }
@@ -1069,17 +1080,19 @@ export function isNodeTarget(target: VoidConfig['target']): boolean {
   return target === 'node' || target === 'bun' || target === 'deno';
 }
 
+type BindingNames = { d1?: string; kv?: string; r2?: string; ai?: string };
+
 /**
  * Extract custom binding names from config. Returns only entries where
  * a string name was explicitly provided (not `true`).
  */
 export function resolveBindingNames(
   bindings: InferenceConfig['bindings'],
-): { d1?: string; kv?: string; r2?: string; ai?: string } | undefined {
+): BindingNames | undefined {
   if (!bindings) {
     return undefined;
   }
-  const names: { d1?: string; kv?: string; r2?: string; ai?: string } = {};
+  const names: BindingNames = {};
   let hasCustom = false;
   if (typeof bindings.db === 'string') {
     names.d1 = bindings.db;

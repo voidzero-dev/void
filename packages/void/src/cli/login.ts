@@ -44,7 +44,7 @@ export async function selectPlatformLoginMethod(
   }
   const provider =
     providers.length === 1
-      ? providers[0]!
+      ? providers[0]
       : await select({
           message: 'Choose a login provider:',
           options: methods.map(({ id, label }) => ({
@@ -57,7 +57,11 @@ export async function selectPlatformLoginMethod(
     cancel('Login cancelled.');
     process.exit(0);
   }
-  return methods.find((method) => method.id === provider)!;
+  const method = methods.find((entry) => entry.id === provider);
+  if (!method) {
+    throw new Error('Selected login method is unavailable.');
+  }
+  return method;
 }
 
 export async function promptForLoginToken(

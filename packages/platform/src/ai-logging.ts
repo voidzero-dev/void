@@ -6,6 +6,8 @@
  * that key. A missing key means `inherit`: the gateway's own `collect_logs` setting.
  */
 
+import { isRecord, record } from './validate.ts';
+
 /** Every mode an operator can choose. `inherit` clears an override. */
 export const AI_LOGGING_MODES = ['inherit', 'off', 'metadata', 'full'] as const;
 export type AiLoggingMode = (typeof AI_LOGGING_MODES)[number];
@@ -48,14 +50,20 @@ export function parsePublishedAiLogging(value: string | null): AiLoggingMode | u
   if (value === null) {
     return 'inherit';
   }
+  // oxlint-disable-next-line quality/no-known-value-widening -- The shared predicate also validates untyped provider data.
   return isPublishedAiLoggingMode(value) ? value : undefined;
 }
+
+type EffectiveAiLogging = Readonly<{
+  mode: AiLoggingMode;
+  source: AiLoggingSource;
+}>;
 
 /** Effective mode: the project override, else the plan default, else inherit. */
 export function resolveAiLogging(
   projectMode: AiLoggingMode | null | undefined,
   planMode: AiLoggingMode | null | undefined,
-): Readonly<{ mode: AiLoggingMode; source: AiLoggingSource }> {
+): EffectiveAiLogging {
   if (projectMode && projectMode !== 'inherit') {
     return { mode: projectMode, source: 'project' };
   }
@@ -111,21 +119,23 @@ export function aiLoggingClearedKey(projectId: string): string {
 /** KV expiry of the cleared marker, in seconds (KV's minimum is 60). */
 export const AI_LOGGING_CLEARED_TTL_SECONDS: number = AI_LOGGING_SETTLE_MS / 1000;
 
-/** The KV value and options of a cleared marker written at `at` (ms). */
-export function aiLoggingClearedMarker(at: number): Readonly<{
+type AiLoggingClearedMarker = Readonly<{
   value: string;
   metadata: Readonly<{ at: number }>;
   expirationTtl: number;
-}> {
+}>;
+
+/** The KV value and options of a cleared marker written at `at` (ms). */
+export function aiLoggingClearedMarker(at: number): AiLoggingClearedMarker {
   return { value: 'inherit', metadata: { at }, expirationTtl: AI_LOGGING_CLEARED_TTL_SECONDS };
 }
 
 /** Reads a cleared marker's time; anything missing or malformed is `null`. */
 export function parseAiLoggingClearedAt(metadata: unknown): number | null {
-  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+  if (!isRecord(metadata)) {
     return null;
   }
-  const { at } = metadata as Record<string, unknown>;
+  const { at } = metadata;
   return typeof at === 'number' && Number.isSafeInteger(at) ? at : null;
 }
 
@@ -134,10 +144,10 @@ export type AiLoggingKeyMetadata = Readonly<{ mode: PublishedAiLoggingMode; at: 
 
 /** Reads the metadata of a published key; anything malformed is `null` (treated as drift). */
 export function parseAiLoggingKeyMetadata(value: unknown): AiLoggingKeyMetadata | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return null;
   }
-  const { mode, at } = value as Record<string, unknown>;
+  const { mode, at } = value;
   if (!isPublishedAiLoggingMode(mode) || typeof at !== 'number' || !Number.isSafeInteger(at)) {
     return null;
   }
@@ -173,20 +183,14 @@ export type PlanAiLoggingSettings = Readonly<{
   publish: PlanAiLoggingPublish | null;
 }>;
 
-function settingsRecord(value: unknown, name: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${name} must be an object.`);
-  }
-  return value as Record<string, unknown>;
-}
-
 function parsePlanAiLoggingPublish(value: unknown): PlanAiLoggingPublish | null {
   if (value === null || value === undefined) {
     return null;
   }
-  const input = settingsRecord(value, 'AI logging publish');
+  const input = record(value, 'AI logging publish');
   const { revision, planIds, includeUnknown, cursor, complete, error } = input;
   if (
+    typeof revision !== 'number' ||
     !Number.isSafeInteger(revision) ||
     !Array.isArray(planIds) ||
     !planIds.every((id) => typeof id === 'string') ||
@@ -198,8 +202,8 @@ function parsePlanAiLoggingPublish(value: unknown): PlanAiLoggingPublish | null 
     throw new Error('Invalid AI logging publish progress.');
   }
   return {
-    revision: revision as number,
-    planIds: planIds as Array<string>,
+    revision,
+    planIds,
     includeUnknown,
     cursor,
     complete,
@@ -217,8 +221,8 @@ export function parsePlanAiLoggingSettings(value: unknown): PlanAiLoggingSetting
   if (value === null || value === undefined) {
     return { modes: {}, publish: null };
   }
-  const input = settingsRecord(value, 'Plan AI logging settings');
-  const saved = settingsRecord(input.modes ?? {}, 'Plan AI logging modes');
+  const input = record(value, 'Plan AI logging settings');
+  const saved = record(input.modes ?? {}, 'Plan AI logging modes');
   const modes: Record<string, PublishedAiLoggingMode> = {};
   for (const [planId, mode] of Object.entries(saved)) {
     if (!isAiLoggingMode(mode)) {
@@ -258,7 +262,7 @@ export function planAiLogging(
 ): PlanAiLogging {
   const planKnown = catalog.plans.some((plan) => plan.id === planId);
   const lookup = planKnown ? planId : catalog.defaultPlanId;
-  const planMode = Object.hasOwn(settings.modes, lookup) ? settings.modes[lookup]! : null;
+  const planMode = Object.hasOwn(settings.modes, lookup) ? settings.modes[lookup] : null;
   return { planId, planKnown, defaultPlanId: catalog.defaultPlanId, planMode };
 }
 

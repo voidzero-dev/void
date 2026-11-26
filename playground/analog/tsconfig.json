@@ -20,7 +20,8 @@
     "lib": ["ES2022", "dom"],
     "useDefineForClassFields": false,
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
@@ -28,9 +29,5 @@
     "strictInputAccessModifiers": true,
     "strictTemplates": true
   },
-  "references": [
-    {
-      "path": "tsconfig.app.json"
-    }
-  ]
+  "extends": "./.void/tsconfig.json"
 }

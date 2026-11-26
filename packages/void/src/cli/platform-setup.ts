@@ -1,10 +1,12 @@
 import type { PlatformDeploymentManifest } from '@void/platform';
-import { type CANCEL_SYMBOL, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
+import { isCancel, log } from '@voidzero-dev/vite-plus-prompts';
+import type { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
 import { openBrowser } from './auth.ts';
 import { formatLink, pc } from './output.ts';
 import type { PlatformManagementAccess } from './platform-auth.ts';
 import { planCreatesZone, planWritesDns } from './platform-plan-writes.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformStorageLocation } from './platform-storage.ts';
 
 type PlatformSetupPage = Readonly<{
   title: string;
@@ -25,14 +27,15 @@ export function platformSetupLink(page: Pick<PlatformSetupPage, 'title' | 'url'>
   return formatLink(pc.underline(page.title), page.url);
 }
 
+const docs = (page: string, section: string, title: string) =>
+  platformSetupLink({
+    title,
+    url: `https://void.cloud/guide/platform/installation/${page}#${section}`,
+  });
+
 export function platformSetupFieldHelp(
   key: string,
 ): Readonly<{ description: string; placeholder?: string }> | undefined {
-  const docs = (page: string, section: string, title: string) =>
-    platformSetupLink({
-      title,
-      url: `https://void.cloud/guide/platform/installation/${page}#${section}`,
-    });
   switch (key) {
     case 'databaseUrl':
       return {
@@ -60,11 +63,14 @@ export function platformSetupFieldHelp(
   }
 }
 
-/** Dashboard keys use permission-catalog labels, which can differ from product names. */
+const confirmWorkersAdmin = 'Confirm Workers → Admin is selected for the account.';
+
+/** Account-token links accept canonical permission group IDs as well as short keys. */
 function platformAccountTokenPermissions(includeAiGateway: boolean) {
   return [
     { key: 'account_settings', type: 'read' },
-    { key: 'workers_scripts', type: 'edit' },
+    // Workers Admin lets Void create account Workers and deploy Workers into dispatch namespaces.
+    { key: '98d78cd2433d4c3687191bc0244ef948', type: 'edit' },
     { key: 'workers_kv_storage', type: 'edit' },
     { key: 'workers_r2', type: 'edit' },
     { key: 'd1', type: 'edit' },
@@ -108,6 +114,13 @@ export function platformManagementSetupPage(
   const appAccessLevel = appAccess ? 'edit' : accessLevel;
   const permissions = [
     ...platformAccountTokenPermissions(true),
+    // Uninstall deletes the security scanner's container application.
+    ...(plan.deployment.capabilities.securityAudits
+      ? [
+          { key: 'containers', type: 'edit' },
+          { key: 'cloudchamber', type: 'edit' },
+        ]
+      : []),
     ...(zoneName || apiHostname || createsZone
       ? [
           { key: 'zone', type: createsZone ? 'edit' : 'read' },
@@ -141,6 +154,7 @@ export function platformManagementSetupPage(
     instructions: [
       'This token lets the Void CLI install your platform. Void will now open a pre-configured token creation site. Please review the permissions and then paste the token here.',
       `Scope it to ${plan.account.name}.`,
+      confirmWorkersAdmin,
       ...(createsZone
         ? [`Keep the zone policy on All Domains so Void can create ${zoneName}.`]
         : zones.length
@@ -150,11 +164,13 @@ export function platformManagementSetupPage(
   };
 }
 
-export function platformSetupPages(plan: PlatformInstallPlan): {
+type PlatformSetupPages = {
   runtime: PlatformSetupPage;
   github: PlatformSetupPage;
   r2: PlatformSetupPage;
-} {
+};
+
+export function platformSetupPages(plan: PlatformInstallPlan): PlatformSetupPages {
   const needsGateway = plan.actions.some(
     (action) => action.kind === 'ai-gateway' && action.action === 'inspect',
   );
@@ -164,7 +180,8 @@ export function platformSetupPages(plan: PlatformInstallPlan): {
     ...(plan.deployment.capabilities.customDomains
       ? [{ key: 'ssl_and_certificates', type: 'edit' }]
       : []),
-    ...(plan.deployment.capabilities.sandbox
+    // Security audits run the scanner on Containers, as Sandbox does.
+    ...(plan.deployment.capabilities.sandbox || plan.deployment.capabilities.securityAudits
       ? [
           { key: 'containers', type: 'edit' },
           { key: 'cloudchamber', type: 'edit' },
@@ -194,6 +211,7 @@ export function platformSetupPages(plan: PlatformInstallPlan): {
       url: 'https://dash.cloudflare.com/?' + query,
       instructions: [
         'Create a Cloudflare runtime token that Void can use to manage the platform. Please review the permissions and then paste the token here.',
+        confirmWorkersAdmin,
         // A zone that Void creates later cannot be selected yet; All Domains
         // lets Cache Purge reach it once it exists.
         ...(zoneName && plansZoneCreation(plan)
@@ -298,6 +316,7 @@ export type PlatformInstallCommandOptions = {
   controlPlaneDomain: string;
   dashboardUrl?: string;
   customDomains?: boolean;
+  securityAudits?: boolean;
   dedicatedZone: boolean;
   workersDev: boolean;
   authConfig?: string;
@@ -306,6 +325,7 @@ export type PlatformInstallCommandOptions = {
   hyperdrive?: string;
   runtime: string;
   runtimeLogs?: 'full' | 'minimal';
+  storageLocation?: PlatformStorageLocation;
   resumeId?: string;
   yes: boolean;
 };
@@ -357,8 +377,12 @@ export function platformInstallCommandArguments(
     );
   }
   flag('--dashboard-url', options.dashboardUrl ?? '');
+  if (options.securityAudits) {
+    parts.push('--security-audits');
+  }
   flag('--runtime', options.runtime);
   flag('--runtime-logs', options.runtimeLogs ?? '');
+  flag('--storage-location', options.storageLocation ?? '');
   if (options.yes) {
     parts.push('--yes');
   }
@@ -373,7 +397,7 @@ export function formatPlatformInstallCommand(options: PlatformInstallCommandOpti
       }
       return process.platform === 'win32'
         ? `'${value.replaceAll("'", "''")}'`
-        : `'${value.replaceAll("'", "'\\''")}'`;
+        : `'${value.replaceAll("'", String.raw`'\''`)}'`;
     })
     .join(' ');
 }

@@ -11,15 +11,13 @@ import {
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { getWorkerAssetsDir, readBuildOutput } from '@cloudflare/build-output-utils';
 import {
-  createBuilder,
-  createServer,
-  normalizePath,
-  preview,
-  resolveConfig,
-  type InlineConfig,
-} from 'vite';
+  getRootConfigPath,
+  getWorkerAssetsDir,
+  readBuildOutput,
+} from '@cloudflare/build-output-utils';
+import { createBuilder, createServer, normalizePath, preview, resolveConfig } from 'vite';
+import type { InlineConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
 import {
@@ -174,7 +172,7 @@ describe('Cloudflare v2 compatibility', () => {
     } finally {
       await artifact?.dispose();
     }
-    const metadataPath = join(root, '.cloudflare/output/v0/void-containers.json');
+    const metadataPath = join(dirname(getRootConfigPath(root)), 'void-containers.json');
     writeFileSync(metadataPath, JSON.stringify({ workerDirectory: '../outside' }));
     await expect(prepareCfBuildOutput(root)).rejects.toThrow('Invalid Void Container');
     // Two real Vite builds take about four seconds, near the default timeout.
@@ -261,7 +259,7 @@ export default {
       });
       try {
         await server.listen();
-        const response = await fetch(server.resolvedUrls!.local[0]!);
+        const response = await fetch(server.resolvedUrls!.local[0]);
         expect(await response.json()).toEqual({
           BOX: 'function',
           SANDBOX: 'function',
@@ -338,7 +336,7 @@ export default {
       root,
     )!;
     const config = (
-      workers[0]!.config as (input: {
+      workers[0].config as (input: {
         entryWorkerConfig: {
           name: string;
           compatibilityDate: string;
@@ -353,7 +351,7 @@ export default {
       entrypoint: normalizePath(join(root, 'aux/worker.ts')),
       env: { OWNER: { type: 'text', value: 'entry' } },
     });
-    expect(workers[0]!.devOnly).toBe(true);
+    expect(workers[0].devOnly).toBe(true);
   });
 
   it('passes local values and account settings in memory without creating a root config', async () => {
@@ -401,6 +399,11 @@ export default {
 
   it('builds native output and the existing dist layout, then previews the native artifact', async () => {
     const root = project();
+    // Upgrading a checkout must replace v0 instead of leaving two versions that
+    // the RC CLI refuses to publish.
+    const oldOutput = join(root, '.cloudflare/output/v0');
+    mkdirSync(oldOutput, { recursive: true });
+    writeFileSync(join(oldOutput, 'config.json'), '{}');
     writeFileSync(
       join(root, 'worker.js'),
       "export default { fetch: (_request, env) => new Response(env.PREVIEW_VALUE ?? 'built-worker') };",
@@ -426,7 +429,8 @@ export default {
     });
     await builder.buildApp();
     const output = await readBuildOutput(root);
-    expect(output.rootConfig.accountId).toBe('account-id');
+    expect(existsSync(oldOutput)).toBe(false);
+    expect(output.rootConfig.settings?.accountId).toBe('account-id');
     expect(existsSync(join(root, 'cloudflare.config.ts'))).toBe(false);
     expect(output.workers.default.config.manifest?.mainModule).toBe('index.js');
     expect(existsSync(join(root, 'dist/ssr/index.js'))).toBe(true);
@@ -445,7 +449,7 @@ export default {
       server: { port: 0 },
     });
     try {
-      const response = await fetch(server.resolvedUrls!.local[0]!);
+      const response = await fetch(server.resolvedUrls!.local[0]);
       expect(await response.text()).toBe('local-preview-only');
       expect((await readBuildOutput(root)).workers.default.config.env).not.toHaveProperty(
         'PREVIEW_VALUE',

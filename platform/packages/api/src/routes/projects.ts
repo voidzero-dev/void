@@ -1,7 +1,8 @@
 import { tokenizeSql } from '@void/deploy-core';
 import type { ProjectZeroTrustRouting } from '@void/edge';
 import { sql as drizzleSql } from 'drizzle-orm';
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import {
   AiLoggingPublishError,
   lockNewProjectAiLoggingInputs,
@@ -61,7 +62,9 @@ import {
   ACTIVE_BUILD_STATUSES,
 } from '../db.ts';
 import { databaseTimestampMs } from '../deploy/recovery.ts';
-import { type ApiEnv, isDevBypass } from '../env.ts';
+import { parseAssetManifest } from '../deploy/serving-assets.ts';
+import { isDevBypass } from '../env.ts';
+import type { ApiEnv } from '../env.ts';
 import { validateSubmittedExecutionPlans } from '../migrations/execution-plan.ts';
 import { ensureTrackingTable, queryD1, runRemoteMigrations } from '../migrations/remote-runner.ts';
 import { getProjectDeploymentWorkerName, getProjectQueueName } from '../naming.ts';
@@ -107,6 +110,8 @@ import {
   computeDispatchLimits,
   resolveRoutingUndo,
 } from '../routing.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
+import { retargetOpenPublicRequest } from '../security/public-gate.ts';
 import type { Build, DeployManifest, Project, ProjectRole, User } from '../types.ts';
 import { ZeroTrustUnavailableError, zeroTrustNotReadyMessage } from '../zero-trust/errors.ts';
 import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
@@ -393,10 +398,7 @@ type LineComment = Readonly<{
  * escape, `"..."` / `` `...` `` / `[...]` identifier quotes with doubled
  * closing-quote escape, `-- line` comments, and `/* block *\/` comments.
  */
-function stripSqlStringsAndComments(sql: string): {
-  code: string;
-  lineComments: ReadonlyArray<LineComment>;
-} {
+function stripSqlStringsAndComments(sql: string) {
   let code = '';
   const lineComments: Array<LineComment> = [];
 
@@ -582,7 +584,7 @@ const app = new Hono<ApiEnv>()
             getDomainsByProjectIds(context.get('db'), projectIds),
             getLatestDeploymentsByProjectIds(context.get('db'), projectIds),
             isDevBypass(context.env)
-              ? Promise.resolve(new Map())
+              ? Promise.resolve(new Map<string, never>())
               : queryProjectRequestOverview(
                   context.env.CF_ACCOUNT_ID,
                   context.env.CF_API_TOKEN,
@@ -590,7 +592,7 @@ const app = new Hono<ApiEnv>()
                   projectIds,
                 ),
           ])
-        : [new Map(), new Map(), new Map()];
+        : ([new Map<string, never>(), new Map<string, never>(), new Map<string, never>()] as const);
 
     const projectsWithSummaries = projects.map(({ project: p, role, owner }): ProjectListItem => {
       const pDomains = domainMap.get(p.id);
@@ -659,12 +661,10 @@ const app = new Hono<ApiEnv>()
     });
   })
 
-  // Create a new project
   .post('/', async (context) =>
     createUserProject(context, await context.req.json<{ slug: string }>()),
   )
 
-  // Get project by ID
   .get('/:id', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -989,7 +989,7 @@ const app = new Hono<ApiEnv>()
                 ) {
                   throw new RollbackError(409, `deploy in progress: ${activeDeploy.id}`);
                 }
-                const migrationDiff = lease.migrationDiff as Array<string>;
+                const migrationDiff = lease.migrationDiff;
                 const released = await deleteRollbackLease(tx, activeDeploy.id, lease.ownerId);
                 if (!released) {
                   throw new RollbackError(409, `deploy in progress: ${activeDeploy.id}`);
@@ -1042,6 +1042,10 @@ const app = new Hono<ApiEnv>()
       }
 
       if (!rollbackCommitted) {
+        const leaseId = rollbackLeaseId;
+        if (!leaseId) {
+          throw new Error('Rollback publication requires an owned lease.');
+        }
         rollbackResult = await context.get('db').transaction(async (tx) => {
           // Lock the project row via `SELECT … FOR UPDATE` — per-project,
           // collision-free, released automatically at tx end. MUST be the
@@ -1138,7 +1142,7 @@ const app = new Hono<ApiEnv>()
           }
 
           const targetMigrations: Array<string> = target.applied_migrations
-            ? JSON.parse(target.applied_migrations)
+            ? (JSON.parse(target.applied_migrations) as Array<string>)
             : [];
 
           const projectMigrationNames = await getProjectMigrationNames(tx, projectId);
@@ -1149,7 +1153,7 @@ const app = new Hono<ApiEnv>()
             projectMigrationNames.length > 0
               ? [...projectMigrationNames]
               : currentActive?.applied_migrations
-                ? JSON.parse(currentActive.applied_migrations)
+                ? (JSON.parse(currentActive.applied_migrations) as Array<string>)
                 : [];
           const diff = currentMigrations.filter((m) => !targetMigrations.includes(m));
 
@@ -1195,7 +1199,7 @@ const app = new Hono<ApiEnv>()
 
           // Build routing JSON from the freshly-read target manifest.
           const manifest: DeployManifest | null = target.manifest
-            ? JSON.parse(target.manifest)
+            ? (JSON.parse(target.manifest) as DeployManifest)
             : null;
           const dispatchLimits = computeDispatchLimits(
             await resolvePlanLimits(tx, lockedAccess.owner.plan),
@@ -1209,7 +1213,9 @@ const app = new Hono<ApiEnv>()
           // sweep below for why the union uses `deployed_at IS NOT NULL`.
           const workerName = getProjectDeploymentWorkerName(lockedProject.slug, target.id);
           const existingRouting = await context.env.ROUTING.get(projectRouteKey(lockedProject));
-          const existingEntry = existingRouting ? JSON.parse(existingRouting) : null;
+          const existingEntry = existingRouting
+            ? (JSON.parse(existingRouting) as { suspended?: string })
+            : null;
           const zeroTrust = await resolveProjectZeroTrustRouting(tx, projectId).catch(
             (error: unknown) => {
               const message = zeroTrustNotReadyMessage(error);
@@ -1236,15 +1242,11 @@ const app = new Hono<ApiEnv>()
           const isStaticDeployment = targetType === 'static' || targetType === 'spa';
           let targetHasAssets = false;
           if (target.asset_hashes) {
-            try {
-              const assetHashes = JSON.parse(target.asset_hashes) as unknown;
-              targetHasAssets =
-                typeof assetHashes === 'object' &&
-                assetHashes !== null &&
-                Object.keys(assetHashes).length > 0;
-            } catch {
+            const assetManifest = parseAssetManifest(target.asset_hashes);
+            if (!assetManifest) {
               throw new RollbackError(400, 'target deployment has invalid asset metadata');
             }
+            targetHasAssets = Object.keys(assetManifest).length > 0;
           }
 
           let routingJson: string;
@@ -1284,6 +1286,8 @@ const app = new Hono<ApiEnv>()
           await updateProjectType(tx, projectId, targetType);
           await requestRotationIfReplacingUntrustedCode(tx, projectId, target.id);
           await setActiveDeployment(tx, projectId, target.id);
+          // An open public request follows the live deployment (spec §5.5, edge #73).
+          await retargetOpenPublicRequest(tx, projectId, target.id);
 
           const snapshottedRoutingKeys = new Set<string>();
           const snapshotRoutingKey = async (key: string): Promise<void> => {
@@ -1293,12 +1297,13 @@ const app = new Hono<ApiEnv>()
             const previous = await context.env.ROUTING.get(key);
             snapshottedRoutingKeys.add(key);
             externalUndo.push(async (currentZeroTrust) => {
-              if (!routingValuesWritten.has(key)) {
+              const written = routingValuesWritten.get(key);
+              if (written === undefined) {
                 return;
               }
               const undo = resolveRoutingUndo(
                 await context.env.ROUTING.get(key),
-                routingValuesWritten.get(key)!,
+                written,
                 previous,
               );
               if (!undo.restore) {
@@ -1371,10 +1376,13 @@ const app = new Hono<ApiEnv>()
               restoreCronScheduler(context.env, projectId, previousCronState),
             );
             if (manifest?.schedules?.length) {
+              if (!targetProxyToken) {
+                throw new Error('Rollback requires the Worker proxy token for schedules.');
+              }
               await syncCronScheduler(context.env, projectId, {
                 workerName,
                 schedules: manifest.schedules,
-                proxyToken: targetProxyToken!,
+                proxyToken: targetProxyToken,
               });
             } else {
               await clearCronScheduler(context.env, projectId);
@@ -1416,7 +1424,7 @@ const app = new Hono<ApiEnv>()
               }
               let depManifest: DeployManifest | null = null;
               try {
-                depManifest = JSON.parse(d.manifest);
+                depManifest = JSON.parse(d.manifest) as DeployManifest;
               } catch {
                 // Skip deployments with unparseable manifests rather than
                 // blowing up the whole rollback.
@@ -1471,18 +1479,26 @@ const app = new Hono<ApiEnv>()
                   resource.cf_id,
                   dispatchWorkerName,
                   {
-                    ...(targetQueue.maxBatchSize != null && {
-                      batch_size: targetQueue.maxBatchSize,
-                    }),
-                    ...(targetQueue.maxBatchTimeout != null && {
-                      max_wait_time_ms: targetQueue.maxBatchTimeout * 1000,
-                    }),
-                    ...(targetQueue.maxRetries != null && {
-                      max_retries: targetQueue.maxRetries,
-                    }),
-                    ...(targetQueue.retryDelay != null && {
-                      retry_delay: targetQueue.retryDelay,
-                    }),
+                    ...(targetQueue.maxBatchSize !== null &&
+                      targetQueue.maxBatchSize !== undefined && {
+                        batch_size: targetQueue.maxBatchSize,
+                      }),
+                    ...(targetQueue.maxBatchTimeout !== null &&
+                      targetQueue.maxBatchTimeout !== undefined && {
+                        max_wait_time_ms: targetQueue.maxBatchTimeout * 1000,
+                      }),
+                    ...(targetQueue.maxRetries !== null &&
+                      targetQueue.maxRetries !== undefined && {
+                        max_retries: targetQueue.maxRetries,
+                      }),
+                    ...(targetQueue.maxConcurrency !== null &&
+                      targetQueue.maxConcurrency !== undefined && {
+                        max_concurrency: targetQueue.maxConcurrency,
+                      }),
+                    ...(targetQueue.retryDelay !== null &&
+                      targetQueue.retryDelay !== undefined && {
+                        retry_delay: targetQueue.retryDelay,
+                      }),
                   },
                 );
                 if (consumer.status === 'conflict') {
@@ -1500,6 +1516,9 @@ const app = new Hono<ApiEnv>()
               }
             }
             if (manifest?.queues?.length) {
+              if (!targetProxyToken) {
+                throw new Error('Rollback requires the Worker proxy token for queues.');
+              }
               for (const q of manifest.queues) {
                 await putRouting(
                   `queue:${getProjectQueueName(projectId, q.name)}`,
@@ -1507,7 +1526,7 @@ const app = new Hono<ApiEnv>()
                     workerName,
                     projectId,
                     queueName: q.name,
-                    proxyToken: targetProxyToken!,
+                    proxyToken: targetProxyToken,
                   }),
                 );
               }
@@ -1528,6 +1547,7 @@ const app = new Hono<ApiEnv>()
               }
             }
             if (compensationErrors.length > 0) {
+              // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
               throw new AggregateError(
                 [externalError, ...compensationErrors],
                 'rollback failed and external state compensation was incomplete',
@@ -1543,7 +1563,7 @@ const app = new Hono<ApiEnv>()
           // rollback target was already active before this transaction began.
           const witnessed = await updateRollbackLeaseState(
             tx,
-            rollbackLeaseId!,
+            leaseId,
             deploymentId,
             'applied',
             rollbackOwnerId,
@@ -1589,7 +1609,9 @@ const app = new Hono<ApiEnv>()
             // the one returned to the caller below.
           }
           if (attempt < 2) {
-            await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+            await new Promise((resolve) => {
+              setTimeout(resolve, 25 * 2 ** attempt);
+            });
           }
         }
         ambiguousCommitOutcome ??= durableReadSucceeded ? 'not_committed' : 'unknown';
@@ -1685,6 +1707,7 @@ const app = new Hono<ApiEnv>()
                 // the retryable state write is unavailable.
               });
             }
+            // oxlint-disable-next-line preserve-caught-error -- The original failure is already preserved in AggregateError.errors.
             throw new AggregateError(
               [err, ...compensationErrors],
               'rollback transaction failed and external state compensation was incomplete',
@@ -1749,7 +1772,9 @@ const app = new Hono<ApiEnv>()
           } catch (error) {
             releaseError = error;
             if (attempt < 2) {
-              await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 25 * 2 ** attempt);
+              });
             }
           }
         }
@@ -1779,11 +1804,14 @@ const app = new Hono<ApiEnv>()
       return rollbackErrorResponse;
     }
     if (rollbackErrorToThrow !== undefined) {
+      // oxlint-disable-next-line typescript/only-throw-error -- Forward the captured rollback failure after releasing the lock.
       throw rollbackErrorToThrow;
     }
     if (!rollbackResult) {
       throw new Error('rollback completed without a result');
     }
+    // The rolled-back deployment is judged by its own past scan; never fails the rollback.
+    await recheckPublicRequestBestEffort(context.env, context.get('db'), projectId, 'a rollback');
     return context.json({
       ok: true,
       deploymentId,
@@ -1791,7 +1819,6 @@ const app = new Hono<ApiEnv>()
     });
   })
 
-  // Get migration status for a project
   .get('/:id/migrations', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -1902,7 +1929,7 @@ const app = new Hono<ApiEnv>()
     }
 
     const body = await context.req.json<{
-      migrations: ReadonlyArray<{ name: string; sql: string }>;
+      migrations: Array<{ name: string; sql: string }>;
       migrationProtocolVersion?: number;
       executionPlans?: ReadonlyArray<Record<string, unknown>>;
     }>();
@@ -2034,8 +2061,16 @@ const app = new Hono<ApiEnv>()
           await appendAppliedMigrations(tx, locked.active_deployment_id, effectiveNames);
         }
 
+        type LegacyMigrationResponse = Pick<typeof result, 'applied' | 'skipped'> & {
+          ok: boolean;
+          error?: string;
+          failed?: NonNullable<typeof result.failed>;
+          migration_protocol?: 'legacy';
+          migration_stability?: 'legacy';
+          warnings?: Array<string>;
+        };
         if (result.failed) {
-          const responseBody: Record<string, unknown> = {
+          const responseBody: LegacyMigrationResponse = {
             ok: false,
             error: `migration ${result.failed.name} failed: ${result.failed.error}`,
             applied: result.applied,
@@ -2052,7 +2087,7 @@ const app = new Hono<ApiEnv>()
           };
         }
 
-        const responseBody: Record<string, unknown> = {
+        const responseBody: LegacyMigrationResponse = {
           ok: true,
           applied: result.applied,
           skipped: result.skipped,
@@ -2086,7 +2121,7 @@ const app = new Hono<ApiEnv>()
       return access;
     }
 
-    const body = await context.req.json<{ renames: ReadonlyArray<{ from: string; to: string }> }>();
+    const body = await context.req.json<{ renames: Array<{ from: string; to: string }> }>();
     if (!body.renames || !Array.isArray(body.renames) || body.renames.length === 0) {
       return context.json({ error: 'renames array required' }, 400);
     }
@@ -2442,7 +2477,6 @@ const app = new Hono<ApiEnv>()
     return context.json(resources);
   })
 
-  // Fetch logs for a project
   .get('/:id/logs', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -2757,13 +2791,13 @@ const app = new Hono<ApiEnv>()
     const ns = buildManagerNamespace(context.env, build.instance_type);
     const stub = ns.get(ns.idFromName(build.id));
     const res = await stub.fetch(`http://manager/logs?since=${since}`);
-    const body = (await res.json()) as {
+    const body = await res.json<{
       lines: ReadonlyArray<{ seq: number; line: string; stream: string; ts: number }>;
       lastSeq: number;
       status?: string;
       terminal?: boolean;
       logsComplete?: boolean | null;
-    };
+    }>();
     // Claiming a container build durably sets started_at. Only a terminal row
     // that was never claimed can prove completion without a producer marker.
     const logsComplete = body.logsComplete ?? (terminal && build.started_at === null ? true : null);
@@ -2818,7 +2852,6 @@ const app = new Hono<ApiEnv>()
 
     const { connectionString } = await context.req.json<{ connectionString: string }>();
 
-    // Check if Hyperdrive already exists
     const existing = await getProjectResources(context.get('db'), projectId);
     const found = existing.find((r) => r.type === 'hyperdrive');
     if (found) {
@@ -3086,8 +3119,9 @@ function parseDuration(input: string): number | null {
   if (!match) {
     return null;
   }
-  const value = parseInt(match[1], 10);
+  const value = Number.parseInt(match[1], 10);
   const unit = match[2];
+  // oxlint-disable-next-line quality/no-known-value-widening -- The duration regex restricts its string capture to supported units.
   const multipliers: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
   const ms = value * multipliers[unit];
   if (ms > 7 * 86_400_000) {
@@ -3200,7 +3234,8 @@ function sanitizeDeploymentManifest(raw: string | null): string | null {
 
 function tryParse(json: string): ReadonlyArray<unknown> {
   try {
-    return JSON.parse(json);
+    const entries: unknown = JSON.parse(json);
+    return Array.isArray(entries) ? (entries as Array<unknown>) : [];
   } catch {
     return [];
   }

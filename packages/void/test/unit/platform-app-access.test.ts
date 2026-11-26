@@ -121,6 +121,7 @@ describe('guided installation app access', () => {
     prompts.select.mockResolvedValue('public');
     await selectInstallationAppAccess({ authentication: { providers: ['github'] } });
     expect(
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Inspect the prompt options recorded by the partial prompt mock.
       prompts.select.mock.calls[1]?.[0].options.map((v: { value: string }) => v.value),
     ).toEqual(['public', 'custom']);
   });
@@ -233,6 +234,35 @@ describe('guided installation app access', () => {
     expect(prompts.confirm).not.toHaveBeenCalled();
     expect(prompts.password).not.toHaveBeenCalled();
   });
+  it('allows unmanaged public apps when Cloudflare explicitly reports Access disabled', async () => {
+    const { input, fetcher } = fixture('public');
+    fetcher.mockResolvedValueOnce(
+      Response.json(
+        {
+          success: false,
+          errors: [{ code: 9999, message: 'access.api.error.not_enabled: Access is not enabled.' }],
+        },
+        { status: 403 },
+      ),
+    );
+    expect(JSON.parse(await prepareInstallationAppAccess(input))).toMatchObject({
+      mode: 'public',
+      managed: false,
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it('requires an explicit credential when Cloudflare denies the public Access check', async () => {
+    const { input, fetcher } = fixture('public');
+    fetcher.mockResolvedValueOnce(
+      Response.json(
+        { success: false, errors: [{ code: 10_000, message: 'Authentication error' }] },
+        { status: 403 },
+      ),
+    );
+    await expect(prepareInstallationAppAccess(input)).rejects.toThrow(
+      'VOID_PLATFORM_APP_ACCESS_TOKEN',
+    );
+  });
   it('prepares managed public rules under Default-Deny without asking for company policies', async () => {
     tty(true);
     const { input } = fixture('public');
@@ -313,7 +343,7 @@ describe('guided installation app access', () => {
       Response.json({ installationId: 'team', turnedOff: true }),
     );
     await turnOffInstalledProjectZeroTrust(input, fetcher);
-    const [url, init] = fetcher.mock.calls[0]!;
+    const [url, init] = fetcher.mock.calls[0];
     expect(String(url)).toBe('https://platform.example.test/internal/platform/app-access/turn-off');
     expect(init).toMatchObject({
       method: 'POST',

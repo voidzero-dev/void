@@ -1,8 +1,9 @@
 {
   "compilerOptions": {
+    "noEmit": true,
     "target": "ES2022",
     "module": "NodeNext",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "moduleResolution": "NodeNext",
     "strict": true,
     "noUnusedLocals": true,
@@ -11,7 +12,8 @@
     "declaration": true,
     "outDir": "dist",
     "rootDir": ".",
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "types": ["node", "vite/client"]
   },
-  "include": ["./.vitepress/**/*.ts"]
+  "include": ["./.vitepress/**/*.ts", "env.d.ts", "test"]
 }

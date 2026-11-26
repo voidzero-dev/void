@@ -9,12 +9,11 @@ import {
   EMAIL_MAX_METADATA_BYTES,
   EMAIL_MAX_REPLY_BYTES,
   EMAIL_MAX_RESPONSE_BYTES,
-  type EmailWireAction,
 } from '@void/platform/email-protocol';
+import type { EmailWireAction } from '@void/platform/email-protocol';
 import type { Email as PostalMimeEmail } from 'postal-mime';
-import { base64ToBytes } from '../base64.ts';
-import { withTimeout } from '../email-protocol.ts';
-import { getRawRuntimeEnv } from '../env-raw.ts';
+import { base64ToBytes } from '../../shared/base64.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
 import {
   buildMime,
   MAX_ADDRESS_LENGTH,
@@ -22,6 +21,7 @@ import {
   normalizeEmail,
   validateAddressParts,
 } from './mime.ts';
+import { withTimeout } from './protocol.ts';
 import { fitsHeaderLine, replyReferences, threadingId } from './threading.ts';
 import type { Address, Attachment } from './types.ts';
 
@@ -186,7 +186,7 @@ export type EmailAction = EmailWireAction;
 
 export interface MessageProxy {
   message: ForwardableEmailMessage;
-  getActions(): Array<EmailAction>;
+  getActions(this: void): Array<EmailAction>;
 }
 
 export interface CreateMessageProxyOptions {
@@ -304,7 +304,7 @@ function normalizeRejectReason(reason: string): string {
     raw
       .slice(0, MAX_REJECT_REASON_LENGTH)
       // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-      .replace(/[\x00-\x1f\x7f]+/g, ' ')
+      .replaceAll(/[\u0000-\u001f\u007f]+/g, ' ')
   );
 }
 
@@ -440,6 +440,7 @@ export function createMessageProxy(
     }
   }
 
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The proxy implements the managed email transport rather than the native message ABI.
   const message = {
     from: envelope.from,
     to: userVisibleTo,
@@ -710,15 +711,15 @@ function prefixReplySubject(original: string): string {
   }
   const cleaned = decoded
     // eslint-disable-next-line no-control-regex -- C0 controls and DEL are the point
-    .replace(/[\x00-\x1f\x7f]+/g, ' ')
-    .replace(/ {2,}/g, ' ')
+    .replaceAll(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replaceAll(/ {2,}/g, ' ')
     .trim();
   if (!cleaned) {
     return 'Re:';
   }
   const prefixed = /^re:/i.test(cleaned) ? cleaned : `Re: ${cleaned}`;
   // Non-ASCII goes through `encodeWord`, whose words always fold.
-  if (/^[\x20-\x7e]*$/.test(prefixed) && !fitsHeaderLine('Subject', prefixed)) {
+  if (/^[\u0020-\u007e]*$/.test(prefixed) && !fitsHeaderLine('Subject', prefixed)) {
     return 'Re:';
   }
   return prefixed;
@@ -745,7 +746,7 @@ function decodeRfc2047(value: string): string {
       // TextDecoder rejects.
       let decoder: TextDecoder;
       try {
-        decoder = new TextDecoder(charset || 'utf-8', { fatal: false });
+        decoder = new TextDecoder(charset || 'utf8', { fatal: false });
       } catch {
         decoder = new TextDecoder('utf-8', { fatal: false });
       }
@@ -773,7 +774,7 @@ function quotedPrintableDecode(qp: string): Uint8Array {
       // stays literal.
       const hex = qp.slice(i + 1, i + 3);
       if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
-        out[kept++] = parseInt(hex, 16);
+        out[kept++] = Number.parseInt(hex, 16);
         i += 2;
       } else {
         out[kept++] = ch;
@@ -838,7 +839,7 @@ export async function buildReplyMessage(
   // Threading rides `threading`, since `headers` reserve these names. Both
   // ids are remote-controlled: drop one that cannot fit a line or holds a
   // control character rather than fail the reply.
-  const threading: { inReplyTo?: string; references?: string } = {};
+  const threading: NonNullable<Parameters<typeof normalizeEmail>[0]['threading']> = {};
   const messageId = threadingId('In-Reply-To', originalMessageId);
   if (messageId) {
     threading.inReplyTo = messageId;
@@ -883,11 +884,10 @@ export async function replyEmail(
   opts: ReplyEmailOptions,
 ): Promise<void> {
   const { from, to, raw } = await buildReplyMessage(message, opts);
-  await (
-    message as unknown as {
-      reply(arg: { from: string; to: string; raw: Uint8Array }): Promise<void>;
-    }
-  ).reply({ from, to, raw });
+  const transport = message as ForwardableEmailMessage & {
+    reply(arg: { from: string; to: string; raw: Uint8Array }): Promise<void>;
+  };
+  await transport.reply({ from, to, raw });
 }
 
 /**

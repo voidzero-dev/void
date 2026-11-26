@@ -1,11 +1,13 @@
 /** Inbound router validation and action execution with gateway-resolved routes. */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { MockInstance } from 'vite-plus/test';
 // This suite exercises router validation against a fake tenant. The gateway
 // wire framing has its own tests; preserve direct access to malformed action
 // fixtures that the production decoder now rejects before the router.
 vi.mock('../../src/tenant-dispatch.ts', () => ({
   dispatchBoundedEmailToTenant: async (
+    // oxlint-disable-next-line quality/no-unknown-returns -- The fake tenant deliberately returns malformed action payloads.
     stub: { email: (envelope: unknown) => Promise<unknown> },
     _env: unknown,
     input: { envelope: unknown; receiptId: string },
@@ -18,12 +20,7 @@ vi.mock('../../src/tenant-dispatch.ts', () => ({
   },
 }));
 import type { Env } from '../../../proxy/src/types.ts';
-import {
-  MAX_INBOUND_BYTES,
-  MAX_INBOUND_HEADERS,
-  routeInbound as routeInboundWithRoute,
-  routeRelayed,
-} from '../../src/router.ts';
+import { routeInbound as routeInboundWithRoute, routeRelayed } from '../../src/router.ts';
 
 const ROUTE_FENCE = {
   routeId: 'route-1',
@@ -47,9 +44,9 @@ async function routeInbound(
       projectId: 'p_test',
       workerName: 'user-worker',
       deploymentId: 'v1',
-      slug: to.split('@')[0]!.split('+')[0]!,
+      slug: to.split('@')[0].split('+')[0],
       addressing: 'shared',
-      domain: to.split('@')[1]!,
+      domain: to.split('@')[1],
     },
   );
 }
@@ -157,6 +154,7 @@ function createFakeMessage(opts: {
       }
       forwardCalls.push({ to, headers: h });
       order.push(`forward:${to}`);
+      return { messageId: 'forwarded' };
     },
     async reply(reply: unknown) {
       const r = reply as RecordedReply;
@@ -165,6 +163,7 @@ function createFakeMessage(opts: {
       }
       replyCalls.push(r);
       order.push(`reply:${r.from}->${r.to}`);
+      return { messageId: 'replied' };
     },
   };
   return {
@@ -215,6 +214,7 @@ interface MakeEnvOptions {
 function makeEnv(options: MakeEnvOptions = {}) {
   const emailFn = vi.fn(async (_envelope: unknown) => {
     if (options.emailThrow) {
+      // oxlint-disable-next-line typescript/only-throw-error -- The fake can reject with arbitrary provider error payloads.
       throw options.emailThrow;
     }
     return options.emailReturn;
@@ -309,9 +309,9 @@ function apiBodies(
 // Console spies + frozen clock. Every test runs under these.
 // -----------------------------------------------------------------------
 
-let errorSpy: ReturnType<typeof vi.spyOn>;
-let warnSpy: ReturnType<typeof vi.spyOn>;
-let logSpy: ReturnType<typeof vi.spyOn>;
+let errorSpy: MockInstance;
+let warnSpy: MockInstance;
+let logSpy: MockInstance;
 
 beforeEach(() => {
   // Only `Date` is faked — setTimeout/queueMicrotask stay real so stream
@@ -836,7 +836,7 @@ describe('routeInbound — action enaction', () => {
     const { env, apiFetch } = makeEnv({
       emailReturn: [
         { type: 'forward', to: 'not-an-email' },
-        { type: 'forward', to: 'has\x00control@example.com' },
+        { type: 'forward', to: 'has\u0000control@example.com' },
         { type: 'forward', to: 'no-at-sign-here' },
         { type: 'forward', to: 'admin@example.com' },
       ],
@@ -878,7 +878,7 @@ describe('routeInbound — action enaction', () => {
       emailReturn: [
         {
           type: 'reject',
-          reason: 'spam\r\nX-Inject: foo\nbar\x00null',
+          reason: 'spam\r\nX-Inject: foo\nbar\u0000null',
         },
       ],
     });
@@ -889,8 +889,7 @@ describe('routeInbound — action enaction', () => {
     // No CR, LF, or NUL bytes left. Build via RegExp() to satisfy
     // oxlint's no-control-regex rule (mirrors the production-side
     // dodge in src/email-router.ts).
-    // oxlint-disable-next-line no-control-regex
-    expect(rejectCalls[0]).not.toMatch(new RegExp('[\\r\\n\\u0000]'));
+    expect(rejectCalls[0]).not.toMatch(new RegExp(String.raw`[\r\n\u0000]`));
   });
 
   it('a throwing forward is logged and does not abort the list', async () => {
@@ -977,7 +976,7 @@ describe('routeInbound — action enaction', () => {
     const forward = vi.fn(() => {
       submissions++;
       (submissions === 1 ? firstSubmit : secondSubmit)();
-      return new Promise<void>(() => {});
+      return new Promise<EmailSendResult>(() => {});
     });
     message.forward = forward;
     const { ctx } = createCtx();
@@ -1011,7 +1010,7 @@ describe('routeInbound — action enaction', () => {
     const { message } = createFakeMessage({ to: `myslug@${PROD_DOMAIN}` });
     message.reply = vi.fn(() => {
       markSubmitted();
-      return new Promise<void>(() => {});
+      return new Promise<EmailSendResult>(() => {});
     });
     const { ctx } = createCtx();
     const pending = routeInbound(message, env, ctx);
@@ -1050,7 +1049,7 @@ describe('routeInbound — envelope header bag (prototype pollution guard)', () 
     // prototype mutation that affects {}).
     const envelope = emailFn.mock.calls[0]?.[0] as { headers: Record<string, string> };
     expect(Object.getPrototypeOf(envelope.headers)).toBe(Object.prototype);
-    expect(Object.prototype.hasOwnProperty.call(envelope.headers, '__proto__')).toBe(true);
+    expect(Object.hasOwn(envelope.headers, '__proto__')).toBe(true);
     expect(envelope.headers['__proto__']).toBe('evil');
     // Nothing leaked onto Object.prototype.
     expect(Object.getPrototypeOf({})).toBe(Object.prototype);
@@ -1190,7 +1189,7 @@ describe('routeRelayed — unsupported forward', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const { ctx } = createCtx();
     const outcome = await routeRelayed(env, ctx, {
-      stub: env.DISPATCH.get('user-worker') as Fetcher,
+      stub: env.DISPATCH.get('user-worker'),
       projectId: 'p_test',
       domain: 'custom.example.com',
       receiptId: 'receipt_1',
@@ -1281,7 +1280,7 @@ describe('routeRelayed — reply attempt outcomes', () => {
     vi.stubGlobal('fetch', providerFetch);
     const { ctx } = createCtx();
     const outcome = await routeRelayed(env, ctx, {
-      stub: env.DISPATCH.get('user-worker') as Fetcher,
+      stub: env.DISPATCH.get('user-worker'),
       projectId: 'p_test',
       domain: 'custom.example.com',
       receiptId: 'receipt_1',

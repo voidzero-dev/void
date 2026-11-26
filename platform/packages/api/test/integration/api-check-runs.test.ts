@@ -77,7 +77,7 @@ type StatusWrite = {
     instanceType?: string | null;
   };
 };
-const ACTIVE_BUILD_STATUSES = ['starting', 'building', 'deploying'];
+const ACTIVE_BUILD_STATUSES = new Set(['starting', 'building', 'deploying']);
 const dbState = {
   writes: [] as Array<StatusWrite>,
   status: new Map<string, string>(),
@@ -103,14 +103,14 @@ vi.mock('../../src/db.ts', () => ({
         return false;
       }
       dbState.status.set(id, 'building');
-      dbState.writes.push({ id, status: 'building', opts: opts as StatusWrite['opts'] });
+      dbState.writes.push({ id, status: 'building', opts });
       return true;
     },
   ),
   markBuildTerminalIfActive: vi.fn(
     async (_db: unknown, id: string, status: string, opts?: unknown) => {
       const current = dbState.status.get(id);
-      if (current === undefined || !ACTIVE_BUILD_STATUSES.includes(current)) {
+      if (current === undefined || !ACTIVE_BUILD_STATUSES.has(current)) {
         return false;
       }
       dbState.status.set(id, status);
@@ -120,7 +120,7 @@ vi.mock('../../src/db.ts', () => ({
   ),
   markBuildProgressIfActive: vi.fn(async (_db: unknown, id: string, status: string) => {
     const current = dbState.status.get(id);
-    if (current === undefined || !ACTIVE_BUILD_STATUSES.includes(current)) {
+    if (current === undefined || !ACTIVE_BUILD_STATUSES.has(current)) {
       return false;
     }
     dbState.status.set(id, status);
@@ -314,7 +314,7 @@ type FetchCall = {
   body: Record<string, unknown> | undefined;
 };
 
-const CHECK_RUN_ID = 99001;
+const CHECK_RUN_ID = 99_001;
 
 type FetchMatchers = {
   // Override the create response status (default 201) / body. Used for the 4xx +
@@ -355,7 +355,7 @@ function installFetch(matchers: FetchMatchers = {}): {
       if (url.includes('/access_tokens') && method === 'POST') {
         return Response.json({
           token: 'tok',
-          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          expires_at: new Date(Date.now() + 3_600_000).toISOString(),
         });
       }
 

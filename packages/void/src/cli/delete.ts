@@ -82,7 +82,6 @@ export async function runDeleteCommand(
     }
   }
 
-  // Remove local config if it pointed to this project
   const localConfig = readProjectConfig(root);
   if (localConfig?.projectId === projectId) {
     removeProjectConfig(root);

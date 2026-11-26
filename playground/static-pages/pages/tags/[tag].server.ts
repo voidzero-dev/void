@@ -1,5 +1,6 @@
 import { tags } from 'virtual:tags';
 import { defineHandler } from 'void';
+import type { PageParams } from 'void/routes';
 
 export type Props = Readonly<{
   tag: string;
@@ -12,5 +13,6 @@ export function getPrerenderPaths() {
 }
 
 export const loader = defineHandler<Props>((c) => {
-  return { tag: c.req.param('tag') };
+  const { tag } = c.req.param() as PageParams<'/tags/[tag]'>;
+  return { tag };
 });

@@ -20,8 +20,8 @@ export interface SendEmailOptions {
    * Sender envelope address. Optional. When omitted, `void dev` and
    * `void deploy --platform cloudflare` use `email.from` from void.config.ts,
    * and a Void platform deploy uses `<project-slug>+noreply@<mail-domain>`.
-   * Without either, `sendEmail` returns `INVALID_FROM`; it never falls back
-   * to a baked-in domain.
+   * Without either, `sendEmail` returns `INVALID_FROM` if a transport is available
+   * or `BINDING_MISSING` if none is configured. It never falls back to a baked-in domain.
    */
   from?: Address;
   to: Address | Array<Address>;
@@ -34,6 +34,8 @@ export interface SendEmailOptions {
   /** Custom headers. Reserved names such as `From`, `Date` and the threading headers are ignored. */
   headers?: Record<string, string>;
   attachments?: Array<Attachment>;
+  /** An iCalendar invitation or cancellation with a matching METHOD property. */
+  calendar?: { method: 'REQUEST' | 'CANCEL'; content: string };
   /**
    * Threads this email under an earlier message, such as a reply sent from a
    * queue job after the inbound handler returned. `inReplyTo` is the parent's
@@ -146,6 +148,7 @@ export interface NormalizedEmail {
   html?: string;
   headers: Record<string, string>;
   attachments: Array<NormalizedAttachment>;
+  calendar?: SendEmailOptions['calendar'];
   /**
    * `In-Reply-To` / `References` after the ids were checked, from the
    * `threading` option or `replyEmail`. User-supplied `headers` with these

@@ -1,9 +1,16 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
-import spawn from 'cross-spawn';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+} from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 let DEV_BASE: string;
@@ -71,6 +78,15 @@ function defineCodeCopyTests(getBase: () => string) {
       const copied = await page.evaluate(() => navigator.clipboard.readText());
       expect(copied).toContain('voidMarkdown(),');
       expect(copied.split('voidVue()')).toHaveLength(2);
+
+      const jsxBlock = page.locator('div.language-tsx');
+      expect(await jsxBlock.locator('.line.diff.remove').textContent()).toBe('  <Old />');
+      expect(await jsxBlock.locator('.line.diff.add').textContent()).toBe('  <New />');
+      await jsxBlock.hover();
+      await jsxBlock.locator('button.copy').click();
+      await jsxBlock.locator('button.copy.copied').waitFor();
+      const copiedJsx = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copiedJsx.replaceAll('\r\n', '\n')).toBe('<div>\n  <New />\n</div>');
     } finally {
       await context.close();
     }
@@ -195,7 +211,7 @@ function defineSidebarTests(getBase: () => string) {
       expect(body).toContain('Getting Started');
       expect(body).toContain('Code Examples');
       expect(body).toContain('Learn how to use Void');
-      expect(body).toContain('Shiki syntax highlighting demos');
+      expect(body).toContain('Syntax highlighting demos');
     } finally {
       await page.context().close();
     }
@@ -203,35 +219,25 @@ function defineSidebarTests(getBase: () => string) {
 }
 
 describe('markdown-blog playground', () => {
+  // Dev, build and preview share one isolated copy of the playground, never its source.
+  let fixture: IsolatedPlayground;
+
+  beforeAll(() => {
+    fixture = createIsolatedPlayground(ROOT, 'playground/markdown-blog');
+  });
+
+  afterAll(() => {
+    fixture?.cleanup();
+  });
+
   describe('dev', () => {
-    let child: ReturnType<typeof spawn>;
+    let child: ChildProcess | undefined;
 
     beforeAll(async () => {
-      const server = await startServer((port) => {
-        child = spawn(
-          'vp',
-          [
-            'run',
-            '--filter',
-            './playground/markdown-blog',
-            'dev',
-            '--host',
-            '127.0.0.1',
-            '--port',
-            String(port),
-            '--strictPort',
-          ],
-          {
-            cwd: ROOT,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: {
-              ...process.env,
-              VOID_INSPECTOR_PORT: 'false',
-            },
-          },
-        );
-        return child;
-      }, 20_000);
+      const server = await startServer(
+        (port) => (child = spawnFixtureServer(fixture.root, 'dev', port)),
+        20_000,
+      );
       DEV_BASE = server.base;
     });
 
@@ -275,39 +281,15 @@ describe('markdown-blog playground', () => {
   });
 
   describe('production (build + preview)', () => {
-    let child: ReturnType<typeof spawn>;
+    let child: ChildProcess | undefined;
 
     beforeAll(async () => {
-      execSync('vp run --filter ./playground/markdown-blog build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
+      execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
-      const server = await startServer((port) => {
-        child = spawn(
-          'vp',
-          [
-            'run',
-            '--filter',
-            './playground/markdown-blog',
-            'preview',
-            '--host',
-            '127.0.0.1',
-            '--port',
-            String(port),
-            '--strictPort',
-          ],
-          {
-            cwd: ROOT,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: {
-              ...process.env,
-              VOID_INSPECTOR_PORT: 'false',
-            },
-          },
-        );
-        return child;
-      }, 20_000);
+      const server = await startServer(
+        (port) => (child = spawnFixtureServer(fixture.root, 'preview', port)),
+        20_000,
+      );
       PREVIEW_BASE = server.base;
     });
 

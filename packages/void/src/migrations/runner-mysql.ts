@@ -3,8 +3,8 @@ import {
   mySqlMigrationLockError,
   mySqlMigrationLockName,
   readMySqlMigrationLease,
-} from '../runtime/migration-lock-mysql.ts';
-import { splitMySqlMigrationSql } from '../runtime/mysql-migration-sql.ts';
+} from '../runtime/db/migrations/mysql-lock.ts';
+import { splitMySqlMigrationSql } from '../runtime/db/migrations/mysql-sql.ts';
 import { collectMigrations } from './collect.ts';
 
 export type MySqlClient = {
@@ -74,16 +74,22 @@ async function acquireMySqlMigrationLock(client: MySqlClient): Promise<string> {
 
   const readLease = () => readMySqlMigrationLease((sql, params) => client.query(sql, params));
   const deadline = Date.now() + MIGRATION_LOCK_TIMEOUT_SECONDS * 1000;
-  let remaining = await readLease();
-  while (remaining !== undefined && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    remaining = await readLease();
-  }
-  if (remaining !== undefined) {
+  try {
+    let remaining = await readLease();
+    while (remaining !== undefined && Date.now() < deadline) {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1000);
+      });
+      remaining = await readLease();
+    }
+    if (remaining !== undefined) {
+      throw new Error(
+        `A deploy is applying migrations to MySQL database "${database}". Wait for it to finish, then run the command again. If that deploy stopped, its lock expires in ${remaining} seconds.`,
+      );
+    }
+  } catch (error) {
     await client.query('SELECT RELEASE_LOCK(?)', [name]).catch(() => {});
-    throw new Error(
-      `A deploy is applying migrations to MySQL database "${database}". Wait for it to finish, then run the command again. If that deploy stopped, its lock expires in ${remaining} seconds.`,
-    );
+    throw error;
   }
   return name;
 }

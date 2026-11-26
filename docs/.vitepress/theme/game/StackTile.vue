@@ -12,7 +12,8 @@ import sideLight from './assets/tile-side-light.webp';
 import surface from './assets/tile-surface.webp';
 import vueLogo from './assets/vue.svg';
 import { frameworks } from './frameworks';
-import { LAYER_HEIGHT, type Tile } from './stack-and-ship';
+import { LAYER_HEIGHT } from './stack-and-ship';
+import type { Tile } from './stack-and-ship';
 
 const props = withDefaults(
   defineProps<{

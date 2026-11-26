@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { toSlash } from 'pathslash';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { writeProvisionedWranglerConfig } from '../../src/cli/wrangler.ts';
 import {
   materializeCloudflareConfig,
@@ -11,7 +12,7 @@ import {
   stashCloudflareDeployPointer,
 } from '../../src/cloudflare-config.ts';
 
-const root = join(import.meta.dirname, '.tmp-cloudflare-config-test');
+const root = packageFixturePath(import.meta.dirname, '.tmp-cloudflare-config-test');
 
 function config(source: string): void {
   rmSync(root, { recursive: true, force: true });

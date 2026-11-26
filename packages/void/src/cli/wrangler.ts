@@ -1,11 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
-import {
-  appendSqliteClassMigration,
-  isRecord,
-  type DurableObjectMigrationStep,
-} from '@void/deploy-core';
+import { appendSqliteClassMigration, isRecord } from '@void/deploy-core';
+import type { DurableObjectMigrationStep } from '@void/deploy-core';
 import {
   applyEdits,
   createScanner,
@@ -14,10 +11,8 @@ import {
   parse,
   parseTree,
   SyntaxKind,
-  type FormattingOptions,
-  type Node,
-  type ParseError,
 } from 'jsonc-parser';
+import type { FormattingOptions, Node, ParseError } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import {
   ignoreMaterializedCloudflareConfig,
@@ -27,10 +22,13 @@ import {
 } from '../cloudflare-config.ts';
 import { TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { writeVoidProjectConfig } from '../config-write.ts';
-import { readConfig, type VoidConfig } from '../config.ts';
+import { readConfig } from '../config.ts';
+import type { VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
+import { hasOwnKey } from '../shared/has-own-key.ts';
+import { Buffer } from './node-buffer.ts';
 
 const COMPAT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** UTF-8 byte-order mark. Node's utf-8 read preserves a leading one. */
@@ -62,16 +60,12 @@ function writeProjectWranglerFile(configPath: string, text: string): void {
  * Read the first existing project Wrangler config. A missing or unparseable one is
  * replaced by the generated config, starting from an empty object.
  */
-function readOrCreateProjectWranglerConfig(root: string): {
-  configPath: string;
-  parsed: Record<string, unknown>;
-  created: boolean;
-} {
+function readOrCreateProjectWranglerConfig(root: string) {
   const configPath = projectWranglerPaths(root).find((path) => existsSync(path));
   if (configPath) {
     let parsed: Record<string, unknown> | undefined;
     try {
-      parsed = parseJsonc(readFileSync(configPath, 'utf-8'));
+      parsed = parseJsonc(readFileSync(configPath, 'utf8'));
     } catch {
       // Can't read, replace with the generated config below.
     }
@@ -128,7 +122,7 @@ export function readRootWranglerConfig(root: string): RootWranglerConfig | undef
     if (!existsSync(configPath)) {
       continue;
     }
-    const parsed = parseJsonc(readFileSync(configPath, 'utf-8'));
+    const parsed = parseJsonc(readFileSync(configPath, 'utf8'));
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new SyntaxError(`Failed to parse ${configPath}: expected a JSON object.`);
     }
@@ -144,7 +138,7 @@ export function readWranglerPublishedTrafficSnapshot(
   if (!existsSync(configPath)) {
     return undefined;
   }
-  const encoded = PUBLISHED_TRAFFIC_MARKER.exec(readFileSync(configPath, 'utf-8'))?.[1];
+  const encoded = PUBLISHED_TRAFFIC_MARKER.exec(readFileSync(configPath, 'utf8'))?.[1];
   if (!encoded) {
     return undefined;
   }
@@ -177,7 +171,7 @@ export function writeWranglerPublishedTrafficSnapshot(
   if (!existsSync(configPath)) {
     return;
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const encoded = Buffer.from(JSON.stringify(snapshot), 'utf8').toString('base64url');
   const marker = `// void:published-traffic:v1:${encoded}`;
   const existing = PUBLISHED_TRAFFIC_MARKER.exec(raw);
@@ -247,7 +241,12 @@ export function nextDurableObjectMigrationTag(
   migrations: Array<DurableObjectMigration>,
   baseTag: string,
 ): string {
-  const existingTags = new Set(migrations.map((migration) => migration.tag).filter(Boolean));
+  const existingTags = new Set(
+    migrations.flatMap((migration) => {
+      const value = migration.tag;
+      return value ? [value] : [];
+    }),
+  );
   if (!existingTags.has(baseTag)) {
     return baseTag;
   }
@@ -301,7 +300,7 @@ function readWranglerDurableObjectBindings(
 ): Array<{ name: string; class_name: string }> {
   for (const path of projectWranglerPaths(root)) {
     try {
-      const parsed = parseJsonc(readFileSync(path, 'utf-8'));
+      const parsed = parseJsonc(readFileSync(path, 'utf8'));
       const bindings = (
         parsed.durable_objects as
           | { bindings?: Array<{ name?: unknown; class_name?: unknown }> }
@@ -330,7 +329,7 @@ function generatedLiveNamePattern(base: string): RegExp {
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 function findGeneratedLiveBinding(
@@ -403,7 +402,7 @@ function readWranglerCompatFields(
   let raw: string | undefined;
   for (const path of projectWranglerPaths(root)) {
     try {
-      raw = readFileSync(path, 'utf-8');
+      raw = readFileSync(path, 'utf8');
       break;
     } catch {
       // try next
@@ -431,8 +430,8 @@ function readWranglerCompatFields(
   let buildFlags: Array<string> | undefined;
   if (buildOutputDir) {
     try {
-      const buildRaw = readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf-8');
-      const buildParsed = JSON.parse(buildRaw);
+      const buildRaw = readFileSync(join(buildOutputDir, 'wrangler.json'), 'utf8');
+      const buildParsed = JSON.parse(buildRaw) as Record<string, unknown>;
       if (typeof buildParsed.compatibility_date === 'string') {
         validateCompatDate(buildParsed.compatibility_date, 'build output wrangler.json');
         buildDate = buildParsed.compatibility_date;
@@ -520,13 +519,14 @@ function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): strin
 
   let nextConfig: VoidConfig;
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as Record<string, unknown>;
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
     }
-    nextConfig = parsed as VoidConfig;
+    nextConfig = parsed;
   } catch (error) {
     if (error instanceof SyntaxError) {
+      // oxlint-disable-next-line preserve-caught-error -- A JSON parser error can include an excerpt of the configuration.
       throw new Error(`config: Invalid JSON in ${VOID_CONFIG_FILE}.`);
     }
     throw error;
@@ -644,7 +644,7 @@ export function syncWranglerBindings(
       )
     ) {
       parsed.durable_objects = {
-        ...((parsed.durable_objects as Record<string, unknown> | undefined) ?? {}),
+        ...(parsed.durable_objects ?? {}),
         bindings: nextBindings,
       };
       modified = true;
@@ -730,9 +730,11 @@ export function syncWranglerDurableObjects(
       );
     }
   }
-  const additions = durableObjects
-    .filter((module) => !existingBindings.some((binding) => binding.name === module.bindingName))
-    .map((module) => ({ name: module.bindingName, class_name: module.className }));
+  const additions = durableObjects.flatMap((module) =>
+    !existingBindings.some((binding) => binding.name === module.bindingName)
+      ? [{ name: module.bindingName, class_name: module.className }]
+      : [],
+  );
   if (additions.length > 0) {
     parsed.durable_objects = { bindings: [...existingBindings, ...additions] };
     modified = true;
@@ -793,7 +795,7 @@ export function readWranglerWebSocketTombstones(
   if (!configPath) {
     return [];
   }
-  const parsed = parseJsonc(readFileSync(configPath, 'utf-8'));
+  const parsed = parseJsonc(readFileSync(configPath, 'utf8'));
   const migrations = Array.isArray(parsed.migrations)
     ? (parsed.migrations as Array<DurableObjectMigration>)
     : [];
@@ -859,6 +861,7 @@ export type WranglerQueueConsumer = {
   queue: string;
   max_batch_size?: number;
   max_batch_timeout?: number;
+  max_concurrency?: number;
   max_retries?: number;
   retry_delay?: number;
 };
@@ -915,22 +918,26 @@ export type ProvisionedWranglerPatch = {
 type ManagedQueueProvenance = {
   producerBindings: Array<string>;
   consumerQueues: Array<string>;
+  /** Consumers whose max_concurrency was set from a queue file export. */
+  consumerConcurrencyQueues: Array<string>;
   /** Void-owned consumers removed locally but not yet confirmed removed remotely. */
   pendingConsumerRemovals: Array<string>;
 };
+
+const strings = (value: unknown): Array<string> =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
 function readManagedQueueProvenance(text: string): ManagedQueueProvenance {
   const none: ManagedQueueProvenance = {
     producerBindings: [],
     consumerQueues: [],
+    consumerConcurrencyQueues: [],
     pendingConsumerRemovals: [],
   };
   const encoded = MANAGED_QUEUES_MARKER.exec(text)?.[1];
   if (!encoded) {
     return none;
   }
-  const strings = (value: unknown): Array<string> =>
-    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
   try {
     const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as unknown;
     if (!isRecord(parsed)) {
@@ -939,6 +946,7 @@ function readManagedQueueProvenance(text: string): ManagedQueueProvenance {
     return {
       producerBindings: strings(parsed.producerBindings),
       consumerQueues: strings(parsed.consumerQueues),
+      consumerConcurrencyQueues: strings(parsed.consumerConcurrencyQueues),
       pendingConsumerRemovals: strings(parsed.pendingConsumerRemovals),
     };
   } catch {
@@ -951,12 +959,14 @@ function writeManagedQueueProvenance(text: string, provenance: ManagedQueueProve
   const normalized: ManagedQueueProvenance = {
     producerBindings: [...new Set(provenance.producerBindings)].sort(),
     consumerQueues: [...new Set(provenance.consumerQueues)].sort(),
+    consumerConcurrencyQueues: [...new Set(provenance.consumerConcurrencyQueues)].sort(),
     pendingConsumerRemovals: [...new Set(provenance.pendingConsumerRemovals)].sort(),
   };
   const existing = MANAGED_QUEUES_MARKER.exec(text);
   if (
     normalized.producerBindings.length === 0 &&
     normalized.consumerQueues.length === 0 &&
+    normalized.consumerConcurrencyQueues.length === 0 &&
     normalized.pendingConsumerRemovals.length === 0
   ) {
     if (!existing) {
@@ -983,7 +993,7 @@ export function readWranglerManagedQueueCleanupCandidates(configPath: string): A
   if (!existsSync(configPath)) {
     return [];
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const text = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const provenance = readManagedQueueProvenance(text);
   return [...new Set([...provenance.consumerQueues, ...provenance.pendingConsumerRemovals])].sort();
@@ -997,7 +1007,7 @@ export function acknowledgeWranglerManagedQueueRemovals(
   if (!existsSync(configPath) || removedQueues.length === 0) {
     return;
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const hasBom = raw.startsWith(UTF8_BOM);
   const text = hasBom ? raw.slice(UTF8_BOM.length) : raw;
   const provenance = readManagedQueueProvenance(text);
@@ -1035,7 +1045,7 @@ export function writeProvisionedWranglerConfig(
   const configPath = options?.configPath ?? discoverWranglerConfigPath(root);
 
   // Wrangler strips a leading BOM before parsing. Strip it for editing and restore it on write.
-  const rawContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '{}';
+  const rawContent = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '{}';
   const hasBom = rawContent.startsWith(UTF8_BOM);
   const original = hasBom ? rawContent.slice(UTF8_BOM.length) : rawContent;
 
@@ -1047,6 +1057,7 @@ export function writeProvisionedWranglerConfig(
     throw new Error(
       `deploy: cannot update "${configPath}" — it is not valid JSON/JSONC. ` +
         `Fix the file and retry. (${(error as Error).message})`,
+      { cause: error },
     );
   }
 
@@ -1181,12 +1192,10 @@ export function writeProvisionedWranglerConfig(
       knownExistingClasses,
     );
     if (planned.added) {
-      text = applyMemberEdit(
-        text,
-        ['migrations', migrations.length],
-        planned.migrations[planned.migrations.length - 1],
-        { formattingOptions, isArrayInsertion: true },
-      );
+      text = applyMemberEdit(text, ['migrations', migrations.length], planned.migrations.at(-1), {
+        formattingOptions,
+        isArrayInsertion: true,
+      });
     }
   }
 
@@ -1203,7 +1212,7 @@ export function writeProvisionedWranglerConfig(
     const rawList = currentConfig[field];
     // The owner collector below excludes this field, so validate its shape here.
     bindingNamesForField(field, rawList);
-    const currentList = Array.isArray(rawList) ? [...rawList] : [];
+    const currentList = Array.isArray(rawList) ? [...(rawList as Array<unknown>)] : [];
     const matches: Array<{ index: number; entry: Record<string, unknown> }> = [];
     for (let i = 0; i < currentList.length; i++) {
       const entry = currentList[i];
@@ -1269,7 +1278,8 @@ export function writeProvisionedWranglerConfig(
   }
 
   let d1MigrationsDirSkipped = false;
-  if (patch.d1MigrationsDir) {
+  const { d1MigrationsDir } = patch;
+  if (d1MigrationsDir) {
     const currentD1 = parseJsonc(text).d1_databases;
     const d1Entries = Array.isArray(currentD1)
       ? (currentD1 as Array<{
@@ -1280,14 +1290,14 @@ export function writeProvisionedWranglerConfig(
       : [];
     const matchIndices: Array<number> = [];
     d1Entries.forEach((entry, i) => {
-      if (entry.binding === patch.d1MigrationsDir!.binding) {
+      if (entry.binding === d1MigrationsDir.binding) {
         matchIndices.push(i);
       }
     });
     if (matchIndices.length > 1) {
       throw new Error(
         `deploy: cannot update "${configPath}" — binding ` +
-          `${JSON.stringify(patch.d1MigrationsDir.binding)} is declared ${matchIndices.length} times ` +
+          `${JSON.stringify(d1MigrationsDir.binding)} is declared ${matchIndices.length} times ` +
           `in "d1_databases". A binding name must be unique across the worker (wrangler rejects the ` +
           `config otherwise), so migrations_dir cannot be attached unambiguously. Remove the ` +
           `duplicate D1 entry and retry.`,
@@ -1299,7 +1309,7 @@ export function writeProvisionedWranglerConfig(
       if (existingPattern !== undefined && typeof existingPattern !== 'string') {
         throw new Error(
           `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-            `${JSON.stringify(patch.d1MigrationsDir.binding)} has a non-string ` +
+            `${JSON.stringify(d1MigrationsDir.binding)} has a non-string ` +
             `"migrations_pattern" value; expected a string. Wrangler rejects such a config, so ` +
             `filling "migrations_dir" beside it would commit an invalid file. Fix the config ` +
             `and retry.`,
@@ -1310,19 +1320,19 @@ export function writeProvisionedWranglerConfig(
       if (existingDir !== undefined && typeof existingDir !== 'string') {
         throw new Error(
           `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-            `${JSON.stringify(patch.d1MigrationsDir.binding)} has a non-string ` +
+            `${JSON.stringify(d1MigrationsDir.binding)} has a non-string ` +
             `"migrations_dir" value; expected a string. Fix the config and retry.`,
         );
       }
       if (typeof existingDir === 'string') {
-        if (!sameMigrationsDir(configPath, existingDir, patch.d1MigrationsDir.dir)) {
+        if (!sameMigrationsDir(configPath, existingDir, d1MigrationsDir.dir)) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-              `${JSON.stringify(patch.d1MigrationsDir.binding)} already sets "migrations_dir": ` +
+              `${JSON.stringify(d1MigrationsDir.binding)} already sets "migrations_dir": ` +
               `${JSON.stringify(existingDir)}, but Void keeps this database's migrations in ` +
-              `${JSON.stringify(patch.d1MigrationsDir.dir)}. Refusing to overwrite an explicit ` +
+              `${JSON.stringify(d1MigrationsDir.dir)}. Refusing to overwrite an explicit ` +
               `different migrations directory. Either remove "migrations_dir" from the entry (or ` +
-              `set it to ${JSON.stringify(patch.d1MigrationsDir.dir)}) to let Void manage it, or ` +
+              `set it to ${JSON.stringify(d1MigrationsDir.dir)}) to let Void manage it, or ` +
               `move the migrations and keep your directory, then retry.`,
           );
         }
@@ -1331,18 +1341,18 @@ export function writeProvisionedWranglerConfig(
       } else {
         if (
           existingPattern !== undefined &&
-          !migrationsPatternMatchesDir(existingPattern, patch.d1MigrationsDir.dir)
+          !migrationsPatternMatchesDir(existingPattern, d1MigrationsDir.dir)
         ) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
-              `${JSON.stringify(patch.d1MigrationsDir.binding)} has "migrations_pattern": ` +
+              `${JSON.stringify(d1MigrationsDir.binding)} has "migrations_pattern": ` +
               `${JSON.stringify(existingPattern)}, which is not under the requested ` +
-              `"migrations_dir": ${JSON.stringify(patch.d1MigrationsDir.dir)}. Wrangler requires the ` +
+              `"migrations_dir": ${JSON.stringify(d1MigrationsDir.dir)}. Wrangler requires the ` +
               `pattern to start with the migrations dir, so this change would break ` +
               `\`wrangler d1 migrations\`. Align "migrations_pattern" with the dir (or remove it) and retry.`,
           );
         }
-        set(['d1_databases', index, 'migrations_dir'], patch.d1MigrationsDir.dir);
+        set(['d1_databases', index, 'migrations_dir'], d1MigrationsDir.dir);
       }
     } else {
       d1MigrationsDirSkipped = true;
@@ -1353,6 +1363,9 @@ export function writeProvisionedWranglerConfig(
   const managedQueueProvenance = readManagedQueueProvenance(text);
   const managedProducerBindings = new Set(managedQueueProvenance.producerBindings);
   const managedConsumerQueues = new Set(managedQueueProvenance.consumerQueues);
+  const managedConsumerConcurrencyQueues = new Set(
+    managedQueueProvenance.consumerConcurrencyQueues,
+  );
   const pendingConsumerRemovals = new Set(managedQueueProvenance.pendingConsumerRemovals);
   const upsertQueueEntries = (
     section: 'producers' | 'consumers',
@@ -1423,6 +1436,16 @@ export function writeProvisionedWranglerConfig(
         index = currentList.findIndex(
           (existing) => isRecord(existing) && existing.queue === entry.queue,
         );
+      }
+
+      if (reconcileManagedQueues && section === 'consumers' && typeof entry.queue === 'string') {
+        if (entry.max_concurrency !== undefined) {
+          managedConsumerConcurrencyQueues.add(entry.queue);
+        } else if (managedConsumerConcurrencyQueues.delete(entry.queue) && index >= 0) {
+          // Removing the export restores autoscaling without clearing a cap Void never wrote.
+          set(['queues', section, index, 'max_concurrency'], undefined);
+          delete currentList[index].max_concurrency;
+        }
       }
 
       if (index >= 0) {
@@ -1557,7 +1580,7 @@ export function writeProvisionedWranglerConfig(
         })
       : undefined;
     if (compositeField) {
-      const field = String(compositeField[compositeField.length - 1]);
+      const field = String(compositeField.at(-1));
       throw new Error(
         `deploy: cannot update "${configPath}" — "${field}" has an object/array value; ` +
           `expected a string. Fix the config and retry.`,
@@ -1587,6 +1610,9 @@ export function writeProvisionedWranglerConfig(
         finalProducerBindings.has(binding),
       ),
       consumerQueues: [...managedConsumerQueues].filter((queue) => finalConsumerQueues.has(queue)),
+      consumerConcurrencyQueues: [...managedConsumerConcurrencyQueues].filter((queue) =>
+        finalConsumerQueues.has(queue),
+      ),
       pendingConsumerRemovals: [...pendingConsumerRemovals],
     });
   }
@@ -1602,7 +1628,7 @@ export function writeProvisionedWranglerConfig(
 /** Read the custom-domain routes owned by the root Wrangler config. */
 export function readWranglerCustomDomains(root: string): WranglerCustomDomainUpdate {
   const configPath = discoverWranglerConfigPath(root);
-  const raw = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : '{}';
+  const raw = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '{}';
   const text = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
   const parsed = parseJsonc(text);
   assertNoDuplicateMembers(text, configPath);
@@ -1629,7 +1655,7 @@ export function updateWranglerCustomDomain(
       `domain: No Wrangler config found at "${configPath}". Run \`void init\` first.`,
     );
   }
-  const raw = readFileSync(configPath, 'utf-8');
+  const raw = readFileSync(configPath, 'utf8');
   const hasBom = raw.startsWith(UTF8_BOM);
   const original = hasBom ? raw.slice(UTF8_BOM.length) : raw;
   const parsed = parseJsonc(original);
@@ -1724,7 +1750,7 @@ function parseCustomDomains(value: unknown, configPath: string): Array<WranglerC
   }
   const domains: Array<WranglerCustomDomain> = [];
   for (let index = 0; index < value.length; index++) {
-    const route = value[index];
+    const route: unknown = value[index];
     if (typeof route === 'string') {
       continue;
     }
@@ -1792,8 +1818,8 @@ function detectFormattingOptions(text: string): FormattingOptions {
 function parseJsonc(text: string): Record<string, unknown> {
   const errors: Array<ParseError> = [];
   const source = text.startsWith(UTF8_BOM) ? text.slice(UTF8_BOM.length) : text;
-  const result = parse(source, errors, { allowTrailingComma: true });
-  if (errors.length > 0) {
+  const result: unknown = parse(source, errors, { allowTrailingComma: true });
+  if (errors.length > 0 || !isRecord(result)) {
     throw new SyntaxError('Failed to parse JSONC');
   }
   return result;
@@ -1830,14 +1856,12 @@ function applyMemberEdit(
     receivingPath = receivingPath.slice(0, -1);
     container = findNodeAtLocation(root, receivingPath);
   }
-  const members = container?.children;
-  if (!container || !members || members.length === 0) {
-    return plain();
-  }
-
   // jsonc-parser appends both new object properties and new array elements after
   // the container's current last member, so that member is the preceding sibling.
-  const last = members[members.length - 1];
+  const last = container?.children?.at(-1);
+  if (!last) {
+    return plain();
+  }
   const trailing = readTrailingComment(text, last.offset + last.length);
   if (!trailing) {
     return plain();
@@ -1849,13 +1873,12 @@ function applyMemberEdit(
 
   const newRoot = parseTree(rewritten, undefined, { allowTrailingComma: true });
   const newContainer = newRoot ? findNodeAtLocation(newRoot, receivingPath) : undefined;
-  const newMembers = newContainer?.children;
-  if (!newRoot || !newContainer || !newMembers || newMembers.length < 2) {
+  // The appended member is last; its predecessor is the sibling we relocate onto.
+  const sibling = newContainer?.children?.at(-2);
+  if (!sibling) {
     // We just appended, so this should not happen; fall back rather than corrupt.
     return plain();
   }
-  // The appended member is last; its predecessor is the sibling we relocate onto.
-  const sibling = newMembers[newMembers.length - 2];
   const commaPos = rewritten.indexOf(',', sibling.offset + sibling.length);
   if (commaPos === -1) {
     return plain();
@@ -1876,6 +1899,12 @@ function applyMemberEdit(
   }
   return relocated;
 }
+
+const isTrivia = (kind: SyntaxKind): boolean =>
+  kind === SyntaxKind.Trivia ||
+  kind === SyntaxKind.LineBreakTrivia ||
+  kind === SyntaxKind.LineCommentTrivia ||
+  kind === SyntaxKind.BlockCommentTrivia;
 
 /**
  * Remove the object member at `path`, keeping every comment. `modify(…, undefined)` also
@@ -1903,11 +1932,6 @@ function removeMember(
   for (let kind = scanner.scan(); kind !== SyntaxKind.EOF; kind = scanner.scan()) {
     tokens.push({ kind, offset: scanner.getTokenOffset(), length: scanner.getTokenLength() });
   }
-  const isTrivia = (kind: SyntaxKind): boolean =>
-    kind === SyntaxKind.Trivia ||
-    kind === SyntaxKind.LineBreakTrivia ||
-    kind === SyntaxKind.LineCommentTrivia ||
-    kind === SyntaxKind.BlockCommentTrivia;
   const following = tokens.find((token) => token.offset >= end && !isTrivia(token.kind));
   const preceding = [...tokens]
     .reverse()
@@ -2012,12 +2036,12 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
       const seen = new Set<string>();
       for (const property of node.children) {
         const keyNode = property.children?.[0];
-        const key = keyNode?.value;
-        if (typeof key !== 'string') {
+        const key: unknown = keyNode?.value;
+        if (!keyNode || typeof key !== 'string') {
           continue;
         }
         if (seen.has(key)) {
-          const { line, column } = offsetToLineColumn(text, keyNode!.offset);
+          const { line, column } = offsetToLineColumn(text, keyNode.offset);
           throw new Error(
             `deploy: cannot update "${configPath}" — duplicate key ${JSON.stringify(key)} ` +
               `at line ${line}, column ${column}. Wrangler reads the last of two duplicate ` +
@@ -2038,7 +2062,7 @@ export function assertNoDuplicateMembers(text: string, configPath: string): void
 }
 
 /** 1-based line and column of an offset. */
-function offsetToLineColumn(text: string, offset: number): { line: number; column: number } {
+function offsetToLineColumn(text: string, offset: number) {
   let line = 1;
   let column = 1;
   const limit = Math.min(offset, text.length);
@@ -2127,7 +2151,7 @@ function validateDurableObjectMigrations(
  * their labels. `queues` is left out because the producer upsert matches its own entries;
  * including it would make a producer collide with itself.
  */
-export const FRIENDLY_BINDING_NAMES: Record<string, string> = {
+export const FRIENDLY_BINDING_NAMES = {
   data_blobs: 'Data Blob',
   durable_objects: 'Durable Object',
   kv_namespaces: 'KV Namespace',
@@ -2339,7 +2363,7 @@ type BindingFieldShape =
   | { kind: 'whole-object' };
 
 /** Fields that are not a `namespace-array`. */
-const BINDING_FIELD_SHAPES: Record<string, BindingFieldShape> = {
+const BINDING_FIELD_SHAPES = {
   vars: { kind: 'key-map' },
   wasm_modules: { kind: 'key-map' },
   text_blobs: { kind: 'key-map' },
@@ -2360,14 +2384,14 @@ const BINDING_FIELD_SHAPES: Record<string, BindingFieldShape> = {
   logfwdr: { kind: 'binding-list', bindingsRequired: true },
   // `unsafe` may carry only `metadata`.
   unsafe: { kind: 'binding-list', bindingsRequired: false },
-};
+} satisfies Record<string, BindingFieldShape>;
 
 /**
  * Binding names in one config field, read by the field's known shape. Throws on a wrong
  * shape or a missing required name, which Wrangler would drop silently.
  */
 export function bindingNamesForField(field: string, value: unknown): Array<string> {
-  if (BINDING_FIELD_SHAPES[field]?.kind === 'key-map') {
+  if (hasOwnKey(BINDING_FIELD_SHAPES, field) && BINDING_FIELD_SHAPES[field].kind === 'key-map') {
     return keyMapBindingNames(field, value);
   }
   return bindingEntriesForField(field, value).map((entry) => entry.name);
@@ -2381,7 +2405,9 @@ export function bindingEntriesForField(
   field: string,
   value: unknown,
 ): Array<{ name: string; entry: Record<string, unknown> }> {
-  const shape: BindingFieldShape = BINDING_FIELD_SHAPES[field] ?? { kind: 'namespace-array' };
+  const shape: BindingFieldShape = hasOwnKey(BINDING_FIELD_SHAPES, field)
+    ? BINDING_FIELD_SHAPES[field]
+    : { kind: 'namespace-array' };
   switch (shape.kind) {
     case 'key-map':
       return keyMapBindingEntries(field);
@@ -2518,14 +2544,14 @@ function strictBindingEntries(
     if (
       !isRecord(member) ||
       typeof member[keyField] !== 'string' ||
-      (member[keyField] as string).length === 0
+      member[keyField].length === 0
     ) {
       throw bindingSetError(
         `"${field}" contains a malformed entry at index ${index} (missing a non-empty string "${keyField}")`,
         'dropped entry',
       );
     }
-    return { name: member[keyField] as string, entry: member };
+    return { name: member[keyField], entry: member };
   });
 }
 
@@ -2558,6 +2584,6 @@ function migrationsPatternMatchesDir(pattern: string, dir: string): boolean {
 
 /** Wrangler's `normalizeRelativePath`: forward slashes, normalized, no trailing slash. */
 function normalizeMigrationsPath(p: string): string {
-  const normalized = normalize(p.replace(/\\/g, '/'));
+  const normalized = normalize(p.replaceAll('\\', '/'));
   return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
 }

@@ -1,10 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
-import {
-  AI_LOGGING_MODES,
-  parsePlanAiLoggingInput,
-  type AiLoggingMode,
-} from '@void/platform/ai-logging';
+import { AI_LOGGING_MODES, parsePlanAiLoggingInput } from '@void/platform/ai-logging';
+import type { AiLoggingMode } from '@void/platform/ai-logging';
 import {
   PLAN_EDITABLE_LIMIT_KEYS,
   PLAN_LIMITS,
@@ -12,16 +9,18 @@ import {
   parsePlanName,
   parseBuildInstanceType,
   parsePlatformPlanId,
-  type PlatformPlanCatalog,
-  type PlatformPlanDefinition,
 } from '@void/platform/plans';
+import type { PlatformPlanCatalog, PlatformPlanDefinition } from '@void/platform/plans';
 import {
-  type CANCEL_SYMBOL,
-  confirm,
-  isCancel,
-  select,
-  text,
-} from '@voidzero-dev/vite-plus-prompts';
+  formatPlanSecurityCap,
+  parsePlanSecurityCapInput,
+  planSecurityCap,
+  readPlanSecurityCaps,
+  readStoredPlanSecurityCap,
+} from '@void/platform/security-policy';
+import type { PlanSecurityCaps, SecurityPlanCap } from '@void/platform/security-policy';
+import { confirm, isCancel, select, text } from '@voidzero-dev/vite-plus-prompts';
+import type { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
 import { utcTime } from './operator-ai-logging.ts';
 import { readOperatorToken, resolveOperatorOrigin } from './operator-auth.ts';
 import { OperatorClient, OperatorClientError } from './operator-client.ts';
@@ -41,7 +40,23 @@ type Listing = {
   accounts: Array<{ planId: string; count: number }>;
   /** Plan AI logging defaults. Platforms before plan defaults do not send it. */
   aiLogging?: AiLoggingListing;
+  /** Per-plan security scan caps (cents or `null`). Platforms before them do not send it. */
+  securityCaps?: PlanSecurityCaps;
 };
+
+/** A plan's scan cap from an API answer, read leniently (bad entries read as `inherit`). */
+function securityCapOf(caps: unknown, planId: string): SecurityPlanCap {
+  return planSecurityCap(readPlanSecurityCaps(caps).caps, planId);
+}
+
+const PLAN_FILE_FIELDS = [
+  'name',
+  'limits',
+  'buildInstanceType',
+  'allowShortSlugs',
+  'aiLogging',
+  'securityCap',
+];
 
 const aiLoggingLabels: Record<AiLoggingMode, string> = {
   inherit: 'inherit (AI Gateway setting)',
@@ -98,9 +113,15 @@ function writePlanDiff(
   to: PlatformPlanDefinition,
   write: (line: string) => void,
   aiLogging?: Readonly<{ from: string; to: string }>,
+  securityCap?: Readonly<{ from: SecurityPlanCap; to: SecurityPlanCap }>,
 ): void {
   if (aiLogging && aiLogging.from !== aiLogging.to) {
     write(`AI Gateway logging: ${aiLogging.from} → ${aiLogging.to}`);
+  }
+  if (securityCap && securityCap.from !== securityCap.to) {
+    write(
+      `Security scan cap: ${formatPlanSecurityCap(securityCap.from)} → ${formatPlanSecurityCap(securityCap.to)}`,
+    );
   }
   if (from.buildInstanceType !== to.buildInstanceType) {
     write(`Build size: ${from.buildInstanceType} → ${to.buildInstanceType}`);
@@ -132,9 +153,9 @@ function showListing(listing: Listing, json: boolean): void {
   if (listing.catalog.reconciliation && !listing.catalog.reconciliation.complete) {
     console.log('Account updates are pending. Run void platform config plans sync --yes.');
   }
-  if (aiLoggingPending(listing)) {
+  if (listing.aiLogging && aiLoggingPending(listing)) {
     console.log(
-      `AI logging publish is pending for ${listing.aiLogging!.remaining} projects. Run void platform config plans sync --yes.`,
+      `AI logging publish is pending for ${listing.aiLogging.remaining} projects. Run void platform config plans sync --yes.`,
     );
   }
 }
@@ -155,6 +176,12 @@ function showPreview(
   const aiLogging = (from: string, to: string) =>
     afterAiLogging
       ? { from: planAiLogging(savedAiLogging, from), to: planAiLogging(afterAiLogging, to) }
+      : undefined;
+  // The dry run reads the saved caps under the plan lock; platforms before caps send none.
+  const caps = preview.securityCaps as { caps?: unknown; capsBefore?: unknown } | undefined;
+  const securityCap = (from: string, to: string) =>
+    caps
+      ? { from: securityCapOf(caps.capsBefore, from), to: securityCapOf(caps.caps, to) }
       : undefined;
   write(`Change: ${preview.action} ${preview.target}`);
   write(`Accounts affected: ${preview.affectedAccounts}`);
@@ -182,6 +209,9 @@ function showPreview(
       if (afterAiLogging) {
         write(`  AI Gateway logging: ${planAiLogging(afterAiLogging, plan.id)}`);
       }
+      if (caps) {
+        write(`  Security scan cap: ${formatPlanSecurityCap(securityCapOf(caps.caps, plan.id))}`);
+      }
       continue;
     }
     if (previous.name !== plan.name) {
@@ -190,7 +220,13 @@ function showPreview(
     if (previous.archived !== plan.archived) {
       write(`${plan.id}: ${plan.archived ? 'archive for new assignments' : 'restore assignments'}`);
     }
-    writePlanDiff(previous, plan, write, aiLogging(plan.id, plan.id));
+    writePlanDiff(
+      previous,
+      plan,
+      write,
+      aiLogging(plan.id, plan.id),
+      securityCap(plan.id, plan.id),
+    );
   }
   for (const plan of before.plans) {
     if (!after.plans.some((entry) => entry.id === plan.id)) {
@@ -198,7 +234,13 @@ function showPreview(
       const replacement = after.plans.find((entry) => entry.id === preview.replacementPlanId);
       if (replacement) {
         write(`Move accounts to ${label(replacement)}`);
-        writePlanDiff(plan, replacement, write, aiLogging(plan.id, replacement.id));
+        writePlanDiff(
+          plan,
+          replacement,
+          write,
+          aiLogging(plan.id, replacement.id),
+          securityCap(plan.id, replacement.id),
+        );
       }
     }
   }
@@ -252,6 +294,7 @@ async function changesInput(
   plan?: PlatformPlanDefinition,
   listing?: Listing,
 ): Promise<Record<string, unknown>> {
+  const cap = args.securityCap === undefined ? {} : { securityCap: args.securityCap };
   if (args.file) {
     const input: unknown = JSON.parse(await readFile(args.file, 'utf8'));
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -259,16 +302,17 @@ async function changesInput(
     }
     const object = input as Record<string, unknown>;
     for (const key of Object.keys(object)) {
-      if (!['name', 'limits', 'buildInstanceType', 'allowShortSlugs', 'aiLogging'].includes(key)) {
+      if (!PLAN_FILE_FIELDS.includes(key)) {
         throw new Error(
-          `platform: Unknown plan field ${key}. Use name, limits, buildInstanceType, allowShortSlugs, or aiLogging.`,
+          `platform: Unknown plan field ${key}. Use ${PLAN_FILE_FIELDS.slice(0, -1).join(', ')}, or securityCap.`,
         );
       }
     }
     try {
       parsePlanAiLoggingInput(object.aiLogging);
+      parsePlanSecurityCapInput(object.securityCap);
     } catch (error) {
-      throw new Error(`platform: ${(error as Error).message}`);
+      throw new Error(`platform: ${(error as Error).message}`, { cause: error });
     }
     if (object.allowShortSlugs !== undefined && typeof object.allowShortSlugs !== 'boolean') {
       throw new Error('platform: allowShortSlugs must be a boolean.');
@@ -281,10 +325,14 @@ async function changesInput(
         : {}),
       ...(object.limits !== undefined ? { limits: parsePlanLimitsPatch(object.limits) } : {}),
       ...(args.name ? { name: parsePlanName(args.name) } : {}),
+      ...cap,
     };
   }
   if (args.name) {
-    return { name: parsePlanName(args.name) };
+    return { name: parsePlanName(args.name), ...cap };
+  }
+  if (args.action === 'set' && args.securityCap !== undefined) {
+    return cap;
   }
   if (!process.stdin.isTTY || args.json) {
     if (args.action === 'add') {
@@ -297,8 +345,14 @@ async function changesInput(
   if (args.action === 'add') {
     return {
       name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: args.target }))),
+      ...cap,
     };
   }
+  if (!plan) {
+    throw new Error('platform: No plan selected.');
+  }
+  const aiLogging = listing?.aiLogging;
+  const securityCaps = listing?.securityCaps;
   const field = value(
     await select({
       message: 'What would you like to change?',
@@ -306,26 +360,43 @@ async function changesInput(
         { value: 'name', label: 'Plan name' },
         ...PLAN_EDITABLE_LIMIT_KEYS.map((key) => ({
           value: key,
-          label: `${limitLabels[key]}: ${limitValue(plan!.limits[key], key)}`,
+          label: `${limitLabels[key]}: ${limitValue(plan.limits[key], key)}`,
         })),
         { value: 'buildInstanceType', label: 'Build instance size' },
-        ...(listing?.aiLogging
+        ...(aiLogging
           ? [
               {
                 value: 'aiLogging',
-                label: `AI Gateway logging: ${planAiLogging(listing.aiLogging.modes, plan!.id)}`,
+                label: `AI Gateway logging: ${planAiLogging(aiLogging.modes, plan.id)}`,
+              },
+            ]
+          : []),
+        ...(securityCaps
+          ? [
+              {
+                value: 'securityCap',
+                label: `Security scan cap: ${formatPlanSecurityCap(securityCapOf(securityCaps, plan.id))}`,
               },
             ]
           : []),
       ],
     }),
   );
+  if (field === 'securityCap') {
+    if (!securityCaps) {
+      throw new Error('platform: Security scan caps are unavailable.');
+    }
+    return { securityCap: await chooseSecurityCap(securityCapOf(securityCaps, plan.id)) };
+  }
   if (field === 'aiLogging') {
+    if (!aiLogging) {
+      throw new Error('platform: AI Gateway logging is unavailable.');
+    }
     return {
       aiLogging: value(
         await select({
           message: 'AI Gateway logging for projects on this plan without a project setting:',
-          initialValue: planAiLogging(listing!.aiLogging!.modes, plan!.id),
+          initialValue: planAiLogging(aiLogging.modes, plan.id),
           options: AI_LOGGING_MODES.map((mode) => ({ value: mode, label: aiLoggingLabels[mode] })),
         }),
       ),
@@ -333,7 +404,7 @@ async function changesInput(
   }
   if (field === 'name') {
     return {
-      name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: plan!.name }))),
+      name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: plan.name }))),
     };
   }
   if (field === 'buildInstanceType') {
@@ -341,7 +412,7 @@ async function changesInput(
       buildInstanceType: value(
         await select({
           message: 'Build instance size:',
-          initialValue: plan!.buildInstanceType,
+          initialValue: plan.buildInstanceType,
           options: [
             { value: 'standard-3', label: 'Standard: 2 vCPU, 8 GiB' },
             { value: 'standard-4', label: 'Large: 4 vCPU, 12 GiB' },
@@ -350,7 +421,7 @@ async function changesInput(
       ),
     };
   }
-  const current = plan!.limits[field as (typeof PLAN_EDITABLE_LIMIT_KEYS)[number]];
+  const current = plan.limits[field as (typeof PLAN_EDITABLE_LIMIT_KEYS)[number]];
   const input = value(
     await text({
       message: `${limitLabels[field as (typeof PLAN_EDITABLE_LIMIT_KEYS)[number]]} (${field === 'buildTimeoutMinutes' ? '0 uses the platform maximum of 60 minutes' : '0 means unlimited'}):`,
@@ -364,6 +435,39 @@ async function changesInput(
   return { limits: parsePlanLimitsPatch({ [field]: Number(input) }) };
 }
 
+/** The interactive scan cap picker: policy default, an amount, or no cap. */
+async function chooseSecurityCap(current: SecurityPlanCap): Promise<number | 'none' | 'inherit'> {
+  const mode = value(
+    await select({
+      message: 'Monthly security scan cap for each project on this plan:',
+      initialValue: typeof current === 'number' ? 'amount' : current,
+      options: [
+        { value: 'inherit', label: 'Policy default (the default project cap, when it is on)' },
+        { value: 'amount', label: 'A monthly amount in USD' },
+        { value: 'none', label: 'No cap' },
+      ],
+    }),
+  );
+  if (mode !== 'amount') {
+    return mode as 'none' | 'inherit';
+  }
+  const input = value(
+    await text({
+      message: 'USD per project per month:',
+      initialValue: typeof current === 'number' ? String(current / 100) : '',
+      validate: (entry) => {
+        try {
+          parsePlanSecurityCapInput(entry?.trim() ? Number(entry) : Number.NaN);
+          return undefined;
+        } catch {
+          return 'Enter a USD amount with at most two decimals.';
+        }
+      },
+    }),
+  );
+  return Number(input);
+}
+
 async function apply(
   client: OperatorClient,
   path: string,
@@ -373,6 +477,12 @@ async function apply(
 ): Promise<void> {
   const { catalog } = listing;
   assertPlanAiLoggingSupported(listing, body);
+  // A platform whose API would refuse or drop a plan scan cap.
+  if (body.securityCap !== undefined && !listing.securityCaps) {
+    throw new Error(
+      'platform: This platform does not support plan security scan caps. Upgrade the platform first with `void platform upgrade`.',
+    );
+  }
   if (!args.plan && !args.yes && (!process.stdin.isTTY || args.json)) {
     throw new Error(
       'platform: Configuration changes require --yes or --plan in non-interactive mode.',
@@ -415,8 +525,8 @@ async function apply(
   while (true) {
     const reconciliation = result.reconciliation as Progress | undefined;
     const aiLogging = result.aiLoggingPublish as Progress | undefined;
-    if (aiLogging && Number.isSafeInteger(aiLogging.processed)) {
-      published += aiLogging.processed!;
+    if (aiLogging?.processed !== undefined && Number.isSafeInteger(aiLogging.processed)) {
+      published += aiLogging.processed;
     }
     if (typeof aiLogging?.expectedBy === 'string') {
       expectedBy = aiLogging.expectedBy;
@@ -488,7 +598,7 @@ async function save(
       typeof details === 'object' &&
       'catalog' in details
     ) {
-      return details as Record<string, unknown>;
+      return details;
     }
     throw error;
   }
@@ -504,13 +614,18 @@ type Progress = {
 
 /** A sync step that wrote something and reported no error. */
 function progressed(progress: Progress): boolean {
-  return !progress.error && Number.isSafeInteger(progress.processed) && progress.processed! > 0;
+  return (
+    !progress.error &&
+    progress.processed !== undefined &&
+    Number.isSafeInteger(progress.processed) &&
+    progress.processed > 0
+  );
 }
 
 export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<void> {
   const origin = resolveOperatorOrigin(args.connection);
   const client = new OperatorClient(origin, readOperatorToken(origin));
-  const listing = (await client.request('/config/plans')) as unknown as Listing;
+  const listing = (await client.request('/config/plans')) as Listing;
   const { catalog } = listing;
   if (!args.action) {
     if (!process.stdin.isTTY || args.json) {
@@ -553,7 +668,10 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
       const copy = await choosePlan(catalog, 'Copy limits and build size from:');
       return runPlatformPlansConfig({ ...args, action: 'add', target, copy });
     }
-    const plan = catalog.plans.find((entry) => entry.id === selected)!;
+    const plan = catalog.plans.find((entry) => entry.id === selected);
+    if (!plan) {
+      throw new Error('platform: The selected plan is unavailable.');
+    }
     const action = value(
       await select({
         message: label(plan),
@@ -593,6 +711,13 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
         if (typeof result.aiLogging === 'string') {
           console.log(`AI Gateway logging: ${stripVTControlCharacters(result.aiLogging)}`);
         }
+        const securityCap =
+          result.securityCap === 'inherit' || result.securityCap === 'none'
+            ? result.securityCap
+            : readStoredPlanSecurityCap(result.securityCap);
+        if (result.securityCap !== undefined && securityCap !== undefined) {
+          console.log(`Security scan cap: ${formatPlanSecurityCap(securityCap)}`);
+        }
         const publish = result.aiLoggingPublish as
           | { complete?: boolean; remaining?: number; error?: string }
           | null
@@ -606,7 +731,14 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
     }
     return;
   }
-  let body: Record<string, unknown> = {};
+  type PlanMutationBody = {
+    id?: string;
+    copyFrom?: string;
+    planId?: string;
+    archived?: boolean;
+    replacementPlanId?: string;
+  } & Record<string, unknown>;
+  let body: PlanMutationBody = {};
   let path = `/config/plans/${encodeURIComponent(args.target)}/${args.action}`;
   const plan = catalog.plans.find((entry) => entry.id === args.target);
   if (args.action === 'add') {

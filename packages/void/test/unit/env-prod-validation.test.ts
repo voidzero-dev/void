@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { formatEnvReport, validateProdEnv } from '../../src/cli/env-validation.ts';
-import { number, string } from '../../src/runtime/env-helpers.ts';
-import { defineEnv } from '../../src/runtime/env-public.ts';
+import { number, string } from '../../src/runtime/env/helpers.ts';
+import { defineEnv } from '../../src/runtime/env/public.ts';
 
 // The fixture env.ts only has to exist: tests register the shared schema with defineEnv.
 
@@ -152,7 +152,7 @@ describe('validateProdEnv — deploy-time schema enforcement', () => {
         'API_URL=http://localhost\n__VOID_PROXY_TOKEN=x\n__VOID_EMAIL_FROM=y\n',
       );
 
-      const error = await validateProdEnv(root, { productionOnly: false }).catch((e: Error) => e);
+      const error = await validateProdEnv(root, { productionOnly: false }).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toContain(
         '.env defines names reserved for Void: __VOID_PROXY_TOKEN, __VOID_EMAIL_FROM.',

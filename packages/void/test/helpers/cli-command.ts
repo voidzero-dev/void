@@ -1,12 +1,12 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { vi } from 'vite-plus/test';
+import { onTestFinished, vi } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 
-/** Collects stdout writes and `console.log` lines until `restore()` is called. */
-export function captureOutput(): { output: () => string; restore: () => void } {
+/** Collects stdout writes and `console.log` lines until `restore()` is called; `clear()` starts over. */
+export function captureOutput(): { output: () => string; clear: () => void; restore: () => void } {
   const chunks: Array<string> = [];
   const writeMock = vi
     .spyOn(process.stdout, 'write')
@@ -24,6 +24,9 @@ export function captureOutput(): { output: () => string; restore: () => void } {
   });
   return {
     output: () => chunks.join(''),
+    clear: () => {
+      chunks.length = 0;
+    },
     restore: () => {
       writeMock.mockRestore();
       logMock.mockRestore();
@@ -40,6 +43,11 @@ export function setIsolatedHome(): string {
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
   process.env.VOID_PLATFORM_REGISTRY_DIR = join(dir, 'registry');
+  saveTestConnection();
+  return dir;
+}
+
+function saveTestConnection(): void {
   savePlatformConnection({
     accountId: null,
     apiUrl: 'https://api.example.test',
@@ -49,5 +57,28 @@ export function setIsolatedHome(): string {
     kind: 'connected',
     proxyUrl: 'https://proxy.example.test',
   });
-  return dir;
+}
+
+/**
+ * A temp project folder linked to `project_1` on the test platform, with a
+ * token in the env. The registry lives inside it; both go when the test ends.
+ */
+export function linkedProject({ slug }: { slug: string }): string {
+  const root = mkdtempSync(join(tmpdir(), 'void-linked-'));
+  onTestFinished(() => rmSync(root, { recursive: true, force: true }));
+  vi.stubEnv('VOID_PLATFORM_REGISTRY_DIR', join(root, '.registry'));
+  vi.stubEnv('VOID_TOKEN', 'test-token');
+  vi.stubEnv('VOID_API_URL', 'https://api.example.test');
+  saveTestConnection();
+  mkdirSync(join(root, '.void'));
+  writeFileSync(
+    join(root, '.void', 'project.json'),
+    JSON.stringify({
+      platform: 'void',
+      platformUrl: 'https://api.example.test',
+      projectId: 'project_1',
+      slug,
+    }),
+  );
+  return root;
 }

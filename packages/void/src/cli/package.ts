@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import type { StorageConfig } from '@void/deploy-core';
 import { hash as blake3hash } from 'blake3-jit';
 import ignore from 'ignore';
 import { extname, join, relative } from 'pathslash';
@@ -11,6 +12,7 @@ import type { MigrationFile } from '../migrations/validate.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
 import type { ResolvedSandboxConfig } from '../sandbox/config.ts';
 import { collectFiles } from '../shared/collect-files.ts';
+import { Buffer } from './node-buffer.ts';
 import type {
   AssetConfig,
   DeployAssetManifestEntry,
@@ -24,12 +26,8 @@ import type {
   WebSocketManifestMeta,
 } from './types.ts';
 export type { DeployAssetManifestEntry as AssetManifestEntry } from './types.ts';
-import {
-  DEFAULT_LIVE_BINDING,
-  DEFAULT_LIVE_CLASS,
-  LIVE_MIGRATION_TAG,
-  type LiveBindingConfig,
-} from './wrangler.ts';
+import { DEFAULT_LIVE_BINDING, DEFAULT_LIVE_CLASS, LIVE_MIGRATION_TAG } from './wrangler.ts';
+import type { LiveBindingConfig } from './wrangler.ts';
 
 const textEncoder = new TextEncoder();
 
@@ -60,6 +58,11 @@ function stripDevOnlyRuleFields(
   return rules.map(({ origin: _origin, force: _force, ...rest }) => rest);
 }
 
+type SpaFallbackChain = {
+  assetConfig: AssetConfig;
+  fallbackRules: Array<DevRedirectRule> | undefined;
+};
+
 /**
  * Layer user `routing.fallbacks` over the SPA default. The platform SPA switch
  * is global, so a SPA with user fallbacks turns it off and appends a synthetic
@@ -72,10 +75,7 @@ export function resolveSpaFallbackChain(
   appType: 'spa' | 'static' | undefined,
   fallbackRules: Array<DevRedirectRule> | undefined,
   notFound?: NotFoundHandling,
-): {
-  assetConfig: AssetConfig;
-  fallbackRules: Array<DevRedirectRule> | undefined;
-} {
+): SpaFallbackChain {
   const userRules = fallbackRules && fallbackRules.length > 0 ? fallbackRules : undefined;
 
   const handling: NotFoundHandling =
@@ -142,7 +142,9 @@ async function tickProgress(
     return;
   }
   onProgress(`${label} (${i}/${total})`);
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 /**
@@ -152,7 +154,7 @@ async function tickProgress(
  */
 export function computeAssetHash(content: Buffer, filePath: string): string {
   const base64 = content.toString('base64');
-  const ext = extname(filePath).substring(1);
+  const ext = extname(filePath).slice(1);
   const input = textEncoder.encode(base64 + ext);
   return Buffer.from(blake3hash(input)).toString('hex').slice(0, 32);
 }
@@ -178,13 +180,7 @@ function computeMd5(content: Buffer): string {
  * listed in a .assetsignore file.
  * Matches Wrangler's createAssetsIgnoreFunction from workers-shared/utils/helpers.ts.
  */
-function createAssetsIgnoreFunction(
-  dir: string,
-  extraPatterns: Array<string> = [],
-): {
-  isIgnored: (relativePath: string) => boolean;
-  assetsIgnoreFilePresent: boolean;
-} {
+function createAssetsIgnoreFunction(dir: string, extraPatterns: Array<string> = []) {
   const patterns = [
     '/.assetsignore',
     '/_redirects',
@@ -198,7 +194,7 @@ function createAssetsIgnoreFunction(
   let assetsIgnoreFilePresent = false;
   if (existsSync(assetsIgnorePath)) {
     assetsIgnoreFilePresent = true;
-    const content = readFileSync(assetsIgnorePath, 'utf-8');
+    const content = readFileSync(assetsIgnorePath, 'utf8');
     patterns.push(...content.split('\n'));
   }
   const ig = ignore().add(patterns);
@@ -383,12 +379,16 @@ function applyResourceBindings(
   migrationCount: number,
   dialect: 'sqlite' | 'postgresql' | 'mysql',
   bindingNames: PackageOptions['bindingNames'],
+  database: DeployManifest['database'],
 ): void {
   if (needsApplicationDatabase(bindings, migrationCount)) {
     if (dialect !== 'sqlite') {
       manifest.bindings.hyperdrive = ['HYPERDRIVE'];
     } else {
       manifest.bindings.d1 = [bindingNames?.d1 ?? 'DB'];
+      if (database?.readReplication !== undefined) {
+        manifest.database = { readReplication: database.readReplication };
+      }
     }
   }
   if (bindings.needsKV) {
@@ -447,9 +447,11 @@ export function buildVoidManifest(opts: {
   prerender?: Array<string>;
   assetConfig?: AssetConfig;
   options?: PackageOptions;
+  database?: DeployManifest['database'];
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
   alwaysUseHttps?: boolean;
+  storage?: StorageConfig;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -499,12 +501,17 @@ export function buildVoidManifest(opts: {
   if (bindings.needsAuth) {
     manifest.auth = true;
   }
+  if (opts.bindings.needsR2 && opts.storage?.locationHint) {
+    manifest.storage = opts.storage;
+    manifest.version = 5;
+  }
   applyResourceBindings(
     manifest,
     bindings,
     migrations?.length ?? 0,
     resolvedDialect,
     options?.bindingNames,
+    opts.database,
   );
   if (bindings.needsSandbox) {
     if (!options?.sandbox) {
@@ -541,7 +548,7 @@ export function buildVoidManifest(opts: {
 
   manifest.type = framework ? 'framework' : 'void';
 
-  if (revalidate != null && revalidate !== 0) {
+  if (revalidate !== null && revalidate !== undefined && revalidate !== 0) {
     manifest.revalidate = revalidate;
   }
   if (
@@ -742,9 +749,11 @@ export function buildFrameworkManifest(opts: {
   vars?: Record<string, string>;
   assetConfig?: AssetConfig;
   packageOptions?: Omit<PackageOptions, 'workerMain'>;
+  database?: DeployManifest['database'];
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
   alwaysUseHttps?: boolean;
+  storage?: StorageConfig;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -756,12 +765,17 @@ export function buildFrameworkManifest(opts: {
   if (opts.alwaysUseHttps !== undefined) {
     manifest.alwaysUseHttps = opts.alwaysUseHttps;
   }
+  if (opts.bindings.needsR2 && opts.storage?.locationHint) {
+    manifest.storage = opts.storage;
+    manifest.version = 5;
+  }
   applyResourceBindings(
     manifest,
     opts.bindings,
     opts.migrations?.length ?? 0,
     dialect,
     po?.bindingNames,
+    opts.database,
   );
 
   if (opts.migrations && opts.migrations.length > 0) {
@@ -774,7 +788,7 @@ export function buildFrameworkManifest(opts: {
   if (opts.queues && opts.queues.length > 0) {
     manifest.queues = opts.queues;
   }
-  if (opts.revalidate != null && opts.revalidate !== 0) {
+  if (opts.revalidate !== null && opts.revalidate !== undefined && opts.revalidate !== 0) {
     manifest.revalidate = opts.revalidate;
   }
   if (opts.revalidateQueryAllowlist && Object.keys(opts.revalidateQueryAllowlist).length > 0) {
@@ -828,7 +842,7 @@ export function buildFrameworkManifest(opts: {
  * Skips build metadata and files with extensions CF Workers can't handle as modules.
  */
 function isWorkerModule(relativePath: string): boolean {
-  const norm = relativePath.replace(/\\/g, '/');
+  const norm = relativePath.replaceAll('\\', '/');
   // Skip build metadata at any depth
   if (norm.includes('/.vite/') || norm.startsWith('.vite/')) {
     return false;

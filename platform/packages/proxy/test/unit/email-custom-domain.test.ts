@@ -33,7 +33,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signHmac(data: string, secret: string): Promise<string> {
@@ -229,7 +229,7 @@ describe('POST /email/send — custom sender domain', () => {
     const stringify = JSON.stringify;
     const stringifySpy = vi.spyOn(JSON, 'stringify').mockImplementation((value: unknown) => {
       if (typeof value === 'object' && value !== null && 'mime_message' in value) {
-        vi.setSystemTime(5_001);
+        vi.setSystemTime(5001);
       }
       return stringify(value);
     });
@@ -243,7 +243,7 @@ describe('POST /email/send — custom sender domain', () => {
           recipients: ['dev@example.com'],
           mimeMessage: 'mime',
         },
-        5_000,
+        5000,
       ),
     ).rejects.toThrow('email sending request timed out');
     stringifySpy.mockRestore();
@@ -267,7 +267,7 @@ describe('POST /email/send — custom sender domain', () => {
     ).toHaveLength(1);
     const [leaseUrl, leaseInit] = apiFetch.mock.calls.find(([url]) =>
       String(url).endsWith('/domain-credential'),
-    )! as [string, RequestInit];
+    )!;
     expect(leaseUrl).toBe('https://api/internal/email/domain-credential');
     expect(leaseInit.method).toBe('POST');
     expect(JSON.parse(leaseInit.body as string)).toEqual({
@@ -309,9 +309,9 @@ describe('POST /email/send — custom sender domain', () => {
       env,
       await sendBody({ recipients: ['one@example.com', 'two@example.com'] }),
     );
-    const body = (await response.json()) as {
+    const body = await response.json<{
       deliveries: Array<{ state: string; error: { code: string } }>;
-    };
+    }>();
     expect(body.deliveries).toHaveLength(2);
     expect(body.deliveries).toEqual(
       expect.arrayContaining([
@@ -371,14 +371,14 @@ describe('POST /email/send — custom sender domain', () => {
       const pending = postSend(env, await sendBody());
       await leaseStarted;
       await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       const response = await pending;
 
       expect(response.status).toBe(502);
       expect([...actions.values()][0]?.recipients[0]?.state).toBe('cancelled');
       const finish = apiFetch.mock.calls.find(([url]) => String(url).endsWith('/finish'));
       expect(finish).toBeDefined();
-      expect(JSON.parse(String((finish![1] as RequestInit).body))).toMatchObject({
+      expect(JSON.parse(String(finish![1].body))).toMatchObject({
         state: 'cancelled',
       });
       expect(providerCalls).toEqual([]);
@@ -517,12 +517,12 @@ describe('POST /email/send — custom sender domain', () => {
     const { env, apiFetch } = createMockEnv();
     const calls = stubCloudflare();
     const body = await sendBody({ idempotencyKey: 'same-operation' });
-    expect((await (await postSend(env, body)).json()).ok).toBe(true);
+    expect(await (await postSend(env, body)).json()).toHaveProperty('ok', true);
     const leaseCalls = apiFetch.mock.calls.filter(([url]) =>
       String(url).endsWith('/domain-credential'),
     ).length;
     const replay = await postSend(env, body);
-    expect((await replay.json()).ok).toBe(true);
+    expect(await replay.json()).toHaveProperty('ok', true);
     expect(calls).toHaveLength(1);
     expect(
       apiFetch.mock.calls.filter(([url]) => String(url).endsWith('/domain-credential')),
@@ -586,8 +586,8 @@ describe('POST /email/send — custom sender domain', () => {
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ok).toBe(false);
-    expect(body.deliveries[0].error.code).toBe('QUOTA_EXCEEDED');
+    expect(body).toHaveProperty('ok', false);
+    expect(body).toHaveProperty('deliveries.0.error.code', 'QUOTA_EXCEEDED');
   });
 
   it('marks a network failure on send_raw as an unknown outcome', async () => {
@@ -601,8 +601,8 @@ describe('POST /email/send — custom sender domain', () => {
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ok).toBe(false);
-    expect(body.deliveries[0].error).toEqual({
+    expect(body).toHaveProperty('ok', false);
+    expect(body).toHaveProperty('deliveries.0.error', {
       code: 'OUTCOME_UNKNOWN',
       message: 'provider outcome unknown; inspect email logs before retrying',
     });
@@ -625,10 +625,14 @@ describe('POST /email/send — custom sender domain', () => {
       apiFetch.mockImplementation(async (url, init) => {
         if (String(url).endsWith('/admit')) {
           markAdmissionStarted();
-          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10_000);
+          });
         } else if (String(url).endsWith('/start')) {
           markStartStarted();
-          await new Promise((resolve) => setTimeout(resolve, 10_000));
+          await new Promise((resolve) => {
+            setTimeout(resolve, 10_000);
+          });
         }
         return normalFetch(url, init);
       });
@@ -718,7 +722,7 @@ describe('POST /email/send — custom sender domain', () => {
     vi.stubGlobal('fetch', cfFetch);
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(502);
-    expect((await res.json()).error).toEqual({
+    expect(await res.json()).toHaveProperty('error', {
       code: 'UPSTREAM_ERROR',
       message: 'could not lease the domain credential',
     });
@@ -735,8 +739,11 @@ describe('POST /email/send — custom sender domain', () => {
     );
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error.code).toBe('INVALID_FROM');
-    expect(body.error.message).toContain('mime From must be the envelope sender');
+    expect(body).toHaveProperty('error.code', 'INVALID_FROM');
+    expect(body).toHaveProperty(
+      'error.message',
+      expect.stringContaining('mime From must be the envelope sender'),
+    );
     expect(apiFetch).not.toHaveBeenCalled();
     expect(cfFetch).not.toHaveBeenCalled();
   });
@@ -751,7 +758,7 @@ describe('POST /email/send — custom sender domain', () => {
     bytes.set([0xff, 0xfe], prefix.length);
     const res = await postSend(env, await sendBody({ mimeBase64: base64Of(bytes) }));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toEqual({
+    expect(await res.json()).toHaveProperty('error', {
       code: 'MIME_ERROR',
       message: 'mime must be valid UTF-8',
     });

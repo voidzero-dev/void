@@ -6,9 +6,9 @@
     "build:core": "vp run --filter ./packages/deploy-core --filter ./packages/deploy-cloudflare --filter ./packages/edge --filter ./packages/isr --filter ./packages/platform --filter ./packages/void build",
     "build:docs": "vp run --filter ./docs build",
     "build:platform": "vp run --filter './platform/packages/**' build",
-    "check": "vp run --filter './**' --filter '!./playground-local/**' --parallel --concurrency-limit=4 typecheck",
     "check:platform": "vp run --filter './platform/**' --parallel typecheck",
     "check:sdk": "vp run --filter './packages/**' --parallel typecheck",
+    "check:types": "vp run --filter './**' --filter '!./playground-local/**' --parallel --concurrency-limit=4 typecheck",
     "deploy:docs": "vp run build:core && node packages/void/dist/cli/cli.mjs deploy",
     "dev:docs": "vp run --filter ./docs dev",
     "dev:platform": "vp run --filter @voidcloud/platform dev",
@@ -16,7 +16,6 @@
     "install:void-dev": "vp run build:core && node scripts/void-dev-link.mjs install",
     "lint": "vp lint",
     "prepare": "vp config && vp run build:core",
-    "test": "node test/affected.mjs",
     "test:full": "vp test run",
     "test:integration": "vp test run --project parallel-integration",
     "test:metaframeworks": "vp test run --project parallel-integration analog.test.ts astro.test.ts nitro-worker.test.ts nuxt.test.ts react-router.test.ts sveltekit.test.ts tanstack-start.test.ts vinext-app.test.ts vinext-pages.test.ts",
@@ -28,14 +27,19 @@
     "uninstall:void-dev": "node scripts/void-dev-link.mjs uninstall"
   },
   "devDependencies": {
+    "@cloudflare/oxlint-config": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
     "@types/cross-spawn": "^6.0.6",
+    "@types/node": "catalog:",
     "cross-spawn": "^7.0.6",
     "eslint-plugin-react-hooks": "^7.1.1",
     "playwright": "catalog:",
     "rolldown": "catalog:",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vue": "catalog:"
   },
-  "packageManager": "pnpm@12.18.0"
+  "packageManager": "pnpm@12.23.0"
 }

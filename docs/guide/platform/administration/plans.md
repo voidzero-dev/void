@@ -26,7 +26,7 @@ Account updates continue automatically on the result page. If you leave the page
 
 ## Add a Plan
 
-Each plan has a stable ID and an editable display name. Copying a plan copies its limits, build instance size, and permission to use short project slugs:
+Each plan has a stable ID and an editable display name. Copy a plan to start with its limits, build size, short-slug permission, and AI logging default:
 
 ```sh
 void platform config plans add team --copy pro --name "Team" --plan
@@ -91,11 +91,7 @@ The preview shows the affected account count and checks a sample for accounts al
 
 ## AI Gateway Logging {#ai-gateway-logging}
 
-Each plan can set how AI Gateway logs AI requests for its accounts' projects: `inherit`, `off`, `metadata`, or `full`. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for what each mode stores. Plans start with `inherit`, which follows the gateway's own setting.
-
-A project's own setting from `void platform project ai-logging` always wins over the plan default. Accounts whose plan is not in the catalog use the signup default plan's setting.
-
-In the dashboard, choose **Edit** on a plan and pick its **AI Gateway logging default**. In a plan file, set `aiLogging`:
+Set a plan's AI logging default to control what AI Gateway records for its projects. In the dashboard, edit the plan's **AI Gateway logging default**. From the CLI, add `aiLogging` to a plan file:
 
 ```json
 {
@@ -108,19 +104,36 @@ void platform config plans set team --file team-plan.json --plan
 void platform config plans set team --file team-plan.json --yes
 ```
 
-`"aiLogging": "inherit"` clears the plan default. Leaving `aiLogging` out keeps the current value. The interactive menu also offers **AI Gateway logging**. The preview shows the change, such as `AI Gateway logging: inherit → metadata`, and how many projects will receive it.
+`metadata` keeps request details without prompts or responses. Use `off` for no log entries, `full` to include prompts and responses, or `inherit` to follow the gateway's own setting. A new installation's gateway logs prompts and responses. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for the full scope of these settings.
 
-After applying, the CLI publishes the default to every project it affects, then prints:
+Leaving `aiLogging` out preserves the plan's current value. A project's [own logging setting](./projects.md#ai-logging) overrides its plan default. If an account's plan is missing from the catalog, it follows the signup default plan.
+
+The preview shows the old and new defaults and how many projects are affected. After applying, the CLI publishes the change and reports when new requests are expected to use it:
 
 ```txt
 AI logging published to 120 projects; expected by 14:03:20 UTC (normally within 2 minutes).
 ```
 
-A plan default applies to a project once the command prints this line, then normally within 2 minutes. Until then, projects keep their previous behavior and `void platform project show <project-id>` reports `pending_plan_publish`. If publishing stops, the command exits with a nonzero status. Continue it with `void platform config plans sync --yes`, or choose **Continue AI logging publish** on the **Plans** page. The platform also continues it every hour.
+Projects keep their previous logging behavior until the new setting is published. Changes normally reach new requests within 2 minutes after publishing. Check a project with `void platform project show <project-id>`.
 
-Copying a plan copies its AI logging default. Changing the signup default also changes the setting for accounts whose plan is not in the catalog. When you remove a plan with a replacement, its accounts use the replacement plan's default. Moving a user to another plan, or transferring a project to a new owner, applies the new plan's default.
+If publishing stops, run `void platform config plans sync --yes`, or choose **Continue AI logging publish** on the **Plans** page. The platform also resumes unfinished work every hour.
 
-`void platform config plans show <plan-id>` and the user detail page in the dashboard show the plan's AI Gateway logging default. Plan defaults need a platform release that supports them. On an older platform, the CLI stops and asks you to run `void platform upgrade` first.
+Moving an account to another plan, replacing a removed plan, or transferring a project applies the new owner's plan default. Changing the signup default also changes logging for accounts whose plan is missing from the catalog.
+
+Inspect a plan's default with `void platform config plans show <plan-id>` or the dashboard's user detail page. If the CLI reports that your platform does not support plan defaults, run `void platform upgrade` first.
+
+## Security Scan Cap {#security-scan-cap}
+
+With [security audits](./security-audits.md) on, a plan can set the most each of its projects may spend on scans in a calendar month (UTC). In the dashboard, edit the plan's **Security scan cap**: **Policy default**, **Monthly amount**, or **No cap**. From the CLI:
+
+```sh
+void platform config plans set team --security-cap 200 --plan
+void platform config plans set team --security-cap 200 --yes
+```
+
+`--security-cap` takes a USD amount, `none` for no cap, or `inherit` for the default project cap. Plan files use the `securityCap` field with the same values. A plan amount applies even while project caps are off, and `none` lifts the default project cap for the plan's projects. A limit you set for one project comes first. The platform cap still stops every scan once it is used up.
+
+A change applies right away: to the next scan that starts, and to scans already running from their next model call, so a lower cap can stop one. Copying a plan copies its scan cap, and accounts moved to a replacement plan get that plan's cap. See [Spending caps](./security-audits.md#spending-caps).
 
 ## Archive or Remove a Plan
 
@@ -144,13 +157,13 @@ The removal review shows the replacement plan and any changes to its limits, bui
 
 ## Complete Pending Updates
 
-After applying a change, the CLI continues account updates until complete. If an update fails or stops making progress, the configuration remains saved, the result reports pending work, and the command exits with a nonzero status. Inspect the catalog, then continue:
+After applying a change, the CLI updates accounts and publishes AI logging defaults. If an update fails or stops making progress, your configuration stays saved and the command reports pending work with a nonzero exit status. Inspect the plans, then continue:
 
 ```sh
 void platform config plans show
 void platform config plans sync --yes
 ```
 
-`sync` continues the saved policy's account updates until completion. Finish pending updates before editing the catalog again. If a request loses its connection, inspect the catalog and [operator events](/guide/platform/administration/operations) before retrying it.
+`sync` resumes the saved updates. Finish pending work before editing plans again. If a request loses its connection, inspect the plans and [operator events](/guide/platform/administration/operations) before retrying it.
 
 All commands accept `--connection <registered-id-or-url>` and `--json`. Scripted changes require `--yes`; use `--plan` for a read-only preview.

@@ -1,4 +1,5 @@
-import { execSync, type spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
+import type { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
   cpSync,
@@ -12,11 +13,14 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer, type AddressInfo } from 'node:net';
+import { createServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { basename, join, relative } from 'node:path/posix';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stripVTControlCharacters } from 'node:util';
 import crossSpawn from 'cross-spawn';
+
+export { createPackageFixtureDir } from './fixture-dir.ts';
 
 /**
  * Timeout multiplier for Windows CI runners, which are 2–3× slower
@@ -37,6 +41,7 @@ const GENERATED_PLAYGROUND_ENTRIES = new Set([
   '.svelte-kit',
   '.tanstack',
   '.void',
+  '.void-wrangler.jsonc',
   '.vite-cloud',
   '.wrangler',
   'build',
@@ -120,7 +125,7 @@ export function createIsolatedPlayground(
 
   // Avoid duplicate workspace package names when multiple copies exist concurrently.
   const packagePath = join(root, 'package.json');
-  const packageJson = JSON.parse(readFileSync(packagePath, 'utf-8')) as { name?: string };
+  const packageJson = JSON.parse(readFileSync(packagePath, 'utf8')) as { name?: string };
   packageJson.name = `${packageJson.name ?? basename(sourceWorkspacePath)}-${basename(root)}`;
   writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 
@@ -198,7 +203,9 @@ export async function startServer(
     const port = await getFreePort();
     const child = spawnServer(port);
     const output = collectServerOutput(child);
-    const closed = new Promise((resolve) => child.once('close', resolve));
+    const closed = new Promise((resolve) => {
+      child.once('close', resolve);
+    });
     const base = `http://127.0.0.1:${port}`;
     const exited = () => child.exitCode !== null || child.signalCode !== null;
     // Vite without `--strictPort` (Astro) keeps running and moves to the next port.
@@ -219,7 +226,7 @@ export async function startServer(
     } catch (error) {
       if (exited()) {
         // The last output can arrive after the exit.
-        await Promise.race([closed, delay(1_000)]);
+        await Promise.race([closed, delay(1000)]);
       }
       // Vite with `--strictPort`, Node, Bun and Deno exit with one of these messages.
       const portTaken = moved() || (exited() && /already in use|EADDRINUSE/.test(output()));
@@ -237,30 +244,24 @@ export async function startServer(
   }
 }
 
-/** Spawns a workspace playground's `dev` or `preview` script; pass it to {@link startServer}. */
-export function spawnPlaygroundServer(
-  workspaceRoot: string,
-  playground: string,
-  script: 'dev' | 'preview',
+/**
+ * Spawns the `dev`, `preview` or another server script of an isolated playground copy; pass it
+ * to {@link startServer}. Tests never serve or build a playground in its source directory: the
+ * generated output would change the inputs of the workspace build and of other test files.
+ */
+export function spawnFixtureServer(
+  fixtureRoot: string,
+  script: string,
   port: number,
+  env: NodeJS.ProcessEnv = {},
 ): ReturnType<typeof spawn> {
   return crossSpawn(
     'vp',
-    [
-      'run',
-      '--filter',
-      `./playground/${playground}`,
-      script,
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(port),
-      '--strictPort',
-    ],
+    ['run', script, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
     {
-      cwd: workspaceRoot,
+      cwd: fixtureRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
+      env: { ...process.env, VOID_INSPECTOR_PORT: 'false', ...env },
     },
   );
 }
@@ -283,7 +284,7 @@ export async function waitForServer(
     try {
       const remainingMs = effectiveTimeout - (Date.now() - start);
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(Math.min(options?.requestTimeoutMs ?? 5_000, remainingMs)),
+        signal: AbortSignal.timeout(Math.min(options?.requestTimeoutMs ?? 5000, remainingMs)),
       });
       const statusMatches =
         options?.expectStatus === undefined
@@ -304,7 +305,9 @@ export async function waitForServer(
     } catch {
       // retry
     }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 200);
+    });
   }
   throw new Error(
     `Timed out waiting for server at ${url} (waited ${effectiveTimeout}ms, scale=${CI_TIMEOUT_SCALE})\n${options?.diagnostics?.() ?? ''}`,
@@ -316,16 +319,17 @@ export function collectServerOutput(child: ReturnType<typeof spawn>): () => stri
   let stdout = '';
   let stderr = '';
   child.stdout?.on('data', (chunk) => {
-    stdout = (stdout + String(chunk)).slice(-16000);
+    stdout = (stdout + String(chunk)).slice(-16_000);
   });
   child.stderr?.on('data', (chunk) => {
-    stderr = (stderr + String(chunk)).slice(-16000);
+    stderr = (stderr + String(chunk)).slice(-16_000);
   });
   return () => `Server stdout:\n${stdout}\nServer stderr:\n${stderr}`;
 }
 
 export async function killChild(child: ReturnType<typeof spawn>): Promise<void> {
   if (child.exitCode === null && child.signalCode === null) {
+    let descendants: Array<number> = [];
     if (process.platform === 'win32' && child.pid) {
       // On Windows, SIGTERM doesn't propagate to child processes.
       // Use taskkill /T to kill the entire process tree (e.g. workerd.exe).
@@ -339,7 +343,7 @@ export async function killChild(child: ReturnType<typeof spawn>): Promise<void> 
       // Grandchildren like vite → miniflare → workerd are NOT signalled
       // and become orphans that hold resource locks (D1 SQLite, ports).
       // Walk the process tree bottom-up so every descendant is killed.
-      killTree(child.pid, 'SIGTERM');
+      descendants = killTree(child.pid, 'SIGTERM').filter((pid) => pid !== child.pid);
     } else {
       child.kill('SIGTERM');
     }
@@ -348,7 +352,7 @@ export async function killChild(child: ReturnType<typeof spawn>): Promise<void> 
       await Promise.race([
         once(child, 'exit'),
         new Promise((resolve) => {
-          deadline = setTimeout(resolve, 5_000);
+          deadline = setTimeout(resolve, 5000);
         }),
       ]);
     } finally {
@@ -361,10 +365,33 @@ export async function killChild(child: ReturnType<typeof spawn>): Promise<void> 
         child.kill('SIGKILL');
       }
     }
+    // A descendant can outlive the process that started it and keep writing into the fixture
+    // while it shuts down. Wait for all of them, so the caller can remove the directory.
+    const patience = Date.now() + 5000;
+    while (descendants.some(isAlive) && Date.now() < patience) {
+      await delay(25);
+    }
+    for (const pid of descendants.filter(isAlive)) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // Process may have already exited
+      }
+    }
   }
 }
 
-function killTree(pid: number, signal: NodeJS.Signals): void {
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Signals a process and its descendants, deepest first, and returns every signalled pid. */
+function killTree(pid: number, signal: NodeJS.Signals): Array<number> {
   // Find direct children before killing the parent, because once the
   // parent dies its children are reparented to init and pgrep -P won't
   // find them anymore.
@@ -378,12 +405,11 @@ function killTree(pid: number, signal: NodeJS.Signals): void {
   } catch {
     // pgrep exits 1 when no children are found
   }
-  for (const childPid of childPids) {
-    killTree(childPid, signal);
-  }
+  const signalled = childPids.flatMap((childPid) => killTree(childPid, signal));
   try {
     process.kill(pid, signal);
   } catch {
     // Process may have already exited
   }
+  return [...signalled, pid];
 }

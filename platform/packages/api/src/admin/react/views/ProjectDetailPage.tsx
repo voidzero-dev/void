@@ -12,12 +12,13 @@ import {
 import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { ProjectDetailView, projectDetailRequest } from '../../fate/views.ts';
-import { type AdminPageProps } from '../page-utils.ts';
+import type { AdminPageProps } from '../page-utils.ts';
 import { BuildTable } from './BuildTable.tsx';
 import { DeploymentTable } from './DeploymentTable.tsx';
 import { formatAiLoggingStatus, formatDateTime } from './format.ts';
 import { Layout } from './Layout.tsx';
 import { ProjectOwnerTransferSection } from './ProjectOwnerTransferSection.tsx';
+import { ProjectSecuritySection } from './ProjectSecuritySection.tsx';
 import { ProjectTeamSection } from './ProjectTeamSection.tsx';
 import { ProjectUrlLink } from './ProjectUrlLink.tsx';
 import { ProjectZeroTrustSection } from './ProjectZeroTrustSection.tsx';
@@ -40,6 +41,7 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
     domains,
     builds,
     zeroTrust,
+    security,
     aiLogging,
     cfAccountId,
     deployUrl,
@@ -177,6 +179,15 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
       </SectionStack>
 
       <ProjectZeroTrustSection projectId={project.id} zeroTrust={zeroTrust} />
+
+      {security && (
+        <ProjectSecuritySection
+          projectId={project.id}
+          security={security}
+          gate={zeroTrust.gate}
+          tz={tz}
+        />
+      )}
 
       <ProjectTeamSection
         projectId={project.id}

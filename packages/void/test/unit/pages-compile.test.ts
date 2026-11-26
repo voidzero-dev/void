@@ -1,14 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import { parseSync } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import type { PageDefinition, PageScanResult } from '../../src/pages/types.ts';
-import { compileRouteTable, type PagesCompileOptions } from '../../src/router/compile.ts';
+import { compileRouteTable } from '../../src/router/compile.ts';
+import type { PagesCompileOptions } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
 
 const testOptions = {
-  honoPath: '/resolved/hono/index.mjs',
-  honoRoutePath: '/resolved/hono/route.mjs',
-
-  runtimeEnvPath: '/resolved/void/runtime/env.mjs',
+  runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
   projectRoot: '/project',
   homeDir: '/Users/test',
   reactRefresh: false,
@@ -88,11 +87,10 @@ describe('Pages metadata wiring', () => {
       );
       const marker = code.indexOf('app.use(__createNamedActionMarker(__matchedRoutes));');
       expect(marker !== -1).toBe(marked);
-      expect(
-        code.includes(
-          'import { matchedRoutes as __matchedRoutes } from "/resolved/hono/route.mjs";',
-        ),
-      ).toBe(marked);
+      const routingRuntimePath = fileURLToPath(import.meta.resolve('#self/runtime/routing'));
+      expect(code).toContain(
+        `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(routingRuntimePath)};`,
+      );
       if (marked) {
         expect(marker).toBeGreaterThan(code.indexOf('__routingRuntime.routingMiddleware('));
         expect(marker).toBeLessThan(code.indexOf('app.use(middleware0);'));
@@ -104,6 +102,26 @@ describe('Pages metadata wiring', () => {
     const prod = compile({ ...testOptions, dev: false });
     expect(prod).toContain('renderOptions: {"renderMode":"server"} }');
     expect(prod).not.toContain('"renderMode":"server","dev"');
+  });
+  it('emits HTTP error recovery for pages without configuration or named actions', () => {
+    const code = compileRouteTable(
+      makeScan({ pages: [{ ...page, methods: ['loader'] }], layouts: [], namedLayouts: [] }),
+      '/routes',
+      '/middleware',
+      '/crons',
+      '/queues',
+      null,
+      testOptions,
+      pagesOptions,
+    );
+    expect(
+      code.includes(
+        'app.onError(__createPageErrorHandler(__matchedRoutes, __errorRenderer.onError))',
+      ),
+    ).toBe(true);
+    expect(code).toContain('import { matchedRoutes as __matchedRoutes }');
+    expect(code).not.toContain('app.use(__createNamedActionMarker(__matchedRoutes))');
+    expect(parseSync('generated.js', code).errors).toEqual([]);
   });
   it('passes dev CSS metadata and a shared manifest loader to the runtime', () => {
     const code = compile();
@@ -119,7 +137,9 @@ describe('Pages metadata wiring', () => {
     expect(code).toContain(
       '__createErrorRenderer({"dev":true,"projectRoot":"/project","homeDir":"/Users/test"})',
     );
-    expect(code).toContain('app.onError(__errorRenderer.onError)');
+    expect(code).toContain(
+      'app.onError(__createPageErrorHandler(__matchedRoutes, __errorRenderer.onError))',
+    );
     expect(code).toContain('app.notFound(__routingRuntime.trackNotFound(__createPagesFallback(');
     expect(code).not.toContain('function __voidRenderDevErrorOverlay');
   });

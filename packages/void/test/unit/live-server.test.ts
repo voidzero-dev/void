@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import type { CloudContext } from '../../src/runtime/handler.ts';
-import { createLiveDurableObject } from '../../src/runtime/live-server.ts';
-import { __setLiveDev, defineLiveStream, type LiveLimits } from '../../src/runtime/live.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
+import { __setLiveDev, defineLiveStream } from '../../src/runtime/live/index.ts';
+import type { LiveLimits } from '../../src/runtime/live/index.ts';
+import { createLiveDurableObject } from '../../src/runtime/live/server.ts';
 
 const LIMITS: LiveLimits = {
   maxSubscriptionsPerConnection: 256,
@@ -9,7 +10,7 @@ const LIMITS: LiveLimits = {
   maxOperationsPerControlRequest: 100,
   maxQueuedEventsPerConnection: 100,
   maxEncodedEventSize: 64 * 1024,
-  deliveryAttemptTimeoutMs: 1_500,
+  deliveryAttemptTimeoutMs: 1500,
 };
 
 describe('live Durable Object runtime', () => {
@@ -136,7 +137,7 @@ describe('live Durable Object runtime', () => {
     );
 
     expect(response.ok).toBe(true);
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
   });
 
   it.each([
@@ -180,7 +181,7 @@ describe('live Durable Object runtime', () => {
                 limits: LIMITS,
               }),
             );
-      await vi.advanceTimersByTimeAsync(1_501);
+      await vi.advanceTimersByTimeAsync(1501);
       await operation;
       vi.useRealTimers();
       expect(await harness.subscriberCount(topicName)).toBe(1);
@@ -200,7 +201,9 @@ describe('live Durable Object runtime', () => {
       fetch(_name, request) {
         if (new URL(request.url).pathname === '/deliver') {
           calls++;
-          return new Promise<Response>((resolve) => pending.push(resolve));
+          return new Promise<Response>((resolve) => {
+            pending.push(resolve);
+          });
         }
       },
     });
@@ -223,7 +226,7 @@ describe('live Durable Object runtime', () => {
       resolve(new Response('connection missing', { status: 410 }));
     }
     await vi.waitFor(() => expect(calls).toBe(7));
-    pending[6]!(new Response('connection missing', { status: 410 }));
+    pending[6](new Response('connection missing', { status: 410 }));
 
     expect((await publish).ok).toBe(true);
     expect(await harness.subscriberCount('live:app:topic:topic-key')).toBe(0);
@@ -268,7 +271,9 @@ describe('live Durable Object runtime', () => {
       fetch(_name, request) {
         if (new URL(request.url).pathname === '/check') {
           calls++;
-          return new Promise<Response>((resolve) => pending.push(resolve));
+          return new Promise<Response>((resolve) => {
+            pending.push(resolve);
+          });
         }
       },
     });
@@ -283,7 +288,7 @@ describe('live Durable Object runtime', () => {
       resolve(Response.json({ stale: [0] }));
     }
     await vi.waitFor(() => expect(calls).toBe(7));
-    pending[6]!(Response.json({ stale: [0] }));
+    pending[6](Response.json({ stale: [0] }));
 
     await prune;
     expect(await harness.subscriberCount(topicName)).toBe(0);

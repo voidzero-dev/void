@@ -16,8 +16,8 @@ export type MigrationPlanHashInput = SqlMigrationClassification & {
 };
 
 export function canonicalSql(sql: string): string {
-  const withoutBom = sql.charCodeAt(0) === 0xfeff ? sql.slice(1) : sql;
-  return withoutBom.replace(/\r\n?/g, '\n');
+  const withoutBom = sql.charCodeAt(0) === 0xfe_ff ? sql.slice(1) : sql;
+  return withoutBom.replaceAll(/\r\n?/g, '\n');
 }
 
 export function hasStandalonePragma(sql: string, pragma: string): boolean {
@@ -146,9 +146,14 @@ export function classifySqlMigration(sql: string): SqlMigrationClassification {
   };
 }
 
+type MigrationPlanHashPreimage = Pick<
+  MigrationPlanHashInput,
+  'classifierVersion' | 'dialect' | 'kind' | 'name' | 'sqlHash' | 'stability'
+> & { statements?: Array<string> };
+
 /** Preserve the classifier-v1 hash preimage; policy markers and warnings are not hashed. */
-export function getMigrationPlanHashInput(plan: MigrationPlanHashInput): unknown {
-  const base: Record<string, unknown> = {
+export function getMigrationPlanHashInput(plan: MigrationPlanHashInput): MigrationPlanHashPreimage {
+  const base: MigrationPlanHashPreimage = {
     classifierVersion: plan.classifierVersion,
     dialect: plan.dialect,
     kind: plan.kind,

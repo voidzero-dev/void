@@ -1,3 +1,5 @@
+import { isRecord } from '@void/deploy-core';
+
 export class EmailInternalBodyError extends Error {
   constructor(
     readonly status: 400 | 408 | 413,
@@ -11,12 +13,12 @@ export class EmailInternalBodyError extends Error {
 export async function readBoundedInternalJson(
   request: Request,
   maxBytes: number,
-): Promise<unknown> {
+): Promise<Record<string, unknown>> {
   const length = Number(request.headers.get('content-length'));
   if (Number.isFinite(length) && length > maxBytes) {
     throw new EmailInternalBodyError(413, 'body too large');
   }
-  const reader = request.body?.getReader();
+  const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = request.body?.getReader();
   if (!reader) {
     throw new EmailInternalBodyError(400, 'invalid body');
   }
@@ -26,7 +28,7 @@ export async function readBoundedInternalJson(
   const deadline = setTimeout(() => {
     timedOut = true;
     void reader.cancel().catch(() => {});
-  }, 5_000);
+  }, 5000);
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -58,9 +60,14 @@ export async function readBoundedInternalJson(
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  let body: unknown;
   try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch {
     throw new EmailInternalBodyError(400, 'invalid body');
   }
+  if (!isRecord(body)) {
+    throw new EmailInternalBodyError(400, 'invalid body');
+  }
+  return body;
 }

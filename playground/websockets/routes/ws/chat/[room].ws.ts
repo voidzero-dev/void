@@ -1,30 +1,40 @@
-import * as v from 'valibot';
+import {
+  literal,
+  maxLength,
+  minLength,
+  number,
+  object,
+  pipe,
+  string,
+  trim,
+  variant,
+} from 'valibot';
 import { defineRoom } from 'void/ws';
 
-const ChatClientMessage = v.variant('type', [
-  v.object({
-    type: v.literal('chat.join'),
-    name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(24)),
+const ChatClientMessage = variant('type', [
+  object({
+    type: literal('chat.join'),
+    name: pipe(string(), trim(), minLength(1), maxLength(24)),
   }),
-  v.object({
-    type: v.literal('chat.message'),
-    text: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(280)),
+  object({
+    type: literal('chat.message'),
+    text: pipe(string(), trim(), minLength(1), maxLength(280)),
   }),
 ]);
 
-const ChatServerMessage = v.variant('type', [
-  v.object({
-    type: v.literal('chat.system'),
-    id: v.string(),
-    text: v.string(),
-    activeConnections: v.number(),
+const ChatServerMessage = variant('type', [
+  object({
+    type: literal('chat.system'),
+    id: string(),
+    text: string(),
+    activeConnections: number(),
   }),
-  v.object({
-    type: v.literal('chat.message'),
-    id: v.string(),
-    name: v.string(),
-    text: v.string(),
-    sentAt: v.string(),
+  object({
+    type: literal('chat.message'),
+    id: string(),
+    name: string(),
+    text: string(),
+    sentAt: string(),
   }),
 ]);
 

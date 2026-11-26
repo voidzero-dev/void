@@ -9,21 +9,24 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as db from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
+import { FAST_MAINTENANCE_KEY } from '../../src/fast-maintenance.ts';
 import app, { FAST_CRON, scheduled } from '../../src/index.ts';
 import { domains, platformSettings, projectZeroTrust } from '../../src/schema.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustConfiguration from '../../src/zero-trust/configuration.ts';
-import {
-  type ZeroTrustConfigureInput,
-  readZeroTrustConfigurationStrict,
-} from '../../src/zero-trust/configuration.ts';
+import { readZeroTrustConfigurationStrict } from '../../src/zero-trust/configuration.ts';
+import type { ZeroTrustConfigureInput } from '../../src/zero-trust/configuration.ts';
 import {
   configurePlatformZeroTrust,
   disablePlatformZeroTrust,
 } from '../../src/zero-trust/installation.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustLock from '../../src/zero-trust/lock.ts';
 import { reconcilePendingProjectZeroTrust } from '../../src/zero-trust/maintenance.ts';
+// oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
 import * as zeroTrustProject from '../../src/zero-trust/project.ts';
 import {
   reconcileProjectZeroTrust,
@@ -42,8 +45,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 
@@ -140,7 +143,7 @@ function accessApi() {
     }
     const match = path.match(/^apps\/([^/]+)$/);
     if (match) {
-      const id = match[1]!;
+      const id = match[1];
       const previous = applications.get(id);
       if (!previous) {
         return providerError('application not found', 404);
@@ -241,6 +244,7 @@ describe('Zero Trust operation failures', () => {
       })
       .where(eq(platformSettings.key, 'zeroTrust.configuration'));
     cloudflare.revoke(true);
+    await env.ROUTING.put(FAST_MAINTENANCE_KEY, 'armed');
     const pendingDomains = vi.spyOn(db, 'getPendingDomainsNewerThan');
     const fast = () =>
       scheduled(
@@ -272,6 +276,49 @@ describe('Zero Trust operation failures', () => {
       lastError: null,
       operation: null,
     });
+  });
+
+  it('does not arm the two-minute cron for an hourly retry that fails again', async () => {
+    const owner = await createTestUser(env.db, 'hourly-retry-owner');
+    await createTestProject(env.db, owner.id, 'hourly-retry-project');
+    const cloudflare = accessApi();
+    vi.stubGlobal('fetch', cloudflare.fetcher);
+    const platform = bindings();
+    await configurePlatformZeroTrust(platform, env.db, configurationInput());
+    const saved = (await readZeroTrustConfigurationStrict(env.db))!;
+    await env.db
+      .update(platformSettings)
+      .set({
+        value: {
+          ...saved,
+          revision: saved.revision + 1,
+          lastError: 'Access token was revoked',
+          operation: {
+            id: 'failed-operation',
+            kind: 'reconcile',
+            phase: 'seed',
+            owner: null,
+            leaseExpiresAt: null,
+            startedAt: new Date().toISOString(),
+            existingProjects: null,
+          },
+        },
+      })
+      .where(eq(platformSettings.key, 'zeroTrust.configuration'));
+    cloudflare.revoke(true);
+    await env.ROUTING.delete(FAST_MAINTENANCE_KEY);
+
+    await scheduled(
+      { cron: '0 * * * *', scheduledTime: Date.now() } as ScheduledController,
+      platform,
+      createMockExecutionContext(),
+    );
+    expect(await readZeroTrustConfigurationStrict(env.db)).toMatchObject({
+      lastError: expect.stringContaining('Access token was revoked'),
+      operation: { id: 'failed-operation', owner: null },
+    });
+    // Two-minute ticks would only skip the failed operation while keeping the database awake.
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).toBeNull();
   });
 
   it('finishes configuration around a project over the protected domain cap', async () => {
@@ -600,7 +647,7 @@ describe('Zero Trust operation failures', () => {
     );
 
     expect(response.status).toBe(201);
-    const body = (await response.json()) as { id: string; warnings?: Array<string> };
+    const body = await response.json<{ id: string; warnings?: Array<string> }>();
     expect(body.warnings).toBeUndefined();
     const row = await getProjectZeroTrustState(env.db, body.id);
     expect(row).toMatchObject({

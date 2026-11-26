@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cancel, confirm, CANCEL_SYMBOL, password } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { number, string } from '../../src/runtime/env-helpers.ts';
-import { defineEnv } from '../../src/runtime/env-public.ts';
+import { number, string } from '../../src/runtime/env/helpers.ts';
+import { defineEnv } from '../../src/runtime/env/public.ts';
 
 const cloudflare = vi.hoisted(() => ({
   put: vi.fn(),
@@ -178,7 +178,7 @@ describe('direct Cloudflare secret validation', () => {
   it('exits non-zero when the put password prompt is cancelled', async () => {
     const root = project();
     defineEnv({ API_TOKEN: string() });
-    vi.mocked(password).mockResolvedValueOnce(CANCEL_SYMBOL as never);
+    vi.mocked(password).mockResolvedValueOnce(CANCEL_SYMBOL);
     const tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {

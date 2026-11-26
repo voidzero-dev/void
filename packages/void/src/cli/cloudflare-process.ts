@@ -25,12 +25,22 @@ type OperationEnvelopeFields = {
   error?: string | null;
 };
 
+/** Keyed by the runner's failure union, so a new failure cannot be left off the whitelist. */
+const CLOUDFLARE_COMMAND_FAILURES: Record<NonNullable<CloudflareCommandResult['failure']>, true> = {
+  'not-found': true,
+  'durable-migration': true,
+  'containers-unavailable': true,
+  'version-history-changed': true,
+};
+
 /** True only for a child that ran to completion with a clean exit 0. */
 export function isCleanCloudflareExit(
   result: Pick<ProcessResult, 'status' | 'signal' | 'error'>,
 ): boolean {
   return (
-    result.status === 0 && result.signal == null && (result.error == null || result.error === '')
+    result.status === 0 &&
+    (result.signal === null || result.signal === undefined) &&
+    (result.error === null || result.error === undefined || result.error === '')
   );
 }
 
@@ -58,11 +68,16 @@ export function decodeCloudflareOperationResult<T extends ProcessResult>(
     const envelope = value as OperationEnvelopeFields & { output?: string };
     if (
       (envelope.output !== undefined && typeof envelope.output !== 'string') ||
-      (envelope.signal != null && typeof envelope.signal !== 'string') ||
-      (envelope.error != null && typeof envelope.error !== 'string') ||
+      (envelope.signal !== null &&
+        envelope.signal !== undefined &&
+        typeof envelope.signal !== 'string') ||
+      (envelope.error !== null &&
+        envelope.error !== undefined &&
+        typeof envelope.error !== 'string') ||
       (envelope.errorCode !== undefined && !Number.isSafeInteger(envelope.errorCode)) ||
       (envelope.failure !== undefined &&
-        !['not-found', 'durable-migration', 'containers-unavailable'].includes(envelope.failure)) ||
+        (typeof envelope.failure !== 'string' ||
+          !Object.hasOwn(CLOUDFLARE_COMMAND_FAILURES, envelope.failure))) ||
       (envelope.errors !== undefined &&
         (!Array.isArray(envelope.errors) ||
           envelope.errors.some(

@@ -12,12 +12,15 @@ import {
   parsePlatformResourceOwnershipMarker,
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
   PLATFORM_R2_OWNERSHIP_MARKER_KEY,
-  type InstallationResource,
-  type InstallationResourceKind,
-  type PlatformAppAccess,
-  type PlatformDeploymentManifest,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type {
+  InstallationResource,
+  InstallationResourceKind,
+  PlatformAppAccess,
+  PlatformDeploymentManifest,
+  PlatformInstallationManifest,
+} from '@void/platform';
+import { hasOwnKey } from '../shared/has-own-key.ts';
 import { pc } from './output.ts';
 import {
   PlatformCloudflareApiError,
@@ -26,12 +29,19 @@ import {
 import type {
   CloudflareAccount,
   CloudflareDnsRecord,
+  CloudflareHyperdriveOriginLocation,
   CloudflareNamedResource,
   CloudflareWorkerDomain,
   CloudflareWorkerRoute,
   CloudflareZone,
   PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
+import {
+  cloudflarePermissionForPath,
+  formatPlatformCredentialDenials,
+} from './platform-credential-label.ts';
+import type { PlatformCredentialLabel } from './platform-credential-label.ts';
+import type { PlatformStorageLocation } from './platform-storage.ts';
 
 export type PlatformInstallPlanAction = Readonly<{
   action: 'adopt' | 'create' | 'reuse' | 'update' | 'inspect';
@@ -55,13 +65,13 @@ export type PlatformInstallPlan = Readonly<{
   zone: CloudflareZone | null;
 }>;
 
-export type PlatformExternalHyperdrive = Readonly<{
-  id: string;
-  name?: string;
-  database?: string;
-  host: string;
-  user: string;
-}>;
+export type PlatformExternalHyperdrive = CloudflareHyperdriveOriginLocation &
+  Readonly<{
+    id: string;
+    name?: string;
+    database?: string;
+    user: string;
+  }>;
 
 type PlatformInstallPlanInput = Readonly<{
   appAccess?: PlatformAppAccess;
@@ -71,6 +81,8 @@ type PlatformInstallPlanInput = Readonly<{
   controlPlaneDomain: string;
   dashboardUrl?: string;
   customDomains?: boolean;
+  /** Turns the security audits capability on; omitted keeps the recorded value. */
+  securityAudits?: boolean;
   dedicatedZone: boolean;
   displayName: string;
   externalHyperdrive?: PlatformExternalHyperdrive;
@@ -79,6 +91,7 @@ type PlatformInstallPlanInput = Readonly<{
   installationSlug: string;
   /** `full` clears the setting; omitted keeps the recorded value. */
   runtimeLogs?: 'full' | 'minimal';
+  storageLocation?: PlatformStorageLocation;
   zoneName: string;
   workersDev?: boolean;
 }>;
@@ -105,6 +118,34 @@ type PlanningClient = Pick<
   | 'listWorkerRoutes'
 >;
 
+/** Group denied plan reads by the credential Cloudflare rejected. */
+function formatPlanDenials(denied: ReadonlyArray<PlatformCloudflareApiError>): Array<string> {
+  const groups = new Map<
+    string,
+    { label?: PlatformCredentialLabel; errors: Array<PlatformCloudflareApiError> }
+  >();
+  for (const error of denied) {
+    const key = error.credential ? JSON.stringify(error.credential) : '';
+    const group = groups.get(key) ?? { label: error.credential, errors: [] };
+    group.errors.push(error);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map(({ label, errors }) =>
+    label
+      ? formatPlatformCredentialDenials(
+          label,
+          errors.map((error) => ({
+            permission:
+              (error.requestPath ? cloudflarePermissionForPath(error.requestPath) : undefined) ??
+              'a permission this read needs',
+            request: `GET ${error.requestPath ?? ''}`,
+            status: error.status,
+          })),
+        )
+      : [...new Set(errors.map((error) => error.message))].join('\n'),
+  );
+}
+
 export async function createPlatformInstallPlan(
   client: PlanningClient,
   input: PlatformInstallPlanInput,
@@ -118,6 +159,8 @@ export async function createPlatformInstallPlan(
     deploymentExecution?: boolean;
     /** upgrade only: a changed runtime logs setting is not drift. */
     allowRuntimeLogsChange?: boolean;
+    /** upgrade only: a changed storage default is not drift. */
+    allowStorageLocationChange?: boolean;
   },
 ): Promise<PlatformInstallPlan> {
   // Validate before even the first provider read; omission retains recorded intent.
@@ -206,6 +249,7 @@ export async function createPlatformInstallPlan(
       : {}),
     ...(enableEmail ? { email: true } : {}),
     ...(input.customDomains ? { customDomains: true } : {}),
+    ...(input.securityAudits ? { securityAudits: true } : {}),
   };
   // Custom hostnames reach dispatch through the dedicated zone's catch-all routes.
   if (capabilities.customDomains && (testing || !input.dedicatedZone)) {
@@ -236,6 +280,12 @@ export async function createPlatformInstallPlan(
       : input.runtimeLogs === 'minimal'
         ? 'minimal'
         : undefined;
+  const storageLocationHint =
+    input.storageLocation === undefined
+      ? existing?.deployment.storageLocationHint
+      : input.storageLocation === 'automatic'
+        ? undefined
+        : input.storageLocation;
   const deployment = createPlatformDeploymentManifest({
     authentication: input.authentication ?? existing?.deployment.authentication,
     appAccess: input.appAccess ?? existing?.deployment.appAccess,
@@ -261,6 +311,7 @@ export async function createPlatformInstallPlan(
     installationSlug,
     resources: existing?.deployment.resources ?? createPlatformResourceNames(installationSlug),
     ...(runtimeLogs ? { runtimeLogs } : {}),
+    ...(storageLocationHint ? { storageLocationHint } : {}),
   });
   const {
     emailSharedZoneId: configuredEmailZone,
@@ -307,20 +358,39 @@ export async function createPlatformInstallPlan(
           capabilities: { ...existingWithCustomDomains.capabilities, email: true },
         }
       : existingWithCustomDomains;
+  // Turning security audits on is the one change here that also moves the schema
+  // version (7), so an older CLI refuses the document instead of dropping the flag.
+  const existingWithSecurityAudits =
+    existing &&
+    deployment.capabilities.securityAudits &&
+    !existing.deployment.capabilities.securityAudits
+      ? {
+          ...existingWithEmail,
+          capabilities: { ...existingWithEmail.capabilities, securityAudits: true },
+          schemaVersion: deployment.schemaVersion,
+        }
+      : existingWithEmail;
   // Upgrade may change runtime logs. The setting also moves the schema version,
   // so leave both out of the comparison.
   const comparable = (
     value: Omit<PlatformDeploymentManifest, 'emailSharedZoneId' | 'emailSenderDomain'>,
   ) => {
-    if (!options?.allowRuntimeLogsChange) {
+    if (!options?.allowRuntimeLogsChange && !options?.allowStorageLocationChange) {
       return JSON.stringify(value);
     }
-    const { runtimeLogs: _runtimeLogs, schemaVersion: _schemaVersion, ...rest } = value;
-    return JSON.stringify(rest);
+    const comparableValue = { ...value };
+    if (options?.allowRuntimeLogsChange) {
+      delete comparableValue.runtimeLogs;
+    }
+    if (options?.allowStorageLocationChange) {
+      delete comparableValue.storageLocationHint;
+    }
+    // The schema version follows the optional settings.
+    return JSON.stringify({ ...comparableValue, schemaVersion: undefined });
   };
   if (
     existing &&
-    (comparable(existingWithEmail) !== comparable(deploymentWithoutEmailZone) ||
+    (comparable(existingWithSecurityAudits) !== comparable(deploymentWithoutEmailZone) ||
       (recordedEmailZone !== undefined && recordedEmailZone !== configuredEmailZone) ||
       (recordedSenderDomain !== undefined && recordedSenderDomain !== configuredSenderDomain))
   ) {
@@ -359,7 +429,7 @@ export async function createPlatformInstallPlan(
     }
   }
   let needsAiGatewayCredential = false;
-  const gatewayInventory = client.listAiGateways(account.id).catch((error) => {
+  const gatewayInventory = client.listAiGateways(account.id).catch((error: unknown) => {
     if (
       options?.allowUnverifiedAiGateway &&
       error instanceof PlatformCloudflareApiError &&
@@ -371,13 +441,23 @@ export async function createPlatformInstallPlan(
     throw error;
   });
   const prerequisites: Array<PlatformCloudflarePrerequisiteError> = [];
-  const collectPrerequisite = (error: unknown): [] => {
-    if (!(error instanceof PlatformCloudflarePrerequisiteError)) {
-      throw error;
-    }
-    prerequisites.push(error);
-    return [];
-  };
+  // Collect every denied read in request order, so one error names each
+  // missing permission. Any other failure still stops the plan.
+  const denials: Array<PlatformCloudflareApiError | undefined> = [];
+  const settle = <T>(slot: number, read: Promise<ReadonlyArray<T>>): Promise<ReadonlyArray<T>> =>
+    read.catch((error: unknown) => {
+      if (error instanceof PlatformCloudflarePrerequisiteError) {
+        prerequisites.push(error);
+      } else if (
+        error instanceof PlatformCloudflareApiError &&
+        (error.status === 401 || error.status === 403)
+      ) {
+        denials[slot] = error;
+      } else {
+        throw error;
+      }
+      return [];
+    });
   const [
     aiGateways,
     routingKv,
@@ -391,21 +471,36 @@ export async function createPlatformInstallPlan(
     hyperdrives,
     workers,
   ] = await Promise.all([
-    gatewayInventory,
-    client.listKvNamespaces(account.id, names.routingKv),
-    client.listKvNamespaces(account.id, names.isrCacheKv),
-    client.listKvNamespaces(account.id, names.legacyAssetsKv),
-    client.listR2Buckets(account.id).catch(collectPrerequisite),
-    client.listQueues(account.id, names.usageQueue),
-    client.listQueues(account.id, names.cronQueue),
+    settle(0, gatewayInventory),
+    settle(1, client.listKvNamespaces(account.id, names.routingKv)),
+    settle(2, client.listKvNamespaces(account.id, names.isrCacheKv)),
+    settle(3, client.listKvNamespaces(account.id, names.legacyAssetsKv)),
+    settle(4, client.listR2Buckets(account.id)),
+    settle(5, client.listQueues(account.id, names.usageQueue)),
+    settle(6, client.listQueues(account.id, names.cronQueue)),
     (options?.deploymentExecution ??
     existing?.resources.some((resource) => resource.key === 'deployment-queue'))
-      ? client.listQueues(account.id, names.deploymentQueue)
+      ? settle(7, client.listQueues(account.id, names.deploymentQueue))
       : Promise.resolve([]),
-    client.listDispatchNamespaces(account.id).catch(collectPrerequisite),
-    client.listHyperdriveConfigs(account.id),
-    client.listWorkerNames(account.id),
+    settle(8, client.listDispatchNamespaces(account.id)),
+    settle(9, client.listHyperdriveConfigs(account.id)),
+    settle(10, client.listWorkerNames(account.id)),
   ]);
+  const denied = denials.filter((error) => error !== undefined);
+  if (denied.length > 0) {
+    if (denied.length === 1 && prerequisites.length === 0) {
+      throw denied[0];
+    }
+    throw new AggregateError(
+      [...denied, ...prerequisites],
+      `platform: Cloudflare denied reads the plan needs.\n\n${[
+        ...formatPlanDenials(denied),
+        ...prerequisites.map((error) => error.message),
+      ].join('\n\n')}`,
+      // Callers check the first denied request for its status and path.
+      { cause: denied[0] },
+    );
+  }
   if (prerequisites.length === 1) {
     throw prerequisites[0];
   }
@@ -513,7 +608,7 @@ export async function createPlatformInstallPlan(
         expectedPatterns.has(route.pattern) && (route.script !== expectedWorker || !ownedWorker),
     );
     if (conflicts.length > 0) {
-      const conflict = conflicts[0]!;
+      const conflict = conflicts[0];
       throw new Error(
         `platform: Application route ${JSON.stringify(conflict.pattern)} is already assigned to ${JSON.stringify(conflict.script ?? 'no Worker')}. Choose another application domain.`,
       );
@@ -738,7 +833,9 @@ export async function createPlatformInstallPlan(
   }
   const resolvedResources = { ...deployment.resources };
   for (const action of actions) {
-    const resourceKey = RESOURCE_NAME_KEY_BY_ACTION[action.key];
+    const resourceKey = hasOwnKey(RESOURCE_NAME_KEY_BY_ACTION, action.key)
+      ? RESOURCE_NAME_KEY_BY_ACTION[action.key]
+      : undefined;
     if (resourceKey && action.name !== resolvedResources[resourceKey]) {
       resolvedResources[resourceKey] = action.name;
     }
@@ -976,7 +1073,7 @@ function resolveAccount(
         : 'platform: Select a Cloudflare account with --account <id>.',
     );
   }
-  return matches[0]!;
+  return matches[0];
 }
 
 type NamedPlanContext = Readonly<{
@@ -1081,7 +1178,7 @@ function addNamedPlan(
     });
     return;
   }
-  if (recorded && recorded.state === 'ready') {
+  if (existing && recorded?.state === 'ready') {
     if (options?.repairMissing && recorded.ownership === 'created') {
       actions.push({
         action: 'create',
@@ -1099,7 +1196,7 @@ function addNamedPlan(
       );
     }
     throw new Error(
-      `platform: Recorded ${kind} ${JSON.stringify(name)} (${recorded.id}) is missing. Run \`void platform repair ${existing!.id}\` to reconcile it.`,
+      `platform: Recorded ${kind} ${JSON.stringify(name)} (${recorded.id}) is missing. Run \`void platform repair ${existing.id}\` to reconcile it.`,
     );
   }
   actions.push({
@@ -1247,7 +1344,9 @@ function isLegacyUniqueProvisionAttempt(
     return false;
   }
   const expectedNames = createPlatformResourceNames(resourceSlug);
-  const resourceKey = RESOURCE_NAME_KEY_BY_ACTION[key];
+  const resourceKey = hasOwnKey(RESOURCE_NAME_KEY_BY_ACTION, key)
+    ? RESOURCE_NAME_KEY_BY_ACTION[key]
+    : undefined;
   if (!resourceKey) {
     return false;
   }
@@ -1261,9 +1360,7 @@ function isLegacyUniqueProvisionAttempt(
   );
 }
 
-const RESOURCE_NAME_KEY_BY_ACTION: Readonly<
-  Record<string, keyof PlatformDeploymentManifest['resources']>
-> = {
+const RESOURCE_NAME_KEY_BY_ACTION = {
   'ai-gateway': 'aiGateway',
   'api-worker': 'apiWorker',
   'assets-bucket': 'assetsBucket',
@@ -1279,7 +1376,7 @@ const RESOURCE_NAME_KEY_BY_ACTION: Readonly<
   'routing-kv': 'routingKv',
   'tail-worker': 'tailWorker',
   'usage-queue': 'usageQueue',
-};
+} satisfies Readonly<Record<string, keyof PlatformDeploymentManifest['resources']>>;
 
 function assertApplicationRoutesPreserveWorkerDomains(
   patterns: ReadonlyArray<string>,
@@ -1328,12 +1425,7 @@ function assertApplicationRoutesPreserveWorkerDomains(
   }
 }
 
-function parseWorkerRoutePattern(pattern: string): {
-  host: string;
-  path: string;
-  pattern: string;
-  scheme: string | null;
-} {
+function parseWorkerRoutePattern(pattern: string) {
   const match = /^(?:(https?):\/\/)?([^/]+)(\/.*)?$/.exec(pattern);
   return {
     host: match?.[2]?.toLowerCase() ?? '',
@@ -1470,6 +1562,9 @@ export function formatPlatformInstallPlan(
       : plan.deployment.runtimeLogs
         ? [`${pc.bold('Runtime logs:')} ${plan.deployment.runtimeLogs}`]
         : []),
+    ...(plan.deployment.storageLocationHint || previous?.storageLocationHint
+      ? [`${pc.bold('New bucket location:')} ${plan.deployment.storageLocationHint ?? 'automatic'}`]
+      : []),
     `${pc.bold('Login callback:')} ${plan.apiUrl}/auth/callback`,
     `${pc.bold('Database:')} ${plan.externalHyperdrive?.database || 'PostgreSQL'} via Hyperdrive ${plan.deployment.resources.hyperdrive}`,
     '',

@@ -30,6 +30,9 @@ const useVitePlus = toolchain === 'vite-plus';
 const vitePlusVersion = JSON.parse(
   readFileSync(join(root, 'node_modules/vite-plus/package.json'), 'utf8'),
 ).version;
+const vitePlusCoreVersion = JSON.parse(
+  readFileSync(join(root, 'node_modules/vite/package.json'), 'utf8'),
+).version;
 const work = mkdtempSync(join(tmpdir(), 'void-packed-consumer-'));
 const archiveDir = join(work, 'archives');
 mkdirSync(archiveDir);
@@ -62,7 +65,7 @@ function launch(command, args, cwd, env = environment) {
   for (const stream of [child.stdout, child.stderr]) {
     stream.on('data', (chunk) => {
       log.write(chunk);
-      tail = (tail + chunk.toString()).slice(-16000);
+      tail = (tail + chunk.toString()).slice(-16_000);
     });
   }
   const completion = new Promise((resolve, reject) => {
@@ -85,13 +88,17 @@ function launch(command, args, cwd, env = environment) {
     async stop() {
       if (child.exitCode === null) {
         try {
-          process.kill(-child.pid, 'SIGTERM');
+          if (child.pid !== undefined) {
+            process.kill(-child.pid, 'SIGTERM');
+          }
         } catch {
           /* already exited */
         }
         const force = setTimeout(() => {
           try {
-            process.kill(-child.pid, 'SIGKILL');
+            if (child.pid !== undefined) {
+              process.kill(-child.pid, 'SIGKILL');
+            }
           } catch {
             /* already exited */
           }
@@ -272,14 +279,15 @@ try {
         }
         const manifest = JSON.parse(readFileSync(join(fixture, 'package.json'), 'utf8'));
         if (useVitePlus) {
+          assert.equal(manifest.devDependencies['@cloudflare/oxlint-config'], '^0.2.0');
           assert.equal(
             manifest.devDependencies['vite-plus'],
-            `^${vitePlusVersion}`,
+            vitePlusVersion,
             'Vite+ init must match the tested workspace toolchain',
           );
           assert.equal(
             manifest.devDependencies.vite,
-            `npm:@voidzero-dev/vite-plus-core@^${vitePlusVersion}`,
+            `npm:@voidzero-dev/vite-plus-core@${vitePlusCoreVersion}`,
             'Vite+ init must use the matching core alias',
           );
           const installedVitePlus = JSON.parse(
@@ -287,15 +295,25 @@ try {
           );
           assert.equal(installedVitePlus.name, 'vite-plus');
           assert.equal(
-            installedVitePlus.version.split('.')[0],
-            vitePlusVersion.split('.')[0],
-            'The consumer must use a compatible Vite+ release',
+            installedVitePlus.version,
+            vitePlusVersion,
+            'The consumer must use the tested Vite+ release',
+          );
+          const installedCore = JSON.parse(
+            readFileSync(join(fixture, 'node_modules/vite/package.json'), 'utf8'),
+          );
+          assert.equal(installedCore.version, vitePlusCoreVersion);
+          assert.equal(
+            installedVitePlus.dependencies.vite,
+            `npm:@voidzero-dev/vite-plus-core@${installedCore.version}`,
+            'The installed CLI and core must belong to the same toolchain release',
           );
         } else {
           assert(
             !manifest.devDependencies?.['vite-plus'],
             'Plain Vite init must not install Vite+',
           );
+          assert(!manifest.devDependencies?.['@cloudflare/oxlint-config']);
           const installedVite = JSON.parse(
             readFileSync(join(fixture, 'node_modules/vite/package.json'), 'utf8'),
           );
@@ -308,6 +326,13 @@ try {
         );
         await run(process.execPath, [cli, 'prepare'], fixture);
         await run(manager, manager === 'npm' ? ['ci'] : ['install', '--frozen-lockfile'], fixture);
+        const vite = join(
+          fixture,
+          useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
+        );
+        if (useVitePlus) {
+          await run(process.execPath, [vite, 'lint'], fixture);
+        }
         const extension = framework === 'vue' ? 'vue' : framework === 'svelte' ? 'svelte' : 'tsx';
         writeFileSync(join(fixture, `pages/index.${extension}`), pages[framework]);
         writeFileSync(join(fixture, `pages/next.${extension}`), pages[framework]);
@@ -331,10 +356,6 @@ try {
         );
         mkdirSync(join(fixture, 'public'), { recursive: true });
         writeFileSync(join(fixture, 'public/packed.txt'), label);
-        const vite = join(
-          fixture,
-          useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
-        );
         await run(process.execPath, [vite, 'build'], fixture);
         await run(
           process.execPath,
@@ -363,10 +384,25 @@ try {
           [
             '--input-type=module',
             '-e',
-            `import { findPackageJSON } from 'node:module';
-import { readFileSync } from 'node:fs';
+            `import assert from 'node:assert/strict';
+import { findPackageJSON } from 'node:module';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-const manifestPath = findPackageJSON('@void/platform', import.meta.resolve('void'));
+const voidEntry = import.meta.resolve('void');
+const manifest = (name, from) => pathToFileURL(realpathSync(findPackageJSON(name, from))).href;
+const miniflare = manifest('miniflare', voidEntry);
+const workerd = manifest('workerd', miniflare);
+for (const name of ['cf', '@cloudflare/vite-plugin']) {
+  const tool = manifest(name, voidEntry);
+  const types = manifest('@cloudflare/runtime-types', tool);
+  assert.equal(manifest('miniflare', tool), miniflare, name + ' installs a second Miniflare');
+  assert.equal(manifest('miniflare', types), miniflare, name + ' runtime types install a second Miniflare');
+  assert.equal(manifest('workerd', types), workerd, name + ' runtime types install a second workerd');
+  for (const shared of ['@cloudflare/config', '@cloudflare/build-output-utils']) {
+    assert.equal(manifest(shared, tool), manifest(shared, voidEntry), name + ' installs a second ' + shared);
+  }
+}
+const manifestPath = findPackageJSON('@void/platform', voidEntry);
 const entry = JSON.parse(readFileSync(manifestPath, 'utf8')).exports['./installer'].import;
 const { resolvePlatformRuntime } = await import(new URL(entry, pathToFileURL(manifestPath)));
 const runtime = resolvePlatformRuntime();
@@ -402,7 +438,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                   /* server is starting */
                 }
               }
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(response?.ok, task.failure());
             assert((await response.text()).includes(`Packed ${label}`));
@@ -444,7 +482,11 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
               await page.getByRole('link', { name: 'Next page', exact: true }).click();
               await page.getByRole('heading', { name: `Next ${label}`, exact: true }).waitFor();
               assert.equal(
-                await page.evaluate(() => window.__packedNavigation),
+                await page.evaluate(
+                  () =>
+                    /** @type {Window & { __packedNavigation?: string }} */ (window)
+                      .__packedNavigation,
+                ),
                 'preserved',
                 'Link navigation must preserve the document',
               );
@@ -496,7 +538,9 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
                 throw new Error(task.failure());
               }
               base = packedServerUrl(task.output());
-              await new Promise((resolve) => setTimeout(resolve, 200));
+              await new Promise((resolve) => {
+                setTimeout(resolve, 200);
+              });
             }
             assert(base, task.failure());
             const response = await fetch(`${base}/form`, {

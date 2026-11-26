@@ -33,8 +33,8 @@ import {
   createTestUser,
   setupEnv,
   teardownEnv,
-  type TestEnv,
 } from './helpers.ts';
+import type { TestEnv } from './helpers.ts';
 
 let env: TestEnv;
 beforeAll(async () => {
@@ -226,7 +226,7 @@ describe('installer domain activation', () => {
       lastError: null,
       enabled: true,
     });
-    const protectedProject = projects[0]!;
+    const protectedProject = projects[0];
     await setProjectZeroTrustProtection(bindings(), env.db, protectedProject.id, true);
     const ready = await activatePlatformApplication(bindings(), env.db, target);
     expect(ready).toEqual({ ready: false });

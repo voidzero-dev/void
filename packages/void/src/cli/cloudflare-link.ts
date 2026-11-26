@@ -3,12 +3,15 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   assertExistingCloudflareConfig,
   readExistingCloudflareWorker,
-  type ExistingCloudflareWorker,
-  type CloudflareCommandRunner,
-  type ApprovedCloudflareKvBinding,
+} from '@void/deploy-cloudflare';
+import type {
+  ExistingCloudflareWorker,
+  CloudflareCommandRunner,
+  ApprovedCloudflareKvBinding,
 } from '@void/deploy-cloudflare';
 import { confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
-import { applyEdits, modify, parse, type ParseError } from 'jsonc-parser';
+import { applyEdits, modify, parse } from 'jsonc-parser';
+import type { ParseError } from 'jsonc-parser';
 import { basename, join } from 'pathslash';
 import { materializeCloudflareConfig, persistCloudflareConfig } from '../cloudflare-config.ts';
 import { isVersionIdChain } from './cloudflare-candidate.ts';
@@ -33,34 +36,35 @@ export function readCloudflareLink(root: string): CloudflareLink | null {
     return null;
   }
   try {
-    const value = JSON.parse(readFileSync(path, 'utf8'));
-    const receipt = value.candidateReceipt;
-    const validReceipt =
-      receipt === undefined ||
-      (typeof receipt === 'object' &&
-        receipt !== null &&
-        typeof receipt.parentVersionId === 'string' &&
-        receipt.parentVersionId.length > 0 &&
-        isVersionIdChain(receipt.versionIds));
+    const value = JSON.parse(readFileSync(path, 'utf8')) as {
+      accountId?: unknown;
+      workerName?: unknown;
+      candidateReceipt?: { parentVersionId?: unknown; versionIds?: unknown };
+    };
     if (
       typeof value.accountId === 'string' &&
       value.accountId &&
       typeof value.workerName === 'string' &&
-      value.workerName &&
-      validReceipt
+      value.workerName
     ) {
-      return {
-        accountId: value.accountId,
-        workerName: value.workerName,
-        ...(receipt === undefined
-          ? {}
-          : {
-              candidateReceipt: {
-                parentVersionId: receipt.parentVersionId,
-                versionIds: [...receipt.versionIds],
-              },
-            }),
-      };
+      const link: CloudflareLink = { accountId: value.accountId, workerName: value.workerName };
+      const receipt = value.candidateReceipt;
+      if (receipt === undefined) {
+        return link;
+      }
+      if (
+        typeof receipt === 'object' &&
+        receipt !== null &&
+        typeof receipt.parentVersionId === 'string' &&
+        receipt.parentVersionId.length > 0 &&
+        isVersionIdChain(receipt.versionIds)
+      ) {
+        link.candidateReceipt = {
+          parentVersionId: receipt.parentVersionId,
+          versionIds: [...receipt.versionIds],
+        };
+        return link;
+      }
     }
   } catch {
     /* Invalid state must never turn into an ordinary provisioning deploy. */
@@ -115,6 +119,14 @@ export function completeCloudflareLink(root: string): void {
   }
 }
 
+type LinkedWorkerPatch = Partial<
+  Pick<ExistingCloudflareWorker['runtime'], 'compatibility_date' | 'compatibility_flags' | 'limits'>
+> & {
+  account_id: string;
+  keep_vars: boolean;
+  version_metadata?: { binding: string };
+};
+
 export async function prepareExistingCloudflareDeploy(options: {
   root: string;
   configPath: string;
@@ -134,7 +146,7 @@ export async function prepareExistingCloudflareDeploy(options: {
     return null;
   }
   const text = readFileSync(options.configPath, 'utf8');
-  const config = parse(text);
+  const config = parse(text) as Record<string, unknown> | null | undefined;
   if (
     typeof config?.name !== 'string' ||
     !config.name ||
@@ -149,7 +161,7 @@ export async function prepareExistingCloudflareDeploy(options: {
     configPath: options.configPath,
     workerName: config.name,
   });
-  const patch: Record<string, unknown> = { account_id: options.accountId, keep_vars: true };
+  const patch: LinkedWorkerPatch = { account_id: options.accountId, keep_vars: true };
   // Native deploys may add version metadata only to their generated artifact.
   // Reuse the inspected binding when omitted; authored replacements still fail validation.
   const metadataBindings = existing.bindings.filter(
@@ -158,14 +170,15 @@ export async function prepareExistingCloudflareDeploy(options: {
   if (
     config.version_metadata === undefined &&
     metadataBindings.length === 1 &&
-    typeof metadataBindings[0]!.name === 'string'
+    typeof metadataBindings[0].name === 'string'
   ) {
-    config.version_metadata = { binding: metadataBindings[0]!.name };
-    patch.version_metadata = config.version_metadata;
+    const metadata = { binding: metadataBindings[0].name };
+    config.version_metadata = metadata;
+    patch.version_metadata = metadata;
   }
   assertExistingCloudflareConfig(existing, config, false, options.approvedKv);
   let updated = text;
-  for (const key of ['compatibility_date', 'compatibility_flags', 'limits']) {
+  for (const key of ['compatibility_date', 'compatibility_flags', 'limits'] as const) {
     if (config[key] === undefined && existing.runtime[key] !== undefined) {
       patch[key] = existing.runtime[key];
     }
@@ -177,10 +190,12 @@ export async function prepareExistingCloudflareDeploy(options: {
     );
   }
   // Save the guard before the destination so a retry cannot enter provisioning unguarded.
+  assertCloudflareLinkUnchanged(options.root, pending);
+  const receipt = pending?.candidateReceipt;
   saveCloudflareLink(options.root, {
-    ...(pending ?? {}),
     accountId: options.accountId,
     workerName: config.name,
+    ...(receipt?.parentVersionId === existing.versionId ? { candidateReceipt: receipt } : {}),
   });
   writeFileSync(options.configPath, updated);
   persistCloudflareConfig(options.root);
@@ -227,7 +242,7 @@ export async function maybeLinkCloudflareDeploy(
   const configPath = files.length ? join(root, name) : materializeCloudflareConfig(root);
   const config = parse(readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''), errors, {
     allowTrailingComma: true,
-  });
+  }) as Record<string, unknown> | null | undefined;
   if (!files.length && (!config || typeof config.name !== 'string' || !config.name.trim())) {
     return null;
   }

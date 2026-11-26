@@ -22,7 +22,7 @@ declare module 'void/routes' {
       POST: { input: { body: { messages: Array<unknown> } }; output: unknown };
     };
     '/api/stream': {
-      POST: { input: {}; output: unknown };
+      POST: { input: Record<never, never>; output: unknown };
     };
     '/api/stream/:path{.+}': {
       POST: { input: { params: { path: string } }; output: unknown };
@@ -31,8 +31,8 @@ declare module 'void/routes' {
 }
 
 import { ofetch } from 'ofetch';
-import { fetchStream } from '../../src/runtime/fetch-stream.ts';
-import { UsageLimit } from '../../src/runtime/limits.ts';
+import { fetchStream } from '../../src/runtime/client/fetch-stream.ts';
+import { UsageLimit } from '../../src/runtime/limits/index.ts';
 
 function makeSSEStream(chunks: Array<string>): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();

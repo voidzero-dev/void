@@ -86,7 +86,7 @@ Use any PostgreSQL provider that accepts connections from your computer and Clou
 | [PlanetScale Postgres](https://planetscale.com/docs/postgres/connecting) | Choose **Postgres**, not Vitess/MySQL. Open **Connect**, create role credentials, and use the direct primary connection on port `5432`, not PgBouncer on `6432`. |
 | [Neon](https://neon.com/docs/get-started-with-neon/connect-neon)         | Open **Connect**, select the database and owner role, and turn **connection pooling off**.                                                                       |
 
-When sizing your database, include the connection pools for every platform installation and application sharing that server. Adjust each Hyperdrive's [origin connection limit](https://developers.cloudflare.com/hyperdrive/configuration/tune-connection-pool/) to fit the server's capacity, leaving room for migrations, administration, provider-reserved connections, and temporary bursts.
+When sizing your database, include the connection pools for every platform installation and application sharing that server. Install, repair, and upgrade lower the [origin connection limit](https://developers.cloudflare.com/hyperdrive/configuration/tune-connection-pool/) of the Hyperdrive Void creates so it stays five connections below what the server accepts (`max_connections` minus reserved slots), leaving room for migrations and administration. If other installations or applications share the server, or you use a separately managed Hyperdrive, adjust each Hyperdrive's limit yourself to fit the server's capacity, including provider-reserved connections and temporary bursts. Void warns when a separately managed Hyperdrive leaves fewer than five connections free.
 
 Once installation claims the database, continue using that same database for resume and maintenance commands. If installation stops because it cannot use the database, for example because the database is not empty, set `VOID_PLATFORM_DATABASE_URL` to another database's URL before you resume. Uninstall never deletes external PostgreSQL.
 
@@ -170,7 +170,7 @@ Save the printed URL in your password manager and paste it into Void's `PostgreS
 The installer can create Hyperdrive for you or use one you manage separately. For an existing configuration:
 
 1. Point it at the dedicated platform database using a runtime user, and disable SQL result caching.
-2. Select it in the installer and review the database, host, port, and runtime user.
+2. Select it in the installer and review the database and runtime user. Check the origin's host and port, or its Workers VPC service ID for a private database.
 3. Supply a database owner connection at the PostgreSQL URL prompt so Void can apply migrations.
 
 To create one first, choose **Set up a separately managed Hyperdrive** and follow the printed instructions or [Cloudflare’s setup guide](https://developers.cloudflare.com/hyperdrive/get-started/). Rerun the installer once it is ready. Void leaves its configuration under your control. For unattended setup, use the Hyperdrive variables in [Install from CI](/guide/platform/installation/ci).

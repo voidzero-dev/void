@@ -11,7 +11,7 @@ describe('localhostRedirectResponse', () => {
     expect((body.match(/<script>/g) || []).length).toBe(1);
     expect((body.match(/<\/script>/g) || []).length).toBe(1);
     // The target's `<` was escaped in the JS string literal.
-    expect(body).toContain('\\u003c');
+    expect(body).toContain(String.raw`\u003c`);
   });
 
   it('HTML-escapes the noscript meta-refresh attribute', async () => {
@@ -20,7 +20,7 @@ describe('localhostRedirectResponse', () => {
 
     const match = /content="0;url=([^"]*)"/.exec(body);
     expect(match).not.toBeNull();
-    const attr = match![1]!;
+    const attr = match![1];
     // Escaped forms present, raw breakout chars absent inside the attribute.
     expect(attr).toContain('&quot;');
     expect(attr).toContain('&lt;');

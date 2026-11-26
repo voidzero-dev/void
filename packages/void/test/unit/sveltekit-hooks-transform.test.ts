@@ -1,7 +1,7 @@
 import { parseSync } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getRawRuntimeEnv } from '../../src/runtime/env-raw.ts';
-import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env.ts';
+import { getRawRuntimeEnv } from '../../src/runtime/env/raw.ts';
+import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import {
   injectSvelteKitBuildHooks,
   injectSvelteKitHooks,
@@ -58,10 +58,11 @@ export async function get_hooks ( ) {
     }`;
     const result = injectSvelteKitHooks(source, 'internal.js', '/trigger.js')!;
     // Execute the production transform while supplying its module imports.
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
     const getHooks = new Function(
       'load',
       'originalHandle',
-      `${result.code.replace(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
+      `${result.code.replaceAll(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
     )(load, originalHandle) as () => Promise<{
       handle: (options: {
         event: { request: Request; platform?: { env: typeof env } };
@@ -120,10 +121,11 @@ export async function get_hooks ( ) {
     }`;
       const result = injectSvelteKitBuildHooks(source, 'server.js', '/void/env.mjs')!;
       expect(() => parseSync('server.js', result.code)).not.toThrow();
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Execute the generated fixture with its test bindings.
       const getHooks = new Function(
         'load',
         'originalHandle',
-        `${result.code.replace(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
+        `${result.code.replaceAll(/^export /gm, '').replaceAll('import(', 'load(')}; return get_hooks;`,
       )(load, appHandle) as () => Promise<{
         handle: (options: {
           event: { request: Request; platform?: { env: typeof env } };

@@ -7,11 +7,11 @@ import {
   outro,
   settings,
   spinner,
-  type SpinnerOptions,
-  type SpinnerResult,
 } from '@voidzero-dev/vite-plus-prompts';
+import type { SpinnerOptions, SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import pc from 'picocolors';
 import terminalLink from 'terminal-link';
+import { Buffer } from './node-buffer.ts';
 
 export { pc };
 
@@ -65,8 +65,40 @@ export function printSuccess(message: string): void {
   });
 }
 
+/**
+ * Something a multi-step command finished, listed in its closing summary before
+ * `printSuccess`. Lines after the first are indented under it.
+ */
+export function printDone(message: string | Array<string>): void {
+  log.message(message, { symbol: pc.green('✓') });
+}
+
+/** Something the user should do next, listed in a command's closing summary. */
+export function printNextStep(message: string, { wrap = true }: { wrap?: boolean } = {}): void {
+  // Let the terminal wrap the display without inserting newlines into a
+  // command the user needs to paste into their shell.
+  const output = wrap
+    ? undefined
+    : // oxlint-disable-next-line quality/no-chained-type-assertions -- The prompt renderer only reads columns and calls write on this adapter.
+      ({
+        columns: Buffer.byteLength(message) + 2,
+        write: (chunk: string) => process.stdout.write(chunk),
+      } as unknown as Writable);
+  log.message(message, { symbol: pc.blue('→'), output });
+}
+
 export function formatCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/** How long a step took, in the form `vp create` prints: "215ms", "2.4s" or "12s". */
+export function formatDuration(durationMs: number): string {
+  const ms = Math.round(durationMs);
+  if (ms < 1000) {
+    return `${Math.max(1, ms)}ms`;
+  }
+  const tenths = Math.round(ms / 100);
+  return tenths < 100 ? `${(tenths / 10).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
 }
 
 /** Keep recovery commands on the same CLI when using the local checkout launcher. */
@@ -77,7 +109,7 @@ export function cliCommandName(): 'void' | 'void-dev' {
 
 /** Keep phase updates visible in static progress output, including redirected terminals. */
 export function createSpinner(
-  options?: Pick<SpinnerOptions, 'onCancel'>,
+  options?: Pick<SpinnerOptions, 'onCancel' | 'indicator' | 'cancelMessage'>,
   isTerminal: boolean = process.stdout.isTTY === true,
 ): SpinnerResult {
   const accessible =
@@ -110,7 +142,8 @@ export function createSpinner(
     cancel(msg = '') {
       cancelled = true;
       if (msg) {
-        log.warn(msg);
+        // The red ■ that a cancelled spinner leaves in a terminal.
+        log.error(msg);
       }
     },
     error(msg = '') {
@@ -171,6 +204,7 @@ export function note(...args: Parameters<typeof promptsNote>): void {
   }
   // The box renderer only reads `columns` and calls `write()`.
   let header = true;
+  // oxlint-disable-next-line quality/no-chained-type-assertions -- The prompt renderer only reads columns and calls write on this adapter.
   const sized = {
     columns: needsWidthFallback ? (columns > 0 ? MIN_NOTE_COLUMNS : 80) : columns,
     write(chunk: string) {
@@ -208,7 +242,21 @@ export function tablePrefix(): string {
 /** Strip terminal control characters from text received from a platform. */
 export function sanitizeTerminalText(value: string): string {
   // eslint-disable-next-line no-control-regex
-  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+  return value.replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+/** Text from a model or a user: no escape sequences, one line. */
+export function cleanLine(value: unknown): string {
+  return sanitizeTerminalText(stripVTControlCharacters(String(value ?? '')));
+}
+
+/** Text from a model that may span lines: keeps line breaks, drops every other control. */
+export function cleanBlock(value: unknown): string {
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  return stripVTControlCharacters(text ?? '')
+    .split('\n')
+    .map(sanitizeTerminalText)
+    .join('\n');
 }
 
 export function helpLine(command: string, description: string): string {

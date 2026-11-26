@@ -15,7 +15,7 @@ function base64urlEncode(data: Uint8Array): string {
   for (const byte of data) {
     binary += String.fromCharCode(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function signAiToken(projectId: string, secret: string): Promise<string> {
@@ -131,7 +131,7 @@ function createAtomicD1() {
     for (const [id, name] of pending) {
       rows.set(id, name);
     }
-    return results as Array<D1Result>;
+    return results;
   });
   return { db: { prepare, batch } as unknown as D1Database, rows, batch };
 }
@@ -192,14 +192,13 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         results: Array<{ id: number; name: string }>;
         success: boolean;
-      };
+      }>();
       expect(data.results).toEqual([{ id: 1, name: 'Alice' }]);
       expect(data.success).toBe(true);
 
-      // Verify dispatch was called with correct worker name
       expect(env.DISPATCH.get).toHaveBeenCalledWith('user-my-app');
     });
 
@@ -225,11 +224,13 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as Array<{
-        results: Array<{ count: number }>;
-        success: boolean;
-        meta: Record<string, unknown>;
-      }>;
+      const data = await res.json<
+        Array<{
+          results: Array<{ count: number }>;
+          success: boolean;
+          meta: Record<string, unknown>;
+        }>
+      >();
       expect(data).toHaveLength(2);
     });
 
@@ -374,7 +375,7 @@ describe('WfP dispatch path', () => {
         return path.includes('/internal/resolve-worker/')
           ? Response.json({ workerName: 'user-my-app', deploymentId: 'dpl_active' })
           : Response.json({ cf_id: 'kv-namespace' });
-      }) as unknown as typeof env.API.fetch;
+      });
       const restFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('from-rest'));
 
       const res = await worker.fetch(
@@ -438,11 +439,11 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         objects: Array<{ key: string; size: number; lastModified: string }>;
         truncated: boolean;
         cursor: string | null;
-      };
+      }>();
       expect(data.objects).toHaveLength(1);
     });
   });
@@ -475,7 +476,7 @@ describe('WfP dispatch path', () => {
           return Response.json({ cf_id: 'd1-uuid-abc' });
         }
         return Response.json({ error: 'not found' }, { status: 404 });
-      }) as unknown as typeof env.API.fetch;
+      });
 
       const res = await worker.fetch(
         post('/d1/query', {
@@ -490,13 +491,12 @@ describe('WfP dispatch path', () => {
       );
 
       expect(res.status).toBe(200);
-      const data = (await res.json()) as {
+      const data = await res.json<{
         results: Array<{ id: number; name: string }>;
         success: boolean;
-      };
+      }>();
       expect(data.results).toEqual(rows);
 
-      // Verify CF REST API was called
       expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining('api.cloudflare.com'),
         expect.any(Object),
@@ -532,7 +532,7 @@ describe('WfP dispatch path', () => {
           return Response.json({ cf_id: 'd1-uuid-abc' });
         }
         return Response.json({ error: 'not found' }, { status: 404 });
-      }) as unknown as typeof env.API.fetch;
+      });
 
       const res = await worker.fetch(
         post('/d1/query', {
@@ -564,7 +564,7 @@ describe('WfP dispatch path', () => {
           workerName,
           deploymentId: workerName?.split('-').at(-1),
         });
-      }) as unknown as typeof env.API.fetch;
+      });
 
       // First call
       await worker.fetch(

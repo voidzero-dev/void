@@ -1,19 +1,21 @@
-import { PAGES_PROTOCOL_VERSION } from '@void/edge';
+import { buildHeaders, isStaleBuild, PAGES_BUILD_HEADER, PAGES_PROTOCOL_VERSION } from '@void/edge';
 import type { Context } from 'hono';
-import { executeComposedHandler, getHandlerComposition } from '../runtime/handler-composition.ts';
-import type { CloudBindings, CloudContext } from '../runtime/handler.ts';
-import { isConvertedResponse } from '../runtime/response.ts';
+import type { HTTPException } from 'hono/http-exception';
+import { executeComposedHandler, getHandlerComposition } from '../runtime/handler/composition.ts';
+import type { CloudBindings, CloudContext } from '../runtime/handler/index.ts';
+import { isConvertedResponse } from '../runtime/handler/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
-import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
+import { pagesBuildId } from './build-id.ts';
+import { DEFERRED, separateDeferred } from './defer.ts';
+import type { ResolvedDeferredGroup } from './defer.ts';
 import {
   absolutizeHead,
   resolveHead,
   renderBodyAttrs,
   renderHeadToString,
   renderHtmlAttrs,
-  type HeadDescriptor,
-  type HeadConfig,
 } from './head.ts';
+import type { HeadDescriptor, HeadConfig } from './head.ts';
 import { withLoaderNotFoundDecision } from './not-found-context.ts';
 import { escapeScriptJson } from './script-json.ts';
 import { serializePageData } from './serialize.ts';
@@ -65,7 +67,7 @@ type ValidationErrorBody = {
 
 type PageHandler = ((c: CloudContext) => unknown | Promise<unknown>) | undefined;
 type PageHeadHandler =
-  | ((c: CloudContext, props: Record<string, unknown>) => HeadDescriptor | undefined)
+  | ((c: CloudContext, props: Record<string, unknown>) => HeadConfig | undefined)
   | undefined;
 type PageRequestContext = Context | CloudContext;
 type PageRenderOptions = {
@@ -96,7 +98,17 @@ function isPagesRequest(c: CloudContext): boolean {
 }
 
 function needsPageReload(c: CloudContext): boolean {
-  return isPagesRequest(c) && c.req.header('X-VoidPages-Version') !== PAGES_PROTOCOL_VERSION;
+  if (!isPagesRequest(c)) {
+    return false;
+  }
+  // A tab that outlived its deployment holds chunks that are gone. Its next GET
+  // navigation reloads the destination instead of importing a stale component.
+  // Mutations keep their response: the action already ran, and a page load would
+  // throw away its result.
+  return (
+    c.req.header('X-VoidPages-Version') !== PAGES_PROTOCOL_VERSION ||
+    (c.req.method === 'GET' && isStaleBuild(pagesBuildId(), c.req.header(PAGES_BUILD_HEADER)))
+  );
 }
 
 /** Old clients reload a successful non-Pages response; form errors stay readable. */
@@ -104,10 +116,13 @@ function legacyPageResponse(
   c: CloudContext,
   errors: Record<string, string> | null = null,
 ): Response {
+  c.header('Cache-Control', 'no-store');
   const headers = pageResponseHeaders(c, {
     'Content-Type': errors ? 'application/json' : 'text/plain; charset=utf-8',
     'Cache-Control': 'no-store',
     Vary: 'X-VoidPages, X-VoidPages-Version',
+    // Tells the client why it is reloading, and from which build to reload.
+    ...buildHeaders(pagesBuildId()),
   });
   headers.delete('X-VoidPages');
   return new Response(errors ? JSON.stringify({ errors }) : null, {
@@ -145,7 +160,7 @@ function varyPagesResponse(c: CloudContext): void {
   const headers = new Headers(c.res.headers);
   appendVary(headers, 'X-VoidPages');
   appendVary(headers, 'X-VoidPages-Version');
-  c.header('Vary', headers.get('Vary')!);
+  c.header('Vary', headers.get('Vary') ?? undefined);
 }
 
 function escapeHtmlAttr(value: string): string {
@@ -153,7 +168,7 @@ function escapeHtmlAttr(value: string): string {
 }
 
 function serializeStyleCss(css: string): string {
-  return css.replace(/<\/style/gi, '<\\/style');
+  return css.replaceAll(/<\/style/gi, String.raw`<\/style`);
 }
 
 function serializeDevCssAssets(assets: Array<DevCssAsset>, nonce: string): string {
@@ -291,10 +306,19 @@ async function renderPageHtml(
 
 function pageJsonResponse(c: CloudContext, pageObj: PageObject): Response {
   return new Response(serializePageData(pageObj), {
+    // Hono's lazy c.res getter ignores the private status set by c.status().
+    // Use its response factory to read that status without changing our header merging.
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L403-L407
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L652-L659
+    status: c.newResponse(null).status,
     headers: pageResponseHeaders(c, {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       'Content-Type': 'application/json',
+      // Not in Vary: the body does not depend on the build, and a per-build key
+      // would split every shared cache entry. Only the reload response differs,
+      // and it is no-store.
       Vary: 'X-VoidPages, X-VoidPages-Version',
       ...POWERED_BY,
     }),
@@ -331,7 +355,7 @@ async function extractProps(result: unknown): Promise<Record<string, unknown>> {
   if (result instanceof Response) {
     const contentType = result.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      return (await result.json()) as Record<string, unknown>;
+      return await result.json<Record<string, unknown>>();
     }
     return {};
   }
@@ -400,6 +424,38 @@ async function runLoader(
   });
 }
 
+function isRecoverableHttpException(error: unknown): error is HTTPException {
+  // Application middleware may use a different installed copy of Hono.
+  const exception = error as HTTPException | null | undefined;
+  return (
+    !!exception &&
+    typeof exception.getResponse === 'function' &&
+    !exception.res &&
+    typeof exception.status === 'number' &&
+    exception.status >= 400 &&
+    exception.status < 600
+  );
+}
+
+/** Recover HTTP failures outside the loader leaf without executing application code again. */
+export async function recoverPageHttpException(
+  error: unknown,
+  c: PageRequestContext,
+  renderFn: RenderPage,
+  getAssetTags: GetAssetTags,
+  configHead?: HeadConfig,
+  options?: PageRenderOptions,
+): Promise<Response | undefined> {
+  if (!isRecoverableHttpException(error) || c.finalized) {
+    return undefined;
+  }
+  const context = asCloudContext(c);
+  if (options?.renderMode !== 'island' && needsPageReload(context)) {
+    return legacyPageResponse(context);
+  }
+  return renderPageFailure(context, error, undefined, renderFn, getAssetTags, configHead, options);
+}
+
 /** Recover one completed GET operation without replaying its middleware or loader. */
 async function renderPageFailure(
   c: CloudContext,
@@ -416,7 +472,11 @@ async function renderPageFailure(
     'getResponse' in error &&
     typeof error.getResponse === 'function';
   const explicit = httpError ? (error as { getResponse(): Response }).getResponse() : original;
-  if (explicit && (explicit.status !== 404 || explicit.headers.has('Content-Disposition'))) {
+  const recoverHttpError = isRecoverableHttpException(error);
+  if (
+    explicit &&
+    ((!recoverHttpError && explicit.status !== 404) || explicit.headers.has('Content-Disposition'))
+  ) {
     return undefined;
   }
   const notFound = explicit?.status === 404;
@@ -429,23 +489,26 @@ async function renderPageFailure(
   if (!candidates?.[0]) {
     return undefined;
   }
+  c.header('Cache-Control', 'no-store');
   if (options?.renderMode !== 'island') {
     varyPagesResponse(c);
   }
-  let status = notFound ? 404 : 500;
+  let status = recoverHttpError ? error.status : notFound ? 404 : 500;
   let message = notFound
     ? httpError && error instanceof Error
       ? error.message || 'Not Found'
       : 'Not Found'
-    : 'Internal Server Error';
-  if (!notFound && options?.dev && error instanceof Error) {
+    : recoverHttpError
+      ? error.message || explicit?.statusText || 'HTTP Error'
+      : 'Internal Server Error';
+  if (!notFound && !recoverHttpError && options?.dev && error instanceof Error) {
     message = error.message;
   }
-  if (error && !notFound) {
+  if (error && !notFound && !recoverHttpError) {
     console.error(error);
   }
   const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-  const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+  const middlewareHead = c.get('headDefaults');
   let head: HeadDescriptor | undefined;
   // Invalid shared/head input is not repairable by trying another component.
   try {
@@ -472,7 +535,12 @@ async function renderPageFailure(
         title:
           head?.title ??
           resolveHead(configHead, middlewareHead, {
-            title: status === 404 ? 'Not Found' : 'Internal Server Error',
+            title:
+              status === 404
+                ? 'Not Found'
+                : recoverHttpError && status !== 500
+                  ? message
+                  : 'Internal Server Error',
           })?.title,
       },
     };
@@ -549,8 +617,12 @@ function runPageHandler(
     : endpoint(handler);
 }
 
+interface FormValidationErrors {
+  [key: string]: string;
+}
+
 /** Flatten withValidator's { issues: [{ slot, issues: [{ message, path }] }] } into { field: message } */
-export function flattenValidationErrors(body: unknown): Record<string, string> {
+export function flattenValidationErrors(body: unknown): FormValidationErrors {
   const errors: Record<string, string> = {};
   const issues = (body as ValidationErrorBody | null)?.issues;
   if (issues) {
@@ -568,7 +640,7 @@ export function flattenValidationErrors(body: unknown): Record<string, string> {
 }
 
 /** Strip deferred sentinels from props, setting their keys to null. Used by mutations. */
-function stripDeferred(props: Record<string, unknown>): Record<string, unknown> {
+function stripDeferred(props: Record<string, unknown>) {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(props)) {
     if (value && typeof value === 'object' && DEFERRED in value) {
@@ -607,9 +679,17 @@ function renderedResponse(
   assetTags?: AssetTags,
 ): Response {
   return new Response(result, {
+    // Hono's lazy c.res getter ignores the private status set by c.status().
+    // Use its response factory to read that status without changing our header merging.
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L403-L407
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L652-L659
+    status: c.newResponse(null).status,
     headers: adjustDevCssCsp(
       pageResponseHeaders(c, {
         'content-type': contentType,
+        // ISR copies the page data out of this document into its JSON cache, and
+        // keeps the build with it.
+        ...buildHeaders(pagesBuildId()),
         ...POWERED_BY,
       }),
       assetTags?.devCssNonce,
@@ -649,7 +729,7 @@ function streamDeferredResponse(
   assetTags?: AssetTags,
 ): Response {
   const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
 
   const entries = Object.entries(deferredMap);
@@ -673,7 +753,7 @@ function streamDeferredResponse(
 }
 
 function asCloudContext(c: PageRequestContext): CloudContext {
-  return c as unknown as CloudContext;
+  return c as CloudContext;
 }
 
 /** Handle GET page request — run handler, return page object or SSR HTML */
@@ -707,7 +787,7 @@ function resolveRequestHead(
   c: CloudContext,
   configHead: HeadConfig | undefined,
   middlewareHead: HeadConfig | undefined,
-  pageHead: HeadDescriptor | undefined,
+  pageHead: HeadConfig | undefined,
 ): HeadDescriptor | undefined {
   const head = resolveHead(configHead, middlewareHead, pageHead);
   return absolutizeHead(
@@ -743,7 +823,7 @@ async function runPageGet(
         // Read at render time so per-route middleware can set them before next()
         const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
         const pageHead = headFn ? headFn(c, props) : undefined;
-        const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+        const middlewareHead = c.get('headDefaults');
         const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
         if (renderMode !== 'island') {
           varyPagesResponse(c);
@@ -755,7 +835,6 @@ async function runPageGet(
           c.header('Cache-Control', 'no-store');
         }
 
-        // Build key-to-group mapping for the client
         const deferredKeys: Record<string, string> = {};
         for (const [group, { keys }] of Object.entries(deferredMap)) {
           for (const key of keys) {
@@ -782,7 +861,7 @@ async function runPageGet(
           // Prefetch requests: resolve all deferred props inline (plain JSON, no streaming)
           const isPrefetch = c.req.header('purpose') === 'prefetch';
           if (isPrefetch && hasDeferred) {
-            const resolvedProps: Record<string, unknown> = { ...immediateProps };
+            const resolvedProps = { ...immediateProps };
             let deferredErrors: Record<string, string> | undefined;
             await Promise.all(
               Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
@@ -821,6 +900,10 @@ async function runPageGet(
           // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
           c.header('X-VoidPages', 'true');
           c.header('X-VoidPages-Version', PAGES_PROTOCOL_VERSION);
+          const build = pagesBuildId();
+          if (build !== '') {
+            c.header(PAGES_BUILD_HEADER, build);
+          }
           return streamDeferredResponse(
             serializePageData(pageObj) + '\n',
             deferredMap,
@@ -943,7 +1026,7 @@ async function runPageMutation(
     errors: Record<string, string> | null,
   ): PageObject {
     const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-    const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
+    const middlewareHead = c.get('headDefaults');
     const pageHead = headFn ? headFn(c, props) : undefined;
     const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
     return {

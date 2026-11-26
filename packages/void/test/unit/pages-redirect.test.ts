@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { submitIslandAction } from '../../src/pages/island-action.ts';
 import { fetchPages } from '../../src/pages/redirect.ts';
-import { createRoutingRuntime } from '../../src/runtime/routing.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 beforeEach(() => {
   vi.stubGlobal('window', { location: { origin: 'https://app.test', pathname: '/', search: '' } });
@@ -39,6 +39,7 @@ it.each([301, 302, 303, 307, 308] as const)(
       });
       const get = status === 303 || ((status === 301 || status === 302) && method === 'POST');
       expect(result.redirectedTo).toBe('https://app.test/to#details');
+      expect(result.method).toBe(get ? 'GET' : method);
       expect(await result.response.json()).toEqual({
         method: get ? 'GET' : method,
         body: get ? '' : '{"id":42}',

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encodeCloudflareVersionMessage } from '@void/deploy-cloudflare';
@@ -8,6 +8,8 @@ import {
   changeCloudflareDomain,
   deleteCloudflareSecret,
   executeCloudflareD1Sql,
+  executeCloudflareD1Statements,
+  importCloudflareD1Sql,
   applyCloudflareD1Migrations,
   listCloudflareDomains,
   listCloudflareSecrets,
@@ -21,8 +23,10 @@ import {
   restoreCloudflareD1Database,
   syncCloudflareSecrets,
   tailCloudflareWorker,
-  type CloudflareOperationContext,
-  type CloudflareOperationRunner,
+} from '../../src/cli/cloudflare-operations.ts';
+import type {
+  CloudflareOperationContext,
+  CloudflareOperationRunner,
 } from '../../src/cli/cloudflare-operations.ts';
 import {
   readWranglerCustomDomains,
@@ -575,6 +579,73 @@ describe('Cloudflare D1 operations', () => {
     });
   });
 
+  it("keeps each D1 statement's result apart", async () => {
+    const root = project(`{
+  "name": "my-worker",
+  "account_id": "account-1",
+  "d1_databases": [{ "binding": "DB", "database_name": "my-data", "database_id": "11111111-2222-3333-4444-555555555555" }]
+}\n`);
+    const runner = vi.fn<CloudflareOperationRunner>().mockReturnValue(
+      ok([
+        { success: true, results: [{ a: 1 }], meta: { changes: 0, duration: 0.1 } },
+        { success: true, results: [{ b: 2 }], meta: { changes: 0, duration: 0.2 } },
+        { success: true, meta: { changes: 3 } },
+      ]),
+    );
+    const ctx = resolveCloudflareD1Context(root, 'DB', runner);
+    await expect(
+      executeCloudflareD1Statements(ctx, 'select 1 as a; select 2 as b'),
+    ).resolves.toEqual([
+      { results: [{ a: 1 }], success: true, meta: { changes: 0, duration: 0.1 } },
+      { results: [{ b: 2 }], success: true, meta: { changes: 0, duration: 0.2 } },
+      { results: [], success: true, meta: { changes: 3 } },
+    ]);
+    await expect(executeCloudflareD1Sql(ctx, 'select 1 as a; select 2 as b')).resolves.toEqual([
+      { a: 1 },
+      { b: 2 },
+    ]);
+  });
+
+  it.each([
+    { fail: false, bulk: true },
+    { fail: true, bulk: true },
+    { fail: false, bulk: false },
+    { fail: true, bulk: false },
+  ])('cleans up private SQL files (failure: $fail, bulk: $bulk)', async ({ fail, bulk }) => {
+    const contents = "INSERT INTO messages VALUES ('測試');\n".repeat(4096);
+    let file: string | undefined;
+    const runner = vi.fn<CloudflareOperationRunner>().mockImplementation((operation) => {
+      expect(operation.type).toBe(bulk ? 'd1.import' : 'd1.execute');
+      if ((operation.type !== 'd1.import' && operation.type !== 'd1.execute') || !operation.file) {
+        throw new Error('Expected file import');
+      }
+      file = operation.file;
+      expect(readFileSync(file, 'utf8')).toBe(contents);
+      if (process.platform !== 'win32') {
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+      }
+      return fail ? { ...ok(), status: 1, stderr: 'Import rejected' } : ok([]);
+    });
+    const pending = (bulk ? importCloudflareD1Sql : executeCloudflareD1Sql)(
+      {
+        operation: context(runner),
+        binding: 'DB',
+        migrateToken: 'my-data',
+        migrationsDir: undefined,
+        migrationsTable: 'd1_migrations',
+      },
+      contents,
+    );
+    if (fail) {
+      await expect(pending).rejects.toThrow('Import rejected');
+    } else {
+      await expect(pending).resolves.toEqual(bulk ? undefined : []);
+    }
+    expect(file).toBeDefined();
+    expect(existsSync(file!)).toBe(false);
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves migrationsDir unset when the D1 binding has none', () => {
     const root = project(`{
   "name": "my-worker",
@@ -664,8 +735,8 @@ describe('Cloudflare custom domains', () => {
 }\n`);
     const added = updateWranglerCustomDomain(root, 'app.example.com', 'add');
     expect(added.domains.map((domain) => domain.pattern)).toEqual(['app.example.com']);
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('// Keep this route.');
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('api.example.com/*');
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toContain('// Keep this route.');
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toContain('api.example.com/*');
     const removed = updateWranglerCustomDomain(root, 'app.example.com', 'delete');
     expect(removed.domains).toEqual([]);
     expect(readWranglerCustomDomains(root).domains).toEqual([]);
@@ -700,7 +771,7 @@ describe('Cloudflare custom domains', () => {
 }\n`);
     let deployedConfig: Record<string, unknown> | undefined;
     const runner = vi.fn<CloudflareOperationRunner>((args) => {
-      deployedConfig = JSON.parse(readFileSync(args.configPath!, 'utf-8')) as Record<
+      deployedConfig = JSON.parse(readFileSync(args.configPath!, 'utf8')) as Record<
         string,
         unknown
       >;
@@ -727,7 +798,7 @@ describe('Cloudflare custom domains', () => {
     const root = project(
       '{"name":"my-worker","account_id":"account-1","routes":[{"pattern":"existing.example.com","custom_domain":true}]}',
     );
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const runner = vi
       .fn<CloudflareOperationRunner>()
       .mockReturnValueOnce({ status: 1, stdout: '', stderr: 'not accepted' })
@@ -735,7 +806,7 @@ describe('Cloudflare custom domains', () => {
     await expect(changeCloudflareDomain(root, 'app.example.com', 'add', runner)).rejects.toThrow(
       'local config and remote triggers were restored',
     );
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
     expect(runner).toHaveBeenCalledTimes(2);
   });
 
@@ -743,7 +814,7 @@ describe('Cloudflare custom domains', () => {
     const root = project(
       '{"name":"my-worker","account_id":"account-1","routes":[{"pattern":"existing.example.com","custom_domain":true}]}',
     );
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const runner = vi.fn<CloudflareOperationRunner>().mockReturnValue({
       status: 1,
       stdout: '',
@@ -753,7 +824,7 @@ describe('Cloudflare custom domains', () => {
     await expect(changeCloudflareDomain(root, 'app.example.com', 'add', runner)).rejects.toThrow(
       'remote route state may be partially applied',
     );
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
   });
 
   it('publishes an empty final domain set to the pinned Cloudflare API', async () => {
@@ -784,7 +855,7 @@ describe('Cloudflare custom domains', () => {
     const root = project(
       '{"name":"my-worker","account_id":"account-1","routes":[{"pattern":"app.example.com","custom_domain":true}]}',
     );
-    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+    const before = readFileSync(join(root, 'wrangler.jsonc'), 'utf8');
     const runner = vi
       .fn<CloudflareOperationRunner>()
       .mockResolvedValueOnce({
@@ -800,7 +871,7 @@ describe('Cloudflare custom domains', () => {
       'both the local config and remote triggers were restored',
     );
 
-    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(before);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(before);
     expect(runner).toHaveBeenCalledTimes(2);
     expect(runner.mock.calls[0]?.[0].type).toEqual('triggers.clear-domains');
     expect(runner.mock.calls[1]?.[0].type).toEqual('triggers.deploy');

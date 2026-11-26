@@ -114,6 +114,18 @@ With minimal runtime logs:
 
 The setting covers the whole platform. To change it later, see [Change runtime logs](/guide/platform/installation/maintenance#runtime-logs).
 
+## Choose a default storage location
+
+Set a preferred location for new project R2 buckets:
+
+```sh
+void platform install --storage-location apac
+```
+
+Supported hints are `apac`, `eeur`, `enam`, `weur`, `wnam`, and `oc`. The default is automatic placement by Cloudflare. Projects can override the default with [`storage.locationHint`](/reference/config#storage-locationhint).
+
+To change the default later, use `void platform upgrade <id> --storage-location weur`. Use `--storage-location automatic` to clear it; omitting the flag keeps the current setting. Changes affect only newly created project buckets, not existing buckets or the platform's own asset bucket. Location hints are [best effort](https://developers.cloudflare.com/r2/reference/data-location/), not data residency guarantees.
+
 ## Finish login configuration
 
 For Google, create an OAuth client and register the printed callback URL. You

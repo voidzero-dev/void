@@ -7,8 +7,8 @@ import {
   createIsolatedPlayground,
   killChild,
   startServer,
-  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 
 const repository = join(import.meta.dirname, '../../../..');
 let fixture: IsolatedPlayground;
@@ -45,16 +45,13 @@ function freshAuthApp() {
   };
   write(
     'vite.config.ts',
-    "import { voidPlugin } from 'void'; export default { plugins: [voidPlugin()], resolve: { tsconfigPaths: true } };",
+    // No tsconfig `paths` and no `resolve.tsconfigPaths`: Void provides `@auth-schema` itself.
+    "import { voidPlugin } from 'void'; export default { plugins: [voidPlugin()] };",
   );
   write('void.config.ts', "export default { auth: { providers: ['email'] } };");
   write(
     'tsconfig.json',
-    JSON.stringify({
-      extends: './.void/tsconfig.json',
-      compilerOptions: { paths: { '@auth-schema': ['./.void/better-auth-schema.ts'] } },
-      include: ['**/*.ts'],
-    }),
+    JSON.stringify({ extends: './.void/tsconfig.json', include: ['**/*.ts'] }),
   );
   write(
     'auth.ts',
@@ -62,6 +59,13 @@ function freshAuthApp() {
 export default defineAuth(({ defaults }) => ({
   ...defaults,
   user: { additionalFields: { nickname: { type: 'string', required: false } } },
+  plugins: [{
+    id: 'table-indexes',
+    schema: { user: { fields: {}, indexes: [
+      { name: 'user_created_idx', fields: ['createdAt'] },
+      { name: 'user_name_created_uidx', fields: ['name', 'createdAt'], unique: true },
+    ] } },
+  }],
   databaseHooks: { user: { create: { after: async () => {
     const { authFields } = await import('./lib/users');
     authFields();
@@ -70,7 +74,10 @@ export default defineAuth(({ defaults }) => ({
   );
   write(
     'lib/users.ts',
-    "import { userTable } from '@auth-schema'; export const authFields = () => Object.keys(userTable);",
+    `import { userTable } from '@auth-schema';
+import { getTableConfig } from 'void/schema-d1';
+export const authFields = () => Object.keys(userTable);
+export const authIndexes = () => getTableConfig(userTable).indexes.map((index) => index.config.name);`,
   );
   write(
     'db/schema.ts',
@@ -84,9 +91,15 @@ export const postTable = sqliteTable('post', {
   write(
     'routes/index.ts',
     `import 'void/db';
+import { env } from 'cloudflare:workers';
 import { postTable } from '../db/schema';
-import { authFields } from '../lib/users';
-export const GET = () => Response.json({ fields: authFields(), author: postTable.authorId.name });`,
+import { authFields, authIndexes } from '../lib/users';
+export const GET = async () => Response.json({
+  fields: authFields(),
+  author: postTable.authorId.name,
+  indexes: authIndexes(),
+  databaseIndexes: (await env.DB.prepare("PRAGMA index_list('user')").all()).results.map((index) => index.name),
+});`,
   );
 }
 
@@ -121,5 +134,11 @@ it('starts a fresh Cloudflare app with auth table imports without running prepar
   expect(await response.json()).toMatchObject({
     fields: expect.arrayContaining(['nickname']),
     author: 'author_id',
+    indexes: ['user_created_idx', 'user_name_created_uidx'],
+    databaseIndexes: expect.arrayContaining([
+      'user_created_idx',
+      'user_name_created_uidx',
+      'user_email_uidx',
+    ]),
   });
 });

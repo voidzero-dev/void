@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vite-plus/test';
 import { isAllowedRedirect } from '../../src/routes/auth.ts';
 
 describe('isAllowedRedirect', () => {
-  // Valid cases
   it('allows localhost with any port', () => {
     expect(isAllowedRedirect('http://localhost:3000/callback')).toBe(true);
     expect(isAllowedRedirect('http://localhost:8080/callback')).toBe(true);
@@ -56,7 +55,6 @@ describe('isAllowedRedirect', () => {
     }
   });
 
-  // Subdomain attack vectors
   it('rejects subdomain prefix attack', () => {
     expect(isAllowedRedirect('https://dash.void.cloud.attacker.com/steal')).toBe(false);
   });
@@ -65,7 +63,6 @@ describe('isAllowedRedirect', () => {
     expect(isAllowedRedirect('https://evil.dash.void.cloud/callback')).toBe(false);
   });
 
-  // Protocol attacks
   it('rejects https localhost', () => {
     expect(isAllowedRedirect('https://localhost:3000/callback')).toBe(false);
   });
@@ -74,7 +71,6 @@ describe('isAllowedRedirect', () => {
     expect(isAllowedRedirect('http://dash.void.cloud/callback')).toBe(false);
   });
 
-  // Malformed inputs
   it('rejects invalid URLs', () => {
     expect(isAllowedRedirect('not-a-url')).toBe(false);
     expect(isAllowedRedirect('')).toBe(false);
@@ -84,7 +80,6 @@ describe('isAllowedRedirect', () => {
     expect(isAllowedRedirect('javascript:alert(1)')).toBe(false);
   });
 
-  // Unrelated origins
   it('rejects unrelated origins', () => {
     expect(isAllowedRedirect('https://attacker.com/callback')).toBe(false);
   });

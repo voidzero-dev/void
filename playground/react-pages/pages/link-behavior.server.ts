@@ -8,7 +8,9 @@ export type Props = Readonly<{
 }>;
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export const loader = defineHandler<Props>(async (c) => {

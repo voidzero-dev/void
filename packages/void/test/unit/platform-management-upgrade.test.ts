@@ -13,22 +13,35 @@ import {
   recordInstallationResource,
   recordInstallationStep,
   transitionInstallation,
-  type PlatformInstallationManifest,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { Buffer } from '../../src/cli/node-buffer.ts';
 import { printSuccess } from '../../src/cli/output.ts';
+
+type CreateSecrets =
+  typeof import('../../src/cli/platform-installer-secrets.ts').createPlatformInstallationSecrets;
+type PatchSettings =
+  import('../../src/cli/platform-cloudflare.ts').PlatformCloudflareClient['patchDispatchNamespaceScriptSettings'];
 
 const state = vi.hoisted(() => ({
   cfRunner: vi.fn(),
-  createSecrets: vi.fn(),
+  createSecrets:
+    vi.fn<(input: Parameters<CreateSecrets>[0]) => Partial<ReturnType<CreateSecrets>>>(),
   getWorkerLastDeployedFrom: vi.fn(),
   clientTokens: [] as Array<string>,
+  clientCredentials: [] as Array<unknown>,
+  /** Answers browser-login AI Gateway requests through the real client. */
+  aiGatewayStatus: 0,
+  operatorCredential: undefined as
+    | { source: 'environment' | 'saved' | 'oauth'; token: string }
+    | undefined,
   listAccounts: vi.fn(),
   listWorkerNames: vi.fn(),
   listNamespaceScripts: vi.fn(),
-  patchScriptSettings: vi.fn(),
-  request: vi.fn(),
+  patchScriptSettings: vi.fn<PatchSettings>(),
+  request: vi.fn<(path: string, init?: RequestInit) => Promise<unknown>>(),
   requiredGatewayToken: '',
   events: [] as Array<string>,
   manifest: undefined as PlatformInstallationManifest | undefined,
@@ -74,18 +87,51 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   select: vi.fn(),
 }));
 
-vi.mock('../../src/cli/platform-auth.ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/cli/platform-auth.ts')>()),
-  assertPlatformOperatorCredentialCanApplyPlan: vi.fn(),
-}));
+vi.mock('../../src/cli/platform-auth.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/cli/platform-auth.ts')>();
+  return {
+    ...actual,
+    assertPlatformOperatorCredentialCanApplyPlan: vi.fn(),
+    resolvePlatformCloudflareCredential: vi.fn(
+      async (...args: Parameters<typeof actual.resolvePlatformCloudflareCredential>) =>
+        state.operatorCredential ?? actual.resolvePlatformCloudflareCredential(...args),
+    ),
+  };
+});
 
 vi.mock('../../src/cli/platform-cloudflare.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/cli/platform-cloudflare.ts')>();
   return {
     ...actual,
     PlatformCloudflareClient: class {
-      constructor(private readonly token: string) {
+      constructor(
+        private readonly token: string,
+        private readonly options?: { credential?: unknown },
+      ) {
         state.clientTokens.push(token);
+        state.clientCredentials.push(options?.credential);
+      }
+
+      withAiGatewayToken(
+        token: string,
+        credential: ConstructorParameters<typeof actual.PlatformCloudflareClient>[1] extends
+          | { credential?: infer Label }
+          | undefined
+          ? Label
+          : never,
+      ) {
+        // The real client names the token when Cloudflare refuses it.
+        const real = new actual.PlatformCloudflareClient(this.token, {
+          credential: this.options?.credential as never,
+          fetcher: async () =>
+            Response.json(
+              { success: false, errors: [{ message: 'Authentication error' }] },
+              { status: state.aiGatewayStatus || 401 },
+            ),
+        }).withAiGatewayToken(token, credential);
+        return Object.assign(Object.create(this) as this, {
+          listAiGateways: (accountId: string) => real.listAiGateways(accountId),
+        });
       }
       listAccounts = state.listAccounts;
       listWorkerNames = state.listWorkerNames;
@@ -259,6 +305,7 @@ import {
   runInstalledPlatformCommand,
 } from '../../src/cli/platform-management.ts';
 import { createPlatformInstallPlan } from '../../src/cli/platform-plan.ts';
+import type { PlatformInstallPlanAction } from '../../src/cli/platform-plan.ts';
 import {
   acquirePlatformLifecycleLock,
   readInstallationRecoverySecrets,
@@ -266,6 +313,10 @@ import {
   writeInstallationManifest,
   writePendingInstallationSecrets,
 } from '../../src/cli/platform-registry.ts';
+
+const expectedRejection = (): never => {
+  throw new Error('expected a rejection');
+};
 
 const upgrade = (overrides: { plan?: boolean; yes?: boolean; customDomains?: true } = {}) =>
   runInstalledPlatformCommand({
@@ -278,6 +329,24 @@ const upgrade = (overrides: { plan?: boolean; yes?: boolean; customDomains?: tru
   });
 
 describe('installed platform upgrade', () => {
+  it.each(['apac', 'automatic'] as const)(
+    'replays storage location %s in the upgrade resume command',
+    (storageLocation) => {
+      expect(
+        platformLifecycleResumeCommand(
+          {
+            subcommand: 'upgrade',
+            selector: '',
+            plan: false,
+            yes: true,
+            runtime: '',
+            storageLocation,
+          },
+          'installation',
+        ),
+      ).toBe(`void platform upgrade installation --storage-location ${storageLocation} --yes`);
+    },
+  );
   it('prints an exact rollback resume command with quoted custom runtime paths', () => {
     expect(
       platformLifecycleResumeCommand(
@@ -292,7 +361,7 @@ describe('installed platform upgrade', () => {
         'installation',
       ),
     ).toBe(
-      "void platform rollback installation --runtime '/tmp/earlier runtime' --from-runtime '/tmp/current'\\''s runtime' --yes",
+      String.raw`void platform rollback installation --runtime '/tmp/earlier runtime' --from-runtime '/tmp/current'\''s runtime' --yes`,
     );
   });
   it('replays --runtime-logs in the upgrade resume command', () => {
@@ -315,6 +384,9 @@ describe('installed platform upgrade', () => {
     vi.stubEnv('CLOUDFLARE_API_TOKEN', 'token');
     vi.stubEnv('CF_API_TOKEN', '');
     state.clientTokens.length = 0;
+    state.clientCredentials.length = 0;
+    state.aiGatewayStatus = 0;
+    state.operatorCredential = undefined;
     state.requiredGatewayToken = '';
     state.listAccounts.mockReset().mockResolvedValue([{ id: 'account', name: 'Account' }]);
     state.listWorkerNames.mockReset().mockResolvedValue([]);
@@ -463,6 +535,99 @@ describe('installed platform upgrade', () => {
     },
   );
 
+  describe('naming the Cloudflare credential', () => {
+    const planReadsAiGateway = () => {
+      const original = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+      vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+        await args[0].listAiGateways(args[1].accountId);
+        return original(...args);
+      });
+    };
+
+    it('labels the operator client with the variable that held its token', async () => {
+      vi.stubEnv('CLOUDFLARE_API_TOKEN', '');
+      vi.stubEnv('CF_API_TOKEN', 'legacy-manager');
+      await upgrade({ plan: true });
+      expect(state.clientCredentials[0]).toEqual({
+        role: 'management',
+        source: 'environment',
+        environmentVariable: 'CF_API_TOKEN',
+      });
+    });
+
+    it('names both CF_API_TOKEN and every missing permission before taking locks', async () => {
+      vi.stubEnv('CLOUDFLARE_API_TOKEN', '');
+      vi.stubEnv('CF_API_TOKEN', 'legacy-manager');
+      state.manifest = recordInstallationResource(
+        state.manifest!,
+        {
+          configHash: 'hash',
+          id: 'assets',
+          key: 'assets-r2',
+          kind: 'r2-bucket',
+          name: 'assets',
+          ownership: 'created',
+          state: 'ready',
+        },
+        '2026-09-14T00:00:03.000Z',
+      );
+      state.listWorkerNames.mockRejectedValueOnce(
+        new PlatformCloudflareApiError('Authentication error', 403),
+      );
+      state.request.mockRejectedValueOnce(
+        new PlatformCloudflareApiError('Authentication error', 403),
+      );
+      const failure = await upgrade().then(expectedRejection, (error: unknown) => error);
+      assert.instanceOf(failure, Error);
+      expect(failure.message).toContain(
+        'Cloudflare denied the management token from CF_API_TOKEN:\n- Account → Workers → Admin (HTTP 403; Cloudflare Workers access)\n- Account → Workers R2 Storage → Edit (HTTP 403; R2 bucket "assets")',
+      );
+      expect(acquirePlatformLifecycleLock).not.toHaveBeenCalled();
+      expect(installPlatform).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['upgrade', 'saved', 'runtime token saved on this machine'],
+      ['repair', 'saved', 'runtime token saved on this machine'],
+      ['upgrade', 'environment', 'runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN'],
+    ] as const)(
+      'under browser login, %s names the %s runtime token that AI Gateway used',
+      async (subcommand, source, name) => {
+        vi.stubEnv('CLOUDFLARE_API_TOKEN', '');
+        state.operatorCredential = { source: 'oauth', token: 'browser-login' };
+        if (source === 'environment') {
+          vi.stubEnv('VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN', 'env-runtime');
+        }
+        vi.mocked(readInstallationRecoverySecrets).mockReturnValue({
+          databaseUrl: 'postgres://database',
+          cloudflareApiToken: 'saved-runtime',
+        });
+        planReadsAiGateway();
+        const failure = await runInstalledPlatformCommand({
+          subcommand,
+          selector: state.manifest!.id,
+          plan: false,
+          runtime: '',
+          yes: true,
+        }).then(expectedRejection, (error: unknown) => error as PlatformCloudflareApiError);
+        expect(failure).toBeInstanceOf(PlatformCloudflareApiError);
+        expect(failure.status).toBe(401);
+        expect(failure.message).toContain(
+          `Browser login cannot use AI Gateway, so Void used the ${name} for it. Fix the runtime token (VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN), or set CLOUDFLARE_API_TOKEN to a management token with Account → AI Gateway → Edit.`,
+        );
+        expect(failure.message).toContain(
+          'Set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid runtime token',
+        );
+        // The 401 is the runtime token's, not browser login's.
+        expect(failure.message).not.toContain('Void used the Cloudflare browser login');
+        expect(failure.message).not.toContain('Set CLOUDFLARE_API_TOKEN to a valid');
+        expect(failure.message).not.toContain('runtime-');
+        expect(installPlatform).not.toHaveBeenCalled();
+        expect(writeInstallationManifest).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   it('includes shared email configuration when planning an upgrade', async () => {
     vi.stubEnv('VOID_EMAIL_SHARED_ZONE_ID', 'mail-zone');
     vi.stubEnv('VOID_EMAIL_SENDER_DOMAIN', 'mail.example.com');
@@ -497,6 +662,36 @@ describe('installed platform upgrade', () => {
       );
     },
   );
+
+  it('forwards the storage location setting to the upgrade plan', async () => {
+    await runInstalledPlatformCommand({
+      subcommand: 'upgrade',
+      selector: state.manifest!.id,
+      plan: false,
+      runtime: '',
+      yes: true,
+      storageLocation: 'apac',
+    });
+    expect(createPlatformInstallPlan).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ storageLocation: 'apac' }),
+      expect.anything(),
+      expect.objectContaining({ allowStorageLocationChange: true }),
+    );
+  });
+
+  it('rejects a runtime that would ignore a saved storage location before installation', async () => {
+    state.manifest = {
+      ...state.manifest!,
+      deployment: { ...state.manifest!.deployment, storageLocationHint: 'apac', schemaVersion: 6 },
+    };
+    state.runtime = {
+      ...state.runtime!,
+      manifest: { ...state.runtime!.manifest, storageLocationHint: undefined },
+    };
+    await expect(upgrade()).rejects.toThrow('storage location hint');
+    expect(installPlatform).not.toHaveBeenCalled();
+  });
 
   describe('project Worker runtime logs', () => {
     const useMinimal = () => {
@@ -539,7 +734,7 @@ describe('installed platform upgrade', () => {
           })),
         );
         expect(state.patchScriptSettings.mock.invocationCallOrder[0]).toBeGreaterThan(
-          vi.mocked(installPlatform).mock.invocationCallOrder[0]!,
+          vi.mocked(installPlatform).mock.invocationCallOrder[0],
         );
         expect(log.warn).not.toHaveBeenCalled();
       },
@@ -602,7 +797,7 @@ describe('installed platform upgrade', () => {
     expect(state.progress.stop).toHaveBeenCalledExactlyOnceWith('Platform upgrade complete.');
     expect(state.progress.error).not.toHaveBeenCalled();
     expect(state.progress.stop.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(printSuccess).mock.invocationCallOrder[0]!,
+      vi.mocked(printSuccess).mock.invocationCallOrder[0],
     );
   });
 
@@ -727,7 +922,7 @@ describe('installed platform upgrade', () => {
     });
     await upgrade({ plan: true });
     expect(state.progress.clear.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      vi.mocked(note).mock.invocationCallOrder[0]!,
+      vi.mocked(note).mock.invocationCallOrder[0],
     );
     expect(installPlatform).not.toHaveBeenCalled();
     expect(state.progress.start).not.toHaveBeenCalledWith('Upgrading the platform');
@@ -801,8 +996,9 @@ describe('installed platform upgrade', () => {
 
   it('forwards spinner cancellation to coordinated CLI shutdown', async () => {
     await upgrade();
-    const onCancel = state.spinner.mock.calls[0]![0].onCancel;
+    const onCancel = state.spinner.mock.calls[0][0].onCancel;
     const emit = vi.spyOn(process, 'emit').mockReturnValueOnce(true);
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Call the cancellation callback captured by the progress mock.
     onCancel();
     expect(emit).toHaveBeenCalledWith('SIGINT');
     const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
@@ -937,6 +1133,8 @@ describe('installed platform upgrade', () => {
       });
       await repair({ authConfig: authFile });
       const input = replacement();
+      assert(typeof input.authenticationSetupJson === 'string');
+      assert(typeof input.authBootstrapCode === 'string');
       const setup = parsePlatformAuthenticationSetup(JSON.parse(input.authenticationSetupJson));
       expect(setup.resetPending).toBe(true);
       expect(setup.connections[0]).toMatchObject({
@@ -1158,12 +1356,17 @@ describe('installed platform upgrade', () => {
           }
           return [];
         });
-        const failure = await upgrade({ customDomains: true }).catch((error: Error) => error);
+        const failure = await upgrade({ customDomains: true }).catch((error: unknown) => error);
         expect(failure).toBeInstanceOf(Error);
         expect(String(failure)).toContain(`HTTP ${status}`);
         expect(String(failure)).not.toContain('saved-runtime-token');
         if (status === 403) {
           expect(String(failure)).toContain('SSL and Certificates → Edit');
+        }
+        if (status === 401 || status === 403) {
+          expect(String(failure)).toContain(
+            'Cloudflare denied the runtime token saved on this machine:',
+          );
         }
         expect(installPlatform).not.toHaveBeenCalled();
         expect(state.events.filter((event) => event.startsWith('put:'))).toEqual([]);
@@ -1185,6 +1388,10 @@ describe('installed platform upgrade', () => {
       });
       await upgrade({ customDomains: true });
       expect(state.clientTokens).toContain('replacement-token');
+      expect(state.clientCredentials[state.clientTokens.indexOf('replacement-token')]).toEqual({
+        role: 'runtime',
+        source: 'environment',
+      });
       expect(state.clientTokens).not.toContain('saved-runtime-token');
       expect(state.events).toContain(`request:${customHostnamePath}`);
     });
@@ -1290,7 +1497,7 @@ describe('installed platform upgrade', () => {
 
       // The Workers can use a newer token than the one saved on this machine.
       await expect(upgrade()).rejects.toThrow(
-        'platform: The runtime API token saved on this machine cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead.',
+        'platform: The runtime token saved on this machine cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead.',
       );
       expect(installPlatform).not.toHaveBeenCalled();
 
@@ -1305,7 +1512,7 @@ describe('installed platform upgrade', () => {
         (failure: unknown) => failure as Error,
       );
       expect(explicit?.message).toContain(
-        'platform: The runtime API token cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Check that the token is valid',
+        'platform: The runtime token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Check that the token is valid',
       );
       expect(explicit?.message).not.toContain('saved on this machine');
       expect(installPlatform).not.toHaveBeenCalled();
@@ -1516,7 +1723,7 @@ describe('installed platform upgrade', () => {
         apiWorker(),
       );
       expect(installPlatform).toHaveBeenCalledOnce();
-      expect(vi.mocked(installPlatform).mock.calls[0]![3]).not.toHaveProperty(
+      expect(vi.mocked(installPlatform).mock.calls[0][3]).not.toHaveProperty(
         'replaceOutsideChanges',
       );
       expect(state.cfRunner).not.toHaveBeenCalled();
@@ -1627,7 +1834,7 @@ describe('installed platform upgrade', () => {
 
         expect(state.getWorkerLastDeployedFrom).toHaveBeenCalledTimes(2);
         expect(installPlatform).toHaveBeenCalledOnce();
-        expect(vi.mocked(installPlatform).mock.calls[0]![3]).not.toHaveProperty(
+        expect(vi.mocked(installPlatform).mock.calls[0][3]).not.toHaveProperty(
           'replaceOutsideChanges',
         );
       });
@@ -1716,7 +1923,7 @@ describe('installed platform upgrade', () => {
           `/accounts/account/workers/scripts/${apiWorker()}/versions/${earlierVersion}`,
         );
         expect(installPlatform).toHaveBeenCalledOnce();
-        expect(vi.mocked(installPlatform).mock.calls[0]![3]).not.toHaveProperty(
+        expect(vi.mocked(installPlatform).mock.calls[0][3]).not.toHaveProperty(
           'replaceOutsideChanges',
         );
       });
@@ -1823,7 +2030,7 @@ describe('installed platform upgrade', () => {
           initialValue: false,
         });
         expect(state.cfRunner).toHaveBeenCalledOnce();
-        expect(state.cfRunner.mock.calls[0]![0]).toMatchObject({
+        expect(state.cfRunner.mock.calls[0][0]).toMatchObject({
           type: 'versions.upload',
           interactive: true,
         });
@@ -1840,7 +2047,7 @@ describe('installed platform upgrade', () => {
         expect(uploaded).toHaveLength(1);
         expect(uploaded[0]).toContain(createdCacheId);
         expect(JSON.stringify(state.manifest!.resources)).not.toContain(createdCacheId);
-        expect(vi.mocked(installPlatform).mock.calls[0]![3]).toMatchObject({
+        expect(vi.mocked(installPlatform).mock.calls[0][3]).toMatchObject({
           replaceOutsideChanges: [apiWorker()],
         });
       });
@@ -1878,10 +2085,148 @@ describe('installed platform upgrade', () => {
           'outer-release',
           'local-release',
         ]);
-        expect(vi.mocked(installPlatform).mock.calls[0]![3]).toMatchObject({
+        expect(vi.mocked(installPlatform).mock.calls[0][3]).toMatchObject({
           replaceOutsideChanges: [apiWorker()],
         });
       });
+    });
+  });
+  describe('R2 upload credentials', () => {
+    const r2Pair = { R2_ACCESS_KEY_ID: 'new-id', R2_SECRET_ACCESS_KEY: 'new-secret' };
+    const planWith = (...actions: Array<Omit<PlatformInstallPlanAction, 'id' | 'reason'>>) => {
+      const original = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+      vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+        const plan = await original(...args);
+        return {
+          ...plan,
+          actions: [
+            ...plan.actions,
+            ...actions.map((action) => ({ ...action, id: null, reason: 'test' })),
+          ],
+        };
+      });
+    };
+    const assetsBucket = (
+      action: 'create' | 'reuse' = 'reuse',
+    ): Omit<PlatformInstallPlanAction, 'id' | 'reason'> => ({
+      action,
+      key: 'assets-bucket',
+      kind: 'r2-bucket',
+      name: 'void-example-assets',
+    });
+    const repair = (r2Fetch: typeof fetch) =>
+      runInstalledPlatformCommand(
+        {
+          subcommand: 'repair',
+          selector: state.manifest!.id,
+          plan: false,
+          runtime: '',
+          yes: true,
+        },
+        { fetch: r2Fetch },
+      );
+
+    it('stops before any change when R2 rejects the pair from the environment', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn(
+        async () =>
+          new Response(
+            '<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code></Error>',
+            { status: 403 },
+          ),
+      );
+
+      await expect(repair(r2Fetch)).rejects.toThrow(
+        'platform: R2 rejected the R2 key pair from the VOID_PLATFORM_R2_* environment variables (SignatureDoesNotMatch) on bucket void-example-assets. Void did not change the platform.',
+      );
+
+      expect(r2Fetch).toHaveBeenCalledOnce();
+      expect(String((r2Fetch.mock.calls[0] as unknown as [string])[0])).toBe(
+        'https://account.r2.cloudflarestorage.com/void-example-assets?list-type=2&max-keys=1',
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(state.events.filter((event) => event.startsWith('put:'))).toEqual([]);
+      expect(state.progress.start).not.toHaveBeenCalledWith('Repairing the platform');
+      expect(vi.mocked(note).mock.calls).not.toContainEqual([expect.anything(), 'Recovery']);
+      expect(writeInstallationManifest).not.toHaveBeenCalled();
+      expect(state.manifest!.status).toBe('installed');
+      expect(state.events).toEqual(['outer-release', 'local-release']);
+    });
+
+    it('sends an accepted pair from the environment to the Workers', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn(async () => new Response('<ListBucketResult/>'));
+
+      await repair(r2Fetch);
+
+      expect(r2Fetch).toHaveBeenCalledOnce();
+      expect(installPlatform).toHaveBeenCalledOnce();
+      expect(vi.mocked(installPlatform).mock.calls[0][1]).toMatchObject({
+        workerSecretUpdates: r2Pair,
+      });
+    });
+
+    it('makes no R2 request when the Workers keep their pair', async () => {
+      state.createSecrets.mockReturnValue({
+        r2AccessKeyId: 'saved-id',
+        r2SecretAccessKey: 'saved-secret',
+        workerSecretUpdates: {},
+      });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn();
+
+      await repair(r2Fetch);
+
+      expect(r2Fetch).not.toHaveBeenCalled();
+      expect(installPlatform).toHaveBeenCalledOnce();
+    });
+
+    it('checks the pair saved on this machine when the run creates the api Worker', async () => {
+      state.createSecrets.mockReturnValue({
+        r2AccessKeyId: 'saved-id',
+        r2SecretAccessKey: 'saved-secret',
+        workerSecretUpdates: {},
+      });
+      planWith(assetsBucket(), {
+        action: 'create',
+        key: 'api-worker',
+        kind: 'worker',
+        name: 'void-example-api',
+      });
+      const r2Fetch = vi.fn(async () => new Response('denied', { status: 401 }));
+
+      await expect(repair(r2Fetch)).rejects.toThrow(
+        'R2 rejected the R2 key pair saved on this machine (HTTP 401) on bucket void-example-assets.',
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+    });
+
+    it('makes no R2 request when the run creates the assets bucket', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket('create'));
+      const r2Fetch = vi.fn();
+
+      await repair(r2Fetch);
+
+      expect(r2Fetch).not.toHaveBeenCalled();
+      expect(installPlatform).toHaveBeenCalledOnce();
+    });
+
+    it('warns and continues when R2 cannot answer', async () => {
+      state.createSecrets.mockReturnValue({ workerSecretUpdates: r2Pair });
+      planWith(assetsBucket());
+      const r2Fetch = vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      });
+
+      await repair(r2Fetch);
+
+      expect(log.warn).toHaveBeenCalledWith(
+        'Void could not check the R2 key pair from the VOID_PLATFORM_R2_* environment variables on bucket void-example-assets (fetch failed). It continues without this check.',
+      );
+      expect(installPlatform).toHaveBeenCalledOnce();
     });
   });
 });
