@@ -116,6 +116,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
       pageProps: pageObj.props,
       shared: pageObj.shared || {},
       params: pageObj.params || {},
+      query: pageObj.query || {},
       router: createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl, pageObj.query || {}),
       routeUrl: pageObj.url || "/",
       navigation: idleNavigationState(),
