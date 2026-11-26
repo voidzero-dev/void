@@ -174,7 +174,7 @@ void deploy --platform cloudflare --preview pr-64 --json        # create or upda
 void project preview delete pr-64 --platform cloudflare         # remove
 ```
 
-Deploy production once first and set `cloudflare.name`. The token needs **Workers → Editor**, since the Worker already exists, and `CLOUDFLARE_ACCOUNT_ID` pins the account. The preview job runs the pull request's code with this token, which can also deploy production. Pull requests from forks and Dependabot get no preview.
+Deploy production once first and set the Worker name (`cloudflare.name`, or `name` in `wrangler.jsonc`). The token needs **Workers → Editor**, since the Worker already exists, and `CLOUDFLARE_ACCOUNT_ID` pins the account. The preview job runs the pull request's code with this token, which can also deploy production. Pull requests from forks and Dependabot get no preview.
 
 This workflow deploys a preview on every push, comments its URL once, and deletes it when the pull request closes:
 

@@ -138,15 +138,15 @@ A Preview keeps its URL across deploys: `https://<name>-<worker>.<subdomain>.wor
 Before the first preview:
 
 - Deploy the Worker to production once with `void deploy --platform cloudflare`. A preview never creates the Worker.
-- Set `cloudflare.name` in `void.config.ts`.
-- Pin the account with `cloudflare.account_id` or `CLOUDFLARE_ACCOUNT_ID`.
+- Set the Worker name: `cloudflare.name` in `void.config.ts`, or `name` in `wrangler.jsonc`.
+- Pin the account with `cloudflare.account_id` (`account_id` in `wrangler.jsonc`) or `CLOUDFLARE_ACCOUNT_ID`.
 - Workers that serve only routes or custom domains need `preview_urls: true`.
 
 Only static sites and SPAs can deploy a preview. A static preview gets none of the Worker's bindings, vars or secrets.
 
 Use lowercase letters, digits and single hyphens, starting with a letter. On workers.dev, `<name>-<worker>` must fit in 63 characters. Name previews after the pull request, such as `pr-64`.
 
-With `--json`, stdout carries one line:
+With `--json`, stdout carries one JSON object on a single line (shown formatted here):
 
 ```json
 {
