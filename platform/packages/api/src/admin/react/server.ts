@@ -24,17 +24,21 @@ export async function renderAdminPage(
   // Banners and the nav badge for security audits; `null` while the capability is off.
   const securityChrome = context.get('user') ? await loadSecurityChrome(context) : null;
   const { pathname, search } = new URL(context.req.url);
-  const query: Record<string, string | Array<string>> = {};
+  // A Map keeps `?toString=x` off Object.prototype; page data cannot carry `__proto__`.
+  const queryValues = new Map<string, string | Array<string>>();
   for (const [key, value] of new URLSearchParams(search)) {
-    const existing = query[key];
-    if (existing === undefined) {
-      query[key] = value;
+    const existing = queryValues.get(key);
+    if (key === '__proto__') {
+      continue;
+    } else if (existing === undefined) {
+      queryValues.set(key, value);
     } else if (Array.isArray(existing)) {
       existing.push(value);
     } else {
-      query[key] = [existing, value];
+      queryValues.set(key, [existing, value]);
     }
   }
+  const query = Object.fromEntries(queryValues);
   const pageObj: PageObject = {
     component,
     props,

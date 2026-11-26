@@ -1065,6 +1065,15 @@ describe('createVoidRouter', () => {
     expect(router._pageQuery).toEqual({ tab: ['api', 'usage'] });
   });
 
+  it('reads address bar keys that name Object.prototype members as plain values', async () => {
+    stubClientGlobals();
+    window.location.search = '?toString=x&constructor=y&__proto__=z';
+    const { router } = await createTestRouter();
+
+    expect(router._pageQuery).toEqual({ toString: 'x', constructor: 'y' });
+    expect(Object.keys(router._pageQuery)).toEqual(['toString', 'constructor']);
+  });
+
   it('carries the SSR page query', () => {
     expect(
       createSsrRouter('/payments', {}, 'http://localhost/payments', { page: 2 })._pageQuery,

@@ -7,6 +7,32 @@ export function isSameOrigin(url: URL, origin: string): boolean {
   return url.origin === origin;
 }
 
+/** Query values as a URL carries them, repeated keys as arrays. */
+export type QueryValues = Record<string, string | Array<string>>;
+
+/**
+ * A query string's values by key, repeated keys as arrays. Keys are collected in
+ * a Map, so `?toString=x` cannot read Object.prototype. `__proto__` is left
+ * out: page data cannot carry it, and the URL still does.
+ */
+export function groupQueryValues(params: URLSearchParams): QueryValues {
+  const values = new Map<string, string | Array<string>>();
+  for (const [key, value] of params) {
+    if (key === '__proto__') {
+      continue;
+    }
+    const existing = values.get(key);
+    if (existing === undefined) {
+      values.set(key, value);
+    } else if (Array.isArray(existing)) {
+      existing.push(value);
+    } else {
+      values.set(key, [existing, value]);
+    }
+  }
+  return Object.fromEntries(values);
+}
+
 function isHexDigit(char: string | undefined): boolean {
   return (
     char !== undefined &&

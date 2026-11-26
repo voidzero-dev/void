@@ -22,7 +22,7 @@ import type {
 } from './navigation-engine.ts';
 import type { LinkPrefetchValue } from './prefetch.ts';
 import { deserializePageData, ISLAND_FRONTMATTER_ID } from './serialize.ts';
-import { isSameOrigin } from './url.ts';
+import { groupQueryValues, isSameOrigin } from './url.ts';
 
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 export {
@@ -135,26 +135,12 @@ function toUrl(value: string | URL): URL {
   return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlBase());
 }
 
-/** Query values as a URL carries them, repeated keys as arrays. */
-type UrlQuery = Record<string, string | Array<string>>;
-
 /**
  * Query values from a URL, for page data that names no query (a server from
  * before page queries).
  */
 function queryFromUrl(url: string) {
-  const query: UrlQuery = {};
-  for (const [key, value] of toUrl(url).searchParams) {
-    const existing = query[key];
-    if (existing === undefined) {
-      query[key] = value;
-    } else if (Array.isArray(existing)) {
-      existing.push(value);
-    } else {
-      query[key] = [existing, value];
-    }
-  }
-  return query;
+  return groupQueryValues(toUrl(url).searchParams);
 }
 
 function normalizeUrl(value: RouteUrlInput): string {

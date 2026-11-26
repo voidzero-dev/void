@@ -20,7 +20,7 @@ import { withLoaderNotFoundDecision } from './not-found-context.ts';
 import { escapeScriptJson } from './script-json.ts';
 import { serializePageData } from './serialize.ts';
 import type { DevCssAsset, PageRenderMode } from './types.ts';
-import { decodePagePath } from './url.ts';
+import { decodePagePath, groupQueryValues } from './url.ts';
 import { ValidationError } from './validation-error.ts';
 
 export { ValidationError };
@@ -406,25 +406,12 @@ function assertSerializableQuery(componentId: string, query: Record<string, unkn
   }
 }
 
-/** Query values as a URL carries them, repeated keys as arrays. */
-type RawQuery = Record<string, string | Array<string>>;
-
 /** The request's own query values, repeated keys as arrays. */
 function rawQuery(c: CloudContext, withoutActionKey = false) {
   const search = requestSearch(c);
-  const raw = new URLSearchParams(withoutActionKey ? searchWithoutActionKey(search) : search);
-  const query: RawQuery = {};
-  for (const [key, value] of raw) {
-    const existing = query[key];
-    if (existing === undefined) {
-      query[key] = value;
-    } else if (Array.isArray(existing)) {
-      existing.push(value);
-    } else {
-      query[key] = [existing, value];
-    }
-  }
-  return query;
+  return groupQueryValues(
+    new URLSearchParams(withoutActionKey ? searchWithoutActionKey(search) : search),
+  );
 }
 
 /** Extract props from a handler result, handling Response wrapping from withValidator */

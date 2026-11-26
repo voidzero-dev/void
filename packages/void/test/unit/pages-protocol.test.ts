@@ -950,6 +950,27 @@ describe('handlePageMutation', () => {
     expect(body.query).toEqual({ tag: ['a', 'b'], q: 'ada' });
   });
 
+  it('keeps query keys that name Object.prototype members as plain values', async () => {
+    const c = await createTestContext('GET', '/users?toString=x&constructor=y&__proto__=z', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageGet(
+      () => ({ users: [] }),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(response.status).toBe(200);
+    const body = await json<PageResponse>(response);
+    // Page data cannot carry a __proto__ key, so it stays in the URL only.
+    expect(body.query).toEqual({ toString: 'x', constructor: 'y' });
+    expect(Object.keys(body.query ?? {})).toEqual(['toString', 'constructor']);
+  });
+
   it('drops the action key from the page query on a mutation re-render', async () => {
     const c = await createTestContext('POST', '/books?delete&page=2', {
       headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
