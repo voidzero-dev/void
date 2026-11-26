@@ -175,6 +175,25 @@ describe('origin-scoped self-hosted Access login', () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
+  /** Run `run` with each standard stream a terminal or not, as `terminals` says. */
+  async function withTerminals(
+    terminals: Record<'stdin' | 'stdout' | 'stderr', boolean>,
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const names = ['stdin', 'stdout', 'stderr'] as const;
+    const before = names.map((name) => process[name].isTTY);
+    for (const name of names) {
+      Object.defineProperty(process[name], 'isTTY', { configurable: true, value: terminals[name] });
+    }
+    try {
+      await run();
+    } finally {
+      names.forEach((name, index) => {
+        Object.defineProperty(process[name], 'isTTY', { configurable: true, value: before[index] });
+      });
+    }
+  }
+
   it('loads a keychain token only for its selected origin', async () => {
     const token = jwt(Math.floor(Date.now() / 1000) + 600);
     keyring.read.mockReturnValue(token);
@@ -191,17 +210,10 @@ describe('origin-scoped self-hosted Access login', () => {
   it('reuses a valid cached human token when Access is known to be required', async () => {
     const token = jwt(Math.floor(Date.now() / 1000) + 600);
     keyring.read.mockReturnValue(token);
-    const stdinTty = process.stdin.isTTY;
-    const stdoutTty = process.stdout.isTTY;
-    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
-    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
-    try {
+    await withTerminals({ stdin: false, stdout: false, stderr: false }, async () => {
       const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
       ensurePlatformAccessToken('https://api.example.com', false, true);
-    } finally {
-      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: stdinTty });
-      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: stdoutTty });
-    }
+    });
     expect(cfAccessHeaders(process.env, 'https://api.example.com')).toEqual({
       'cf-access-token': token,
     });
@@ -259,25 +271,80 @@ describe('origin-scoped self-hosted Access login', () => {
     spawnSyncMock.mockImplementation((_command, args: Array<string>) =>
       args[1] === 'login' ? { status: 0, stdout: '' } : { status: 0, stdout: fresh },
     );
-    const stdinTty = process.stdin.isTTY;
-    const stdoutTty = process.stdout.isTTY;
-    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
-    Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
-    try {
+    // With stdout piped, the sign-in writes to stderr.
+    await withTerminals({ stdin: true, stdout: false, stderr: true }, async () => {
       const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
       ensurePlatformAccessToken('https://api.example.com', true);
-    } finally {
-      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: stdinTty });
-      Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: stdoutTty });
-    }
+    });
     expect(spawnSyncMock.mock.calls.map((call) => call[1])).toEqual([
-      ['access', 'login', 'https://api.example.com'],
+      ['access', 'login', '--quiet', 'https://api.example.com'],
       ['access', 'token', '-app=https://api.example.com'],
     ]);
+    expect(spawnSyncMock.mock.calls[0]?.[2]).toMatchObject({ stdio: ['inherit', 2, 'inherit'] });
     expect(cfAccessHeaders(process.env, 'https://api.example.com')).toEqual({
       'cf-access-token': fresh,
     });
     expect(keyring.write).toHaveBeenCalledWith('dev.void.cli.access', expect.any(String), fresh);
+  });
+
+  it('signs in on stdout, or on stderr while stdout is redirected', async () => {
+    const fresh = jwt(Math.floor(Date.now() / 1000) + 900);
+    const cases: Array<{
+      terminals: Record<'stdin' | 'stdout' | 'stderr', boolean>;
+      output: 1 | 2 | undefined;
+    }> = [
+      // An interactive command with its messages in a file (`void db execute ... 2>log`).
+      { terminals: { stdin: true, stdout: true, stderr: false }, output: 1 },
+      { terminals: { stdin: true, stdout: true, stderr: true }, output: 1 },
+      { terminals: { stdin: true, stdout: false, stderr: true }, output: 2 },
+      {
+        terminals: { stdin: false, stdout: true, stderr: true },
+        output: undefined,
+      },
+      {
+        terminals: { stdin: true, stdout: false, stderr: false },
+        output: undefined,
+      },
+    ];
+    for (const { terminals, output } of cases) {
+      keyring.read.mockReturnValue(jwt(Math.floor(Date.now() / 1000) + 600));
+      spawnSyncMock
+        .mockReset()
+        .mockImplementation((_command, args: Array<string>) =>
+          args[1] === 'login' ? { status: 0, stdout: '' } : { status: 0, stdout: fresh },
+        );
+      vi.resetModules();
+      await withTerminals(terminals, async () => {
+        const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
+        const renew = () => ensurePlatformAccessToken('https://api.example.com', true);
+        if (output === undefined) {
+          expect(renew).toThrow('Re-run this command in an interactive terminal to renew it.');
+        } else {
+          renew();
+        }
+      });
+      if (output === undefined) {
+        expect(spawnSyncMock).not.toHaveBeenCalled();
+      } else {
+        expect(spawnSyncMock.mock.calls[0]?.[2]).toMatchObject({
+          stdio: ['inherit', output, 'inherit'],
+        });
+      }
+    }
+
+    // Nor does an expired credential start a sign-in without a terminal to write to.
+    keyring.read.mockReturnValue(jwt(1));
+    spawnSyncMock.mockReset().mockReturnValue({ status: 0, stdout: '' });
+    await withTerminals({ stdin: true, stdout: false, stderr: false }, async () => {
+      vi.resetModules();
+      const { ensurePlatformAccessToken } = await import('../../src/cli/cf-access.ts');
+      expect(() => ensurePlatformAccessToken('https://api.example.com')).toThrow(
+        'Cloudflare Access authentication is required.',
+      );
+    });
+    expect(spawnSyncMock.mock.calls.map((call) => call[1])).toEqual([
+      ['access', 'token', '-app=https://api.example.com'],
+    ]);
   });
 
   it('does not treat arbitrary redirects as company authentication challenges', async () => {

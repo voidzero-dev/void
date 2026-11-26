@@ -107,21 +107,21 @@ export function ensurePlatformAccessToken(
   if (challenged && rejectedTokens.size > 0) {
     forgetOriginToken(origin);
     keyringTokens.set(origin, null);
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    if (!canSignIn()) {
       throw new Error(
         `platform: Cloudflare Access rejected the cached credential for ${origin}. Re-run this command in an interactive terminal to renew it.`,
       );
     }
     console.error(`Renew Cloudflare Access authentication for ${origin}.`);
-    runCloudflared(['access', 'login', origin], { inherit: true, timeoutMs: 120_000 });
+    runCloudflaredLogin(origin);
   }
   let token = runCloudflared(['access', 'token', `-app=${origin}`]);
   if (token && rejectedTokens.has(token)) {
     token = null;
   }
-  if ((!token || !usableToken(token)) && process.stdin.isTTY && process.stdout.isTTY) {
+  if ((!token || !usableToken(token)) && canSignIn()) {
     console.error(`Authenticate to Cloudflare Access for ${origin}.`);
-    runCloudflared(['access', 'login', origin], { inherit: true, timeoutMs: 120_000 });
+    runCloudflaredLogin(origin);
     token = runCloudflared(['access', 'token', `-app=${origin}`]);
   }
   if (!token || !usableToken(token)) {
@@ -135,14 +135,40 @@ export function ensurePlatformAccessToken(
   writeKeyringPassword(ACCESS_KEYRING_SERVICE, account, token);
 }
 
+/**
+ * Browser sign-in needs stdin and an output terminal. For JSON database execution, the child
+ * process's stdout already goes to the caller's stderr.
+ */
+function signInOutput(): 1 | 2 | undefined {
+  if (!process.stdin.isTTY) {
+    return undefined;
+  }
+  if (process.stdout.isTTY) {
+    return 1;
+  }
+  return process.stderr.isTTY ? 2 : undefined;
+}
+
+function canSignIn(): boolean {
+  return signInOutput() !== undefined;
+}
+
+/** Sign in through the browser. `--quiet` keeps the JWT off the terminal. */
+function runCloudflaredLogin(origin: string): void {
+  runCloudflared(['access', 'login', '--quiet', origin], {
+    output: signInOutput(),
+    timeoutMs: 120_000,
+  });
+}
+
 function runCloudflared(
   args: Array<string>,
-  opts?: { inherit?: boolean; timeoutMs?: number },
+  opts?: { output?: 1 | 2; timeoutMs?: number },
 ): string | null {
   try {
     const result = spawnSync('cloudflared', args, {
       encoding: 'utf8',
-      stdio: opts?.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+      stdio: opts?.output ? ['inherit', opts.output, 'inherit'] : ['ignore', 'pipe', 'pipe'],
       timeout: opts?.timeoutMs ?? 5000,
     });
     if (result.error || result.status !== 0) {

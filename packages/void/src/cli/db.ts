@@ -9,9 +9,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createRequire } from 'node:module';
+import type { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
 import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
+import type { QueryResult } from 'pg';
 import {
   readConfig,
   getDatabaseCasing,
@@ -44,6 +46,20 @@ import {
 } from './cf-access.ts';
 import { PlatformApiError, PlatformClient } from './client.ts';
 import type { DbArgs } from './db-args.ts';
+import {
+  formatStatementResults,
+  MYSQL_SERVER_MODE_QUERY,
+  mySqlJsonTypeCast,
+  mySqlServerMode,
+  mySqlStatementResults,
+  mySqlStatements,
+  needsMySqlServerMode,
+  pgJsonTypes,
+  pgStatementResults,
+  runSqliteStatements,
+  splitSqliteStatements,
+} from './db-execute-results.ts';
+import type { MySqlServerMode, MySqlStatements, StatementResult } from './db-execute-results.ts';
 import {
   assertPgExportableSchema,
   exportPgConstraints,
@@ -186,7 +202,19 @@ function validatePendingMigrations(
   validateMigrations(pending);
 }
 
-export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
+export async function runDbCommand(
+  root: string,
+  args: DbArgs,
+  writeResults: (text: string) => void = (text) => process.stdout.write(text),
+): Promise<void> {
+  if (args.action === 'execute' && args.json) {
+    const printResults: PrintResults = (results) => {
+      writeResults(`${formatStatementResults(results)}\n`);
+    };
+    await runExecute(root, args, getDatabaseDialect(readConfig(root)), printResults);
+    return;
+  }
+
   // Keep raw SQL exports clean for piping into other tools.
   if (!(args.action === 'export' && !args.output)) {
     console.log();
@@ -205,7 +233,7 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
   } else if (args.action === 'seed') {
     await runSeed(root, args.file, dialect, args.yes);
   } else if (args.action === 'execute') {
-    await runExecute(root, args.command, args.file, dialect, args.remote, args.yes);
+    await runExecute(root, args, dialect, undefined);
   } else if (args.action === 'migrate') {
     await runMigrate(root, dialect, args.remote);
   } else if (args.action === 'studio') {
@@ -887,7 +915,11 @@ function prepareSingleStatement(
  * Exits with a friendly message when the URL has never been stored (404);
  * other errors propagate so the caller's top-level handler can report them.
  */
-async function fetchRemoteDatabaseUrl(client: PlatformClient, projectId: string): Promise<string> {
+async function fetchRemoteDatabaseUrl(
+  client: PlatformClient,
+  projectId: string,
+  messages: { output?: Writable } = {},
+): Promise<string> {
   try {
     const result = await client.getDatabaseUrl(projectId);
     return result.url;
@@ -895,6 +927,7 @@ async function fetchRemoteDatabaseUrl(client: PlatformClient, projectId: string)
     if (err instanceof PlatformApiError && err.status === 404) {
       log.error(
         "This project's database URL isn't stored on the platform yet. Run `void db set-url` once to populate it, then retry.",
+        messages,
       );
       process.exit(1);
     }
@@ -902,18 +935,34 @@ async function fetchRemoteDatabaseUrl(client: PlatformClient, projectId: string)
   }
 }
 
-async function executeExternalRemoteSql(
+/**
+ * Run SQL on a PostgreSQL or MySQL database. Both drivers return one result per statement, so
+ * `--json` prints every statement with `printResults`; the table prints only a single
+ * statement's rows.
+ */
+async function executeExternalSql(
   dialect: Exclude<DatabaseDialect, 'sqlite'>,
   dbUrl: string,
   sql: string,
+  printResults: PrintResults | undefined,
 ): Promise<void> {
+  const json = printResults !== undefined;
   if (dialect === 'postgresql') {
-    const { Client } = await import('pg');
-    const pgClient = new Client({ connectionString: dbUrl });
+    const { Client, types } = await import('pg');
+    const pgClient = new Client({
+      connectionString: dbUrl,
+      // numeric[] and JSON values keep their digits.
+      ...(json ? { types: pgJsonTypes(types) } : {}),
+    });
     await pgClient.connect();
     try {
-      const result = await pgClient.query<Record<string, unknown>>(sql);
-      if (result.rows && result.rows.length > 0) {
+      // node-postgres resolves to an array of results when the SQL holds several statements.
+      const result:
+        | QueryResult<Record<string, unknown>>
+        | Array<QueryResult<Record<string, unknown>>> = await pgClient.query(sql);
+      if (json) {
+        printResults(pgStatementResults(result));
+      } else if (!Array.isArray(result) && result.rows.length > 0) {
         printTable(result.rows);
       }
     } finally {
@@ -922,16 +971,90 @@ async function executeExternalRemoteSql(
     return;
   }
   const { createConnection } = await import('mysql2/promise');
-  const mySqlClient = await createConnection({ uri: dbUrl, multipleStatements: true });
+  const uri = json ? mySqlJsonUri(dbUrl) : dbUrl;
+  // Grouping a CALL's results reads the SQL the way this server does: its sql_mode decides
+  // what a backslash means, and its version and family which executable comments run. The
+  // mode is read on a connection of its own, so the session the SQL runs in stays untouched
+  // (FOUND_ROWS(), ROW_COUNT(), warnings). The statements are found before the SQL runs, so SQL
+  // whose results cannot be grouped fails without running.
+  let statements: MySqlStatements | undefined;
+  if (json) {
+    let mode: MySqlServerMode | undefined;
+    if (needsMySqlServerMode(sql)) {
+      const modeClient = await createConnection({ uri });
+      try {
+        mode = mySqlServerMode((await modeClient.query(MYSQL_SERVER_MODE_QUERY))[0]);
+      } finally {
+        await modeClient.end();
+      }
+    }
+    statements = mySqlStatements(sql, mode);
+  }
+  const mySqlClient = await createConnection({
+    uri,
+    multipleStatements: true,
+    // BIGINT values past 2^53 arrive as strings instead of rounded numbers, dates and times
+    // as the text MySQL returns, without a time zone conversion or rounding to milliseconds,
+    // and JSON numbers with the digits MySQL sends.
+    ...(json
+      ? {
+          supportBigNumbers: true,
+          bigNumberStrings: false,
+          dateStrings: true,
+          typeCast: mySqlJsonTypeCast,
+        }
+      : {}),
+  });
   try {
-    const [rows] = await mySqlClient.query(sql);
-    if (Array.isArray(rows) && rows.length > 0) {
+    const [rows, fields] = await mySqlClient.query(statements?.sql ?? sql);
+    if (json && statements) {
+      printResults(mySqlStatementResults(rows, fields, statements));
+    } else if (Array.isArray(rows) && rows.length > 0) {
       printTable(rows as Array<Record<string, unknown>>);
     }
   } finally {
     await mySqlClient.end();
   }
 }
+
+// URL options that would change --json output. mysql2 writes protocol traces to stdout for
+// `debug`, and the others change how rows and values arrive.
+const MYSQL_JSON_URL_OPTIONS = [
+  'debug',
+  'bigNumberStrings',
+  'dateStrings',
+  'decimalNumbers',
+  'jsonStrings',
+  'nestTables',
+  'rowsAsArray',
+  'supportBigNumbers',
+  'typeCast',
+];
+
+/**
+ * The URL without options that would change --json output. mysql2 reads options from the URL,
+ * and an option passed as false does not override one the URL sets.
+ */
+function mySqlJsonUri(dbUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(dbUrl);
+  } catch {
+    // mysql2 reads the URL the same way and reports it.
+    return dbUrl;
+  }
+  const options = MYSQL_JSON_URL_OPTIONS.filter((option) => url.searchParams.has(option));
+  if (options.length === 0) {
+    return dbUrl;
+  }
+  for (const option of options) {
+    url.searchParams.delete(option);
+  }
+  return url.toString();
+}
+
+/** How `void db execute --json` prints its results. */
+type PrintResults = (results: Array<StatementResult>) => void;
 
 /**
  * Prompt the user to confirm a destructive remote query when running in a TTY.
@@ -940,7 +1063,11 @@ async function executeExternalRemoteSql(
  */
 async function confirmDestructiveRemote(
   sql: string,
-  { always = false, yes = false }: { always?: boolean; yes?: boolean } = {},
+  {
+    always = false,
+    yes = false,
+    output,
+  }: { always?: boolean; yes?: boolean; output?: Writable } = {},
 ): Promise<boolean> {
   if (yes || (!always && isSafeStatement(sql))) {
     return true;
@@ -950,6 +1077,7 @@ async function confirmDestructiveRemote(
   }
   const ok = await confirm({
     message: 'This will run against your deployed database. Continue?',
+    output,
   });
   if (isCancel(ok) || !ok) {
     return false;
@@ -961,14 +1089,23 @@ async function confirmDestructiveRemote(
 // that limit on the query API, which prints rows; a larger dump runs as a D1 import (up to 5 GB).
 const D1_MAX_SQL_STATEMENT_BYTES = 100_000;
 
+type ExecuteArgs = Omit<Extract<DbArgs, { action: 'execute' }>, 'action'>;
+
+/** Run `void db execute`. `printResults` prints the results with --json, and is undefined without. */
 async function runExecute(
   root: string,
-  command: string | undefined,
-  file: string | undefined,
+  { command, file, remote, yes }: ExecuteArgs,
   dialect: DatabaseDialect,
-  remote?: boolean,
-  yes?: boolean,
+  printResults: PrintResults | undefined,
 ): Promise<void> {
+  const json = printResults !== undefined;
+  // With --json, stdout carries only the results: prompts and messages go to stderr.
+  const messages = json ? { output: process.stderr } : {};
+  const finish = () => {
+    if (!json) {
+      printSuccess('SQL executed successfully.');
+    }
+  };
   const readSql = () => {
     if (file) {
       return readFileSync(resolve(root, file), 'utf8');
@@ -987,22 +1124,37 @@ async function runExecute(
         dialect === 'sqlite' &&
         file !== undefined &&
         Buffer.byteLength(sql) > D1_MAX_SQL_STATEMENT_BYTES;
+      if (bulkImport && json) {
+        throw new Error(
+          `db: ${file} is larger than 100 KB, so Void would run it as a D1 import, which returns no results. Run it without --json.`,
+        );
+      }
       if (bulkImport) {
         log.warn(
           `${file} is larger than 100 KB, so Void runs it as a D1 import. The database cannot serve queries until the import finishes, and query rows are not printed.`,
         );
       }
-      const shouldProceed = await confirmDestructiveRemote(sql, { always: bulkImport, yes });
+      const shouldProceed = await confirmDestructiveRemote(sql, {
+        always: bulkImport,
+        yes,
+        ...messages,
+      });
       if (!shouldProceed) {
-        log.info('Cancelled.');
+        log.info('Cancelled.', messages);
         process.exit(0);
       }
       if (dialect === 'sqlite') {
-        const { executeCloudflareD1Sql, importCloudflareD1Sql, resolveCloudflareD1Context } =
-          await import('./cloudflare-operations.ts');
+        const {
+          executeCloudflareD1Sql,
+          executeCloudflareD1Statements,
+          importCloudflareD1Sql,
+          resolveCloudflareD1Context,
+        } = await import('./cloudflare-operations.ts');
         const context = resolveCloudflareD1Context(root, configuredD1Binding(root));
         if (bulkImport) {
           await importCloudflareD1Sql(context, sql);
+        } else if (json) {
+          printResults(await executeCloudflareD1Statements(context, sql));
         } else {
           const rows = await executeCloudflareD1Sql(context, sql);
           if (rows.length > 0) {
@@ -1014,40 +1166,48 @@ async function runExecute(
         if (!dbUrl) {
           log.error(
             'DATABASE_URL is required in the shell for a direct Cloudflare remote database command.',
+            messages,
           );
           process.exit(1);
         }
-        await executeExternalRemoteSql(dialect, dbUrl, sql);
+        await executeExternalSql(dialect, dbUrl, sql, printResults);
       }
-      printSuccess('SQL executed successfully.');
+      finish();
       return;
     }
 
     const token = getToken(root);
     if (!token) {
-      log.error('Not logged in. Run `void account login` first.');
+      log.error('Not logged in. Run `void account login` first.', messages);
       process.exit(1);
     }
 
     const projectConfig = readProjectConfig(root);
     if (!projectConfig) {
-      log.error('No project linked. Run `void deploy` first or link a project.');
+      log.error('No project linked. Run `void deploy` first or link a project.', messages);
       process.exit(1);
     }
 
-    const shouldProceed = await confirmDestructiveRemote(sql, { yes });
+    // The platform proxy returns the first statement's result only.
+    if (json && dialect === 'sqlite' && splitSqliteStatements(sql).length > 1) {
+      throw new Error(
+        'db: `void db execute --remote --json` runs one statement at a time on a Void platform D1 database. Run each statement separately.',
+      );
+    }
+
+    const shouldProceed = await confirmDestructiveRemote(sql, { yes, ...messages });
     if (!shouldProceed) {
-      log.info('Cancelled.');
+      log.info('Cancelled.', messages);
       process.exit(0);
     }
 
     if (dialect !== 'sqlite') {
       // External database: fetch the connection string from the platform, then connect directly.
       const client = new PlatformClient(token, { root });
-      const dbUrl = await fetchRemoteDatabaseUrl(client, projectConfig.projectId);
+      const dbUrl = await fetchRemoteDatabaseUrl(client, projectConfig.projectId, messages);
 
-      await executeExternalRemoteSql(dialect, dbUrl, sql);
-      printSuccess('SQL executed successfully.');
+      await executeExternalSql(dialect, dbUrl, sql, printResults);
+      finish();
       return;
     }
 
@@ -1107,43 +1267,29 @@ async function runExecute(
 
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);
-      log.error(`db: Proxy request failed with ${res.status}: '${text}'.`);
+      log.error(`db: Proxy request failed with ${res.status}: '${text}'.`, messages);
       process.exit(1);
     }
 
     const data = await res.json<{
       results?: Array<Record<string, unknown>>;
       success?: boolean;
+      meta?: Record<string, unknown>;
     }>();
     const rows = data.results ?? [];
-    if (rows.length > 0) {
+    if (json) {
+      printResults([{ results: rows, success: data.success !== false, meta: data.meta ?? {} }]);
+    } else if (rows.length > 0) {
       printTable(rows);
     }
-    printSuccess('SQL executed successfully.');
+    finish();
     return;
   }
 
-  if (dialect === 'postgresql') {
+  if (dialect !== 'sqlite') {
     const sql = readSql();
-    await withPgClient(root, async (client) => {
-      const result = await client.query(sql);
-      if (result.rows && result.rows.length > 0) {
-        printTable(result.rows);
-      }
-    });
-    printSuccess('SQL executed successfully.');
-    return;
-  }
-
-  if (dialect === 'mysql') {
-    const sql = readSql();
-    await withMySqlClient(root, async (client) => {
-      const rows = await client.query(sql);
-      if (rows.length > 0) {
-        printTable(rows);
-      }
-    });
-    printSuccess('SQL executed successfully.');
+    await executeExternalSql(dialect, getLocalDatabaseUrl(root, dialect), sql, printResults);
+    finish();
     return;
   }
 
@@ -1151,7 +1297,7 @@ async function runExecute(
   const { databasePath: dbPath } = getLocalD1Target(root);
 
   if (!existsSync(dbPath)) {
-    log.error('No local database found. Start the dev server first.');
+    log.error('No local database found. Start the dev server first.', messages);
     process.exit(1);
   }
 
@@ -1159,22 +1305,26 @@ async function runExecute(
 
   const db = await openSqliteDatabase(dbPath);
   try {
-    const statement = prepareSingleStatement(db, sql);
-    if (statement?.reader) {
-      // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
-      // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
-      // target.
-      const rows = statement.all();
-      if (rows.length > 0) {
-        printTable(rows);
-      }
+    if (json) {
+      printResults(runSqliteStatements(db, sql));
     } else {
-      db.exec(sql);
+      const statement = prepareSingleStatement(db, sql);
+      if (statement?.reader) {
+        // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
+        // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
+        // target.
+        const rows = statement.all();
+        if (rows.length > 0) {
+          printTable(rows);
+        }
+      } else {
+        db.exec(sql);
+      }
     }
   } finally {
     db.close();
   }
-  printSuccess('SQL executed successfully.');
+  finish();
 }
 
 function printTable(rows: Array<Record<string, unknown>>): void {

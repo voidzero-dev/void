@@ -12,6 +12,12 @@ export type SqliteStatement<T = unknown> = {
   get(...params: Array<unknown>): T | undefined;
   all(...params: Array<unknown>): Array<T>;
   run(...params: Array<unknown>): void;
+  /** Read INTEGER columns as BigInt, so values past 2^53 keep every digit. */
+  safeIntegers(toggle?: boolean): SqliteStatement<T>;
+  /** Read each row as an array of its values, in column order. */
+  raw(toggle?: boolean): SqliteStatement<T>;
+  /** The columns of the rows the statement returns. */
+  columns(): Array<{ name: string }>;
 };
 
 type SqliteTransaction<T = unknown> = {

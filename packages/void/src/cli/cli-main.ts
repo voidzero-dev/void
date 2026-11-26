@@ -63,7 +63,12 @@ async function runSubcommandGroup<T>(
     .slice(1)
     .some((arg) => subcommands.some(({ name }) => name === arg));
   try {
-    if ((!sub || (sub.startsWith('-') && !hasNamedSubcommand)) && process.stdin.isTTY) {
+    // The menu draws on stdout, which --json keeps for its result.
+    if (
+      (!sub || (sub.startsWith('-') && !hasNamedSubcommand)) &&
+      process.stdin.isTTY &&
+      !args.includes('--json')
+    ) {
       const { promptSubcommand } = await import('./subcommand-prompt.ts');
       if (command === 'platform' && !sub) {
         log.info(
@@ -126,7 +131,8 @@ async function runSubcommandGroup<T>(
           : platformMessage,
       );
     } else {
-      log.error(message);
+      // A command printing JSON keeps stdout for its result.
+      log.error(message, args.includes('--json') ? { output: process.stderr } : undefined);
     }
     process.exit(1);
   }
@@ -185,9 +191,15 @@ const subcommandGroups = {
       import('./email.ts').then(({ runEmailCommand }) => runEmailCommand(root, parsed)),
     ),
   db: () =>
-    runSubcommandGroup('db', dbSubcommands, parseDbArgs, (root, parsed) =>
-      import('./db.ts').then(({ runDbCommand }) => runDbCommand(root, parsed)),
-    ),
+    runSubcommandGroup('db', dbSubcommands, parseDbArgs, async (root, parsed) => {
+      if (parsed.action === 'execute' && parsed.json) {
+        const { runDbExecuteProcess } = await import('./db-execute-process.ts');
+        await runDbExecuteProcess(root, args);
+      } else {
+        const { runDbCommand } = await import('./db.ts');
+        await runDbCommand(root, parsed);
+      }
+    }),
   env: () =>
     runSubcommandGroup('env', envSubcommands, parseEnvArgs, (root, parsed) =>
       import('./env.ts').then(({ runEnvCommand }) => runEnvCommand(root, parsed)),

@@ -71,7 +71,7 @@ function splitMySqlStatements(sql: string): Array<MySqlMigrationStatement> {
     const next = sql[index + 1];
 
     if (character === "'" || character === '"' || character === '`') {
-      const close = skipQuoted(sql, index, character);
+      const close = skipMySqlQuoted(sql, index, character);
       take(index, close);
       bare += ' ';
       index = close;
@@ -126,13 +126,31 @@ function splitMySqlStatements(sql: string): Array<MySqlMigrationStatement> {
   return statements;
 }
 
-/** The index after the quoted string or name that opens at `open`. */
-function skipQuoted(sql: string, open: number, quote: string): number {
+/**
+ * The index after the quoted string or name that opens at `open`. Pass `backslashEscapes: false`
+ * for a server in `NO_BACKSLASH_ESCAPES` mode, where a backslash is an ordinary character.
+ */
+export function skipMySqlQuoted(
+  sql: string,
+  open: number,
+  quote: string,
+  backslashEscapes = true,
+): number {
+  return closeMySqlQuoted(sql, open, quote, backslashEscapes) ?? sql.length;
+}
+
+/** Like `skipMySqlQuoted`, but `undefined` when the quote is still open at the end of the SQL. */
+export function closeMySqlQuoted(
+  sql: string,
+  open: number,
+  quote: string,
+  backslashEscapes = true,
+): number | undefined {
   let index = open + 1;
   while (index < sql.length) {
     const character = sql[index];
     // Backslash escapes apply in strings, not in backtick-quoted names.
-    if (character === '\\' && quote !== '`') {
+    if (character === '\\' && quote !== '`' && backslashEscapes) {
       index += 2;
       continue;
     }
@@ -145,5 +163,5 @@ function skipQuoted(sql: string, open: number, quote: string): number {
     }
     index++;
   }
-  return sql.length;
+  return undefined;
 }

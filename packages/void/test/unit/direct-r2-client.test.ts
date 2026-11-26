@@ -1136,6 +1136,7 @@ describe('PlatformClient Cloudflare Access challenge renewal', () => {
     `e30.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + seconds })).toString('base64url')}.signature`;
   let stdinTty: boolean | undefined;
   let stdoutTty: boolean | undefined;
+  let stderrTty: boolean | undefined;
 
   beforeEach(() => {
     spawnSyncMock.mockReset();
@@ -1143,12 +1144,14 @@ describe('PlatformClient Cloudflare Access challenge renewal', () => {
     accessKeyring.write.mockReset().mockReturnValue(true);
     stdinTty = process.stdin.isTTY;
     stdoutTty = process.stdout.isTTY;
+    stderrTty = process.stderr.isTTY;
     vi.stubEnv('VOID_ACCESS_ORIGIN', undefined);
   });
 
   afterEach(() => {
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: stdinTty });
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: stdoutTty });
+    Object.defineProperty(process.stderr, 'isTTY', { configurable: true, value: stderrTty });
   });
 
   it('renews a rejected human token and retries once at the original API endpoint', async () => {
@@ -1157,6 +1160,7 @@ describe('PlatformClient Cloudflare Access challenge renewal', () => {
     vi.stubEnv('VOID_ACCESS_CREDENTIALS', JSON.stringify({ [origin]: { CF_ACCESS_TOKEN: stale } }));
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    Object.defineProperty(process.stderr, 'isTTY', { configurable: true, value: true });
     spawnSyncMock.mockImplementation((_command, args: Array<string>) =>
       args[1] === 'login' ? { status: 0, stdout: '' } : { status: 0, stdout: fresh },
     );
@@ -1210,6 +1214,7 @@ describe('PlatformClient Cloudflare Access challenge renewal', () => {
     );
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
     Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+    Object.defineProperty(process.stderr, 'isTTY', { configurable: true, value: false });
     const client = new PlatformClient(token, { apiUrl: origin });
     vi.stubEnv('VOID_ACCESS_CREDENTIALS', undefined);
     fetchMock.mockResolvedValueOnce(

@@ -1385,6 +1385,10 @@ const HELP_TREE = {
               'Run against the deployed database (D1 via proxy; PostgreSQL via direct connection)',
           },
           { command: '--yes', description: 'Skip the confirmation prompt for --remote' },
+          {
+            command: '--json',
+            description: "Write each statement's results to stdout as JSON",
+          },
         ],
         examples: [
           { command: 'void db execute "select * from users"', description: 'Run inline SQL' },
@@ -1392,6 +1396,10 @@ const HELP_TREE = {
           {
             command: 'void db execute --remote "select count(*) from users"',
             description: 'Query the deployed database',
+          },
+          {
+            command: 'void db execute --json "select count(*) as total from users"',
+            description: 'Print the results as JSON for a script',
           },
         ],
       },
