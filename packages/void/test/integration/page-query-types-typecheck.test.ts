@@ -311,3 +311,47 @@ it('reads the schema output only when the page exposes its query', () => {
   );
   expectClean(result, result);
 });
+
+it('accepts URL values for an input the schema types as unknown', () => {
+  // Zod 4's `z.coerce.number()` and friends take `unknown` as input.
+  const result = typecheck([page('/search', 'search.server.ts')], {
+    'pages/search.server.ts': `${pageWithSchema(
+      '{ q: string; page?: unknown; tags?: Array<unknown> }',
+      '{ q: string; page: number; tags: Array<number> }',
+    )}export const exposeQuery = true;\n`,
+    'check.ts': [
+      "import { routeUrl, type PageQuery } from 'void/routes';",
+      "routeUrl('/search', { query: { q: 'ada', page: 2 } });",
+      "routeUrl('/search', { query: { q: 'ada', page: '2', tags: [1, '2'] } });",
+      "declare const current: PageQuery<'/search'>;",
+      "routeUrl('/search', { query: { ...current, page: 1 } });",
+      '// @ts-expect-error a misspelled key is still a typo',
+      "routeUrl('/search', { query: { q: 'ada', pgae: 2 } });",
+      '// @ts-expect-error a query string cannot carry an object',
+      "routeUrl('/search', { query: { q: 'ada', page: { n: 2 } } });",
+    ].join('\n'),
+  });
+  expectClean(result, result);
+});
+
+it('keeps a .dev + .prod side without a loader untyped', () => {
+  const result = typecheck(
+    [
+      page('/payments', 'payments.dev.server.ts', 'dev'),
+      { ...page('/payments', 'unused', 'prod'), serverPath: null, methods: [] },
+    ],
+    {
+      'pages/payments.dev.server.ts': pageWithSchema(
+        "{ status: 'paid' | 'pending' }",
+        "{ status: 'paid' | 'pending' }",
+      ),
+      'check.ts': [
+        "import { routeUrl } from 'void/routes';",
+        "routeUrl('/payments', { query: { status: 'paid' } });",
+        "routeUrl('/payments');",
+        "routeUrl('/payments', { query: { anything: 'goes' } });",
+      ].join('\n'),
+    },
+  );
+  expectClean(result, result);
+});

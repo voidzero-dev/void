@@ -61,28 +61,41 @@ function encodeRoutePattern(pattern: string): string {
  *
  * A `.dev` + `.prod` pair shares one pattern, so its two pages become a union.
  */
+function pageQueryEntry(importPath: string): Array<string> {
+  const module = `typeof import(${JSON.stringify(importPath)})`;
+  return [
+    `      input: PageQueryInputFallback<PageQueryInputOf<PageQuerySchema<${module}>>>;`,
+    `      output: PageQueryOutputFallback<PageQueryOutputOf<PageQuerySchema<PageQueryPublished<${module}>>>>;`,
+  ];
+}
+
 function pageQueryLines(
   pages: Array<PageDefinition>,
   pagesDir: string | undefined,
   outDir: string,
 ): Array<string> {
-  const loaderPages = pages.flatMap((page) =>
-    page.serverPath !== null && page.methods.includes('loader')
-      ? [{ pattern: page.pattern, serverPath: page.serverPath }]
-      : [],
+  if (!pagesDir) {
+    return [];
+  }
+  const typedPatterns = new Set(
+    pages.flatMap((page) =>
+      page.serverPath !== null && page.methods.includes('loader') ? [page.pattern] : [],
+    ),
   );
-  if (loaderPages.length === 0 || !pagesDir) {
+  if (typedPatterns.size === 0) {
     return [];
   }
 
   const entriesByPattern = new Map<string, Array<Array<string>>>();
-  for (const page of loaderPages) {
-    const importPath = relative(outDir, `${pagesDir}/${page.serverPath}`);
-    const module = `typeof import(${JSON.stringify(importPath)})`;
-    const entry = [
-      `      input: PageQueryInputFallback<PageQueryInputOf<PageQuerySchema<${module}>>>;`,
-      `      output: PageQueryOutputFallback<PageQueryOutputOf<PageQuerySchema<PageQueryPublished<${module}>>>>;`,
-    ];
+  for (const page of pages) {
+    if (!typedPatterns.has(page.pattern)) {
+      continue;
+    }
+    // A side of a `.dev` + `.prod` pair without a loader validates nothing.
+    const entry =
+      page.serverPath !== null && page.methods.includes('loader')
+        ? pageQueryEntry(relative(outDir, `${pagesDir}/${page.serverPath}`))
+        : ['      input: RouteQuery;', '      output: Record<string, string | Array<string>>;'];
     const entries = entriesByPattern.get(page.pattern);
     if (entries) {
       entries.push(entry);
@@ -200,8 +213,12 @@ export function generateRouteTypes(
     // A page's exported `query` schema, or never when it exports none.
     '  type PageQuerySchema<M> = M extends { query: infer S } ? Extract<S, StandardSchemaV1> : never;',
     // A query string carries text, so an input that is not a URL primitive (a
-    // Date, a class instance) is passed as a string.
-    '  type RouteQueryValueOf<T> = T extends RouteQueryValue | ReadonlyArray<RouteQueryValue> ? T : string;',
+    // Date, a class instance) is passed as a string. An `unknown` input, such
+    // as Zod 4's `z.coerce.number()`, takes any URL value. Arrays map per item.
+    '  type RouteQueryItemOf<T> = unknown extends T ? RouteQueryValue : T extends RouteQueryValue ? T : string;',
+    '  type RouteQueryValueOf<T> = unknown extends T',
+    '    ? RouteQueryValue | ReadonlyArray<RouteQueryValue>',
+    '    : T extends ReadonlyArray<infer E> ? ReadonlyArray<RouteQueryItemOf<E>> : RouteQueryItemOf<T>;',
     '  type PageQueryInputOf<S> = S extends StandardSchemaV1',
     '    ? { [K in keyof StandardSchemaV1.InferInput<S>]: RouteQueryValueOf<StandardSchemaV1.InferInput<S>[K]> }',
     '    : never;',
