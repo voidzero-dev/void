@@ -2,6 +2,7 @@ import { types } from 'pg';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   formatStatementResults,
+  mySqlJsonTypeCast,
   mySqlServerMode,
   mySqlStatementResults,
   mySqlStatements,
@@ -114,9 +115,48 @@ describe('db execute --json results', () => {
       '[{"a":9007199254740993},null]',
     );
     expect(value(199, '{{"1e400"}}')).toBe('[[1e400]]');
+    // Dates and timestamps print as PostgreSQL sends them, in any time zone.
+    expect(value(1082, '2024-01-15')).toBe('"2024-01-15"');
+    expect(value(1114, '2024-01-15 10:30:00.123456')).toBe('"2024-01-1510:30:00.123456"');
+    expect(value(1184, '2024-01-15 10:30:00.123456+01')).toBe('"2024-01-1510:30:00.123456+01"');
+    expect(value(1182, '{2024-01-15,NULL}')).toBe('["2024-01-15",null]');
+    expect(value(1115, '{"2024-01-15 10:30:00.5"}')).toBe('["2024-01-1510:30:00.5"]');
+    expect(value(1185, '{"2024-01-15 10:30:00+00"}')).toBe('["2024-01-1510:30:00+00"]');
     // Other types keep node-postgres's parsers.
     expect(parse(23, '5')).toBe(5);
     expect(parse(20, '9007199254740993')).toBe('9007199254740993');
+  });
+
+  it('keeps the digits of MySQL and MariaDB JSON numbers', () => {
+    const cast = (field: { type: string; extendedFormat?: string }, text: string | null) => {
+      const encodings: Array<string | undefined> = [];
+      const result = mySqlJsonTypeCast(
+        {
+          ...field,
+          string: (encoding) => {
+            encodings.push(encoding);
+            return text;
+          },
+        },
+        () => 'next',
+      );
+      return { result, encodings };
+    };
+    const printed = (result: unknown) =>
+      formatStatementResults([{ results: [{ v: result }], success: true, meta: {} }])
+        .replaceAll(/\s/g, '')
+        .slice('[{"results":[{"v":'.length, -'}],"success":true,"meta":{}}]'.length);
+    // MySQL's JSON type arrives as binary, read as UTF-8.
+    const mySql = cast({ type: 'JSON' }, '{"id": 12345678901234567890, "p": 1.10}');
+    expect(printed(mySql.result)).toBe('{"id":12345678901234567890,"p":1.10}');
+    expect(mySql.encodings).toEqual(['utf8']);
+    // MariaDB marks JSON in its extended metadata, on a text column.
+    const mariaDb = cast({ type: 'BLOB', extendedFormat: 'json' }, '[0.1000000000000000000001]');
+    expect(printed(mariaDb.result)).toBe('[0.1000000000000000000001]');
+    expect(mariaDb.encodings).toEqual([undefined]);
+    expect(cast({ type: 'JSON' }, null).result).toBeNull();
+    // Other columns keep mysql2's own reading.
+    expect(cast({ type: 'VAR_STRING' }, '{"a": 1}')).toEqual({ result: 'next', encodings: [] });
   });
 
   it('leaves out the empty-query result of SQL without a statement', () => {

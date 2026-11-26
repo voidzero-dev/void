@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { CustomTypesConfig } from 'pg';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { MockInstance } from 'vite-plus/test';
+import { mySqlJsonTypeCast } from '../../src/cli/db-execute-results.ts';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 
 const mockReadDeploymentPlatform = vi.fn(() => 'void');
@@ -953,7 +954,11 @@ describe('void db execute --remote (PostgreSQL)', () => {
       'mysql://user:p%40ss@host:3306/db?ssl=%7B%22rejectUnauthorized%22%3Atrue%7D';
     expect(mockMySqlCreateConnection.mock.calls.map(([options]) => options)).toEqual([
       { uri: withoutDebug },
-      expect.objectContaining({ uri: withoutDebug, dateStrings: true }),
+      expect.objectContaining({
+        uri: withoutDebug,
+        dateStrings: true,
+        typeCast: mySqlJsonTypeCast,
+      }),
     ]);
     expect(stdoutJson()).toEqual([
       { results: [{ at: '2024-01-02 03:04:05.123456' }], success: true, meta: {} },

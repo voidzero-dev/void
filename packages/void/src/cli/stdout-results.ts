@@ -101,7 +101,11 @@ function withOptionsAt(run: StartSync, optionsIndex: (args: Array<unknown>) => n
   };
 }
 
-/** The options with stderr in place of an inherited stdout, while stdout is reserved. */
+/**
+ * The options with stderr in place of stdout for each of the child's streams that would write to
+ * it, while stdout is reserved: an inherited stdout, and any stream given stdout's fd or
+ * `process.stdout`, such as a stderr sent to `process.stdout` while stdout is captured.
+ */
 function withStdoutOnStderr(options: SpawnOptions | undefined): SpawnOptions | undefined {
   if (!options || !isStdoutReservedForResults()) {
     return options;
@@ -110,18 +114,21 @@ function withStdoutOnStderr(options: SpawnOptions | undefined): SpawnOptions | u
   if (stdio === 'inherit') {
     return { ...options, stdio: ['inherit', 2, 'inherit'] };
   }
-  if (Array.isArray(stdio) && inheritsStdout(stdio[1])) {
-    const redirected: Array<unknown> = Array.from(stdio as Array<unknown>);
-    redirected[1] = 2;
-    return { ...options, stdio: redirected };
+  if (!Array.isArray(stdio)) {
+    return options;
   }
-  return options;
+  const entries: Array<unknown> = Array.from(stdio as Array<unknown>);
+  const redirected = entries.map((value, index) =>
+    (index === 1 && value === 'inherit') || isStdout(value) ? 2 : value,
+  );
+  return redirected.some((value, index) => value !== entries[index])
+    ? { ...options, stdio: redirected }
+    : options;
 }
 
-function inheritsStdout(value: unknown): boolean {
+/** Whether a stdio entry is stdout's fd, or a stream on it such as `process.stdout`. */
+function isStdout(value: unknown): boolean {
   return (
-    value === 'inherit' ||
-    value === 1 ||
-    (typeof value === 'object' && value !== null && 'fd' in value && value.fd === 1)
+    value === 1 || (typeof value === 'object' && value !== null && 'fd' in value && value.fd === 1)
   );
 }

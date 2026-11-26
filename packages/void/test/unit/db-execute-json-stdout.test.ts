@@ -38,6 +38,18 @@ execFileSync(process.execPath, print('execFileSync'), { stdio: 'inherit' });
 spawnSync(process.execPath, print('spawnSync'), { stdio: [0, process.stdout, 2] });
 spawn(process.execPath, print('spawn'), { stdio: ['ignore', 'inherit', 'inherit'] });
 fork('fork.mjs');
+const warn = (text: string) => ['-e', \`console.log('out'); console.error(\${JSON.stringify(text)})\`];
+// A child whose stdout the config reads and whose stderr it sends to stdout.
+if (
+  execFileSync(process.execPath, warn('stderr to process.stdout'), {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', process.stdout],
+  }) !== 'out\\n'
+) {
+  throw new Error('captured output changed');
+}
+spawnSync(process.execPath, warn('stderr to fd 1'), { stdio: ['ignore', 'ignore', 1] });
+spawn(process.execPath, warn('spawn stderr to stdout'), { stdio: ['ignore', 'ignore', process.stdout] });
 // Output the config reads is still its own.
 if (execFileSync(process.execPath, print('captured'), { encoding: 'utf8' }) !== 'captured\\n') {
   throw new Error('captured output changed');
@@ -65,6 +77,16 @@ await runDbCommand(process.cwd(), { action: 'execute', command: 'SELECT 1 AS one
   ]);
   expect(stdout.endsWith(']\n')).toBe(true);
   expect(new Set(stderr.split('\n'))).toEqual(
-    new Set(['config', 'execFileSync', 'spawnSync', 'spawn', 'fork', '']),
+    new Set([
+      'config',
+      'execFileSync',
+      'spawnSync',
+      'spawn',
+      'fork',
+      'stderr to process.stdout',
+      'stderr to fd 1',
+      'spawn stderr to stdout',
+      '',
+    ]),
   );
 });

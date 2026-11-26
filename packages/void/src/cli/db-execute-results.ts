@@ -243,11 +243,20 @@ const PG_JSON = 114;
 const PG_JSONB = 3802;
 const PG_JSON_ARRAY = 199;
 const PG_JSONB_ARRAY = 3807;
+const PG_DATE = 1082;
+const PG_TIMESTAMP = 1114;
+const PG_TIMESTAMPTZ = 1184;
+const PG_DATE_ARRAY = 1182;
+const PG_TIMESTAMP_ARRAY = 1115;
+const PG_TIMESTAMPTZ_ARRAY = 1185;
 
 /**
  * Type parsers for `void db execute --json` on PostgreSQL. node-postgres reads `numeric[]`
  * elements as numbers and JSON with `JSON.parse`, which round what a double cannot hold. Here a
  * `numeric[]` element stays a string, like a `numeric`, and a JSON number keeps its digits.
+ * Dates and timestamps stay the text PostgreSQL sends: node-postgres reads a `date` or a
+ * `timestamp` in the machine's time zone and rounds to milliseconds, so the same row would
+ * print differently on each machine.
  */
 export function pgJsonTypes(types: CustomTypesConfig): CustomTypesConfig {
   const parseTextArray = types.getTypeParser(PG_TEXT_ARRAY as CustomTypeId, 'text') as (
@@ -259,6 +268,12 @@ export function pgJsonTypes(types: CustomTypesConfig): CustomTypesConfig {
     [PG_JSONB, parseExactJson],
     [PG_JSON_ARRAY, (value) => parseExactJsonElements(parseTextArray(value))],
     [PG_JSONB_ARRAY, (value) => parseExactJsonElements(parseTextArray(value))],
+    [PG_DATE, (value) => value],
+    [PG_TIMESTAMP, (value) => value],
+    [PG_TIMESTAMPTZ, (value) => value],
+    [PG_DATE_ARRAY, parseTextArray],
+    [PG_TIMESTAMP_ARRAY, parseTextArray],
+    [PG_TIMESTAMPTZ_ARRAY, parseTextArray],
   ]);
   return {
     getTypeParser(oid, format = 'text') {
@@ -270,6 +285,31 @@ export function pgJsonTypes(types: CustomTypesConfig): CustomTypesConfig {
 }
 
 type CustomTypeId = Parameters<CustomTypesConfig['getTypeParser']>[0];
+
+/** The parts of mysql2's `typeCast` field that `mySqlJsonTypeCast` reads. */
+type MySqlTypeCastField = {
+  type: string;
+  extendedFormat?: string;
+  string: (encoding?: string) => string | null;
+};
+
+/**
+ * mysql2's `typeCast` for `void db execute --json`. mysql2 reads JSON with `JSON.parse`, which
+ * rounds what a double cannot hold, so a JSON number keeps its digits here, as on PostgreSQL.
+ * MySQL sends JSON as binary, which is UTF-8 text; MariaDB sends it as text and marks it as JSON
+ * only in its extended metadata.
+ */
+export function mySqlJsonTypeCast<Value>(
+  field: MySqlTypeCastField,
+  next: () => Value,
+): Value | ExactJson {
+  const isJson = field.type === 'JSON';
+  if (!isJson && field.extendedFormat !== 'json') {
+    return next();
+  }
+  const text = isJson ? field.string('utf8') : field.string();
+  return text === null ? null : parseExactJson(text);
+}
 
 /**
  * node-postgres returns one result for one statement and an array for several. SQL without a

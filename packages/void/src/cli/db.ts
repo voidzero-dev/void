@@ -50,6 +50,7 @@ import type { DbArgs } from './db-args.ts';
 import {
   formatStatementResults,
   MYSQL_SERVER_MODE_QUERY,
+  mySqlJsonTypeCast,
   mySqlServerMode,
   mySqlStatementResults,
   mySqlStatements,
@@ -981,9 +982,17 @@ async function executeExternalSql(
   const mySqlClient = await createConnection({
     uri,
     multipleStatements: true,
-    // BIGINT values past 2^53 arrive as strings instead of rounded numbers, and dates and times
-    // as the text MySQL returns, without a time zone conversion or rounding to milliseconds.
-    ...(json ? { supportBigNumbers: true, bigNumberStrings: false, dateStrings: true } : {}),
+    // BIGINT values past 2^53 arrive as strings instead of rounded numbers, dates and times
+    // as the text MySQL returns, without a time zone conversion or rounding to milliseconds,
+    // and JSON numbers with the digits MySQL sends.
+    ...(json
+      ? {
+          supportBigNumbers: true,
+          bigNumberStrings: false,
+          dateStrings: true,
+          typeCast: mySqlJsonTypeCast,
+        }
+      : {}),
   });
   try {
     const [rows, fields] = await mySqlClient.query(statements?.sql ?? sql);
