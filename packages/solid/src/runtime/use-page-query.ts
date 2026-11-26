@@ -2,9 +2,10 @@ import type { PagePath, PageQuery } from 'void/routes';
 import { useRouter } from './use-router.ts';
 
 /**
- * Read the query of the page being rendered, as the page loader's `query`
- * schema validated it: defaults are applied and coercions are done. A page
- * without a query schema returns the request's raw query values.
+ * Read the query of the page being rendered. By default these are the
+ * request's raw query strings, repeated keys as arrays. A page whose server
+ * file sets `export const exposeQuery = true` gets the values its `query`
+ * schema validated instead, with defaults and coercions applied.
  *
  * Pass the page's URL pattern as the type argument to type the result:
  * `usePageQuery<'/admin/payments'>()` returns `{ status: 'paid' | 'pending' }`.

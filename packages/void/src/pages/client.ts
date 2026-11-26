@@ -93,7 +93,7 @@ export type VoidRouter = {
   readonly path: string;
   /** Raw query string values of the current URL, unparsed. */
   readonly query: URLSearchParams;
-  /** Parsed query of the rendered page, read by `useQuery()`. */
+  /** Parsed query of the rendered page, read by `usePageQuery()`. */
   readonly _pageQuery: Record<string, unknown>;
   readonly params: Record<string, string>;
   visit(url: RouteUrlInput, options?: VisitOptions): Promise<unknown>;
@@ -139,8 +139,8 @@ function toUrl(value: string | URL): URL {
 type UrlQuery = Record<string, string | Array<string>>;
 
 /**
- * Query values from a URL. A page whose data was prerendered has no request
- * behind it, so the browser falls back to what the address bar carries.
+ * Query values from a URL, for page data that names no query (a server from
+ * before page queries).
  */
 function queryFromUrl(url: string) {
   const query: UrlQuery = {};

@@ -360,7 +360,7 @@ export namespace defineHandler {
         if (!result.ok) {
           return result.response;
         }
-        // Page renders read the validated slots back, so `useQuery()` receives
+        // Page renders read the validated slots back, so `usePageQuery()` receives
         // the same values the loader did, defaults and coercions included.
         c.set('__voidValidatedInput', result.input);
         return handler(c, result.input);

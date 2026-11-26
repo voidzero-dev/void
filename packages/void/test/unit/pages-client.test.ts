@@ -1032,7 +1032,7 @@ describe('createVoidRouter', () => {
     expect(applyUpdate.mock.calls[0][3]).toEqual({ preserveState });
   });
 
-  it('exposes the rendered page query to useQuery()', async () => {
+  it('exposes the rendered page query to usePageQuery()', async () => {
     stubClientGlobals();
     vi.stubGlobal(
       'fetch',

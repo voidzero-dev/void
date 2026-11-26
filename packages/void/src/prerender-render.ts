@@ -253,11 +253,6 @@ export async function renderPrerenderPaths(
             }
             if (pageData !== undefined) {
               mkdirSync(dirname(pageDataPath), { recursive: true });
-              // A prerendered page has no request behind it, so it has no query to
-              // publish. The client reads this page's query from the address bar.
-              if (pageData !== null && typeof pageData === 'object') {
-                delete (pageData as { query?: unknown }).query;
-              }
               writeFileSync(pageDataPath, JSON.stringify(pageData));
             }
             result.rendered.push(path);
