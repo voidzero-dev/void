@@ -64,8 +64,7 @@ export function pmInitCommand(
   const hasToolchain = initArgs.some(
     (arg) => arg === '--toolchain' || arg.startsWith('--toolchain='),
   );
-  const vitePlusToolchain =
-    !hasToolchain && process.env.VP_USER_AGENT?.startsWith('vp/');
+  const invokedByVitePlus = process.env.VP_USER_AGENT?.startsWith('vp/') ?? false;
 
   return [
     ...pmDlx(pm, version),
@@ -73,7 +72,8 @@ export function pmInitCommand(
     '--package-manager',
     pm,
     ...initArgs,
-    ...(vitePlusToolchain ? ['--toolchain', 'vite-plus'] : []),
+    ...(invokedByVitePlus && !hasToolchain ? ['--toolchain', 'vite-plus'] : []),
+    ...(invokedByVitePlus ? ['--vp-create'] : []),
   ];
 }
 

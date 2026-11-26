@@ -83,6 +83,7 @@ export type InitArgs = {
   github: boolean;
   install?: boolean;
   git?: boolean;
+  vpCreate?: boolean;
   packageManager?: ProjectState['packageManager'];
   toolchain?: ScaffoldToolchain;
   framework?: ScaffoldFramework;
@@ -122,6 +123,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
         github: { type: 'boolean' },
         install: { type: 'boolean' },
         git: { type: 'boolean' },
+        'vp-create': { type: 'boolean' },
         'package-manager': { type: 'string' },
         toolchain: { type: 'string' },
         framework: { type: 'string' },
@@ -141,6 +143,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
     github: parsed.values.github === true,
     install: parsed.values.install as boolean | undefined,
     git: parsed.values.git as boolean | undefined,
+    vpCreate: parsed.values['vp-create'] === true,
     packageManager: parseChoice('package-manager', parsed.values['package-manager'], [
       'npm',
       'pnpm',
@@ -2645,7 +2648,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       starterMode,
       scaffoldToolchain,
       report,
-      scaffoldStarter && scaffoldToolchain === 'vite-plus' && !workspaceSubpackage,
+      scaffoldStarter && !workspaceSubpackage && !initArgs?.vpCreate,
     );
     report.setStarter(describeStarter(scaffoldedPagesFramework, starterMode, subfolder));
 

@@ -127,6 +127,7 @@ describe('init Git arguments', () => {
     expect(parseInitArgs(['--git', '--no-git']).git).toBe(false);
     expect(parseInitArgs(['--no-git', '--git']).git).toBe(true);
     expect(parseInitArgs(['--tsconfig', '--git'])).toMatchObject({ tsconfig: true, git: true });
+    expect(parseInitArgs(['--vp-create']).vpCreate).toBe(true);
     expect(() => parseInitArgs(['--agents'])).toThrow('Unknown option');
   });
 
@@ -2564,6 +2565,45 @@ describe('isScaffoldableEmptyProject', () => {
           compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         },
       });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves devEngines package manager selection to vp create', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-vp-create-'));
+    try {
+      mockSelect
+        .mockResolvedValueOnce('vite-plus')
+        .mockResolvedValueOnce('react')
+        .mockResolvedValueOnce('static');
+      mockConfirm.mockResolvedValueOnce(false);
+
+      await runInitCommand(root, parseInitArgs(['--vp-create']));
+
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
+      expect(pkg.devEngines).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes devEngines package manager for a Vite starter', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-vite-toolchain-'));
+    try {
+      mockSelect
+        .mockResolvedValueOnce('vite')
+        .mockResolvedValueOnce('react')
+        .mockResolvedValueOnce('static');
+      mockConfirm.mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      expect(pkg.devEngines.packageManager).toEqual({ name: 'npm' });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

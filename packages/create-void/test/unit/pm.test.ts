@@ -77,6 +77,7 @@ describe('create-void package manager delegation', () => {
       'pnpm',
       '--toolchain',
       'vite-plus',
+      '--vp-create',
     ]);
   });
 
@@ -91,6 +92,7 @@ describe('create-void package manager delegation', () => {
       'pnpm',
       '--toolchain',
       'vite',
+      '--vp-create',
     ]);
   });
 
