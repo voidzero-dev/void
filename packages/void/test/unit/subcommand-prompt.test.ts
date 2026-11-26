@@ -111,18 +111,6 @@ it('shows the end of long input while submitting the complete value', async () =
   expect(await prompt.result).toEqual({ subcommand: 'connect', arg: url });
 });
 
-it('requires input for a hint with a placeholder after a word', async () => {
-  const prompt = openPrompt([
-    { name: 'preview', description: 'Delete a preview', arg: 'delete <name>' },
-  ]);
-  expect(prompt.frame()).toContain('Type delete <name>, then press Enter');
-  expect(prompt.frame()).not.toContain('press Enter to skip');
-  prompt.key('\r');
-  prompt.key('delete pr-64');
-  prompt.key('\r');
-  expect(await prompt.result).toEqual({ subcommand: 'preview', arg: 'delete pr-64' });
-});
-
 it('bounds repeat-input history while retaining every submitted entry', async () => {
   const prompt = openPrompt(
     [

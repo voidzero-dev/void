@@ -37,9 +37,7 @@ export type FollowUpDef =
 export type SubcommandDef = {
   name: string;
   description: string;
-  // e.g. "<name>": a dim hint that enables text input. A "<...>" part makes the input required, and
-  // a hint of several words, such as "delete <name>", is passed as that many arguments.
-  arg?: string;
+  arg?: string; // e.g. "<name>" — shown as dim hint, enables inline text input
   hint?: string; // e.g. "login | logout | whoami" — shown dim after name
   flags?: Array<FlagDef>;
   followUp?: FollowUpDef;
@@ -228,7 +226,7 @@ export function promptSubcommand(
         ...instructions(SELECT_INSTRUCTIONS),
       ];
       if (focused.arg) {
-        if (focused.arg.includes('<')) {
+        if (focused.arg.startsWith('<')) {
           footer.push(`${guidePrefix()}${pc.dim(`Type ${focused.arg}, then press Enter`)}`);
         } else {
           footer.push(
@@ -435,7 +433,7 @@ export function promptSubcommand(
       }
 
       if (isEnterKey(key)) {
-        const argRequired = focused.arg?.includes('<');
+        const argRequired = focused.arg && focused.arg.startsWith('<');
         if (argRequired && input.length === 0) {
           return;
         }

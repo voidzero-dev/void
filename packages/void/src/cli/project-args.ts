@@ -51,15 +51,8 @@ export const projectSubcommands: Array<SubcommandDef> = [
   },
   {
     name: 'preview',
-    arg: 'delete <name>',
+    hint: 'delete <name>',
     description: 'Delete a Cloudflare Preview made by deploy --preview',
-    flags: [
-      {
-        name: '--platform',
-        arg: 'cloudflare',
-        description: 'Delete it after a one-off deploy with --platform cloudflare',
-      },
-    ],
   },
   { name: 'cancel', arg: '[deployId]', description: 'Cancel an active deployment' },
   {
