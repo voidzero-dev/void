@@ -1175,10 +1175,14 @@ it('keeps Durable Objects, Queue triggers, and Containers in cf prebuilt output'
   );
 }, 15_000);
 
-it('bundles a generated static Worker and staged assets into prebuilt cf output', async () => {
+it.each([
+  ['implicit CommonJS', undefined, 'index.mjs'],
+  ['explicit CommonJS', 'commonjs', 'index.mjs'],
+  ['ES module', 'module', 'index.js'],
+])('bundles a generated static Worker and staged assets in %s', async (_label, type, main) => {
   const root = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-cf-static-'));
   roots.push(root);
-  writeFileSync(join(root, 'package.json'), '{"name":"static-app","type":"module"}');
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'static-app', type }));
   mkdirSync(join(root, 'node_modules'));
   symlinkSync(
     fileURLToPath(new URL('../../', import.meta.url)),
@@ -1227,7 +1231,7 @@ it('bundles a generated static Worker and staged assets into prebuilt cf output'
         readFileSync(join(root, 'package.json')),
       );
       const built = await readBuildOutput(prepared.directory);
-      expect(built.workers.default.config.manifest?.mainModule).toBe('index.js');
+      expect(built.workers.default.config.manifest?.mainModule).toBe(main);
       expect(built.workers.default.assetsDir).toBeDefined();
       expect(prepared.assetsDirectory).toBe(toSlash(assets));
       expectCfDryRun(prepared.directory, ['deploy']);

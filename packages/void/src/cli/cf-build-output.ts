@@ -565,7 +565,7 @@ async function prepareBundledBuildOutput(options: {
   const scratch = mkdtempSync(join(tmpdir(), options.scratchPrefix));
   try {
     const { build } = await import('vite');
-    await build({
+    const result = await build({
       configFile: false,
       root: options.projectRoot,
       publicDir: false,
@@ -586,9 +586,16 @@ async function prepareBundledBuildOutput(options: {
         target: 'es2022',
       },
     });
+    // Library mode returns one bundle per format; we only build ES modules.
+    const entry =
+      Array.isArray(result) &&
+      result[0]?.output.find((file) => file.type === 'chunk' && file.isEntry);
+    if (!entry) {
+      throw new Error('Vite did not emit a Worker entry chunk.');
+    }
     writeFileSync(
       join(scratch, 'wrangler.json'),
-      JSON.stringify({ ...options.config, main: 'index.js', assets: options.assets }),
+      JSON.stringify({ ...options.config, main: entry.fileName, assets: options.assets }),
       { mode: 0o600 },
     );
     return await prepareCfBuildOutput(scratch, options.accountId, undefined, options.projectRoot);
