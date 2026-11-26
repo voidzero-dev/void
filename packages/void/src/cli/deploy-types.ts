@@ -60,6 +60,11 @@ export type RunDeployOptions = {
   /** Print the deployment result as one JSON record on stdout; logs go to stderr. */
   json?: boolean;
   /**
+   * Internal: receives the `--json` result record. Only the `--json` child process sets it; its
+   * stdout is the parent's stderr.
+   */
+  writeResult?: (text: string) => void;
+  /**
    * `CF_ACCESS_READINESS_ORIGIN` as recorded before project code ran (`null` when unset).
    * `--platform cloudflare` only.
    */

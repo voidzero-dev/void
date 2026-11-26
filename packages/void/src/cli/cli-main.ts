@@ -198,8 +198,8 @@ const subcommandGroups = {
   db: () =>
     runSubcommandGroup('db', dbSubcommands, parseDbArgs, async (root, parsed) => {
       if (parsed.action === 'execute' && parsed.json) {
-        const { runDbExecuteProcess } = await import('./db-execute-process.ts');
-        await runDbExecuteProcess(root, args);
+        const { runJsonCommandProcess } = await import('./json-command-process.ts');
+        await runJsonCommandProcess(root, args);
       } else {
         const { runDbCommand } = await import('./db.ts');
         await runDbCommand(root, parsed);
@@ -240,15 +240,23 @@ if (helpPath) {
   try {
     deployArgs = parseDeployArgs(args.slice(1));
   } catch (err) {
-    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
+    log.error(
+      formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)),
+      args.includes('--json') ? { output: process.stderr } : undefined,
+    );
     process.exit(1);
   }
 
-  const { runDeploy } = await import('./deploy.ts');
-  await runDeploy(root, deployArgs).catch((err: unknown) => {
-    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
-    process.exit(1);
-  });
+  if (deployArgs.json) {
+    const { runJsonCommandProcess } = await import('./json-command-process.ts');
+    await runJsonCommandProcess(root, args);
+  } else {
+    const { runDeploy } = await import('./deploy.ts');
+    await runDeploy(root, deployArgs).catch((err: unknown) => {
+      log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
+      process.exit(1);
+    });
+  }
 } else if (command === 'connect') {
   await (async () => {
     const parsed = parseConnectArgs(args.slice(1));

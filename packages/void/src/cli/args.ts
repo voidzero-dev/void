@@ -3,7 +3,7 @@ import type { RunDeployOptions } from './deploy-types.ts';
 
 export function parseDeployArgs(
   args: Array<string>,
-): Omit<RunDeployOptions, 'reuseExistingWorker'> {
+): Omit<RunDeployOptions, 'reuseExistingWorker' | 'writeResult'> {
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs({

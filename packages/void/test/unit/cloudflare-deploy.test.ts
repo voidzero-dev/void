@@ -12833,45 +12833,35 @@ describe('runCloudflareDeploy — previews', () => {
     expect(output).toContain('Preview pr-64 deployed. Production is unchanged.');
   });
 
-  it('prints one JSON record on stdout and keeps the logs on stderr', async () => {
+  it('gives writeResult exactly one preview record', async () => {
     const root = spa();
     const { deps, exitCalls } = previewHarness();
-    const stdout: Array<string> = [];
-    const stderr: Array<string> = [];
-    const out = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-      stdout.push(String(chunk));
-      return true;
-    });
-    const err = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-      stderr.push(String(chunk));
-      return true;
-    });
-    const { setProgressOutput } = await import('../../src/cli/output.ts');
-    try {
-      // As runDeploy does for --json.
-      setProgressOutput(process.stderr);
-      await runCloudflareDeploy(
+    const results: Array<string> = [];
+    await captureDeployOutput(() =>
+      runCloudflareDeploy(
         root,
-        { platform: 'cloudflare', preview: 'pr-64', json: true },
+        {
+          platform: 'cloudflare',
+          preview: 'pr-64',
+          json: true,
+          writeResult: (text) => results.push(text),
+        },
         silentCliLog,
         deps,
-      );
-    } finally {
-      setProgressOutput(undefined);
-      out.mockRestore();
-      err.mockRestore();
-    }
+      ),
+    );
 
     expect(exitCalls).toEqual([]);
-    expect(stdout).toHaveLength(1);
-    expect(JSON.parse(stdout[0] ?? '')).toEqual({
+    expect(results).toHaveLength(1);
+    expect(results[0]?.endsWith('}\n')).toBe(true);
+    expect(JSON.parse(results[0] ?? '')).toEqual({
+      type: 'preview',
       workerName: 'spaapp',
       previewName: 'pr-64',
       previewUrl: 'https://pr-64-spaapp.team.workers.dev',
       deploymentId: 'dep_1',
       deploymentUrl: 'https://dep1-spaapp.team.workers.dev',
     });
-    expect(stripVTControlCharacters(stderr.join(''))).toContain('Production is unchanged');
   });
 
   it('fails clearly when the Worker has Preview URLs turned off', async () => {

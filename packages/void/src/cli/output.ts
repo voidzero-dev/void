@@ -28,41 +28,10 @@ export function formatUrl(url: string): string {
   return formatLink(text, text);
 }
 
-let progressStream: Writable | undefined;
-
-/**
- * Choose where Void's progress output goes. `--json` commands send it to stderr so stdout carries
- * only their result record. Pass undefined to restore stdout.
- */
-export function setProgressOutput(stream: Writable | undefined): void {
-  progressStream = stream;
-}
-
-/** The stream Void's progress renderers write to: stdout unless a `--json` command chose stderr. */
-export function progressOutput(): Writable {
-  return progressStream ?? process.stdout;
-}
-
-/**
- * Renderer options that route output to the chosen progress stream. Empty unless a `--json`
- * command chose one, so ordinary runs call the renderers exactly as before.
- */
-export function progressOptions(): { output?: Writable } {
-  return progressStream ? { output: progressStream } : {};
-}
-
-/** Print one machine-readable JSON record on stdout. */
-export function printJsonRecord(record: unknown): void {
-  process.stdout.write(`${JSON.stringify(record)}\n`);
-}
-
 /** Complete an action with the same spacing, checkmark, and color on every target. */
 export function printSuccess(message: string): void {
   // Remove nested styles so a blue URL or dim hint cannot override the success color.
-  outro(`\n${pc.green(`✓ ${stripVTControlCharacters(message)}`)}`, {
-    withGuide: false,
-    ...progressOptions(),
-  });
+  outro(`\n${pc.green(`✓ ${stripVTControlCharacters(message)}`)}`, { withGuide: false });
 }
 
 /**
@@ -191,15 +160,11 @@ export function note(...args: Parameters<typeof promptsNote>): void {
   const urlTitle = plainTitle && /^https?:\/\/\S+$/.test(plainTitle) ? plainTitle : undefined;
   // Native macOS Terminal recognizes URLs by whitespace boundaries.
   const boxedTitle = urlTitle ? ` ${urlTitle} ` : title;
-  const output = opts?.output ?? progressOutput();
+  const output = opts?.output ?? process.stdout;
   const columns = (output as { columns?: unknown }).columns;
   const needsWidthFallback = typeof columns === 'number' && columns < MIN_NOTE_COLUMNS;
   if (!urlTitle && !needsWidthFallback) {
-    if (opts?.output || !progressStream) {
-      promptsNote(...args);
-    } else {
-      promptsNote(message, title, { ...opts, output });
-    }
+    promptsNote(...args);
     return;
   }
   // The box renderer only reads `columns` and calls `write()`.

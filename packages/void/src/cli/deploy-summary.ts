@@ -1,10 +1,9 @@
 import { intro } from '@voidzero-dev/vite-plus-prompts';
-import { formatCount, pc, printSuccess, progressOptions, sanitizeTerminalText } from './output.ts';
+import { formatCount, pc, printSuccess, sanitizeTerminalText } from './output.ts';
 
 export function printDeployContext(project: string, destination: string): void {
   intro(
     `${pc.dim(sanitizeTerminalText(project))} ${pc.dim('→')} ${pc.blue(sanitizeTerminalText(destination))}`,
-    progressOptions(),
   );
 }
 

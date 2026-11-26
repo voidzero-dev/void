@@ -68,7 +68,7 @@ import {
 import type { RunDeployOptions, CloudflareDeployDeps } from './deploy-types.ts';
 import { readGeneratedAssetHeadersFile } from './headers.ts';
 import type { CliLogger } from './log-file.ts';
-import { getErrorMessage, note, printJsonRecord, printSuccess, progressOutput } from './output.ts';
+import { getErrorMessage, note, printSuccess } from './output.ts';
 import { buildStaticManifest, readWranglerHtmlHandling } from './package.ts';
 import { detectPreset } from './preset.ts';
 import type { StaticPreset, FrameworkPreset } from './preset.ts';
@@ -407,12 +407,7 @@ export async function runCloudflareStaticDeploy(
     const runStaticBuild =
       deps.runStaticBuild ??
       ((command: string, env: NodeJS.ProcessEnv) => {
-        // With --json, stdout carries only the result record.
-        execSync(command, {
-          cwd: root,
-          stdio: ['inherit', progressOutput(), 'inherit'],
-          env,
-        });
+        execSync(command, { cwd: root, stdio: 'inherit', env });
       });
     try {
       runStaticBuild(preset.buildCommand, buildChildEnv);
@@ -547,7 +542,7 @@ export async function runCloudflareStaticDeploy(
       previewName: options.preview,
       workerName,
       typeLabel,
-      json: options.json === true,
+      writeResult: options.writeResult,
       reporter,
       cliLog,
       exit,
@@ -617,7 +612,7 @@ function reportCloudflareStaticPreview(
     previewName: string;
     workerName: string;
     typeLabel: string;
-    json: boolean;
+    writeResult: RunDeployOptions['writeResult'];
     reporter: CloudflareChildReporter;
     cliLog: CliLogger;
     exit: (code: number) => never;
@@ -639,15 +634,15 @@ function reportCloudflareStaticPreview(
     previewId: result.previewId,
     deploymentId: result.deploymentId,
   });
-  if (options.json) {
-    printJsonRecord({
-      workerName,
-      previewName,
-      previewUrl: result.previewUrl,
-      deploymentId: result.deploymentId,
-      deploymentUrl: result.deploymentUrl ?? null,
-    });
-  }
+  const record = {
+    type: 'preview',
+    workerName,
+    previewName,
+    previewUrl: result.previewUrl,
+    deploymentId: result.deploymentId,
+    deploymentUrl: result.deploymentUrl ?? null,
+  };
+  options.writeResult?.(`${JSON.stringify(record)}\n`);
   note(
     [
       formatDeploySummary({ workerName, typeLabel: options.typeLabel }),
