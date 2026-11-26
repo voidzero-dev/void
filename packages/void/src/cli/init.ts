@@ -2638,7 +2638,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       parsePackageManagerField(existingPackageJson) !== undefined ||
       resolveWorkspaceDeferral(root, existingPackageJson) !== undefined;
     const scaffoldPackageManager =
-      scaffoldToolchain === 'vite-plus' && !hasPackageManager
+      scaffoldToolchain === 'vite-plus' && !hasPackageManager && !initArgs?.packageManager
         ? 'pnpm'
         : preScaffoldState.packageManager;
     const scaffoldWroteDeps = scaffoldPagesApp(
