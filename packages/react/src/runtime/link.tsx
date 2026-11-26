@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef } from 'react';
-import type { JSX } from 'react';
+import type { JSX, ReactNode } from 'react';
 import type {
   MouseEvent,
   MouseEventHandler,
@@ -13,24 +13,41 @@ import type {
 } from 'react';
 import {
   handleLinkClick,
-  linkActiveAttributes,
-  linkPendingAttributes,
+  getLinkStatus,
+  linkStatusAttributes,
+  resolvedLinkStatus,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
 } from 'void/pages-client';
-import type { BaseLinkProps } from 'void/pages-client';
+import type { BaseLinkProps, LinkStatus, LinkStatusOptions } from 'void/pages-client';
 import { NavigationContext, RouterContext } from './context.ts';
 
-export type LinkProps = BaseLinkProps &
-  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof BaseLinkProps> &
-  Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof BaseLinkProps>;
+type CommonProps = BaseLinkProps & {
+  children?: ReactNode | ((status: LinkStatus) => ReactNode);
+};
+
+export type LinkProps = CommonProps &
+  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof CommonProps> &
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof CommonProps>;
 
 type LinkEventHandlers = Pick<
   HTMLAttributes<HTMLElement>,
   'onClick' | 'onFocus' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave' | 'onTouchStart'
 >;
+
+export function useLinkStatus(
+  href: BaseLinkProps['href'],
+  { method, data, activeMatch }: LinkStatusOptions = {},
+): LinkStatus {
+  const router = useContext(RouterContext);
+  const navigation = useContext(NavigationContext);
+  return useMemo(
+    () => getLinkStatus(router, navigation, href, { method, data, activeMatch }),
+    [activeMatch, data, href, method, navigation, router],
+  );
+}
 
 export function Link({
   href,
@@ -72,15 +89,11 @@ export function Link({
     () => linkPrefetchStrategies({ prefetch, reloadDocument }, { isGet }, defaultStrategy),
     [defaultStrategy, isGet, prefetch, reloadDocument],
   );
-  // The router context changes with the route URL, so this follows navigations.
-  const activeAttributes = useMemo(
-    () => linkActiveAttributes(router, link, activeMatch),
-    [activeMatch, link, router],
+  const status = useMemo(
+    () => resolvedLinkStatus(router, navigation, link, activeMatch),
+    [activeMatch, link, navigation, router],
   );
-  const pendingAttributes = useMemo(
-    () => linkPendingAttributes(router, navigation, link),
-    [link, navigation, router],
-  );
+  const attributes = linkStatusAttributes(status);
   const hoverDelay = router?._hoverDelay ?? 75;
 
   const doPrefetch = useCallback(
@@ -245,18 +258,18 @@ export function Link({
     [style],
   );
 
+  const content = typeof children === 'function' ? children(status) : children;
   if (link.isGet) {
     return (
       <a
         ref={setElementRef}
         href={link.href}
         style={resolvedStyle}
-        {...activeAttributes}
-        {...pendingAttributes}
+        {...attributes}
         {...rest}
         {...eventHandlers}
       >
-        {children}
+        {content}
       </a>
     );
   }
@@ -266,11 +279,11 @@ export function Link({
       ref={setElementRef}
       type="button"
       style={resolvedStyle}
-      {...pendingAttributes}
+      {...attributes}
       {...rest}
       {...eventHandlers}
     >
-      {children}
+      {content}
     </button>
   );
 }

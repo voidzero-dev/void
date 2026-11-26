@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import {
   createRouterFacade,
   createSsrRouter,
+  getLinkStatus,
   idleNavigationState,
+  isLinkActive,
+  isLinkPending,
+  linkStatusAttributes,
 } from '../../src/pages/client.ts';
 import type { NavigationMethod, VoidRouter } from '../../src/pages/client.ts';
 import {
@@ -344,6 +348,57 @@ describe('linkPendingAttributes', () => {
     ).toEqual({});
     expect(linkPendingAttributes(router, null, link)).toEqual({});
     expect(linkPendingAttributes(null, visiting('/admin/users/42'), link)).toEqual({});
+  });
+});
+
+describe('public link status', () => {
+  const router = createSsrRouter('/café/posts?page=2&sort=new', {}, 'https://app.test');
+  const navigation = {
+    state: 'loading',
+    location: new URL('https://app.test/caf%C3%A9/posts?page=2#top'),
+    method: 'GET',
+  } as const;
+
+  it.each([
+    ['/café/posts#top', { data: { page: 2 } }, { current: true, active: true, pending: true }],
+    ['?page=2', {}, { current: true, active: true, pending: false }],
+    ['?page=1', {}, { current: false, active: false, pending: false }],
+    ['/caf%C3%A9', { activeMatch: 'prefix' }, { current: false, active: true, pending: false }],
+    ['/', { activeMatch: 'prefix' }, { current: false, active: false, pending: false }],
+    [
+      '/café/posts?page=2#top',
+      { method: 'post' },
+      { current: false, active: false, pending: false },
+    ],
+    [
+      'https://other.test/café/posts?page=2#top',
+      {},
+      { current: false, active: false, pending: false },
+    ],
+  ] as const)('matches %s with %j', (href, options, expected) => {
+    expect(getLinkStatus(router, navigation, href, options)).toEqual(expected);
+    expect(isLinkActive(router, href, options)).toBe(expected.active);
+    expect(isLinkPending(router, navigation, href, options)).toBe(expected.pending);
+    const link = resolveLink({ ...options, href });
+    expect(linkStatusAttributes(expected)).toEqual({
+      ...linkActiveAttributes(
+        router,
+        link,
+        'activeMatch' in options ? options.activeMatch : undefined,
+      ),
+      ...linkPendingAttributes(router, navigation, link),
+    });
+  });
+
+  it('reports a pending submission for a matching non-GET link', () => {
+    const submission = { ...navigation, state: 'submitting', method: 'POST' } as const;
+    expect(getLinkStatus(router, submission, '/café/posts?page=2#top', { method: 'post' })).toEqual(
+      {
+        current: false,
+        active: false,
+        pending: true,
+      },
+    );
   });
 });
 

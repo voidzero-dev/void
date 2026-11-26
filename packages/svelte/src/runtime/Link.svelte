@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getContext, onDestroy, onMount } from "svelte";
-  import { handleLinkClick, linkActiveAttributes, linkPendingAttributes, linkPrefetchStrategies, observeLinkVisible, prefetchLink, resolveLink } from 'void/pages-client';
-import type { NavigationState, VoidRouter } from 'void/pages-client';
+  import { handleLinkClick, linkStatusAttributes, resolvedLinkStatus, linkPrefetchStrategies, observeLinkVisible, prefetchLink, resolveLink } from 'void/pages-client';
+  import type { NavigationState, VoidRouter } from 'void/pages-client';
   import type { LinkProps } from "./link-props.ts";
 
   let {
@@ -118,10 +118,8 @@ import type { NavigationState, VoidRouter } from 'void/pages-client';
       router?._prefetchDefaultStrategy,
     ),
   );
-  // Reading router.url tracks the route URL, so this follows navigations.
-  const activeAttributes = $derived(linkActiveAttributes(router, link, activeMatch));
-  // Reading navigation.value tracks visits as they start and end.
-  const pendingAttributes = $derived(linkPendingAttributes(router, navigation?.value, link));
+  const status = $derived(resolvedLinkStatus(router, navigation?.value, link, activeMatch));
+  const attributes = $derived(linkStatusAttributes(status));
   const resolvedStyle = $derived(
     style ? `touch-action: manipulation; ${style}` : "touch-action: manipulation",
   );
@@ -131,8 +129,7 @@ import type { NavigationState, VoidRouter } from 'void/pages-client';
   <a
     bind:this={el}
     href={link.href}
-    {...activeAttributes}
-    {...pendingAttributes}
+    {...attributes}
     {...rest}
     style={resolvedStyle}
     onclick={onClick}
@@ -144,13 +141,13 @@ import type { NavigationState, VoidRouter } from 'void/pages-client';
       ? onTouchStart
       : onTouchStartProp}
   >
-    {@render children()}
+    {@render children?.(status)}
   </a>
 {:else}
   <button
     bind:this={el}
     type="button"
-    {...pendingAttributes}
+    {...attributes}
     {...rest}
     style={resolvedStyle}
     onclick={onClick}
@@ -162,6 +159,6 @@ import type { NavigationState, VoidRouter } from 'void/pages-client';
       ? onTouchStart
       : onTouchStartProp}
   >
-    {@render children()}
+    {@render children?.(status)}
   </button>
 {/if}

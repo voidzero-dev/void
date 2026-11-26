@@ -1,19 +1,20 @@
 import { createMemo, onCleanup, onMount, splitProps, useContext } from 'solid-js';
-import type { JSX } from 'solid-js';
+import type { Accessor, JSX } from 'solid-js';
 import {
   handleLinkClick,
-  linkActiveAttributes,
-  linkPendingAttributes,
+  getLinkStatus,
+  linkStatusAttributes,
+  resolvedLinkStatus,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
 } from 'void/pages-client';
-import type { BaseLinkProps } from 'void/pages-client';
+import type { BaseLinkProps, LinkStatus, LinkStatusOptions } from 'void/pages-client';
 import { NavigationContext, RouterContext } from './context.ts';
 
 type CommonProps = BaseLinkProps & {
-  children?: JSX.Element;
+  children?: JSX.Element | ((status: LinkStatus) => JSX.Element);
 };
 
 export type LinkProps = CommonProps &
@@ -39,6 +40,22 @@ function callHandler(handler: unknown, event: Event): void {
   } else if (typeof handler === 'function') {
     (handler as (event: Event) => void)(event);
   }
+}
+
+export function useLinkStatus(
+  href: BaseLinkProps['href'] | Accessor<BaseLinkProps['href']>,
+  options: LinkStatusOptions | Accessor<LinkStatusOptions> = {},
+): Accessor<LinkStatus> {
+  const router = useContext(RouterContext);
+  const navigation = useContext(NavigationContext);
+  return createMemo(() =>
+    getLinkStatus(
+      router,
+      navigation?.(),
+      typeof href === 'function' ? href() : href,
+      typeof options === 'function' ? options() : options,
+    ),
+  );
 }
 
 export function Link(props: LinkProps): JSX.Element {
@@ -72,12 +89,14 @@ export function Link(props: LinkProps): JSX.Element {
     linkPrefetchStrategies(local, link(), router?._prefetchDefaultStrategy),
   );
   const resolvedStyle = createMemo(() => mergeStyle(local.style));
-  // Reading router.url tracks the route URL, so this follows navigations.
-  const activeAttributes = createMemo(() =>
-    linkActiveAttributes(router, link(), local.activeMatch),
+  const status = createMemo(() =>
+    resolvedLinkStatus(router, navigation?.(), link(), local.activeMatch),
   );
-  // Calling navigation() tracks visits as they start and end.
-  const pendingAttributes = createMemo(() => linkPendingAttributes(router, navigation?.(), link()));
+  const attributes = createMemo(() => linkStatusAttributes(status()));
+  function content() {
+    const children = local.children;
+    return typeof children === 'function' ? children(status()) : children;
+  }
 
   function doPrefetch() {
     prefetchLink(router, link().href, local.cacheFor);
@@ -181,13 +200,12 @@ export function Link(props: LinkProps): JSX.Element {
             el = r;
           }}
           href={link().href}
-          {...activeAttributes()}
-          {...pendingAttributes()}
+          {...attributes()}
           {...rest}
           style={resolvedStyle()}
           {...eventHandlers()}
         >
-          {local.children}
+          {content()}
         </a>
       ) : (
         <button
@@ -195,12 +213,12 @@ export function Link(props: LinkProps): JSX.Element {
             el = r;
           }}
           type="button"
-          {...pendingAttributes()}
+          {...attributes()}
           {...rest}
           style={resolvedStyle()}
           {...eventHandlers()}
         >
-          {local.children}
+          {content()}
         </button>
       )}
     </>

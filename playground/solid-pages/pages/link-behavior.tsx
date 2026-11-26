@@ -1,4 +1,4 @@
-import { Link, useRouter } from '@void/solid';
+import { Link, useLinkStatus, useRouter } from '@void/solid';
 import { ErrorBoundary, createSignal } from 'solid-js';
 import type { Props } from './link-behavior.server.ts';
 
@@ -19,6 +19,7 @@ function setBoundClicked(label: string, event: MouseEvent) {
 
 export default function LinkBehaviorPage(props: Props) {
   const router = useRouter();
+  const postStatus = useLinkStatus('/link-behavior', { method: 'post' });
   const [prefetchMethod, setPrefetchMethod] = createSignal<'GET' | 'POST'>('GET');
   const [reloadMethod, setReloadMethod] = createSignal<'GET' | 'POST'>('GET');
 
@@ -108,9 +109,9 @@ export default function LinkBehaviorPage(props: Props) {
         </Link>
       </p>
 
-      <p>
+      <p aria-busy={postStatus().pending}>
         <Link href="/link-behavior" method="post" data-testid="post-link">
-          Post to this page
+          {({ pending }) => (pending ? 'Submitting…' : 'Post to this page')}
         </Link>
       </p>
 

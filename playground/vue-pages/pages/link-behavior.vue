@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { Link, useRouter } from '@void/vue';
+import { Link, useLinkStatus, useRouter } from '@void/vue';
 import type { Props } from './link-behavior.server.ts';
 
 defineProps<Props>();
 const router = useRouter();
+const postStatus = useLinkStatus('/link-behavior', { method: 'post' });
 
 type LinkBehaviorWindow = Window & {
   __linkOnClick?: boolean;
@@ -79,8 +80,10 @@ function preventNavigate(event: { preventDefault(): void }) {
       <Link href="/users" data-testid="replace-link" replace>Replace with users</Link>
     </p>
 
-    <p>
-      <Link href="/link-behavior" method="post" data-testid="post-link">Post to this page</Link>
+    <p :aria-busy="postStatus.pending">
+      <Link href="/link-behavior" method="post" data-testid="post-link" v-slot="{ pending }">
+        {{ pending ? 'Submitting…' : 'Post to this page' }}
+      </Link>
     </p>
 
     <p>

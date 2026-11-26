@@ -18,11 +18,12 @@ export default function Post(props) {
   </main>;
 }`;
 
-const LAYOUT = `import { useParams, useRouter } from "@void/solid";
+const LAYOUT = `import { Link, useLinkStatus, useParams, useRouter } from "@void/solid";
 import { createEffect, createSignal } from "solid-js";
 export default function Layout(props) {
   const params = useParams();
   const router = useRouter();
+  const status = useLinkStatus(() => params.slug ? "/posts/b" : "/about");
   const [observed, setObserved] = createSignal([]);
   const [refreshes, setRefreshes] = createSignal(0);
   createEffect(() => {
@@ -30,6 +31,8 @@ export default function Layout(props) {
     setObserved(values => [...values, slug ?? null]);
   });
   return <div>
+    <output id="link-current">{String(status().current)}</output>
+    <Link href="/posts" activeMatch="prefix">{({ active }) => active ? "Posts section" : "Other section"}</Link>
     <p id="layout-slug">{params.slug}</p>
     <output id="observed-slugs">{JSON.stringify(observed())}</output>
     <button onClick={async () => {
@@ -116,6 +119,8 @@ it('keeps useParams reactive without notifying unchanged values', async () => {
     await page.waitForSelector('#app[data-hydrated="true"]');
     expect(await page.textContent('#slug')).toBe('a');
     expect(await page.textContent('#layout-slug')).toBe('a');
+    expect(await page.textContent('#link-current')).toBe('false');
+    expect(await page.textContent('a[href="/posts"]')).toBe('Posts section');
 
     // A full reload would also render "b", so check that the document survives.
     await page.evaluate(() => {
@@ -125,6 +130,7 @@ it('keeps useParams reactive without notifying unchanged values', async () => {
     await page.waitForFunction(() => document.getElementById('title')?.textContent === 'Post b');
     expect(await page.textContent('#slug')).toBe('b');
     expect(await page.textContent('#layout-slug')).toBe('b');
+    expect(await page.textContent('#link-current')).toBe('true');
     expect(await page.textContent('#observed-slugs')).toBe('["a","b"]');
 
     // A refresh commits a new page response, but unchanged params must not
@@ -136,6 +142,8 @@ it('keeps useParams reactive without notifying unchanged values', async () => {
     await page.click('a[href="/about"]');
     await page.waitForFunction(() => document.getElementById('title')?.textContent === 'About');
     expect(await page.textContent('#layout-slug')).toBe('');
+    expect(await page.textContent('#link-current')).toBe('true');
+    expect(await page.textContent('a[href="/posts"]')).toBe('Other section');
     expect(await page.textContent('#observed-slugs')).toBe('["a","b",null]');
 
     await page.goBack();

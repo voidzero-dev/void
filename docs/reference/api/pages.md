@@ -28,6 +28,35 @@ With [`routing.typedRoutes`](../config.md#routing-typedroutes), `href` and route
 
 See [Typed navigation](../../guide/pages-routing/overview.md#typed-navigation) for framework examples.
 
+## Link status
+
+All four adapters export `useLinkStatus(href, options?)`. Pass the same `href`, `method`, `data`, and `activeMatch` you would give a `Link`. The `LinkStatus` result contains three booleans.
+
+| Field     | When it is true                                                                                                                                                |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `current` | The link matches the current page under the [active link rules](../../guide/pages-routing/overview.md#active-links). Void sets `aria-current="page"`.          |
+| `active`  | The link is current, or matches a parent section with `activeMatch="prefix"`. Void sets `data-void-active`.                                                    |
+| `pending` | A visit to this destination is in progress under the [pending link rules](../../guide/pages-routing/overview.md#pending-links). Void sets `data-void-pending`. |
+
+| Adapter | Reading the result                                            | Reactive inputs                           |
+| ------- | ------------------------------------------------------------- | ----------------------------------------- |
+| React   | `status.active`                                               | Pass the current props on each render.    |
+| Vue     | `status.value.active` in script, `status.active` in templates | Pass refs or getters for changing inputs. |
+| Svelte  | `status.active`                                               | Pass getters for changing inputs.         |
+| Solid   | `status().active`                                             | Pass accessors for changing inputs.       |
+
+For a list of destinations, import `isLinkActive(router, href, options?)` or `isLinkPending(router, navigation, href, options?)` from `void/pages-client`. Obtain `router` and `navigation` from your adapter's `useRouter()` and `useNavigation()`. For example, a sidebar can find the label for its active section with a plain function.
+
+```ts
+import { isLinkActive } from 'void/pages-client';
+import type { VoidRouter } from 'void/pages-client';
+import type { Href } from 'void/routes';
+
+function sectionLabel(router: VoidRouter, sections: { href: Href; label: string }[]) {
+  return sections.find(({ href }) => isLinkActive(router, href, { activeMatch: 'prefix' }))?.label;
+}
+```
+
 ## Prefetching {#prefetching}
 
 `Link`'s `prefetch` prop takes `true`, `false`, a strategy, or an array of strategies:

@@ -385,10 +385,15 @@ export function registerSharedClientTests({
       await hold((request) => request.method() === 'POST');
       await page.click('[data-testid="post-link"]');
       await page.waitForSelector('[data-testid="post-link"][data-void-pending]');
+      const postLink = page.getByTestId('post-link');
+      expect((await postLink.textContent())?.trim()).toBe('Submitting…');
+      expect(await postLink.locator('..').getAttribute('aria-busy')).toBe('true');
       // A GET link to the same page isn't pending while it is submitting.
       expect(await pending('[data-testid="absolute-current-link"]')).toBeNull();
       release();
       await page.waitForSelector('[data-testid="post-link"]:not([data-void-pending])');
+      expect((await postLink.textContent())?.trim()).toBe('Post to this page');
+      expect(await postLink.locator('..').getAttribute('aria-busy')).toBe('false');
       await page.unrouteAll();
 
       // Page data, prefetched or not, comes from a JSON request.

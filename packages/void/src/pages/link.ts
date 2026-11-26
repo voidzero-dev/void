@@ -38,6 +38,14 @@ export type BaseLinkProps = {
   onNavigate?: (event: LinkNavigateEvent) => void;
 };
 
+export type LinkStatusOptions = Pick<BaseLinkProps, 'method' | 'data' | 'activeMatch'>;
+
+export type LinkStatus = {
+  current: boolean;
+  active: boolean;
+  pending: boolean;
+};
+
 export type ResolvedLink = {
   method: NavigationMethod;
   isGet: boolean;
@@ -120,84 +128,126 @@ export function linkPrefetchStrategies(
   return prefetch;
 }
 
-/**
- * Marks a GET link to the current page. Pathnames compare the way the server
- * matches pages: case-sensitive, trailing slash significant, decoded like Hono's
- * getPath. A link with a query also needs each of its params, with the same value,
- * in the current URL, which may have more params in any order. GET data counts as
- * query, and the hash is ignored. `prefix` also matches nested pages by whole
- * segment, except for `/`, comparing only the path, but only an exact match is
- * `aria-current`. Spread the result before the user's attributes so theirs win.
- */
-export function linkActiveAttributes(
-  router: VoidRouter | null | undefined,
-  link: ResolvedLink,
-  match: LinkActiveMatch = 'exact',
-): LinkActiveAttributes {
-  if (!router || !link.isGet) {
-    return {};
-  }
+type ActiveMatch = 'current' | 'ancestor' | undefined;
 
-  const current = router.url;
-  const target = resolveSameOrigin(link.href, current);
-  if (!target) {
-    return {};
-  }
-
+function matchActive(current: URL, target: URL, match: LinkActiveMatch): ActiveMatch {
   const currentPath = decodePagePath(current.pathname);
   const linkPath = decodePagePath(target.pathname);
   if (linkPath === currentPath) {
-    // A link that only changes the query, such as pagination, leads to another page.
-    return hasQueryParams(current.searchParams, target.searchParams)
-      ? { 'aria-current': 'page', 'data-void-active': '' }
-      : {};
+    return hasQueryParams(current.searchParams, target.searchParams) ? 'current' : undefined;
   }
 
   if (match === 'prefix' && linkPath !== '/') {
     const parent = linkPath.endsWith('/') ? linkPath : `${linkPath}/`;
     if (currentPath.startsWith(parent)) {
-      return { 'data-void-active': '' };
+      return 'ancestor';
     }
   }
-
-  return {};
 }
 
-/**
- * Marks a link while a visit to its destination is loading: the visit uses the link's
- * method and goes to its path, query and hash. Unlike active links, the whole query and
- * the hash count, so `?tab=open` isn't pending during a visit to `?tab=open&page=2`.
- * Every link to the destination is marked, not only the one that was clicked.
- * Spread the result before the user's attributes so theirs win.
- */
+function matchPending(
+  navigation: NavigationState | null | undefined,
+  method: NavigationMethod,
+  target: URL,
+): boolean {
+  const destination = navigation?.location;
+  return Boolean(
+    destination &&
+    navigation.state !== 'idle' &&
+    navigation.method === method &&
+    target.host === destination.host &&
+    target.protocol === destination.protocol &&
+    decodePagePath(target.pathname) === decodePagePath(destination.pathname) &&
+    target.search === destination.search &&
+    target.hash === destination.hash,
+  );
+}
+
+/** Reads the same current, active and pending state used by a Link with these props. */
+export function getLinkStatus(
+  router: VoidRouter | null | undefined,
+  navigation: NavigationState | null | undefined,
+  href: Href,
+  { method, data, activeMatch }: LinkStatusOptions = {},
+): LinkStatus {
+  return resolvedLinkStatus(router, navigation, resolveLink({ href, method, data }), activeMatch);
+}
+
+export function resolvedLinkStatus(
+  router: VoidRouter | null | undefined,
+  navigation: NavigationState | null | undefined,
+  link: ResolvedLink,
+  match: LinkActiveMatch = 'exact',
+): LinkStatus {
+  const current = router?.url;
+  const target = current && resolveSameOrigin(link.href, current);
+  const active = current && target && link.isGet ? matchActive(current, target, match) : undefined;
+  return {
+    current: active === 'current',
+    active: active !== undefined,
+    pending: !!target && matchPending(navigation, link.method, target),
+  };
+}
+
+/** Returns true for the current page and, with prefix matching, its parent paths. */
+export function isLinkActive(
+  router: VoidRouter | null | undefined,
+  href: Href,
+  options?: LinkStatusOptions,
+): boolean {
+  return getLinkStatus(router, null, href, options).active;
+}
+
+/** Returns true during a visit with the link's method, path, full query and hash. */
+export function isLinkPending(
+  router: VoidRouter | null | undefined,
+  navigation: NavigationState | null | undefined,
+  href: Href,
+  { method, data }: LinkStatusOptions = {},
+): boolean {
+  return pendingForLink(router, navigation, resolveLink({ href, method, data }));
+}
+
+function pendingForLink(
+  router: VoidRouter | null | undefined,
+  navigation: NavigationState | null | undefined,
+  link: ResolvedLink,
+): boolean {
+  const target = router && navigation?.location && resolveSameOrigin(link.href, router.url);
+  return !!target && matchPending(navigation, link.method, target);
+}
+
+/** Spread before authored attributes so the user's values win. */
+export function linkStatusAttributes(
+  status: LinkStatus,
+): LinkActiveAttributes & LinkPendingAttributes {
+  const attributes: LinkActiveAttributes & LinkPendingAttributes = {};
+  if (status.current) {
+    attributes['aria-current'] = 'page';
+  }
+  if (status.active) {
+    attributes['data-void-active'] = '';
+  }
+  if (status.pending) {
+    attributes['data-void-pending'] = '';
+  }
+  return attributes;
+}
+
+export function linkActiveAttributes(
+  router: VoidRouter | null | undefined,
+  link: ResolvedLink,
+  match?: LinkActiveMatch,
+): LinkActiveAttributes {
+  return linkStatusAttributes(resolvedLinkStatus(router, null, link, match));
+}
+
 export function linkPendingAttributes(
   router: VoidRouter | null | undefined,
   navigation: NavigationState | null | undefined,
   link: ResolvedLink,
 ): LinkPendingAttributes {
-  if (
-    !router ||
-    !navigation?.location ||
-    navigation.state === 'idle' ||
-    navigation.method !== link.method
-  ) {
-    return {};
-  }
-
-  const destination = navigation.location;
-  const target = resolveSameOrigin(link.href, router.url);
-  if (
-    target &&
-    target.host === destination.host &&
-    target.protocol === destination.protocol &&
-    decodePagePath(target.pathname) === decodePagePath(destination.pathname) &&
-    target.search === destination.search &&
-    target.hash === destination.hash
-  ) {
-    return { 'data-void-pending': '' };
-  }
-
-  return {};
+  return pendingForLink(router, navigation, link) ? { 'data-void-pending': '' } : {};
 }
 
 /** Each of `params` has the same value in `current`. Extra params in `current` are allowed. */
