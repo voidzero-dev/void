@@ -61,7 +61,20 @@ export function pmInitCommand(
   version: string,
   initArgs: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
-  return [...pmDlx(pm, version), 'init', '--package-manager', pm, ...initArgs];
+  const hasToolchain = initArgs.some(
+    (arg) => arg === '--toolchain' || arg.startsWith('--toolchain='),
+  );
+  const vitePlusToolchain =
+    !hasToolchain && process.env.VP_USER_AGENT?.startsWith('vp/');
+
+  return [
+    ...pmDlx(pm, version),
+    'init',
+    '--package-manager',
+    pm,
+    ...initArgs,
+    ...(vitePlusToolchain ? ['--toolchain', 'vite-plus'] : []),
+  ];
 }
 
 export type InitCommandRunner = (argv: ReadonlyArray<string>, cwd?: string) => Promise<void>;

@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { detectPM, pmDlx, pmInitCommand } from '../../src/pm.ts';
 
 describe('create-void package manager delegation', () => {
+  beforeEach(() => vi.stubEnv('VP_USER_AGENT', ''));
   afterEach(() => vi.unstubAllEnvs());
 
   it.each([
@@ -62,6 +63,34 @@ describe('create-void package manager delegation', () => {
       '--package-manager',
       'yarn',
       '--no-install',
+    ]);
+  });
+
+  it('selects Vite+ when invoked by the Vite+ CLI', () => {
+    vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    expect(pmInitCommand('pnpm', '1.2.3', [])).toEqual([
+      'pnpm',
+      'dlx',
+      'void@1.2.3',
+      'init',
+      '--package-manager',
+      'pnpm',
+      '--toolchain',
+      'vite-plus',
+    ]);
+  });
+
+  it('preserves an explicitly selected toolchain when invoked by the Vite+ CLI', () => {
+    vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    expect(pmInitCommand('pnpm', '1.2.3', ['--toolchain', 'vite'])).toEqual([
+      'pnpm',
+      'dlx',
+      'void@1.2.3',
+      'init',
+      '--package-manager',
+      'pnpm',
+      '--toolchain',
+      'vite',
     ]);
   });
 
