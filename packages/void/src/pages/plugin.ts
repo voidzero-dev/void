@@ -130,10 +130,6 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
   let viteConfig: ResolvedConfig | undefined;
   const root = options.root ?? dirname(pagesDir);
   const normalizedPagesDir = normalizePath(pagesDir);
-  // One id for the whole app: both bundles get it from the same define, and Vite
-  // may resolve this config once per environment, so it is derived from the source
-  // rather than minted here.
-  let buildId: string | undefined;
   let pendingRescan: Promise<void> | null = null;
   async function rescanPages(): Promise<void> {
     pageScan = existsSync(pagesDir)
@@ -275,7 +271,9 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
         if (userConfig.define?.[PAGES_BUILD_ID_DEFINE] !== undefined) {
           return resolved;
         }
-        buildId ??= computePagesBuildId(
+        // One id per build for every environment: computePagesBuildId keeps the
+        // first one until buildApp ends, whichever plugin instance asks.
+        const buildId = computePagesBuildId(
           root,
           buildIdExcludes(root, userConfig),
           clientBuildInputs(root, userConfig, env.mode),

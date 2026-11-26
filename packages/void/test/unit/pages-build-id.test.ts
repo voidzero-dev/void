@@ -352,13 +352,19 @@ describe('createPagesPlugin build id', () => {
       generateClient: () => '',
       config: () => ({}),
     });
-    const first = idIn(await createConfigHook(root)({}, { command: 'build' }));
+    // The same plugin instance builds twice, as through Vite's JavaScript API.
+    const config = getHookHandler(plugin.config) as unknown as (
+      userConfig: Record<string, unknown>,
+      env: { command: 'build'; mode: string },
+    ) => Promise<BuildConfig>;
+    const build = () => config({}, { command: 'build', mode: 'production' });
+    const first = idIn(await build());
 
     writeFileSync(join(root, 'pages', 'index.tsx'), 'export default function Other() {}\n');
     const endBuild = getHookHandler(plugin.buildApp) as unknown as () => Promise<void>;
     await endBuild();
 
-    expect(idIn(await createConfigHook(root)({}, { command: 'build' }))).not.toBe(first);
+    expect(idIn(await build())).not.toBe(first);
   });
 
   it('derives the id from the app source, so identical sources keep it', async () => {
