@@ -304,6 +304,34 @@ describe('Pages build recovery', () => {
     expect(reload).toHaveBeenCalledOnce();
   });
 
+  it('spends one reload on a stale prefetch, then stops when the retry is stale too', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.prefetch('/next');
+    await router.visit('/next');
+    expect(window.location.href).toBe('/next');
+
+    // The reload came back from the old build: a new document of the same build,
+    // where the user hovers and clicks again.
+    const documentUrl = 'http://localhost/';
+    (window.location as unknown as { href?: string }).href = documentUrl;
+    const { router: reloaded } = await createTestRouter({ adapter: { applyUpdate } });
+    await reloaded.prefetch('/next');
+    await reloaded.visit('/next');
+
+    expect(window.location.href).toBe(documentUrl);
+    expect(applyUpdate).not.toHaveBeenCalled();
+    expect(document.body.replaceChildren).toHaveBeenCalled();
+  });
+
   it('applies a mutation answered by another build and never reloads', async () => {
     stubClientGlobals();
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');

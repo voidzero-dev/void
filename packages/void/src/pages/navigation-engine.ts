@@ -356,6 +356,9 @@ export async function createPageNavigationEngine<Component>(
   const hasBoundaries = Object.keys(config.boundaryManifest?.plans ?? {}).length > 0;
   const _prefetchCache = new PrefetchCache();
   const uncachedPayloads = new WeakSet<object>();
+  // Prefetched URLs that another deployment answered, with that build. The visit
+  // that consumes one spends the same single reload as an ordinary navigation.
+  const stalePrefetches = new Map<string, string>();
   let _nextNavigationId = 0;
   // The newest visit whose URL is in the address bar: the last commit, or a back/forward
   // visit, which the browser has already moved to. An older visit must not commit over it.
@@ -702,7 +705,9 @@ export async function createPageNavigationEngine<Component>(
         }
         // Another deployment answered: cache nothing, so the visit that follows a
         // hover reloads instead of rendering props this build's chunks cannot show.
-        if (isStaleBuild(pagesBuildId(), r.headers.get(PAGES_BUILD_HEADER))) {
+        const servedBy = r.headers.get(PAGES_BUILD_HEADER);
+        if (servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+          stalePrefetches.set(url, servedBy);
           return null;
         }
         if (!r.headers.get('X-VoidPages')) {
@@ -818,6 +823,13 @@ export async function createPageNavigationEngine<Component>(
       const cachedPageData = await cacheEntry.response;
       _prefetchCache.consume(fetchUrl, method);
       if (cachedPageData === null) {
+        const staleBuild = stalePrefetches.get(fetchUrl);
+        stalePrefetches.delete(fetchUrl);
+        if (staleBuild !== undefined && !claimDeployReload(staleBuild, url)) {
+          // The last reload landed on the same old document; see the visit path below.
+          showTerminalPageError(url);
+          return undefined;
+        }
         loadDocument(url);
         return undefined;
       }
