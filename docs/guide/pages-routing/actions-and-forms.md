@@ -34,9 +34,9 @@ Middleware does not run again after the action. To change [shared data](./layout
 
 ## Form
 
-Pair `Form` with `useForm` to submit values and display validation and action errors. Inputs stay editable when a submission fails.
+Pair `Form` with `useForm` to submit values. Inputs stay editable when a submission fails. `Form` shows an alert above the fields when there is an error. The alert shows the action error from `form.error` when present and joins the messages from `form.errors` otherwise.
 
-Import `Form` from your adapter. Pass `form` and, optionally, `method="put"`, `"patch"`, or `"delete"`; the default is `"post"`. Use `renderError` for a custom action-error renderer (a snippet in Svelte).
+Import `Form` from your adapter. Pass `form` and optionally set `method` to `"put"`, `"patch"`, or `"delete"`. The default is `"post"`. Use `renderError` for custom action-error text (a snippet in Svelte). Field messages use the alert with or without `renderError`.
 
 ## `useForm`
 
@@ -66,14 +66,12 @@ export default function CreateUser() {
         value={form.data.name}
         onChange={(e) => form.setData('name', e.target.value)}
       />
-      {form.errors.name && <span>{form.errors.name}</span>}
 
       <input
         name="email"
         value={form.data.email}
         onChange={(e) => form.setData('email', e.target.value)}
       />
-      {form.errors.email && <span>{form.errors.email}</span>}
 
       <SubmitButton />
     </Form>
@@ -92,10 +90,7 @@ const form = useForm('/users', { name: '', email: '' });
 <template>
   <Form :form="form">
     <input v-model="form.data.name" />
-    <span v-if="form.errors.name">{{ form.errors.name }}</span>
-
     <input v-model="form.data.email" />
-    <span v-if="form.errors.email">{{ form.errors.email }}</span>
 
     <button :disabled="form.pending">Create</button>
   </Form>
@@ -112,10 +107,7 @@ const form = useForm('/users', { name: '', email: '' });
 
 <Form {form}>
   <input bind:value={form.data.name} />
-  {#if form.errors.name}<span>{form.errors.name}</span>{/if}
-
   <input bind:value={form.data.email} />
-  {#if form.errors.email}<span>{form.errors.email}</span>{/if}
 
   <button disabled={form.pending}>Create</button>
 </Form>
@@ -131,10 +123,7 @@ export default function CreateUser() {
   return (
     <Form form={form}>
       <input value={form.data.name} onInput={(e) => form.setData('name', e.target.value)} />
-      {form.errors.name && <span>{form.errors.name}</span>}
-
       <input value={form.data.email} onInput={(e) => form.setData('email', e.target.value)} />
-      {form.errors.email && <span>{form.errors.email}</span>}
 
       <button disabled={form.pending}>Create</button>
     </Form>
@@ -333,9 +322,41 @@ import { useForm } from '@void/react'; // or "@void/vue", "@void/svelte", "@void
 const form = useForm('/users', { name: '', email: '' }, { throwOnError: false });
 ```
 
-Validation errors appear in `form.errors`; other HTTP failures appear in `form.error`. `Form` displays the error for you. In React, `onError` also receives it.
+Validation errors appear in `form.errors`. Other HTTP failures appear in `form.error`. In React, `onError` also receives the error.
 
-Network errors and other unexpected failures still throw. Cancelled submissions don't set a form error.
+Network errors and other unexpected failures still throw. Cancelled submissions don't set `form.error`.
+
+When the alert shows field errors, rendering `form.errors.<field>` inside `Form` repeats the message. To show each message beside its input, use a plain `<form>` that submits with `form.post`. A plain form can submit during a retry delay unless you block submission yourself.
+
+In React, pass `form.post` as the form's action.
+
+```tsx
+import { useForm } from '@void/react';
+
+export default function CreateUser() {
+  const form = useForm('/users', { name: '', email: '' });
+
+  return (
+    <form action={form.post}>
+      <input
+        name="name"
+        value={form.data.name}
+        onChange={(e) => form.setData('name', e.target.value)}
+      />
+      {form.errors.name && <span>{form.errors.name}</span>}
+
+      <input
+        name="email"
+        value={form.data.email}
+        onChange={(e) => form.setData('email', e.target.value)}
+      />
+      {form.errors.email && <span>{form.errors.email}</span>}
+
+      <button disabled={form.pending}>Create</button>
+    </form>
+  );
+}
+```
 
 Use `isVoidActionError()` to read an action error's `status` and `message`, including thrown errors:
 

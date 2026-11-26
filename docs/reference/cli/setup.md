@@ -49,6 +49,8 @@ void init --toolchain vite-plus --framework react --starter sqlite --deploy none
 npm create void@latest my-app -- --toolchain vite-plus --framework react --starter sqlite --deploy none
 ```
 
+`npm create void <name>` takes a single directory name and creates it inside the current directory. Use up to 63 characters from `a-z`, `0-9`, and `-`, with a letter or digit at each end.
+
 For non-interactive scaffolding, choose `--deploy none` and run `void connect` later to sign in.
 
 Vite+ is the recommended toolchain. Vite+ starters include [`@cloudflare/oxlint-config`](https://github.com/cloudflare/oxlint-config). Run `vp lint` to check your code.
