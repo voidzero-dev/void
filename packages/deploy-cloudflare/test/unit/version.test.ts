@@ -4130,7 +4130,12 @@ describe('Cloudflare version activation', () => {
 
       await expect(
         activateCloudflareVersion({ ...options, verifyUploader: () => trusted }),
-      ).resolves.toMatchObject({ ok: false, reason: 'uploader-changed', rollback: 'unsafe' });
+      ).resolves.toMatchObject({
+        ok: false,
+        reason: 'uploader-changed',
+        beforeActivation: true,
+        rollback: 'unsafe',
+      });
       expect(sleep.mock.calls).toEqual([[17]]);
       expect(runWrangler.mock.invocationCallOrder.at(-1)).toBeLessThan(
         sleep.mock.invocationCallOrder[0],
@@ -4141,12 +4146,12 @@ describe('Cloudflare version activation', () => {
 
   it.each([
     [
-      'failed',
+      'adds beforeActivation when the final status read fails',
       { ...ok(), status: 7 },
       { reason: 'status-failed', status: 7, beforeActivation: true },
     ],
     [
-      'different active version',
+      'adds beforeActivation when the final status read reports a different deployment',
       ok(JSON.stringify({ versions: [{ version_id: CONCURRENT, percentage: 100 }] })),
       {
         reason: 'deployment-changed',
@@ -4157,7 +4162,7 @@ describe('Cloudflare version activation', () => {
       },
     ],
     [
-      'split',
+      'reports the traffic split from the final status read',
       ok(
         JSON.stringify({
           versions: [
@@ -4169,8 +4174,8 @@ describe('Cloudflare version activation', () => {
       { reason: 'traffic-split-unsupported' },
     ],
   ] as const)(
-    'preserves the result for a %s final status read without staging',
-    async (_kind, read, expected) => {
+    '%s after readiness succeeds on the path without a staging deployment',
+    async (_title, read, expected) => {
       const base = runner();
       let statusReads = 0;
       const runWrangler = operationFixture((args: Array<string>) => {

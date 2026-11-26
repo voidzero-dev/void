@@ -530,10 +530,6 @@ describe('Cloudflare activation diagnostics', () => {
   it.each([
     ['succeeded', ' Void redeployed the previous version at 100% of traffic.'],
     [
-      'unsafe',
-      ' Void left its 0% staging deployment in place because it could not confirm that deployment is still its own.',
-    ],
-    [
       'failed',
       ' Void tried to redeploy the previous version at 100% of traffic, but Cloudflare did not confirm it.',
     ],
@@ -547,6 +543,31 @@ describe('Cloudflare activation diagnostics', () => {
     });
     expect(message).toBe(
       `deploy: Cloudflare deployment status did not show the expected deployment before activation.${details} Inspect \`void project status\` before retrying.`,
+    );
+  });
+
+  it('reports an uploader change before activation when staging cleanup is unsafe', () => {
+    const message = formatCloudflareActivationError({
+      ok: false,
+      reason: 'uploader-changed',
+      beforeActivation: true,
+      rollback: 'unsafe',
+    });
+    expect(message).toBe(
+      'deploy: the verified Wrangler uploader changed before version activation. Void did not invoke the changed binary to remove its 0% staging deployment; reinstall Wrangler from a trusted lockfile and inspect `void project status` immediately.',
+    );
+  });
+
+  it('reports that the current deployment is unchanged when staging ownership is unconfirmed', () => {
+    const message = formatCloudflareActivationError({
+      ok: false,
+      reason: 'deployment-changed',
+      beforeActivation: true,
+      activeVersionId: 'another-version',
+      rollback: 'unsafe',
+    });
+    expect(message).toBe(
+      "deploy: Cloudflare deployment status did not show the expected deployment before activation. Void left the current deployment unchanged because it could not confirm it is Void's 0% staging deployment. Inspect `void project status` before retrying.",
     );
   });
 

@@ -121,7 +121,7 @@ export type CloudflareVersionActivation =
       diagnostic?: string;
       /** Wrangler reached Cloudflare's Containers entitlement endpoint and received a 403. */
       containersUnavailable?: boolean;
-      /** The final status check stopped activation after the version was uploaded. */
+      /** The deployment stopped after upload and before activation. */
       beforeActivation?: true;
       versionId?: string;
       previousVersionId?: string | null;
@@ -1697,6 +1697,7 @@ async function activateCloudflareVersionWithSecretsFile(
     return {
       ok: false,
       reason: 'uploader-changed',
+      beforeActivation: true,
       versionId,
       previousVersionId: previous.versionId,
       ...(stagedVersionOverride
@@ -1742,6 +1743,7 @@ async function activateCloudflareVersionWithSecretsFile(
         return {
           ok: false,
           reason: 'uploader-changed',
+          beforeActivation: true,
           versionId,
           previousVersionId: previous.versionId,
           rollback: 'unsafe',
