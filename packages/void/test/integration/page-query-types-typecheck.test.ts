@@ -370,3 +370,55 @@ it('keeps each branch of a union schema input', () => {
   });
   expectClean(result, result);
 });
+
+it('reads raw strings when an exposed schema returns a scalar', () => {
+  // The page only receives a validated query that is an object.
+  const result = typecheck([page('/count', 'count.server.ts')], {
+    'pages/count.server.ts': `${pageWithSchema('{ page: string }', 'number')}export const exposeQuery = true;\n`,
+    'check.ts': [
+      "import type { PageQuery } from 'void/routes';",
+      "declare const query: PageQuery<'/count'>;",
+      'const raw: string | Array<string> | undefined = query.page;',
+      '// @ts-expect-error the scalar output never reaches the page',
+      'const scalar: number = query;',
+      'void [raw, scalar];',
+    ].join('\n'),
+  });
+  expectClean(result, result);
+});
+
+it('requires the query when any page of a union path requires it', () => {
+  const result = typecheck(
+    [page('/payments', 'payments.server.ts'), page('/search', 'search.server.ts')],
+    {
+      'pages/payments.server.ts': pageWithSchema(
+        "{ status: 'paid' | 'pending' }",
+        "{ status: 'paid' | 'pending' }",
+      ),
+      'pages/search.server.ts': plainLoader,
+      'check.ts': [
+        "import { routeUrl } from 'void/routes';",
+        "declare const path: '/payments' | '/search';",
+        '// @ts-expect-error /payments requires `status`',
+        'routeUrl(path);',
+        "routeUrl('/search');",
+      ].join('\n'),
+    },
+  );
+  expectClean(result, result);
+});
+
+it('keeps URL values checked when the whole schema input is unknown', () => {
+  // A preprocessed object schema takes `unknown` as its input.
+  const result = typecheck([page('/search', 'search.server.ts')], {
+    'pages/search.server.ts': pageWithSchema('unknown', '{ page: number }'),
+    'check.ts': [
+      "import { routeUrl } from 'void/routes';",
+      "routeUrl('/search');",
+      "routeUrl('/search', { query: { page: 2 } });",
+      '// @ts-expect-error a query string cannot carry an object',
+      "routeUrl('/search', { query: { page: { n: 2 } } });",
+    ].join('\n'),
+  });
+  expectClean(result, result);
+});

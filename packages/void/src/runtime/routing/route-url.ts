@@ -169,10 +169,16 @@ export type RouteOptions<P extends RoutePath> = {
  * The options `routeUrl()` requires for `P`. Required as soon as a route param
  * or the page's query schema has a required key.
  */
-export type RouteUrlArgs<P extends RoutePath> =
-  Record<never, never> extends RouteOptions<P>
-    ? [options?: RouteOptions<P>]
-    : [options: RouteOptions<P>];
+export type RouteUrlArgs<P extends RoutePath> = [RouteOptionsRequired<P>] extends [never]
+  ? [options?: RouteOptions<P>]
+  : [options: RouteOptions<P>];
+
+/** `true` for each page of `P` that needs options. A union path needs them if one page does. */
+type RouteOptionsRequired<P> = P extends RoutePath
+  ? Record<never, never> extends RouteOptions<P>
+    ? never
+    : true
+  : never;
 
 export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath
   ? { pathname: P } & RouteOptions<P>

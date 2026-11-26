@@ -221,10 +221,12 @@ export function generateRouteTypes(
     '    : T extends ReadonlyArray<infer E> ? ReadonlyArray<RouteQueryItemOf<E>> : RouteQueryItemOf<T>;',
     // Map each branch of a union input on its own, so a branch keeps its own keys.
     '  type RouteQueryFieldsOf<I> = I extends unknown ? { [K in keyof I]: RouteQueryValueOf<I[K]> } : never;',
+    // An `unknown` input (a preprocessed schema) names no keys, so any URL query fits.
     '  type PageQueryInputOf<S> = S extends StandardSchemaV1',
-    '    ? RouteQueryFieldsOf<StandardSchemaV1.InferInput<S>>',
+    '    ? unknown extends StandardSchemaV1.InferInput<S> ? RouteQuery : RouteQueryFieldsOf<StandardSchemaV1.InferInput<S>>',
     '    : never;',
-    '  type PageQueryOutputOf<S> = S extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<S> : never;',
+    // The page only receives a validated query that is an object; otherwise it reads the raw strings.
+    '  type PageQueryOutputOf<S> = S extends StandardSchemaV1 ? Extract<StandardSchemaV1.InferOutput<S>, object> : never;',
     // A page publishes its validated query only when it sets the flag, so the
     // read type follows the same opt-in the payload does.
     '  type PageQueryPublished<M> = M extends { exposeQuery: true } ? M : never;',
@@ -244,7 +246,9 @@ export function generateRouteTypes(
     '  } & RouteQueryOptions<P> & ([RoutePathMap[P]] extends [never]',
     '    ? { params?: never }',
     '    : { params: { [K in RoutePathMap[P] & string]: string | number } });',
-    '  export type RouteUrlArgs<P extends RoutePath> = {} extends RouteOptions<P>',
+    // A union path needs the options as soon as one of its pages does.
+    '  type RouteOptionsRequired<P> = P extends RoutePath ? ({} extends RouteOptions<P> ? never : true) : never;',
+    '  export type RouteUrlArgs<P extends RoutePath> = [RouteOptionsRequired<P>] extends [never]',
     '    ? [options?: RouteOptions<P>]',
     '    : [options: RouteOptions<P>];',
     '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
