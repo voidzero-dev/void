@@ -1,4 +1,5 @@
 import {
+  isStaleBuildReload,
   matchSegmentPattern,
   pagesPayloadFitsBuild,
   PAGES_BUILD_HEADER,
@@ -612,7 +613,7 @@ async function handleIsrInternal(
     const response = await render(request);
     // The app answered a stale client with its reload response. That says nothing
     // about this path's cached HTML, which other tabs can still use.
-    if (!response.headers.get('X-VoidPages')) {
+    if (isStaleBuildReload(request, response)) {
       return response;
     }
     const ttl = resolveRevalidateTtl(response, isrTtl);

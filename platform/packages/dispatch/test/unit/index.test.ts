@@ -3507,7 +3507,10 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     expect(edgeCacheStore.has(htmlKey)).toBe(false);
   });
 
-  it('keeps cached HTML when a stale client gets its reload response', async () => {
+  it.each([
+    ['keeps', 'the reload response for a client from another build', 'build-2', true],
+    ['evicts', 'an ordinary answer that opts out of sharing', null, false],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, kept) => {
     const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
     edgeCacheStore.set(
       htmlKey,
@@ -3518,7 +3521,12 @@ describe('ISR JSON edge cache (pages protocol)', () => {
 
     const { env, workerFetch } = createEnv({
       routing: isrRouting,
-      workerResponse: new Response(null, { headers: { 'Cache-Control': 'no-store' } }),
+      workerResponse: new Response(null, {
+        headers: {
+          'Cache-Control': 'no-store',
+          ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
+        },
+      }),
     });
     const ctx = createCtx();
 
@@ -3527,7 +3535,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
         headers: {
           'X-VoidPages': 'true',
           'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
-          'X-VoidPages-Build': 'build-2',
+          'X-VoidPages-Build': 'build-1',
         },
       }),
       env,
@@ -3535,10 +3543,10 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     );
     await waitForBackgroundTasks(ctx);
 
-    // The answer belongs to the JSON path; other tabs still hold this HTML.
+    // A reload answer belongs to one stale tab; other tabs still hold this HTML.
     expect(workerFetch).toHaveBeenCalledOnce();
     expect(response.headers.get('Cache-Control')).toBe('no-store');
-    expect(edgeCacheStore.has(htmlKey)).toBe(true);
+    expect(edgeCacheStore.has(htmlKey)).toBe(kept);
   });
 
   it('pages request falls through to worker on JSON cache miss', async () => {

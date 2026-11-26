@@ -1042,14 +1042,23 @@ describe('handleIsr', () => {
     expect(res!.headers.get('X-VoidPages-Build')).toBe('build-2');
   });
 
-  it('keeps cached HTML when a stale client gets its reload response', async () => {
+  it.each([
+    ['keeps', 'the reload response for a client from another build', 'build-2', true],
+    ['evicts', 'an ordinary answer that opts out of sharing', null, false],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, kept) => {
     const { store, kv } = createKvMock();
     store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0].seed());
     const env = makeEnv(kv);
     const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
     edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));
     const { render } = createRender(
-      () => new Response(null, { headers: { 'Cache-Control': 'no-store' } }),
+      () =>
+        new Response(null, {
+          headers: {
+            'Cache-Control': 'no-store',
+            ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
+          },
+        }),
     );
     const { ctx, flush } = createCtx();
 
@@ -1057,7 +1066,7 @@ describe('handleIsr', () => {
       htmlRequest('/blog/post', {
         'X-VoidPages': 'true',
         'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
-        'X-VoidPages-Build': 'build-2',
+        'X-VoidPages-Build': 'build-1',
       }),
       env,
       ctx,
@@ -1066,10 +1075,10 @@ describe('handleIsr', () => {
     );
     await flush();
 
-    // The answer belongs to the JSON path only; other tabs still hold this HTML.
+    // A reload answer belongs to one stale tab; other tabs still hold this HTML.
     expect(res!.headers.get('Cache-Control')).toBe('no-store');
-    expect(await edge.store.get(htmlKey)!.text()).toBe('<html>cached</html>');
-    expect(store.has(isrKey(DPL, HOST, '/blog/post'))).toBe(true);
+    expect(edge.store.has(htmlKey)).toBe(kept);
+    expect(store.has(isrKey(DPL, HOST, '/blog/post'))).toBe(kept);
   });
 
   it.each([

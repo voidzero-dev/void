@@ -1,4 +1,5 @@
 import {
+  isStaleBuildReload,
   matchLiteralPattern,
   pagesPayloadFitsBuild,
   PAGES_BUILD_HEADER,
@@ -1823,13 +1824,10 @@ const dispatcher = {
         }
       }
 
-      // The app answers a stale Pages client with a reload response that carries no
-      // page data. It says nothing about the cached HTML, which other tabs still use.
-      const pagesReload =
-        request.headers.has('X-VoidPages') && !response.headers.has('X-VoidPages');
       if (
         sharedIsrEntry &&
-        !pagesReload &&
+        // The app's answer to a stale Pages client says nothing about cached HTML.
+        !isStaleBuildReload(request, response) &&
         response.status === 200 &&
         !writebackFallbackApplied &&
         (resolveRevalidateTtl(

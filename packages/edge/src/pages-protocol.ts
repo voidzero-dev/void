@@ -34,3 +34,20 @@ export function pagesPayloadFitsBuild(
 ): boolean {
   return requestBuild === null || cachedBuild === requestBuild;
 }
+
+/**
+ * Whether `response` is the app's reload answer to a Pages client from another
+ * build: no page data, and a build that differs from the one the client sent.
+ * It says nothing about cached copies of the page, which other tabs still use.
+ */
+export function isStaleBuildReload(request: Request, response: Response): boolean {
+  const sent = request.headers.get(PAGES_BUILD_HEADER);
+  const answered = response.headers.get(PAGES_BUILD_HEADER);
+  return (
+    request.headers.has('X-VoidPages') &&
+    !response.headers.has('X-VoidPages') &&
+    sent !== null &&
+    answered !== null &&
+    sent !== answered
+  );
+}
