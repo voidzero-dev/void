@@ -95,15 +95,17 @@ function sortedEntries(record: Record<string, unknown>): Array<[string, unknown]
  * only here still emit different chunks, so the id has to cover them.
  */
 function clientBuildInputs(root: string, userConfig: UserConfig, mode: string): PagesBuildInputs {
-  const envDir = userConfig.envDir;
-  const env =
-    envDir === false
-      ? {}
-      : loadEnv(
-          mode,
-          typeof envDir === 'string' ? (isAbsolute(envDir) ? envDir : join(root, envDir)) : root,
-          userConfig.envPrefix ?? 'VITE_',
-        );
+  const { envDir } = userConfig;
+  // `false` skips the .env files, but shell values still reach the client.
+  const env = loadEnv(
+    mode,
+    typeof envDir === 'string'
+      ? isAbsolute(envDir)
+        ? envDir
+        : join(root, envDir)
+      : (envDir ?? root),
+    userConfig.envPrefix ?? 'VITE_',
+  );
   return {
     env: JSON.stringify(sortedEntries(env)),
     define: JSON.stringify(sortedEntries(userConfig.define ?? {})),

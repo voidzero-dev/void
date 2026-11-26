@@ -313,12 +313,15 @@ describe('createPagesPlugin build id', () => {
     expect(await idOf()).not.toBe(first);
   });
 
-  it('changes the id for env values the client inlines', async () => {
+  it.each([
+    ['from the default env folder', {}],
+    ['from the shell when env files are off', { envDir: false }],
+  ])('changes the id for env values the client inlines, %s', async (_, userConfig) => {
     const root = createFixture();
     const idFor = async (value: string) => {
       vi.stubEnv('VITE_PROBE', value);
       endPagesBuild(root);
-      return idIn(await createConfigHook(root)({}, { command: 'build' }));
+      return idIn(await createConfigHook(root)(userConfig, { command: 'build' }));
     };
 
     // Two builds that differ only here still emit different chunks.
