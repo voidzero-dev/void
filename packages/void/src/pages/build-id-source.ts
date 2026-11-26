@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { isAbsolute, join, relative } from 'pathslash';
 import { searchForWorkspaceRoot } from 'vite';
+import { findInstalledPackage } from '../installed-packages.ts';
 
 /** Directories never part of the app source, whatever their position. */
 const alwaysSkipped = new Set(['node_modules']);
@@ -173,8 +174,8 @@ function dependencyNames(directory: string): Array<string> {
 
 /**
  * Folders of the workspace packages `root` depends on, directly or through other
- * workspace packages. Package managers link them into node_modules, and the link
- * leads back into the workspace outside any node_modules.
+ * workspace packages. Package managers link them into node_modules, or Yarn
+ * Plug'n'Play maps them, and they lie in the workspace outside any node_modules.
  */
 function workspaceDependencies(root: string, workspace: string): Array<string> {
   const realWorkspace = realPath(workspace);
@@ -187,9 +188,9 @@ function workspaceDependencies(root: string, workspace: string): Array<string> {
   const queue = [realRoot];
   for (let directory = queue.shift(); directory !== undefined; directory = queue.shift()) {
     for (const name of dependencyNames(directory)) {
-      const target =
-        realPath(join(directory, 'node_modules', name)) ??
-        realPath(join(realWorkspace, 'node_modules', name));
+      // Follows node_modules links, or asks Yarn Plug'n'Play where there are none.
+      const installed = findInstalledPackage(name, directory);
+      const target = installed === undefined ? null : (realPath(installed) ?? installed);
       if (target === null || seen.has(target)) {
         continue;
       }

@@ -8,6 +8,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
+import module from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -191,6 +192,30 @@ describe('computePagesBuildId', () => {
       expect(buildIdOf(app)).toBe(first);
     });
 
+    it("asks Yarn Plug'n'Play for workspace packages when there is no node_modules", () => {
+      const { app, write } = createWorkspace();
+      rmSync(join(app, 'node_modules'), { recursive: true, force: true });
+      const ui = join(dirname(dirname(app)), 'packages/ui');
+      const runtime = module as {
+        findPnpApi?: (path: string) => { resolveToUnqualified(request: string): string } | null;
+      };
+      runtime.findPnpApi = () => ({
+        resolveToUnqualified: (request) => {
+          if (request !== 'ui/package.json') {
+            throw new Error(`${request} is not a dependency`);
+          }
+          return join(ui, 'package.json');
+        },
+      });
+      try {
+        const first = buildIdOf(app);
+        write('packages/ui/index.ts', 'export const label = 22;\n');
+        expect(buildIdOf(app)).not.toBe(first);
+      } finally {
+        delete runtime.findPnpApi;
+      }
+    });
+
     it('covers an app that sits under a dot folder', () => {
       const { app, write } = createWorkspace('.examples/web');
       const first = buildIdOf(app);
@@ -316,6 +341,7 @@ describe('createPagesPlugin build id', () => {
   it.each([
     ['from the default env folder', {}],
     ['from the shell when env files are off', { envDir: false }],
+    ['with the fixed VITE_ prefix under a custom envPrefix', { envPrefix: 'PUBLIC_' }],
   ])('changes the id for env values the client inlines, %s', async (_, userConfig) => {
     const root = createFixture();
     const idFor = async (value: string) => {

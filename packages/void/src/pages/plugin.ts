@@ -104,7 +104,8 @@ function clientBuildInputs(root: string, userConfig: UserConfig, mode: string): 
         ? envDir
         : join(root, envDir)
       : (envDir ?? root),
-    userConfig.envPrefix ?? 'VITE_',
+    // Fixed-prefix VITE_ keys an env.ts declares reach the client whatever the prefix.
+    [...new Set(['VITE_', ...[userConfig.envPrefix ?? []].flat()])],
   );
   return {
     env: JSON.stringify(sortedEntries(env)),
