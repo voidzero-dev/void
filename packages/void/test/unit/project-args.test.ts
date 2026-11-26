@@ -426,6 +426,7 @@ describe('parseProjectArgs preview', () => {
     [['preview', 'delete', '-x']],
     [['preview', 'delete', 'pr-64', 'pr-65']],
     [['preview', 'list']],
+    [['preview', 'delete pr-64']],
     [['preview', 'delete', 'pr-64', '--platform', 'aws']],
   ])('refuses %j', (args) => {
     expect(() => parseProjectArgs(args)).toThrow(

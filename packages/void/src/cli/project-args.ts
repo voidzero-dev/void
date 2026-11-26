@@ -385,8 +385,7 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
         }
         platform = 'cloudflare';
       } else {
-        // The interactive menu passes the typed "delete <name>" as one argument.
-        positional.push(...arg.split(' ').filter(Boolean));
+        positional.push(arg);
       }
     }
     const [action, name] = positional;

@@ -27,10 +27,15 @@ import { projectSubcommands, parseProjectArgs } from './project-args.ts';
 import { secretSubcommands, parseSecretArgs } from './secret-args.ts';
 import type { SubcommandDef, SubcommandResult } from './subcommand-prompt.ts';
 
-function buildArgs(result: SubcommandResult, trailingArgs: Array<string>): Array<string> {
+function buildArgs(
+  result: SubcommandResult,
+  trailingArgs: Array<string>,
+  subcommands: Array<SubcommandDef>,
+): Array<string> {
   const out = [result.subcommand];
   if (result.arg) {
-    out.push(result.arg);
+    const hint = subcommands.find(({ name }) => name === result.subcommand)?.arg;
+    out.push(...(hint?.includes(' ') ? result.arg.split(' ').filter(Boolean) : [result.arg]));
   }
   if (result.extraArgs) {
     out.push(...result.extraArgs);
@@ -81,7 +86,7 @@ async function runSubcommandGroup<T>(
       if (!result) {
         process.exit(0);
       }
-      const parsed = parse(buildArgs(result, args.slice(1)));
+      const parsed = parse(buildArgs(result, args.slice(1), subcommands));
       await run(root, parsed);
     } else {
       const parsed = parse(args.slice(1));
