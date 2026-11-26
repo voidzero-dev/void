@@ -77,6 +77,7 @@ describe('create-void package manager delegation', () => {
       'pnpm',
       '--toolchain',
       'vite-plus',
+      '--no-install',
       '--vp-create',
     ]);
   });
@@ -92,6 +93,23 @@ describe('create-void package manager delegation', () => {
       'pnpm',
       '--toolchain',
       'vite',
+      '--no-install',
+      '--vp-create',
+    ]);
+  });
+
+  it('preserves an explicit install request when invoked by the Vite+ CLI', () => {
+    vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    expect(pmInitCommand('pnpm', '1.2.3', ['--install'])).toEqual([
+      'pnpm',
+      'dlx',
+      'void@1.2.3',
+      'init',
+      '--package-manager',
+      'pnpm',
+      '--install',
+      '--toolchain',
+      'vite-plus',
       '--vp-create',
     ]);
   });
