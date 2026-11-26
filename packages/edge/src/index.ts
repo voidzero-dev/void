@@ -1,5 +1,12 @@
 export type { ProjectZeroTrustRouting } from './access.ts';
-export { PAGES_PROTOCOL_VERSION } from './pages-protocol.ts';
+export {
+  buildHeaders,
+  isStaleBuild,
+  isStaleBuildReload,
+  pagesPayloadFitsBuild,
+  PAGES_BUILD_HEADER,
+  PAGES_PROTOCOL_VERSION,
+} from './pages-protocol.ts';
 export { redirectToHttps } from './https.ts';
 export {
   applyHeaderRules,

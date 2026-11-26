@@ -9,6 +9,7 @@ export type VoidSvelteOptions = Readonly<{
   svelte?: Parameters<typeof svelte>[0];
   viewTransitions?: boolean;
   prefetch?: PrefetchConfig;
+  deployRecovery?: boolean;
 }>;
 
 export function voidSvelte(options?: VoidSvelteOptions): Array<Plugin> {
@@ -16,11 +17,8 @@ export function voidSvelte(options?: VoidSvelteOptions): Array<Plugin> {
   const pagesDir = resolvePagesDir(root);
   return [
     ...(svelte(options?.svelte) as ReadonlyArray<Plugin>),
-    pagesPlugin(pagesDir, {
-      root,
-      viewTransitions: options?.viewTransitions,
-      prefetch: options?.prefetch,
-    }),
+    // Spread so adapter options the pages plugin owns reach it without per-option glue.
+    pagesPlugin(pagesDir, { ...options, root }),
     ...islandsPlugin(pagesDir, { root }),
   ];
 }

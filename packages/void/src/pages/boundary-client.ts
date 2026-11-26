@@ -1,6 +1,7 @@
 import { isVoidActionError } from './action-result.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
 import type { PageError } from './types.ts';
+import { isSameOrigin } from './url.ts';
 
 export type ClientPageBoundary<Component = unknown> = {
   id: string;
@@ -49,7 +50,7 @@ export function clientPageError(error: unknown, dev = false): PageError {
 /** Terminal recovery cannot depend on the failed adapter, imports, or component tree. */
 export function showTerminalPageError(url: string = window.location.href): void {
   const target = new URL(url, window.location.href);
-  if (target.origin !== window.location.origin) {
+  if (!isSameOrigin(target, window.location.origin)) {
     throw new Error('Invalid error page destination');
   }
   try {

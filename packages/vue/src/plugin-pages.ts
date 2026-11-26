@@ -241,6 +241,7 @@ export function pagesPlugin(
     createPagesPlugin(pagesDir, {
       name: 'void-vue:pages',
       root: options?.root,
+      deployRecovery: options?.deployRecovery,
       generateRenderer(scan) {
         return generateRendererModule(scan, pagesDir);
       },

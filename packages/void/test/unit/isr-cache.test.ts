@@ -13,6 +13,7 @@ import {
   markSharedCachePolicy,
   normalizeIsrPath,
   packIsrValue,
+  populateJsonEdgeCache,
   readIsrCache,
   SHARED_CACHE_POLICY_VERSION,
   writeIsrCache,
@@ -923,6 +924,224 @@ describe('handleIsr', () => {
     expect(res!.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
     expect(res!.headers.get('x-isr-cache')).toBe('HIT');
     expect(await res!.text()).toBe('{"component":"Blog","props":{}}');
+  });
+
+  it('bypasses a cached JSON variant that belongs to another build', async () => {
+    const { kv } = createKvMock();
+    const env = makeEnv(kv);
+    const { render } = createRender(
+      () =>
+        new Response('<html>live</html>', {
+          headers: {
+            'content-type': 'text/html',
+            'x-void-page-data': '{"component":"Blog","props":{}}',
+            'X-VoidPages-Build': 'build-1',
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+    await handleIsr(htmlRequest(), env, ctx, OPTS, render);
+    await flush();
+    expect(edge.store.has(jsonEdgeKey(HOST, '/blog/post', DPL))).toBe(true);
+
+    const pagesHeaders = (build: string) => ({
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      'X-VoidPages-Build': build,
+    });
+
+    // Same build: the cached payload answers and names the build it came from.
+    const { render: hitRender, spy: hitSpy } = createRender(
+      () => new Response('SHOULD-NOT-RENDER'),
+    );
+    const hit = await handleIsr(
+      htmlRequest('/blog/post', pagesHeaders('build-1')),
+      env,
+      createCtx().ctx,
+      OPTS,
+      hitRender,
+    );
+    expect(hitSpy).not.toHaveBeenCalled();
+    expect(hit!.headers.get('X-VoidPages-Build')).toBe('build-1');
+
+    // A client that sends no build id cannot be shown a reload; the payload stays.
+    const { render: legacyRender, spy: legacySpy } = createRender(
+      () => new Response('SHOULD-NOT-RENDER'),
+    );
+    const legacy = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      }),
+      env,
+      createCtx().ctx,
+      OPTS,
+      legacyRender,
+    );
+    expect(legacySpy).not.toHaveBeenCalled();
+    expect(legacy!.headers.get('X-VoidPages-Build')).toBe('build-1');
+
+    // Another build: the app answers instead, which reloads the stale tab.
+    const { render: liveRender, spy: liveSpy } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"fresh":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'X-VoidPages-Build': 'build-2',
+          },
+        }),
+    );
+    const live = await handleIsr(
+      htmlRequest('/blog/post', pagesHeaders('build-2')),
+      env,
+      createCtx().ctx,
+      OPTS,
+      liveRender,
+    );
+    expect(liveSpy).toHaveBeenCalledTimes(1);
+    expect(live!.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it('still evicts shared copies when the app answers a bypassed entry with no-store', async () => {
+    const { kv } = createKvMock();
+    const env = makeEnv(kv);
+    const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
+    const jsonKey = jsonEdgeKey(HOST, '/blog/post', DPL);
+    edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));
+    edge.store.set(
+      jsonKey,
+      currentSharedCacheResponse(
+        new Response('{"component":"Blog","props":{}}', {
+          headers: { 'content-type': 'application/json', 'X-VoidPages-Build': 'build-1' },
+        }),
+      ),
+    );
+    // The app now answers this page privately, with page data for this client.
+    const { render } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"me":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'Cache-Control': 'private, no-store',
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+
+    await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-2',
+      }),
+      env,
+      ctx,
+      OPTS,
+      render,
+    );
+    await flush();
+
+    expect(edge.store.has(htmlKey)).toBe(false);
+  });
+
+  it('leaves an entry with no build id to the app when the client names one', async () => {
+    // An entry from before ids existed cannot answer a client that has one.
+    await populateJsonEdgeCache(
+      edge.cache,
+      jsonEdgeKey(HOST, '/blog/post', DPL),
+      new Response('<html></html>', {
+        headers: { 'x-void-page-data': '{"component":"Blog","props":{}}' },
+      }),
+      60,
+      'HIT',
+    );
+    const env = makeEnv(createKvMock().kv);
+    const { render, spy } = createRender(
+      () =>
+        new Response('{"component":"Blog","props":{"fresh":true}}', {
+          headers: {
+            'content-type': 'application/json',
+            'X-VoidPages': 'true',
+            'X-VoidPages-Build': 'build-2',
+          },
+        }),
+    );
+
+    const res = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-2',
+      }),
+      env,
+      createCtx().ctx,
+      OPTS,
+      render,
+    );
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(res!.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
+  it.each([
+    [
+      'keeps',
+      'the reload response for a client from another build',
+      'build-2',
+      'text/plain; charset=utf-8',
+      true,
+    ],
+    [
+      'evicts',
+      'an ordinary answer that opts out of sharing',
+      null,
+      'text/plain; charset=utf-8',
+      false,
+    ],
+    [
+      'evicts',
+      'a rendered page from another build that opts out of sharing',
+      'build-2',
+      'text/html',
+      false,
+    ],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, contentType, kept) => {
+    const { store, kv } = createKvMock();
+    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0].seed());
+    const env = makeEnv(kv);
+    const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
+    edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));
+    const { render } = createRender(
+      () =>
+        new Response(null, {
+          headers: {
+            'Cache-Control': 'no-store',
+            'Content-Type': contentType,
+            ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
+          },
+        }),
+    );
+    const { ctx, flush } = createCtx();
+
+    const res = await handleIsr(
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'X-VoidPages-Build': 'build-1',
+      }),
+      env,
+      ctx,
+      OPTS,
+      render,
+    );
+    await flush();
+
+    // A reload answer belongs to one stale tab; other tabs still hold this HTML.
+    expect(res!.headers.get('Cache-Control')).toBe('no-store');
+    expect(edge.store.has(htmlKey)).toBe(kept);
+    expect(store.has(isrKey(DPL, HOST, '/blog/post'))).toBe(kept);
   });
 
   it.each([

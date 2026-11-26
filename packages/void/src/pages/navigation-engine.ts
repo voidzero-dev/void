@@ -1,10 +1,11 @@
 /// <reference lib="dom" />
 
-import { PAGES_PROTOCOL_VERSION } from '@void/edge';
+import { buildHeaders, isStaleBuild, PAGES_BUILD_HEADER, PAGES_PROTOCOL_VERSION } from '@void/edge';
 import { PRESERVED_QUERY_HEADER, searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
 import { pageBoundarySlots, clientPageError, showTerminalPageError } from './boundary-client.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
+import { pagesBuildId } from './build-id.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
@@ -237,6 +238,58 @@ function abortError(): DOMException {
   return new DOMException('Navigation aborted', 'AbortError');
 }
 
+const DEPLOY_RELOAD_KEY = '__void_pages_deploy_reload';
+/** A reload that lands on the same stale build must not reload again. */
+const DEPLOY_RELOAD_WINDOW_MS = 10_000;
+
+/**
+ * Claims the one reload this tab may spend to recover `url` from `build`. Returns
+ * false when that reload already happened: a cache can keep serving the document
+ * from the old build, and reloading it again would loop.
+ */
+function claimDeployReload(build: string, url: string): boolean {
+  try {
+    const now = Date.now();
+    const previous = JSON.parse(sessionStorage.getItem(DEPLOY_RELOAD_KEY) ?? 'null') as {
+      build?: unknown;
+      url?: unknown;
+      at?: unknown;
+    } | null;
+    if (
+      previous?.build === build &&
+      previous.url === url &&
+      typeof previous.at === 'number' &&
+      now - previous.at < DEPLOY_RELOAD_WINDOW_MS
+    ) {
+      return false;
+    }
+    sessionStorage.setItem(DEPLOY_RELOAD_KEY, JSON.stringify({ build, url, at: now }));
+  } catch {
+    // Storage may be blocked or full. A reload is still better than a dead page.
+  }
+  return true;
+}
+
+/**
+ * Loads `url` as a new document. Setting `location.href` to the current URL with
+ * a fragment only scrolls, and that is the URL a refresh or a back/forward visit
+ * asks for, so that case reloads the page instead.
+ */
+function loadDocument(url: string): void {
+  const { origin, pathname, search, hash } = window.location;
+  const target = new URL(url, `${origin}${pathname}${search}`);
+  const sameDocument =
+    isSameOrigin(target, origin) && target.pathname === pathname && target.search === search;
+  if (!sameDocument || target.hash === '') {
+    window.location.href = url;
+    return;
+  }
+  if (target.hash !== hash) {
+    history.replaceState(history.state, '', url);
+  }
+  window.location.reload();
+}
+
 function abortSignalPromise(signal: AbortSignal): Promise<never> {
   if (signal.aborted) {
     return Promise.reject(abortError());
@@ -303,6 +356,9 @@ export async function createPageNavigationEngine<Component>(
   const hasBoundaries = Object.keys(config.boundaryManifest?.plans ?? {}).length > 0;
   const _prefetchCache = new PrefetchCache();
   const uncachedPayloads = new WeakSet<object>();
+  // Prefetched URLs that another deployment answered, with that build. The visit
+  // that consumes one spends the same single reload as an ordinary navigation.
+  const stalePrefetches = new Map<string, string>();
   let _nextNavigationId = 0;
   // The newest visit whose URL is in the address bar: the last commit, or a back/forward
   // visit, which the browser has already moved to. An older visit must not commit over it.
@@ -630,6 +686,7 @@ export async function createPageNavigationEngine<Component>(
     const headers = {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       Accept: 'application/json',
       Purpose: 'prefetch',
     };
@@ -644,6 +701,13 @@ export async function createPageNavigationEngine<Component>(
       return fetchPageResponse(url, { method: 'GET', headers }).then(async (result) => {
         const r = result?.response;
         if (!r || result?.redirectedTo) {
+          return null;
+        }
+        // Another deployment answered: cache nothing, so the visit that follows a
+        // hover reloads instead of rendering props this build's chunks cannot show.
+        const servedBy = r.headers.get(PAGES_BUILD_HEADER);
+        if (servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+          stalePrefetches.set(url, servedBy);
           return null;
         }
         if (!r.headers.get('X-VoidPages')) {
@@ -730,6 +794,7 @@ export async function createPageNavigationEngine<Component>(
       Partial<Record<typeof PRESERVED_QUERY_HEADER | 'Content-Type', string>> = {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      ...buildHeaders(pagesBuildId()),
       Accept: 'application/json',
     };
     if (options._preservedQuery && method !== 'GET') {
@@ -758,7 +823,17 @@ export async function createPageNavigationEngine<Component>(
       const cachedPageData = await cacheEntry.response;
       _prefetchCache.consume(fetchUrl, method);
       if (cachedPageData === null) {
-        window.location.href = url;
+        if (signal.aborted) {
+          throw abortError();
+        }
+        const staleBuild = stalePrefetches.get(fetchUrl);
+        stalePrefetches.delete(fetchUrl);
+        if (staleBuild !== undefined && !claimDeployReload(staleBuild, url)) {
+          // The last reload landed on the same old document; see the visit path below.
+          showTerminalPageError(url);
+          return undefined;
+        }
+        loadDocument(url);
         return undefined;
       }
       // Deferred initialization and adapters mutate props; retain the cached wire payload.
@@ -805,10 +880,12 @@ export async function createPageNavigationEngine<Component>(
             ? await fetchPageResponse(url, fetchOptions)
             : await fetchPages(url, fetchOptions)
           : null;
-      const response = fetched?.response ?? null;
+      let response = fetched?.response ?? null;
+      // A 307 or 308 answers a mutation with a mutation, whatever URL it lands on.
+      const answeredMethod = fetched?.method ?? method;
 
       if (pageData === undefined && !response) {
-        window.location.href = url;
+        loadDocument(url);
         return undefined;
       }
 
@@ -828,6 +905,36 @@ export async function createPageNavigationEngine<Component>(
         commitTarget.method = method;
       }
 
+      // The destination was rendered by another deployment, so this tab's chunks
+      // are gone. Treat the payload as absent: the document load below lands on the
+      // requested destination with its query and hash. A mutation has already run,
+      // so only a GET answer is allowed here, which includes the page a mutation was
+      // redirected to with a 303. A response that names no build, from an older
+      // Void, is not evidence of a new one.
+      const servedBy = response?.headers.get(PAGES_BUILD_HEADER) ?? null;
+      if (answeredMethod === 'GET' && servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+        // A newer visit owns the page now. Leaving it is not this visit's call, and
+        // neither is the reload this tab may spend.
+        if (signal.aborted) {
+          throw abortError();
+        }
+        if (claimDeployReload(servedBy, url)) {
+          response = null;
+          pageData = undefined;
+        } else {
+          // The last reload landed on the same old document, so this payload would
+          // replace the page with components that cannot load here, and reloading
+          // again would loop. Stop, and leave the tab a way out.
+          showTerminalPageError(url);
+          return undefined;
+        }
+      }
+
+      if (pageData === undefined && !response) {
+        loadDocument(url);
+        return undefined;
+      }
+
       if (response && method !== 'GET' && !response.ok) {
         throw await createActionErrorFromResponse(response, fetchUrl);
       }
@@ -844,7 +951,7 @@ export async function createPageNavigationEngine<Component>(
             pageData = staticPageData.pageData;
             deferredRegistry.setup(pageData, staticPageData.resolvedDeferred);
           } else {
-            window.location.href = url;
+            loadDocument(url);
             return undefined;
           }
         } else {
@@ -858,7 +965,7 @@ export async function createPageNavigationEngine<Component>(
       if (pageData !== undefined) {
         // Static page-data fallback already loaded the page object.
       } else if (!response) {
-        window.location.href = url;
+        loadDocument(url);
         return undefined;
       } else if (contentType.includes('application/x-ndjson')) {
         if (!response.body) {
@@ -955,7 +1062,7 @@ export async function createPageNavigationEngine<Component>(
     // Reuse the preload only if the response selects the matched page; redirects
     // or rewrites may select another. Cancellation stops waiting for the imports.
     if (!components[pageData.component]) {
-      window.location.href = url;
+      loadDocument(url);
       return undefined;
     }
     let component: Component;

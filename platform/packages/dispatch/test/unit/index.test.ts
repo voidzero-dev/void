@@ -3405,6 +3405,170 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     expect(await response.json()).toEqual(JSON.parse(pageData));
   });
 
+  it('pages request ignores a JSON edge entry rendered by another build', async () => {
+    edgeCacheStore.set(
+      'https://my-app.void.app/dashboard?__void=json&__void_isr=legacy',
+      currentSharedCacheResponse(
+        new Response(pageData, {
+          headers: {
+            'content-type': 'application/json',
+            'x-isr-cache': 'HIT',
+            'X-VoidPages-Build': 'build-1',
+          },
+        }),
+      ),
+    );
+
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageData, {
+        headers: { 'content-type': 'application/json', 'X-VoidPages-Build': 'build-2' },
+      }),
+    });
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-2',
+        },
+      }),
+      env,
+      createCtx(),
+    );
+
+    // The entry holds props this client cannot render, so the app answers.
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+    // Clients of the build that rendered it can still use it.
+    expect(
+      edgeCacheStore.has('https://my-app.void.app/dashboard?__void=json&__void_isr=legacy'),
+    ).toBe(true);
+  });
+
+  it('stores the build of an HTML render with its JSON entry, so that build hits it', async () => {
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageHtml(), {
+        headers: { 'Content-Type': 'text/html', 'X-VoidPages-Build': 'build-2' },
+      }),
+    });
+    const documentCtx = createCtx();
+    await app.fetch(new Request('https://my-app.void.app/dashboard'), env, documentCtx);
+    await waitForBackgroundTasks(documentCtx);
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-2',
+        },
+      }),
+      env,
+      createCtx(),
+    );
+
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+    expect(await response.json()).toEqual(JSON.parse(pageData));
+  });
+
+  it('evicts cached HTML when a Pages answer opts out of sharing', async () => {
+    const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
+    edgeCacheStore.set(
+      htmlKey,
+      currentSharedCacheResponse(
+        new Response(pageHtml(), { headers: { 'Content-Type': 'text/html' } }),
+      ),
+    );
+    const { env } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageData, {
+        headers: {
+          'content-type': 'application/json',
+          'X-VoidPages': 'true',
+          'Cache-Control': 'no-store',
+        },
+      }),
+    });
+    const ctx = createCtx();
+
+    await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      }),
+      env,
+      ctx,
+    );
+    await waitForBackgroundTasks(ctx);
+
+    expect(edgeCacheStore.has(htmlKey)).toBe(false);
+  });
+
+  it.each([
+    [
+      'keeps',
+      'the reload response for a client from another build',
+      'build-2',
+      'text/plain; charset=utf-8',
+      true,
+    ],
+    [
+      'evicts',
+      'an ordinary answer that opts out of sharing',
+      null,
+      'text/plain; charset=utf-8',
+      false,
+    ],
+    [
+      'evicts',
+      'a rendered page from another build that opts out of sharing',
+      'build-2',
+      'text/html',
+      false,
+    ],
+  ])('%s cached HTML on %s', async (_, __, answeredBuild, contentType, kept) => {
+    const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
+    edgeCacheStore.set(
+      htmlKey,
+      currentSharedCacheResponse(
+        new Response(pageHtml(), { headers: { 'Content-Type': 'text/html' } }),
+      ),
+    );
+
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(null, {
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': contentType,
+          ...(answeredBuild === null ? {} : { 'X-VoidPages-Build': answeredBuild }),
+        },
+      }),
+    });
+    const ctx = createCtx();
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-1',
+        },
+      }),
+      env,
+      ctx,
+    );
+    await waitForBackgroundTasks(ctx);
+
+    // A reload answer belongs to one stale tab; other tabs still hold this HTML.
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(edgeCacheStore.has(htmlKey)).toBe(kept);
+  });
+
   it('pages request falls through to worker on JSON cache miss', async () => {
     const { env, workerFetch } = createEnv({
       routing: isrRouting,
