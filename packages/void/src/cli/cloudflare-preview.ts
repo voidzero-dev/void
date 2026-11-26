@@ -18,7 +18,7 @@ import { log as deployLog } from './deploy-helpers.ts';
 import { formatDeploySummary } from './deploy-summary.ts';
 import type { RunDeployOptions } from './deploy-types.ts';
 import type { CliLogger } from './log-file.ts';
-import { note, printSuccess } from './output.ts';
+import { formatUrl, note, printSuccess } from './output.ts';
 
 /** Where the user sets a top-level Cloudflare config key, for messages. */
 export function cloudflareConfigKey(configPath: string, key: string): string {
@@ -118,7 +118,7 @@ export async function runCloudflareStaticPreview(options: {
     [
       formatDeploySummary({ workerName, typeLabel: options.typeLabel }),
       `Preview: ${previewName}`,
-      ...(result.deploymentUrl ? [`This deployment: ${result.deploymentUrl}`] : []),
+      ...(result.deploymentUrl ? [`This deployment: ${formatUrl(result.deploymentUrl)}`] : []),
     ].join('\n'),
     result.previewUrl,
   );
