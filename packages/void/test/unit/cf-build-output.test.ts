@@ -27,8 +27,10 @@ import {
 } from '@cloudflare/build-output-utils';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import {
+  previewStaticWorkerConfig,
   renderCloudflareStaticEntry,
   writeCloudflareFrameworkDeployConfig,
+  writeCloudflareStaticDeployConfig,
 } from '@void/deploy-cloudflare';
 import { toSlash } from 'pathslash';
 import { createBuilder } from 'vite';
@@ -1238,11 +1240,35 @@ it.each([
       expectCfDryRun(prepared.directory, ['deploy']);
     },
   );
-  // `cf previews deploy` accepts only output marked as a Preview build.
+  // `cf previews deploy` accepts only output marked as a Preview build. Stage the config the way a
+  // preview deploy does, from a production config with bindings and migrations.
+  const previewConfigPath = join(generated, 'wrangler-preview.json');
+  writeFileSync(
+    previewConfigPath,
+    JSON.stringify(
+      previewStaticWorkerConfig({
+        name: 'void-static-test',
+        account_id: 'account-id',
+        vars: { SECRET_HINT: 'production' },
+        kv_namespaces: [{ binding: 'CACHE', id: 'kv-id' }],
+        migrations: [{ tag: 'v1', new_sqlite_classes: ['Room'] }],
+        version_metadata: { binding: 'CF_VERSION_METADATA' },
+      }),
+    ),
+  );
+  writeCloudflareStaticDeployConfig({
+    configPath: previewConfigPath,
+    name: 'void-static-test',
+    accountId: 'account-id',
+    main: 'static-edge.mjs',
+    assetsDirectory: './assets',
+    compatibilityDate: '2026-09-29',
+    assetConfig: { run_worker_first: true, not_found_handling: 'single-page-application' },
+  });
   await withPrepared(
     prepareCfStaticBuildOutput({
       projectRoot: root,
-      configPath,
+      configPath: previewConfigPath,
       assetsDirectory: assets,
       accountId: 'account-id',
       isPreview: true,
