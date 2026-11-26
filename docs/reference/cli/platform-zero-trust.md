@@ -50,9 +50,10 @@ hosts the platform. Omit `--protect-new-projects` to make new projects public
 by default. `--existing-projects` is required when you enable Zero Trust and
 rejected once it is enabled; later configuration changes keep each project's
 protection. `status` reports saved state; `--check` also compares it with
-Cloudflare Access. If status remains `configuring` or `disabling`, run
-`void platform zero-trust reconcile` to resume the saved operation. Protected
-projects support up to 100 custom domains.
+Cloudflare Access. Large changes run in steps: `configure`, `reconcile`, and
+`disable` can return while status is still `configuring` or `disabling`. Void
+continues the change within a few minutes; run `void platform zero-trust reconcile`
+to continue it right away. Protected projects support up to 100 custom domains.
 
 The token needs **Access: Apps and Policies Write** plus **Access:
 Organizations, Identity Providers, and Groups Read**, scoped to the platform's

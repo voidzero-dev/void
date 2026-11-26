@@ -84,6 +84,88 @@ describe('operator text output labels', () => {
   });
 });
 
+describe('zero-trust operator output', () => {
+  function stubOperator(fetcher: typeof fetch) {
+    connect('https://one.example');
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const details = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let terminal = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      terminal += String(chunk);
+      return true;
+    });
+    vi.stubGlobal('fetch', fetcher);
+    return {
+      printed: () => details.mock.calls.map(([line]) => String(line)).join('\n'),
+      terminal: () => stripVTControlCharacters(terminal),
+    };
+  }
+
+  async function reconcile(configuration: Record<string, unknown>) {
+    const output = stubOperator(
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({ dryRun: true, action: 'zero-trust.reconcile', target: 'platform' }),
+        )
+        .mockResolvedValueOnce(Response.json({ ok: true, configuration })),
+    );
+    await runOperatorCommand(parseOperatorArgs(['zero-trust', 'reconcile', '--yes']));
+    return output;
+  }
+
+  it('says a checkpointed change keeps running and how to follow it', async () => {
+    const output = await reconcile({
+      status: 'configuring',
+      operation: { kind: 'reconcile', phase: 'projects', existingProjects: null },
+      lastError: null,
+    });
+    expect(output.printed()).toContain(
+      'Zero Trust is still applying this change. Void continues it within a few minutes; follow it with `void platform zero-trust status`.',
+    );
+    expect(output.terminal()).not.toContain('✓');
+  });
+
+  it('reports a finished change as completed', async () => {
+    const output = await reconcile({ status: 'ready', operation: null, lastError: null });
+    expect(output.printed()).not.toContain('still applying');
+    expect(output.terminal()).toContain('✓ Platform zero-trust reconcile completed.');
+  });
+
+  it('points to status instead of an unknown outcome when the request times out', async () => {
+    vi.useFakeTimers();
+    try {
+      stubOperator(
+        vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(
+            Response.json({ dryRun: true, action: 'zero-trust.reconcile', target: 'platform' }),
+          )
+          .mockImplementationOnce(async (_input, init) => {
+            const signal = init?.signal as AbortSignal;
+            return new Promise<Response>((_resolve, reject) => {
+              signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            });
+          }),
+      );
+      const command = runOperatorCommand(
+        parseOperatorArgs(['zero-trust', 'reconcile', '--yes', '--timeout', '2']),
+      );
+      const failure = expect(command).rejects.toMatchObject({
+        code: 'request_timeout',
+        message:
+          'Operator request exceeded the 2-second timeout. Void continues a started Zero Trust change within a few minutes; follow it with `void platform zero-trust status` before retrying.',
+      });
+      await vi.advanceTimersByTimeAsync(2000);
+      await failure;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('operator mutation completion output', () => {
   async function runMutation(result: Record<string, unknown>, flags: Array<string> = []) {
     connect('https://one.example');

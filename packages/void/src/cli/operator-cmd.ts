@@ -168,10 +168,22 @@ export function output(value: unknown, json: boolean): void {
   console.log(json ? JSON.stringify(value) : humanLines(value).join('\n'));
 }
 
+const ZERO_TRUST_STATUS_COMMAND = '`void platform zero-trust status`';
+
 export function outputMutation(result: Record<string, unknown>, args: OperatorArgs): void {
   output(result, args.json);
   // Some successful HTTP responses checkpoint work rather than complete it.
   const configuration = result.configuration as { status?: string } | undefined;
+  if (
+    !args.json &&
+    args.group === 'zero-trust' &&
+    (configuration?.status === 'configuring' || configuration?.status === 'disabling')
+  ) {
+    // Each request applies one step and releases the saved operation to scheduled maintenance.
+    console.log(
+      `Zero Trust is still applying this change. Void continues it within a few minutes; follow it with ${ZERO_TRUST_STATUS_COMMAND}.`,
+    );
+  }
   const project = result.project as { state?: string; last_error?: string | null } | undefined;
   // A public request that is still open has not made the project public.
   const publicRequest = result.publicRequest as { state?: string } | null | undefined;
@@ -788,10 +800,18 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
         : {}),
       ...recoveryFence,
     };
+    const zeroTrustOperation =
+      args.group === 'zero-trust' &&
+      (args.action === 'configure' || args.action === 'reconcile' || args.action === 'disable');
     const result = await client.request(args.path, {
       method: 'POST',
       body,
       timeoutMs: args.timeoutMs,
+      ...(zeroTrustOperation
+        ? {
+            unknownOutcome: `Void continues a started Zero Trust change within a few minutes; follow it with ${ZERO_TRUST_STATUS_COMMAND} before retrying.`,
+          }
+        : {}),
     });
     if (aiLogging && !args.json) {
       console.log(aiLoggingChangeLines(aiLoggingProjectId(args), result).join('\n'));

@@ -6,6 +6,7 @@ import {
 import type { PlatformApplication } from '@void/platform';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import { armFastMaintenance } from '../fast-maintenance.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
 import { encryptPlatformCredential } from '../project-secrets.ts';
 import { assertPublicGateOff } from '../security/public-gate.ts';
@@ -104,6 +105,9 @@ export async function activatePlatformApplication(
   if (!claim.configuration) {
     return { ready: claim.ready };
   }
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
   const completed = await runConfigureOperation(env, db, claim.configuration);
   return { ready: completed.operation === null };
 }
@@ -328,6 +332,9 @@ export async function configurePlatformZeroTrust(
     },
     input.publicAccess ? { refuseWhileGateOn: env } : undefined,
   );
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
   return redactedZeroTrustConfiguration(
     configuration.operation?.kind === 'disable'
       ? await runDisableOperation(env, db, configuration)
@@ -375,16 +382,25 @@ async function claimReconcileOperation(db: Db): Promise<ZeroTrustConfiguration> 
   });
 }
 
+async function runClaimedOperation(
+  env: ApiEnv['Bindings'],
+  db: Db,
+  configuration: ZeroTrustConfiguration,
+): Promise<ZeroTrustConfiguration> {
+  return configuration.operation?.kind === 'disable'
+    ? runDisableOperation(env, db, configuration)
+    : runConfigureOperation(env, db, configuration);
+}
+
 export async function reconcilePlatformZeroTrust(
   env: ApiEnv['Bindings'],
   db: Db,
 ): Promise<ReturnType<typeof redactedZeroTrustConfiguration>> {
   const configuration = await claimReconcileOperation(db);
-  const result =
-    configuration.operation?.kind === 'disable'
-      ? await runDisableOperation(env, db, configuration)
-      : await runConfigureOperation(env, db, configuration);
-  return redactedZeroTrustConfiguration(result);
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
+  return redactedZeroTrustConfiguration(await runClaimedOperation(env, db, configuration));
 }
 
 export async function disablePlatformZeroTrust(
@@ -426,6 +442,9 @@ export async function disablePlatformZeroTrust(
     },
     { refuseWhileGateOn: env },
   );
+  // A cancelled request never reaches the after-request hook, so arm the two-minute
+  // cron here; it resumes the operation once the lease frees.
+  await armFastMaintenance(env);
   return redactedZeroTrustConfiguration(await runDisableOperation(env, db, configuration));
 }
 
@@ -449,6 +468,10 @@ export async function resumePlatformZeroTrustOperation(
   ) {
     return false;
   }
-  await reconcilePlatformZeroTrust(env, db);
+  // A run that stopped at its step limit leaves the rest to the two-minute cron,
+  // including after an hourly retry of a failed operation.
+  if ((await runClaimedOperation(env, db, await claimReconcileOperation(db))).operation) {
+    await armFastMaintenance(env);
+  }
   return true;
 }

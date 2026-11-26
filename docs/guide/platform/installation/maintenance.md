@@ -30,9 +30,9 @@ that the application covers the printed API and proxy origins. A Cloudflare
 management API token does not authenticate an Access-protected HTTP request.
 
 For automatic setup, resuming also creates or verifies an Access exception
-limited to `/health` on the reserved dispatch health hostname. Void still requires
-its private probe token on that endpoint; requests without it cannot reach an
-application. This lets installation check routing while employee protection and
+limited to `/health` and the paths under it on the reserved dispatch health
+hostname. Void still requires its private probe token on that endpoint; requests
+without it cannot reach an application. This lets installation check routing while employee protection and
 account-wide Default-Deny remain enabled. It does not bypass Access for an entire
 Worker or for deployed apps.
 
