@@ -197,7 +197,13 @@ export function operationFixtureArgs(operation: CloudflareOperation): Array<stri
     case 'previews.deploy':
       return ['preview', ...target, '--preview-name', operation.previewName, '--json'];
     case 'previews.delete':
-      return ['preview', 'delete', '--preview-name', operation.previewName, ...target];
+      return [
+        'previews',
+        'delete',
+        operation.previewName,
+        `--worker=${operation.workerName}`,
+        '--force',
+      ];
     case 'triggers.deploy':
       return ['triggers', 'deploy', ...target];
     case 'queues.consumer.remove':

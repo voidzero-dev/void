@@ -14,6 +14,39 @@ const MAX_HOST_LABEL = 63;
 /** Cloudflare's "Preview not found" API error. */
 const PREVIEW_NOT_FOUND = 10_025;
 
+/**
+ * Return why `name` cannot name a Preview, or undefined when it can. Cloudflare uses the name
+ * unchanged as the start of a hostname label, so the URL Void prints is the one CI expects.
+ */
+export function cloudflarePreviewNameProblem(name: string): string | undefined {
+  if (name.length === 0 || name.length > MAX_HOST_LABEL) {
+    return `must be 1 to ${MAX_HOST_LABEL} characters`;
+  }
+  if (!isLowercaseLetter(name[0])) {
+    return 'must start with a lowercase letter';
+  }
+  for (const character of name) {
+    if (!isLowercaseLetter(character) && !isDigit(character) && character !== '-') {
+      return 'may use only lowercase letters, digits and hyphens';
+    }
+  }
+  if (name.endsWith('-')) {
+    return 'must end with a letter or digit';
+  }
+  if (name.includes('--')) {
+    return 'cannot have two hyphens in a row';
+  }
+  return undefined;
+}
+
+function isLowercaseLetter(character: string | undefined): boolean {
+  return character !== undefined && character >= 'a' && character <= 'z';
+}
+
+function isDigit(character: string): boolean {
+  return character >= '0' && character <= '9';
+}
+
 /** Return why `name` cannot name a Preview of `workerName`, or null when it can. */
 export function validateCloudflarePreviewName(name: string, workerName?: string): string | null {
   if (!PREVIEW_NAME.test(name)) {
@@ -98,27 +131,20 @@ export async function deployCloudflarePreview(options: {
 
 export type CloudflarePreviewDeleteResult =
   | { ok: true; deleted: boolean }
-  | { ok: false; reason: 'uploader-changed' | 'invalid-name'; diagnostic?: string }
+  | { ok: false; reason: 'worker-not-found' }
   | { ok: false; reason: 'delete-failed'; status: number; diagnostic?: string };
 
 /**
  * Delete a named Preview and all its deployments. A Preview that does not exist is reported as
- * `deleted: false`, so a pull-request cleanup job can run more than once.
+ * `deleted: false`, so a pull-request cleanup job can run more than once. A missing Worker is an
+ * error: the name or account most likely points somewhere else.
  */
 export async function deleteCloudflarePreview(options: {
   runWrangler: CloudflareCommandRunner;
   workerName: string;
   previewName: string;
-  verifyUploader: () => boolean;
   configPath?: string;
 }): Promise<CloudflarePreviewDeleteResult> {
-  const invalid = validateCloudflarePreviewName(options.previewName);
-  if (invalid) {
-    return { ok: false, reason: 'invalid-name', diagnostic: invalid };
-  }
-  if (!options.verifyUploader()) {
-    return { ok: false, reason: 'uploader-changed' };
-  }
   const result = await options.runWrangler(
     {
       type: 'previews.delete',
@@ -131,12 +157,12 @@ export async function deleteCloudflarePreview(options: {
   if (isCleanCommandExit(result)) {
     return { ok: true, deleted: true };
   }
-  // Neither the Preview nor, with 10007, its Worker exists: there is nothing left to delete.
-  if (
-    isWorkerNotFound(result) ||
-    (isCompletedCommand(result) && result.errorCode === PREVIEW_NOT_FOUND)
-  ) {
+  // Checked first: "Preview not found" must never read as a missing Worker.
+  if (isCompletedCommand(result) && result.errorCode === PREVIEW_NOT_FOUND) {
     return { ok: true, deleted: false };
+  }
+  if (isWorkerNotFound(result)) {
+    return { ok: false, reason: 'worker-not-found' };
   }
   return {
     ok: false,

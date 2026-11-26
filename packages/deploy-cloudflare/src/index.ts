@@ -56,6 +56,7 @@ export {
 } from './version.ts';
 export {
   deleteCloudflarePreview,
+  cloudflarePreviewNameProblem,
   deployCloudflarePreview,
   validateCloudflarePreviewName,
   type CloudflarePreviewDeleteResult,

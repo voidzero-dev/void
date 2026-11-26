@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import type { CloudflareCommandResult, CloudflareCommandRunner } from '../../src/execute.ts';
 import type { CloudflareOperation } from '../../src/operations.ts';
 import {
+  cloudflarePreviewNameProblem,
   deleteCloudflarePreview,
   deployCloudflarePreview,
   validateCloudflarePreviewName,
@@ -25,6 +26,25 @@ function runner(answer: Partial<CloudflareCommandResult>) {
 }
 
 const target = { workerName: 'site', previewName: 'pr-64', verifyUploader: () => true };
+
+describe('cloudflarePreviewNameProblem', () => {
+  it.each(['pr-64', 'a', 'feature-login', 'a'.repeat(63)])('accepts %s', (name) => {
+    expect(cloudflarePreviewNameProblem(name)).toBeUndefined();
+  });
+
+  it.each([
+    ['', 'must be 1 to 63 characters'],
+    ['a'.repeat(64), 'must be 1 to 63 characters'],
+    ['1a', 'must start with a lowercase letter'],
+    ['-a', 'must start with a lowercase letter'],
+    ['A', 'must start with a lowercase letter'],
+    ['a_b', 'may use only lowercase letters, digits and hyphens'],
+    ['a-', 'must end with a letter or digit'],
+    ['a--b', 'cannot have two hyphens in a row'],
+  ])('refuses %j', (name, problem) => {
+    expect(cloudflarePreviewNameProblem(name)).toBe(problem);
+  });
+});
 
 describe('validateCloudflarePreviewName', () => {
   it.each(['pr-64', 'a', 'feature-login', '0'])('accepts %s', (name) => {
@@ -111,30 +131,37 @@ describe('deployCloudflarePreview', () => {
 });
 
 describe('deleteCloudflarePreview', () => {
+  const deleteTarget = { workerName: 'site', previewName: 'pr-64' };
+
   it('deletes the named Preview of the Worker', async () => {
     const { calls, runWrangler } = runner({});
-    expect(await deleteCloudflarePreview({ ...target, runWrangler })).toEqual({
+    expect(await deleteCloudflarePreview({ ...deleteTarget, runWrangler })).toEqual({
       ok: true,
       deleted: true,
     });
     expect(calls).toEqual([{ type: 'previews.delete', workerName: 'site', previewName: 'pr-64' }]);
   });
 
-  // 10025: "Preview not found", as Cloudflare answered in a live run. 10007: no such Worker.
-  it.each([10_025, 10_007])('treats error %i as already deleted', async (errorCode) => {
-    const { runWrangler } = runner({ status: 1, errorCode });
-    expect(await deleteCloudflarePreview({ ...target, runWrangler })).toEqual({
-      ok: true,
-      deleted: false,
-    });
-  });
-
-  it('reports other failures', async () => {
-    const { runWrangler } = runner({ status: 1, errorCode: 10_000 });
-    expect(await deleteCloudflarePreview({ ...target, runWrangler })).toMatchObject({
-      ok: false,
-      reason: 'delete-failed',
-      status: 1,
-    });
+  // 10025 is "Preview not found"; 10007 and not-found mean the Worker itself is missing.
+  it.each([
+    [
+      { status: 1, errorCode: 10_025 },
+      { ok: true, deleted: false },
+    ],
+    [
+      { status: 1, errorCode: 10_007 },
+      { ok: false, reason: 'worker-not-found' },
+    ],
+    [
+      { status: 1, failure: 'not-found' as const },
+      { ok: false, reason: 'worker-not-found' },
+    ],
+    [
+      { status: 1, errorCode: 10_000, stderr: 'Authentication error' },
+      { ok: false, reason: 'delete-failed', status: 1, diagnostic: 'Authentication error' },
+    ],
+  ])('maps %j', async (answer, expected) => {
+    const { runWrangler } = runner(answer);
+    expect(await deleteCloudflarePreview({ ...deleteTarget, runWrangler })).toEqual(expected);
   });
 });

@@ -49,6 +49,18 @@ export const projectSubcommands: Array<SubcommandDef> = [
       },
     ],
   },
+  {
+    name: 'preview',
+    arg: 'delete <name>',
+    description: 'Delete a Cloudflare Preview made by deploy --preview',
+    flags: [
+      {
+        name: '--platform',
+        arg: 'cloudflare',
+        description: 'Delete it after a one-off deploy with --platform cloudflare',
+      },
+    ],
+  },
   { name: 'cancel', arg: '[deployId]', description: 'Cancel an active deployment' },
   {
     name: 'delete',
@@ -205,6 +217,7 @@ export type ProjectArgs =
     }
   | { subcommand: 'requests'; status: string; range: string }
   | { subcommand: 'rollback'; deployId: string; platform?: 'cloudflare' }
+  | { subcommand: 'preview'; action: 'delete'; name: string; platform?: 'cloudflare' }
   | { subcommand: 'cancel'; deployId: string }
   | { subcommand: 'delete'; name: string; force: boolean }
   | { subcommand: 'purge-cache'; projectSlug: string };
@@ -359,6 +372,30 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
     };
   }
 
+  if (subcommand === 'preview') {
+    const usage = 'project: Usage: void project preview delete <name> [--platform cloudflare].';
+    let platform: 'cloudflare' | undefined;
+    const positional: Array<string> = [];
+    for (let i = 0; i < rest.length; i++) {
+      const arg = rest[i];
+      if (arg === '--platform' || arg.startsWith('--platform=')) {
+        const value = arg === '--platform' ? rest[++i] : arg.slice('--platform='.length);
+        if (value !== 'cloudflare') {
+          throw new Error(usage);
+        }
+        platform = 'cloudflare';
+      } else {
+        // The interactive menu passes the typed "delete <name>" as one argument.
+        positional.push(...arg.split(' ').filter(Boolean));
+      }
+    }
+    const [action, name] = positional;
+    if (positional.length !== 2 || action !== 'delete' || !name || name.startsWith('-')) {
+      throw new Error(usage);
+    }
+    return { subcommand, action, name, ...(platform ? { platform } : {}) };
+  }
+
   if (subcommand === 'cancel') {
     return { subcommand, deployId: parseOptionalPositional(rest) };
   }
@@ -393,7 +430,7 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
   }
 
   throw new Error(
-    'project: Usage: void project <status|link|list|team|token|zero-trust|security|logs|requests|rollback|cancel|delete|purge-cache>.',
+    'project: Usage: void project <status|link|list|team|token|zero-trust|security|logs|requests|rollback|preview|cancel|delete|purge-cache>.',
   );
 }
 

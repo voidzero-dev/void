@@ -94,13 +94,8 @@ export function discoverRootWranglerConfig(root: string): string {
  * checks the same baseline, so project code can never swap the executable under the session.
  * Injected test runners (`activateVersion` / `runWrangler`) bypass the pinned cf uploader.
  */
-function createCloudflareUploaderPins(
-  root: string,
-  deps: CloudflareDeployDeps,
-  /** False for commands that never upload through the prebuilt cf uploader. */
-  usesPrebuiltUploader = true,
-) {
-  const usesCf = usesPrebuiltUploader && !deps.activateVersion && !deps.runWrangler;
+function createCloudflareUploaderPins(root: string, deps: CloudflareDeployDeps) {
+  const usesCf = !deps.activateVersion && !deps.runWrangler;
   const hashUploader = deps.hashWranglerUploader ?? hashWranglerUploader;
   const wranglerUploaderHashBefore = hashUploader(root);
   const cfUploaderHashBefore = usesCf ? hashCfUploader() : undefined;
@@ -168,8 +163,6 @@ export async function connectCloudflareDeployAccount(options: {
   readinessAccessOrigin: string | null | undefined;
   /** Scrubs and logs every child this connection runs. */
   reporter: CloudflareChildReporter;
-  /** False skips pinning the prebuilt cf uploader, for commands that only call the API. */
-  usesPrebuiltUploader?: boolean;
 }): Promise<CloudflareDeployConnection | null> {
   const { root, configPath, deps, reporter } = options;
   let { rootConfig } = options;
@@ -186,7 +179,7 @@ export async function connectCloudflareDeployAccount(options: {
     readWranglerTopLevelString(rootConfig, 'compliance_region'),
   );
   // Pin the uploaders before the first authenticated command, including account discovery.
-  const pins = createCloudflareUploaderPins(root, deps, options.usesPrebuiltUploader);
+  const pins = createCloudflareUploaderPins(root, deps);
   let accountId =
     readWranglerTopLevelString(rootConfig, 'account_id') ??
     (process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined);

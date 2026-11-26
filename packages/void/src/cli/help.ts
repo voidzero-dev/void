@@ -221,23 +221,6 @@ const HELP_TREE = {
       },
     ],
   },
-  preview: {
-    summary:
-      'Manage Cloudflare Previews created with `void deploy --platform cloudflare --preview`.',
-    usage: ['void preview delete <name>'],
-    commands: [
-      { command: 'delete <name>', description: 'Delete a Preview and all its deployments' },
-    ],
-    children: {
-      delete: basicSubcommand(
-        'Delete a Preview and all its deployments. Production is unchanged; a Preview that does not exist is not an error.',
-        'void preview delete <name>',
-      ),
-    },
-    examples: [
-      { command: 'void preview delete pr-64', description: 'Remove a pull request preview' },
-    ],
-  },
   auth: {
     summary:
       'Authenticate with this project’s saved Cloudflare or Void destination. Without one, choose interactively or pass --platform.',
@@ -687,6 +670,10 @@ const HELP_TREE = {
       { command: 'logs', description: 'Show runtime logs from the deployed project' },
       { command: 'requests', description: 'Show request-level traffic (status, method, timing)' },
       { command: 'rollback [deployId]', description: 'Roll back to a previous deployment' },
+      {
+        command: 'preview delete <name>',
+        description: 'Delete a Cloudflare Preview made with void deploy --preview',
+      },
       { command: 'cancel [deployId]', description: 'Cancel an active deployment' },
       { command: 'delete [name]', description: 'Delete a project and all its resources' },
       { command: 'purge-cache', description: 'Purge all cached pages (Void platform)' },
@@ -942,6 +929,23 @@ const HELP_TREE = {
           {
             command: '--platform cloudflare',
             description: 'Roll back the Cloudflare Worker after a one-off Cloudflare deploy',
+          },
+        ],
+      },
+      preview: {
+        summary:
+          'Delete a Cloudflare Preview made with void deploy --preview, and all its deployments. Production is unchanged.',
+        usage: ['void project preview delete <name> [--platform cloudflare]'],
+        options: [
+          {
+            command: '--platform cloudflare',
+            description: 'Delete it after a one-off Cloudflare deploy',
+          },
+        ],
+        examples: [
+          {
+            command: 'void project preview delete pr-64 --platform cloudflare',
+            description: 'Remove a pull request preview',
           },
         ],
       },
@@ -1725,8 +1729,6 @@ export function printGlobalHelp(): void {
       '',
       globalCommandLine(['deploy'], 'void deploy'),
       ...globalOptionLines(['deploy']),
-      '',
-      ...globalCommandGroup('preview'),
       '',
       ...globalCommandGroup('auth'),
       '',

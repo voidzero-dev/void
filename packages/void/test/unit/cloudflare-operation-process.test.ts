@@ -1861,3 +1861,38 @@ it.each([
   expect(redirected).toBe(false);
   expect(output.stdout + output.stderr).not.toContain('synthetic-token');
 });
+
+it('deletes a Preview through the pinned cf and reads its error code', async () => {
+  const directory = temporaryDirectory('void-cf-preview-delete-');
+  const preload = join(directory, 'mock-cf.mjs');
+  const callsPath = join(directory, 'calls.json');
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(configPath, JSON.stringify({ name: 'test-worker', account_id: 'test-account' }));
+  writeFileSync(
+    preload,
+    `import child from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { writeFileSync } from 'node:fs';
+child.spawnSync = (_executable, args) => {
+  writeFileSync(${JSON.stringify(callsPath)}, JSON.stringify(args.slice(1)));
+  return { status: 1, stdout: '', stderr: 'Preview not found [code: 10025]' };
+};
+syncBuiltinESMExports();
+`,
+  );
+  const output = await runOperation(
+    directory,
+    { type: 'previews.delete', configPath, workerName: 'test-worker', previewName: 'pr-64' },
+    { ...systemEnv, CI: 'true', CLOUDFLARE_AUTH_USE_KEYRING: 'false' },
+    preload,
+  );
+  expect(output.status).toBe(1);
+  expect(JSON.parse(output.stdout)).toMatchObject({ errorCode: 10_025 });
+  expect(JSON.parse(readFileSync(callsPath, 'utf8'))).toEqual([
+    'previews',
+    'delete',
+    'pr-64',
+    '--worker=test-worker',
+    '--force',
+  ]);
+});
