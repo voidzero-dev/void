@@ -50,6 +50,8 @@ export class OperatorClient {
       body?: Record<string, unknown>;
       signal?: AbortSignal;
       timeoutMs?: number;
+      /** Replaces the generic note when a mutation times out or loses its connection. */
+      unknownOutcome?: string;
     } = {},
   ): Promise<Record<string, unknown>> {
     if (
@@ -103,14 +105,19 @@ export class OperatorClient {
         if (options.signal?.aborted) {
           throw error;
         }
+        const next =
+          options.method === 'POST'
+            ? (options.unknownOutcome ??
+              'Its outcome may be unknown; inspect platform state before retrying.')
+            : 'Check connectivity and try again.';
         if (timeoutController.signal.aborted) {
           throw new OperatorClientError(
-            `Operator request exceeded the ${timeoutMs / 1000}-second timeout. ${options.method === 'POST' ? 'Its outcome may be unknown; inspect platform state before retrying.' : 'Check connectivity and try again.'}`,
+            `Operator request exceeded the ${timeoutMs / 1000}-second timeout. ${next}`,
             'request_timeout',
           );
         }
         throw new OperatorClientError(
-          `Operator request to ${this.origin} failed. ${options.method === 'POST' ? 'Its outcome may be unknown; inspect platform state before retrying.' : 'Check connectivity and try again.'}`,
+          `Operator request to ${this.origin} failed. ${next}`,
           'connection_failed',
         );
       }

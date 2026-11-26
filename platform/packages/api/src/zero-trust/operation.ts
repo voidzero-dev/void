@@ -52,8 +52,25 @@ import {
   updateProjectState,
 } from './state.ts';
 
-const OPERATION_LEASE_MS = 15 * 60 * 1000;
+// A live runner renews the lease after every project. A lease left by a
+// cancelled request or a killed invocation frees within this time, and the
+// two-minute cron then resumes the operation. Revision checks keep a slow
+// runner that lost it from writing over the next one.
+const OPERATION_LEASE_MS = 5 * 60 * 1000;
 const MAX_PROJECTS_PER_RUN = 100;
+// One request or cron run stops taking new projects after this long and
+// releases the operation, well inside the CLI timeout and the cron wall limit.
+const OPERATION_STEP_MS = 60_000;
+
+/**
+ * True when this run should release the operation for the next one. A run
+ * always finishes at least one project, so every run makes progress.
+ */
+function stepLimit(projectsProcessed: number, stepEndsAt: number): boolean {
+  return (
+    projectsProcessed >= MAX_PROJECTS_PER_RUN || (projectsProcessed > 0 && Date.now() >= stepEndsAt)
+  );
+}
 
 async function setInitialProjectProtection(
   db: Db,
@@ -376,6 +393,7 @@ export async function runConfigureOperation(
 ): Promise<ZeroTrustConfiguration> {
   let configuration = initial;
   let projectsProcessed = 0;
+  const stepEndsAt = Date.now() + OPERATION_STEP_MS;
   const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   try {
     env = await resolveZeroTrustApplicationEnvironment(env, db, configuration);
@@ -413,8 +431,11 @@ export async function runConfigureOperation(
             );
             projectsProcessed += 1;
             configuration = await heartbeatConfiguration(db, configuration);
+            if (stepLimit(projectsProcessed, stepEndsAt)) {
+              break;
+            }
           }
-          if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
             return await releaseOperation(db, configuration);
           }
         }
@@ -433,8 +454,11 @@ export async function runConfigureOperation(
           );
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
+            break;
+          }
         }
-        if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+        if (stepLimit(projectsProcessed, stepEndsAt)) {
           return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(
@@ -470,8 +494,11 @@ export async function runConfigureOperation(
           if (routingBudget.exhausted || routingBudget.remaining === 0) {
             return await releaseOperation(db, configuration);
           }
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
+            break;
+          }
         }
-        if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+        if (stepLimit(projectsProcessed, stepEndsAt)) {
           return await releaseOperation(db, configuration);
         }
         configuration = await advanceOperation(db, configuration, 'wildcard');
@@ -557,11 +584,11 @@ export async function runConfigureOperation(
           }
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
-          if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
             break;
           }
         }
-        if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+        if (stoppedForRoutingBudget || stepLimit(projectsProcessed, stepEndsAt)) {
           return await releaseOperation(db, configuration);
         }
         continue;
@@ -668,6 +695,7 @@ export async function runDisableOperation(
 ): Promise<ZeroTrustConfiguration> {
   let configuration = initial;
   let projectsProcessed = 0;
+  const stepEndsAt = Date.now() + OPERATION_STEP_MS;
   const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
   try {
     const client = await clientForConfiguration(env, configuration);
@@ -698,11 +726,11 @@ export async function runDisableOperation(
           );
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
-          if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
             break;
           }
         }
-        if (stoppedForRoutingBudget || projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+        if (stoppedForRoutingBudget || stepLimit(projectsProcessed, stepEndsAt)) {
           return await releaseOperation(db, configuration);
         }
         continue;
@@ -753,8 +781,11 @@ export async function runDisableOperation(
           );
           projectsProcessed += 1;
           configuration = await heartbeatConfiguration(db, configuration);
+          if (stepLimit(projectsProcessed, stepEndsAt)) {
+            break;
+          }
         }
-        if (projectsProcessed >= MAX_PROJECTS_PER_RUN) {
+        if (stepLimit(projectsProcessed, stepEndsAt)) {
           return await releaseOperation(db, configuration);
         }
         configuration = await withZeroTrustOperationLock(db, configuration, async (lockedDb) => {

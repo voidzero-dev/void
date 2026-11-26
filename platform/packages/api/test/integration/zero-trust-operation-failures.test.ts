@@ -278,6 +278,49 @@ describe('Zero Trust operation failures', () => {
     });
   });
 
+  it('does not arm the two-minute cron for an hourly retry that fails again', async () => {
+    const owner = await createTestUser(env.db, 'hourly-retry-owner');
+    await createTestProject(env.db, owner.id, 'hourly-retry-project');
+    const cloudflare = accessApi();
+    vi.stubGlobal('fetch', cloudflare.fetcher);
+    const platform = bindings();
+    await configurePlatformZeroTrust(platform, env.db, configurationInput());
+    const saved = (await readZeroTrustConfigurationStrict(env.db))!;
+    await env.db
+      .update(platformSettings)
+      .set({
+        value: {
+          ...saved,
+          revision: saved.revision + 1,
+          lastError: 'Access token was revoked',
+          operation: {
+            id: 'failed-operation',
+            kind: 'reconcile',
+            phase: 'seed',
+            owner: null,
+            leaseExpiresAt: null,
+            startedAt: new Date().toISOString(),
+            existingProjects: null,
+          },
+        },
+      })
+      .where(eq(platformSettings.key, 'zeroTrust.configuration'));
+    cloudflare.revoke(true);
+    await env.ROUTING.delete(FAST_MAINTENANCE_KEY);
+
+    await scheduled(
+      { cron: '0 * * * *', scheduledTime: Date.now() } as ScheduledController,
+      platform,
+      createMockExecutionContext(),
+    );
+    expect(await readZeroTrustConfigurationStrict(env.db)).toMatchObject({
+      lastError: expect.stringContaining('Access token was revoked'),
+      operation: { id: 'failed-operation', owner: null },
+    });
+    // Two-minute ticks would only skip the failed operation while keeping the database awake.
+    expect(await env.ROUTING.get(FAST_MAINTENANCE_KEY)).toBeNull();
+  });
+
   it('finishes configuration around a project over the protected domain cap', async () => {
     const owner = await createTestUser(env.db, 'domain-cap-owner');
     const large = await createTestProject(env.db, owner.id, 'domain-cap-large');
