@@ -41,6 +41,11 @@ export interface SecurityScannerNames {
   worker: string;
   application: string;
   gate: string;
+  /** The runtime copies' dispatch namespace and its outbound Worker (API M30). */
+  copyNamespace: string;
+  copySandbox: string;
+  /** Every copy's script and D1, KV and R2 store name starts with it. */
+  copyPrefix: string;
   engines: { 'engine-a': SecurityScannerEngineNames; 'engine-c': SecurityScannerEngineNames };
 }
 
@@ -57,6 +62,9 @@ export function securityScannerNames(installationId: string): SecurityScannerNam
     worker: `void-security-scanner-${suffix}`,
     application: `void-security-scanner-${suffix}`,
     gate: `void-security-scanner-gate-${suffix}`,
+    copyNamespace: `void-security-copies-${suffix}`,
+    copySandbox: `void-security-copy-sandbox-${suffix}`,
+    copyPrefix: `void-sec-copy-${suffix}-`,
     engines: { 'engine-a': engine('engine-a'), 'engine-c': engine('engine-c') },
   };
 }
@@ -89,7 +97,12 @@ async function deleteIfPresent(client: ScannerClient, path: string): Promise<voi
   await optional(() => client.request(path, { method: 'DELETE' }));
 }
 
-type Deleted = 'gate' | 'container application' | 'controller' | 'scanner images';
+type Deleted =
+  | 'gate'
+  | 'container application'
+  | 'controller'
+  | 'runtime copies'
+  | 'scanner images';
 
 export type SecurityScannerTeardown = Readonly<{
   /** Cloudflare objects removed, in order. */
@@ -198,10 +211,80 @@ async function deleteScannerImages(
   return removed;
 }
 
+const COPY_PAGE = 100;
+
+/**
+ * The copy namespace (Cloudflare deletes any copy still in it), the stores a failed scan
+ * left (the API's hourly sweep stops with the platform), then the copy sandbox, the
+ * namespace's outbound Worker. Run after the controller, the only Worker that binds them.
+ * The sandbox carries the ownership marker; the rest is named per installation, like the images.
+ */
+async function deleteRuntimeCopies(
+  client: ScannerClient,
+  account: string,
+  names: SecurityScannerNames,
+  marker: string,
+  controllerExists: boolean,
+  kept: Array<string>,
+): Promise<boolean> {
+  const base = `/accounts/${account}`;
+  // As for the images: with no controller, a token without the right is not a failure.
+  const read = <T>(path: string) => optional(() => client.request<T>(path), !controllerExists);
+  const sandboxPath = `${base}/workers/scripts/${names.copySandbox}`;
+  const sandbox = await read<{ bindings: ReadonlyArray<Binding> }>(`${sandboxPath}/settings`);
+  if (sandbox && plainText(sandbox.bindings) !== marker) {
+    kept.push(`security copy sandbox ${names.copySandbox}`);
+    return false;
+  }
+  const mine = (name: unknown): name is string =>
+    typeof name === 'string' && name.startsWith(names.copyPrefix);
+  const pages = async <Row>(path: string, take: (row: Row) => string | undefined) => {
+    const found: Array<string> = [];
+    for (let page = 1; page <= 50; page++) {
+      const rows = (await read<Array<Row>>(`${path}per_page=${COPY_PAGE}&page=${page}`)) ?? [];
+      found.push(...rows.flatMap((row) => take(row) ?? []));
+      if (rows.length < COPY_PAGE) {
+        break;
+      }
+    }
+    return found;
+  };
+  const namespacePath = `${base}/workers/dispatch/namespaces/${names.copyNamespace}`;
+  const namespace = await read<unknown>(namespacePath);
+  const prefix = encodeURIComponent(names.copyPrefix);
+  const stores = [
+    ...(await pages<{ uuid?: unknown; name?: unknown }>(
+      `${base}/d1/database?name=${prefix}&`,
+      (row) =>
+        mine(row.name) && typeof row.uuid === 'string' ? `d1/database/${row.uuid}` : undefined,
+    )),
+    ...(await pages<{ id?: unknown; title?: unknown }>(`${base}/storage/kv/namespaces?`, (row) =>
+      mine(row.title) && typeof row.id === 'string' ? `storage/kv/namespaces/${row.id}` : undefined,
+    )),
+    ...(
+      (
+        await read<{ buckets?: Array<{ name?: unknown }> }>(
+          `${base}/r2/buckets?name_contains=${prefix}&per_page=1000`,
+        )
+      )?.buckets ?? []
+    ).flatMap((bucket) => (mine(bucket.name) ? [`r2/buckets/${bucket.name}`] : [])),
+  ];
+  if (namespace !== undefined) {
+    await deleteIfPresent(client, namespacePath);
+  }
+  for (const store of stores) {
+    await deleteIfPresent(client, `${base}/${store}`);
+  }
+  if (sandbox) {
+    await deleteIfPresent(client, sandboxPath);
+  }
+  return namespace !== undefined || stores.length > 0 || sandbox !== undefined;
+}
+
 /**
  * Uninstall: the gate first (nothing can call in), then the container applications, the
- * controller Worker and the engine images. Each must carry this installation's ownership
- * marker; one that is not ours is left alone and reported.
+ * controller Worker, the runtime copies and the engine images. A Worker or application must
+ * carry this installation's ownership marker; one that is not ours is left alone and reported.
  */
 export async function deletePlatformSecurityScanner(
   client: ScannerClient,
@@ -269,6 +352,9 @@ export async function deletePlatformSecurityScanner(
     for (const application of found) {
       kept.push(`security scanner container application ${application.name}`);
     }
+    if (await deleteRuntimeCopies(client, account, names, marker, false, kept)) {
+      deleted.push('runtime copies');
+    }
     if (
       await deleteScannerImages(client, registryFetch, manifest.account.id, repositories, false)
     ) {
@@ -304,6 +390,9 @@ export async function deletePlatformSecurityScanner(
   }
   await deleteIfPresent(client, workerPath);
   deleted.push('controller');
+  if (await deleteRuntimeCopies(client, account, names, marker, true, kept)) {
+    deleted.push('runtime copies');
+  }
   if (await deleteScannerImages(client, registryFetch, manifest.account.id, repositories, true)) {
     deleted.push('scanner images');
   }

@@ -17,7 +17,7 @@ void platform upgrade [id] --security-audits
 void platform repair [id] --security-audits
 ```
 
-This allows the feature and nothing more. No project is scanned until you set a scan mode. The runtime token needs the Containers permissions that the token page lists. Uninstalling the platform also deletes the scanner, its container applications, and the scanner images it copied.
+This allows the feature and nothing more. No project is scanned until you set a scan mode. The runtime token needs the Containers permissions that the token page lists. Uninstalling the platform also deletes the scanner, its container applications, its scan copies, and the scanner images it copied.
 
 Then check the account and choose a mode:
 

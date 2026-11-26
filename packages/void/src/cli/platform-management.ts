@@ -1313,7 +1313,7 @@ export async function uninstallPlatform(
           : []),
         ...(securityAudits
           ? [
-              'Delete the security scanner Worker, its container applications, and the scanner images it copied.',
+              'Delete the security scanner Worker, its container applications, its scan copies, and the scanner images it copied.',
             ]
           : []),
         purgeResources
