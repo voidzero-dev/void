@@ -4,8 +4,8 @@ import { isCleanCommandExit, isCompletedCommand, isWorkerNotFound } from './exec
 import type { CloudflareCommandRunner } from './execute.ts';
 import type { CloudflarePreviewUploadResult } from './operations.ts';
 
-/** A DNS label holds at most 63 characters. */
-const MAX_HOST_LABEL = 63;
+/** A DNS label, such as a workers.dev Preview host, holds at most 63 characters. */
+export const CLOUDFLARE_HOST_LABEL_MAX = 63;
 /** Cloudflare's "Preview not found" API error. */
 const PREVIEW_NOT_FOUND = 10_025;
 
@@ -14,8 +14,8 @@ const PREVIEW_NOT_FOUND = 10_025;
  * unchanged as the start of a hostname label, so the URL Void prints is the one CI expects.
  */
 export function cloudflarePreviewNameProblem(name: string): string | undefined {
-  if (name.length === 0 || name.length > MAX_HOST_LABEL) {
-    return `must be 1 to ${MAX_HOST_LABEL} characters`;
+  if (name.length === 0 || name.length > CLOUDFLARE_HOST_LABEL_MAX) {
+    return `must be 1 to ${CLOUDFLARE_HOST_LABEL_MAX} characters`;
   }
   if (!isLowercaseLetter(name[0])) {
     return 'must start with a lowercase letter';

@@ -1,4 +1,5 @@
 import {
+  CLOUDFLARE_HOST_LABEL_MAX,
   cloudflarePreviewNameProblem,
   deleteCloudflarePreview,
   deployCloudflarePreview,
@@ -18,9 +19,6 @@ import { formatDeploySummary } from './deploy-summary.ts';
 import type { RunDeployOptions } from './deploy-types.ts';
 import type { CliLogger } from './log-file.ts';
 import { note, printSuccess } from './output.ts';
-
-/** A workers.dev hostname label holds at most 63 characters. */
-const MAX_HOST_LABEL = 63;
 
 /** Where the user sets a top-level Cloudflare config key, for messages. */
 export function cloudflareConfigKey(configPath: string, key: string): string {
@@ -52,12 +50,16 @@ export function checkCloudflarePreviewRequest(options: {
     !readWranglerTopLevelString(rootConfig, 'account_id') &&
     !process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
   ) {
-    return 'deploy: --preview needs a pinned Cloudflare account. Set cloudflare.account_id in void.config.ts or CLOUDFLARE_ACCOUNT_ID.';
+    return `deploy: --preview needs a pinned Cloudflare account. Set ${cloudflareConfigKey(configPath, 'account_id')} or CLOUDFLARE_ACCOUNT_ID.`;
   }
   // Stricter than a Preview that serves only a custom domain needs, but CI reads the workers.dev
   // URL.
-  if (previewName.length + 1 + workerName.length > MAX_HOST_LABEL) {
-    return `deploy: preview name "${previewName}" is too long for Worker "${workerName}". On workers.dev, "${previewName}-${workerName}" must be at most ${MAX_HOST_LABEL} characters, so use at most ${MAX_HOST_LABEL - 1 - workerName.length}.`;
+  const room = CLOUDFLARE_HOST_LABEL_MAX - 1 - workerName.length;
+  if (room < 1) {
+    return `deploy: Worker name "${workerName}" is too long for a preview. On workers.dev, "<name>-${workerName}" must be at most ${CLOUDFLARE_HOST_LABEL_MAX} characters, so the Worker name can have at most ${CLOUDFLARE_HOST_LABEL_MAX - 2}.`;
+  }
+  if (previewName.length > room) {
+    return `deploy: preview name "${previewName}" is too long for Worker "${workerName}". On workers.dev, "${previewName}-${workerName}" must be at most ${CLOUDFLARE_HOST_LABEL_MAX} characters, so use at most ${room}.`;
   }
   return undefined;
 }
@@ -189,7 +191,7 @@ export async function runCloudflarePreviewDelete(
   }
   if (result.reason === 'worker-not-found') {
     throw new Error(
-      `project: Worker "${workerName}" was not found in Cloudflare account ${context.accountId}. Nothing was deleted. Check cloudflare.name and CLOUDFLARE_ACCOUNT_ID.`,
+      `project: Worker "${workerName}" was not found in Cloudflare account ${context.accountId}. Nothing was deleted. Check ${cloudflareConfigKey(context.configPath, 'name')} and the pinned account.`,
     );
   }
   throw new Error(

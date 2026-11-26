@@ -55,6 +55,7 @@ export {
   type CloudflareWorkersDevSubdomainLookup,
 } from './version.ts';
 export {
+  CLOUDFLARE_HOST_LABEL_MAX,
   deleteCloudflarePreview,
   cloudflarePreviewNameProblem,
   deployCloudflarePreview,

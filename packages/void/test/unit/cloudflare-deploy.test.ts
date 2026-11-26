@@ -12950,13 +12950,19 @@ describe('runCloudflareDeploy — previews', () => {
       'no pinned account',
       'pr-64',
       { name: 'spaapp' },
-      '--preview needs a pinned Cloudflare account',
+      '--preview needs a pinned Cloudflare account. Set account_id in wrangler.jsonc',
     ],
     [
       'a name too long for the Worker',
       `pr-${'1'.repeat(60)}`,
       undefined,
       'must be at most 63 characters, so use at most 56',
+    ],
+    [
+      'any name, when the Worker name leaves no room',
+      'pr-1',
+      { name: 'w'.repeat(62), account_id: 'acc123' },
+      'so the Worker name can have at most 61',
     ],
   ])('refuses %s before any Cloudflare call', async (_case, preview, config, message) => {
     vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', undefined);
