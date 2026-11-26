@@ -823,6 +823,9 @@ export async function createPageNavigationEngine<Component>(
       const cachedPageData = await cacheEntry.response;
       _prefetchCache.consume(fetchUrl, method);
       if (cachedPageData === null) {
+        if (signal.aborted) {
+          throw abortError();
+        }
         const staleBuild = stalePrefetches.get(fetchUrl);
         stalePrefetches.delete(fetchUrl);
         if (staleBuild !== undefined && !claimDeployReload(staleBuild, url)) {
@@ -910,6 +913,11 @@ export async function createPageNavigationEngine<Component>(
       // Void, is not evidence of a new one.
       const servedBy = response?.headers.get(PAGES_BUILD_HEADER) ?? null;
       if (answeredMethod === 'GET' && servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+        // A newer visit owns the page now. Leaving it is not this visit's call, and
+        // neither is the reload this tab may spend.
+        if (signal.aborted) {
+          throw abortError();
+        }
         if (claimDeployReload(servedBy, url)) {
           response = null;
           pageData = undefined;

@@ -248,6 +248,49 @@ describe('Pages build recovery', () => {
     expect(document.body.replaceChildren).toHaveBeenCalled();
   });
 
+  it.each([
+    ['the first reload', false],
+    ['the recovery page', true],
+  ])('skips %s when a newer visit took over', async (_, reloadSpent) => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    if (reloadSpent) {
+      sessionStorage.setItem(
+        '__void_pages_deploy_reload',
+        JSON.stringify({ build: 'build-1', url: '/old', at: Date.now() }),
+      );
+    }
+    // The old visit's response arrives after the newer visit aborted it, as a
+    // fetch that already resolved does.
+    const stale = controlledPromise<Response>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/old'
+          ? stale.promise
+          : Response.json(
+              { ...stalePage, url: '/new' },
+              { headers: { 'X-VoidPages': 'true', 'X-VoidPages-Build': 'build-2' } },
+            ),
+      ),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    const oldVisit = router.visit('/old');
+    await Promise.resolve();
+    const newVisit = router.visit('/new');
+    stale.resolve(staleReloadResponse());
+
+    // A superseded GET visit settles quietly.
+    await expect(oldVisit).resolves.toBeUndefined();
+    await newVisit;
+    expect(window.location.href).toBeUndefined();
+    expect(document.body.replaceChildren).not.toHaveBeenCalled();
+    expect(applyUpdate).toHaveBeenCalled();
+  });
+
   it('reloads when a refresh of a URL with a fragment is answered by another build', async () => {
     stubClientGlobals();
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
