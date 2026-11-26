@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Locator, Page, Request } from 'playwright';
+import type { Manifest } from 'vite';
 import { assert, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../packages/edge/src/pages-protocol.ts';
 import {
@@ -6,6 +9,17 @@ import {
   deserializePageData,
   serializePageData,
 } from '../packages/void/src/pages/serialize.ts';
+
+export function assertPagesClientBuild(root: string): void {
+  function readManifest(output: string): Manifest {
+    const path = join(root, 'dist', output, '.vite/manifest.json');
+    return JSON.parse(readFileSync(path, 'utf8')) as Manifest;
+  }
+
+  const entry = 'virtual:void-pages-client';
+  expect(readManifest('client')[entry]).toMatchObject({ isEntry: true });
+  expect(readManifest('ssr')[entry]).toBeUndefined();
+}
 
 async function readJsonText(locator: Locator): Promise<unknown> {
   const value = await locator.textContent();
