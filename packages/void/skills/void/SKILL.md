@@ -32,7 +32,7 @@ For a one-time deployment elsewhere, connect to that platform, then set
 `VOID_API_URL` for the deploy command and pass `--project <slug>`. This preserves
 the app's existing saved destination, including when the target project is new.
 
-For a per-pull-request Cloudflare preview of a static site or SPA, use `void deploy --platform cloudflare --preview pr-<number> --json` and `void preview delete pr-<number>` on close; see `docs/reference/cli/deploy.md`.
+Static PR previews: `void deploy --platform cloudflare --preview pr-<n> --json` (deploy production first); remove with `void project preview delete pr-<n> --platform cloudflare`.
 
 Use `void deploy --skip-migrations` when database migrations run separately; it skips application and authentication SQL for that invocation. Ensure the code supports the current database schema and follow `docs/guide/deployment.md` for the release workflow.
 

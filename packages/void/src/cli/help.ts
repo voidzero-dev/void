@@ -196,11 +196,12 @@ const HELP_TREE = {
       {
         command: '--preview <name>',
         description:
-          'Create or update a Cloudflare Preview with its own URL; production is unchanged (static sites and SPAs, with --platform cloudflare)',
+          'Deploy a static site or SPA to a Cloudflare Preview with its own URL; production is unchanged (needs --platform cloudflare)',
       },
       {
         command: '--json',
-        description: 'Print the preview result as JSON on stdout (with --preview)',
+        description:
+          'With --preview, print one JSON object on stdout; everything else goes to stderr',
       },
       {
         command: '--debug',
@@ -216,8 +217,8 @@ const HELP_TREE = {
         description: 'Deploy to your own Cloudflare account',
       },
       {
-        command: 'void deploy --platform cloudflare --preview pr-64 --json',
-        description: 'Deploy a pull request preview and print its URL as JSON',
+        command: 'void deploy --platform cloudflare --preview pr-64',
+        description: 'Deploy a pull request preview; production is unchanged',
       },
     ],
   },

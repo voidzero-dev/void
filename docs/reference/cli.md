@@ -23,7 +23,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `init`, `prepare`, `info`, `migrate`       | [Project setup](./cli/setup.md)                               |
 | `connect`, `auth`, `account`, `cloudflare` | [Connections and authentication](./cli/auth.md)               |
 | `project`                                  | [Projects, teams, logs, and rollback](./cli/project.md)       |
-| `deploy`, `preview`                        | [Deployment](./cli/deploy.md)                                 |
+| `deploy`                                   | [Deployment](./cli/deploy.md)                                 |
 | `db`                                       | [Database](./cli/database.md)                                 |
 | `gen`                                      | [Code generation](./cli/generate.md)                          |
 | `secret`, `env`                            | [Secrets and environment](./cli/secrets.md)                   |
@@ -34,55 +34,55 @@ Use this page as a command reference. If you are setting up a project for the fi
 
 ## Cheat Sheet {#cheat-sheet}
 
-| Command                           | Purpose                                                                       |
-| --------------------------------- | ----------------------------------------------------------------------------- |
-| `void deploy`                     | Build and deploy to the configured platform                                   |
-| `void deploy --skip-migrations`   | Deploy code without applying application or authentication SQL migrations     |
-| `void deploy --preview <name>`    | Deploy a Cloudflare Preview with its own URL; production is unchanged         |
-| `void preview delete <name>`      | Delete a Cloudflare Preview                                                   |
-| `void prepare`                    | Generate `.void` artifacts without starting Vite                              |
-| `void info [--json]`              | Inspect persistent resource names before moving their code                    |
-| `void gen model <name> [cols...]` | Scaffold a Drizzle table and API routes                                       |
-| `void gen route <path>`           | Create an API route                                                           |
-| `void db push`                    | Apply schema directly without migration files                                 |
-| `void db generate`                | Generate SQL migrations from schema changes                                   |
-| `void db status`                  | Show local/remote migration status                                            |
-| `void db reset`                   | Drop and re-apply all migrations                                              |
-| `void db seed`                    | Reset + seed local database                                                   |
-| `void db execute <sql>`           | Run SQL against the database (--remote for deployed)                          |
-| `void db studio`                  | Open Drizzle Studio (--remote for a deployed external database)               |
-| `void db restore --bookmark <b>`  | Restore the deployed D1 database to a restore point (direct Cloudflare)       |
-| `void secret put <name=value>`    | Set a production secret                                                       |
-| `void secret list`                | List production secrets                                                       |
-| `void secret sync <file>`         | Bulk upload secrets from dotenv file                                          |
-| `void env check [--remote]`       | Validate env.ts schema                                                        |
-| `void env types`                  | Regenerate .void/env.d.ts from env.ts                                         |
-| `void auth login`                 | Authenticate with the project’s saved destination, or choose one              |
-| `void account login`              | Authenticate with a Void platform                                             |
-| `void cloudflare login`           | Authenticate with Cloudflare through Void                                     |
-| `void platform install`           | Install a company Void platform in Cloudflare                                 |
-| `void platform security`          | Administer security audits: scan mode, models, caps, findings, and alerts     |
-| `void connect <url>`              | Connect the CLI to a Void platform; hostnames default to HTTPS                |
-| `void project link`               | Link directory to a project                                                   |
-| `void project logs`               | Show runtime logs from deployed project                                       |
-| `void project requests`           | Show request-level traffic (status, method, timing)                           |
-| `void project rollback`           | Roll back to a previous deployment                                            |
-| `void project cancel`             | Cancel an active deployment                                                   |
-| `void project zero-trust`         | Inspect or override project Zero Trust protection, or bypass a security scan  |
-| `void project security`           | Review findings and scans, set model and budget, scan, check code pre-deploy  |
-| `void project purge-cache`        | Purge all cached pages (Void platform)                                        |
-| `void build logs`                 | Stream, tail, or download build logs                                          |
-| `void email status`               | Show email readiness on your own Cloudflare account (`--platform cloudflare`) |
-| `void email setup`                | Set email up on your own Cloudflare account, without deploying                |
-| `void email usage`                | Show monthly recipient attempts, inbound receipts, and quota                  |
-| `void email logs`                 | Show recent email delivery activity                                           |
-| `void email destinations`         | List verified recipient addresses                                             |
-| `void email allow <address>`      | Add a recipient and send a verification email                                 |
-| `void email disallow <address>`   | Remove a recipient from the allowlist                                         |
-| `void email alias [name]`         | Show the shared mail address, or give it a shorter permanent name             |
-| `void email domain`               | Send and receive at your own domain on a Cloudflare zone                      |
-| `void init`                       | Set up a new or existing project, including coding agents                     |
-| `void migrate`                    | Update project configuration                                                  |
+| Command                                                    | Purpose                                                                       |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `void deploy`                                              | Build and deploy to the configured platform                                   |
+| `void deploy --skip-migrations`                            | Deploy code without applying application or authentication SQL migrations     |
+| `void deploy --platform cloudflare --preview <name>`       | Deploy a static site to a Cloudflare Preview; production is unchanged         |
+| `void project preview delete <name> --platform cloudflare` | Delete a Cloudflare Preview                                                   |
+| `void prepare`                                             | Generate `.void` artifacts without starting Vite                              |
+| `void info [--json]`                                       | Inspect persistent resource names before moving their code                    |
+| `void gen model <name> [cols...]`                          | Scaffold a Drizzle table and API routes                                       |
+| `void gen route <path>`                                    | Create an API route                                                           |
+| `void db push`                                             | Apply schema directly without migration files                                 |
+| `void db generate`                                         | Generate SQL migrations from schema changes                                   |
+| `void db status`                                           | Show local/remote migration status                                            |
+| `void db reset`                                            | Drop and re-apply all migrations                                              |
+| `void db seed`                                             | Reset + seed local database                                                   |
+| `void db execute <sql>`                                    | Run SQL against the database (--remote for deployed)                          |
+| `void db studio`                                           | Open Drizzle Studio (--remote for a deployed external database)               |
+| `void db restore --bookmark <b>`                           | Restore the deployed D1 database to a restore point (direct Cloudflare)       |
+| `void secret put <name=value>`                             | Set a production secret                                                       |
+| `void secret list`                                         | List production secrets                                                       |
+| `void secret sync <file>`                                  | Bulk upload secrets from dotenv file                                          |
+| `void env check [--remote]`                                | Validate env.ts schema                                                        |
+| `void env types`                                           | Regenerate .void/env.d.ts from env.ts                                         |
+| `void auth login`                                          | Authenticate with the project’s saved destination, or choose one              |
+| `void account login`                                       | Authenticate with a Void platform                                             |
+| `void cloudflare login`                                    | Authenticate with Cloudflare through Void                                     |
+| `void platform install`                                    | Install a company Void platform in Cloudflare                                 |
+| `void platform security`                                   | Administer security audits: scan mode, models, caps, findings, and alerts     |
+| `void connect <url>`                                       | Connect the CLI to a Void platform; hostnames default to HTTPS                |
+| `void project link`                                        | Link directory to a project                                                   |
+| `void project logs`                                        | Show runtime logs from deployed project                                       |
+| `void project requests`                                    | Show request-level traffic (status, method, timing)                           |
+| `void project rollback`                                    | Roll back to a previous deployment                                            |
+| `void project cancel`                                      | Cancel an active deployment                                                   |
+| `void project zero-trust`                                  | Inspect or override project Zero Trust protection, or bypass a security scan  |
+| `void project security`                                    | Review findings and scans, set model and budget, scan, check code pre-deploy  |
+| `void project purge-cache`                                 | Purge all cached pages (Void platform)                                        |
+| `void build logs`                                          | Stream, tail, or download build logs                                          |
+| `void email status`                                        | Show email readiness on your own Cloudflare account (`--platform cloudflare`) |
+| `void email setup`                                         | Set email up on your own Cloudflare account, without deploying                |
+| `void email usage`                                         | Show monthly recipient attempts, inbound receipts, and quota                  |
+| `void email logs`                                          | Show recent email delivery activity                                           |
+| `void email destinations`                                  | List verified recipient addresses                                             |
+| `void email allow <address>`                               | Add a recipient and send a verification email                                 |
+| `void email disallow <address>`                            | Remove a recipient from the allowlist                                         |
+| `void email alias [name]`                                  | Show the shared mail address, or give it a shorter permanent name             |
+| `void email domain`                                        | Send and receive at your own domain on a Cloudflare zone                      |
+| `void init`                                                | Set up a new or existing project, including coding agents                     |
+| `void migrate`                                             | Update project configuration                                                  |
 
 For platform administration, see [plans and account limits](../guide/platform/administration/plans.md), [users and projects](./cli/platform-users.md), and [AI logging](./cli/platform-users.md#ai-gateway-logging).
 

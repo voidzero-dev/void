@@ -40,8 +40,8 @@ For Drizzle projects, deploy performs a read-only schema drift check. If a new m
 | `--require-email`               | Fail when email cannot be set up instead of deploying without it; requires `--platform cloudflare`               |
 | `--provision`                   | Run resource provisioning again even when every resource exists; requires `--platform cloudflare`                |
 | `--atomic`                      | Publish an existing Durable Object Worker directly; readiness is checked after traffic changes                   |
-| `--preview <name>`              | Create or update a Cloudflare Preview instead of production; see [Previews](#void-deploy-preview)                |
-| `--json`                        | With `--preview`, print the result as one JSON record on stdout; progress goes to stderr                         |
+| `--preview <name>`              | Deploy a static site or SPA to a Cloudflare Preview; production is unchanged ([more](#void-deploy-preview))      |
+| `--json`                        | With `--preview`, print one JSON object on stdout; everything else goes to stderr                                |
 | `--debug`                       | Mirror the structured deploy log to stderr (also written to `~/.void/logs/`)                                     |
 
 `--atomic` applies to one deployment. For an existing Durable Object Worker that consistently cannot stage, set `deploy: { cloudflare: { mode: 'atomic' } }` in `void.config.ts` so plain `void deploy` uses atomic publication. The default is `staged`.
@@ -125,22 +125,32 @@ For Access credentials, Hyperdrive permissions, readiness, and rollback, see [Cl
 
 ## `void deploy --platform cloudflare --preview <name>` {#void-deploy-preview}
 
-Deploy the build to a named [Cloudflare Preview](https://developers.cloudflare.com/workers/previews/) of the same Worker:
+Deploy a static site or SPA to a named [Cloudflare Preview](https://developers.cloudflare.com/workers/previews/) of the same Worker. Production traffic, routes and schedules are unchanged.
 
 ```sh
-void deploy --platform cloudflare --skip-build --preview pr-64 --json
+void deploy --platform cloudflare --preview pr-64
 ```
 
-A Preview has its own stable URL, `https://<name>-<worker>.<subdomain>.workers.dev`, which always serves its latest deployment. Deploying the same name again updates that URL. Production traffic, the active deployment, routes and schedules are unchanged.
+Add `--skip-build` or `--dir` to reuse an earlier build.
 
-Previews are available for static sites, SPAs and supported SSGs. Apps that need a Worker, such as server routes, bindings, migrations or secrets, are refused before anything is built or uploaded. A Preview does not inherit production secrets.
+A Preview keeps its URL across deploys: `https://<name>-<worker>.<subdomain>.workers.dev`, or `<name>.<your preview domain>` on a custom domain.
 
-The name uses lowercase letters, digits and hyphens. `<name>-<worker>` must fit in 63 characters. Use a name derived from the pull request, such as `pr-64`, rather than a branch name.
+Before the first preview:
+
+- Deploy the Worker to production once with `void deploy --platform cloudflare`. A preview never creates the Worker.
+- Set `cloudflare.name` in `void.config.ts`.
+- Pin the account with `cloudflare.account_id` or `CLOUDFLARE_ACCOUNT_ID`.
+- Workers that serve only routes or custom domains need `preview_urls: true`.
+
+Only static sites and SPAs can deploy a preview. A static preview gets none of the Worker's bindings, vars or secrets.
+
+Use lowercase letters, digits and single hyphens, starting with a letter. On workers.dev, `<name>-<worker>` must fit in 63 characters. Name previews after the pull request, such as `pr-64`.
 
 With `--json`, stdout carries one line:
 
 ```json
 {
+  "type": "preview",
   "workerName": "my-app",
   "previewName": "pr-64",
   "previewUrl": "https://pr-64-my-app.my-team.workers.dev",
@@ -149,16 +159,17 @@ With `--json`, stdout carries one line:
 }
 ```
 
-`previewUrl` always serves the latest deployment of this Preview. `deploymentUrl` serves only this deployment.
+| Field           | Type             | Meaning                                         |
+| --------------- | ---------------- | ----------------------------------------------- |
+| `type`          | `"preview"`      | Record type                                     |
+| `workerName`    | `string`         | The Worker the preview belongs to               |
+| `previewName`   | `string`         | The name passed to `--preview`                  |
+| `previewUrl`    | `string`         | Always serves the latest deploy of this preview |
+| `deploymentId`  | `string`         | This deployment                                 |
+| `deploymentUrl` | `string \| null` | Serves only this deployment                     |
 
-The Worker must allow Preview URLs. Void's production deploy turns them on when workers.dev is on. If you set `cloudflare.preview_urls` to `false` in `void.config.ts`, a preview deploy fails and says how to turn it back on. Workers Free allows 100 Previews per Worker; Cloudflare removes the least recently deployed one beyond that.
+On failure, stdout is empty and the exit code is not 0; read stderr.
 
-See [Pull request previews](../../integrations/cloudflare.md#pull-request-previews) for a GitHub Actions workflow.
+Preview URLs are public. Protect them with [Cloudflare Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/) when needed. Workers Free allows 100 previews per Worker; Cloudflare removes the oldest one beyond that.
 
-## `void preview delete <name>` {#void-preview-delete}
-
-```sh
-void preview delete pr-64
-```
-
-Delete a Preview and all its deployments. Production is unchanged. Deleting a Preview that does not exist succeeds, so a cleanup job can run more than once. It uses the same account and Worker as `void deploy --platform cloudflare`.
+Remove a preview with [`void project preview delete`](./project.md#void-project-preview-delete-name). See [Pull request previews](../../integrations/cloudflare.md#pull-request-previews) for a GitHub Actions workflow.

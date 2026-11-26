@@ -25,6 +25,8 @@ Unlinked projects with a root `wrangler.jsonc` or `wrangler.json` get a link-and
 
 Assets-only Workers report null or empty handlers alongside `script_runtime.assets`. Accept that shape during handoff; only the static adapter may add its `ASSETS` binding and sole `fetch` handler. Preserve every existing binding and reject name collisions. Missing handler metadata without verified assets must not bypass the handler checks.
 
+Static previews (`deploy --preview`) send `deployments.status` then `previews.deploy` from a Build Output with `isPreview: true` and an allow-listed config (`previewStaticWorkerConfig`); they never create a Worker.
+
 Handoff asks for an explicit ISR cache choice when the app requests caching and the verified Worker has no cache. Persist `routing.isr` in `void.config.ts` before provisioning: true allows only the new cache during this deployment; false disables ISR in native output and managed manifests until explicitly changed. Existing bindings and handlers remain protected; generated and uploaded cache IDs must match the approved pre-build identity, and the cache cannot alias an existing application namespace. Retrying may reuse the ID already recorded in `void.lock.json`. Never defer cache enablement implicitly to the next deploy. Existing D1 migration settings remain untouched during handoff, which applies no migrations.
 
 The main export `voidPlugin()` returns an array of Vite plugins. For the default Cloudflare target, this includes the `cloudflare()` plugin. For non-CF targets (`node`, `bun`, `deno`), it replaces `cloudflare()` with `nodeTargetPlugin()`:
