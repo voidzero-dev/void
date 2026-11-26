@@ -332,6 +332,28 @@ describe('Pages build recovery', () => {
     expect(document.body.replaceChildren).toHaveBeenCalled();
   });
 
+  it('reloads the page a mutation redirected to when another build rendered it', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const redirected = staleJson({ ...stalePage, url: '/items/1' });
+    Object.defineProperties(redirected, {
+      redirected: { value: true },
+      url: { value: 'http://localhost/items/1' },
+    });
+    const fetch = vi.fn().mockResolvedValueOnce(redirected);
+    vi.stubGlobal('fetch', fetch);
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+    await router.visit('/items', { method: 'POST' });
+
+    // The action ran once; only the page it redirected to is loaded again.
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(window.location.href).toBe('/items/1');
+    expect(applyUpdate).not.toHaveBeenCalled();
+  });
+
   it('applies a mutation answered by another build and never reloads', async () => {
     stubClientGlobals();
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');

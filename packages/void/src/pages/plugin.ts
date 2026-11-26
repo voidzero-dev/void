@@ -108,7 +108,13 @@ function clientBuildInputs(root: string, userConfig: UserConfig, mode: string): 
     [...new Set(['VITE_', ...[userConfig.envPrefix ?? []].flat()])],
   );
   return {
-    env: JSON.stringify(sortedEntries(env)),
+    // Vite also inlines MODE, BASE_URL, and DEV/PROD from NODE_ENV.
+    env: JSON.stringify([
+      sortedEntries(env),
+      mode,
+      userConfig.base ?? null,
+      process.env.NODE_ENV ?? null,
+    ]),
     define: JSON.stringify(sortedEntries(userConfig.define ?? {})),
   };
 }

@@ -879,25 +879,6 @@ export async function createPageNavigationEngine<Component>(
           : null;
       let response = fetched?.response ?? null;
 
-      // The destination was rendered by another deployment, so this tab's chunks
-      // are gone. Treat the payload as absent: the document load below lands on the
-      // requested destination with its query and hash. A mutation has already run,
-      // so only a GET is allowed to get here. A response that names no build, from
-      // an older Void, is not evidence of a new one.
-      const servedBy = response?.headers.get(PAGES_BUILD_HEADER) ?? null;
-      if (method === 'GET' && servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
-        if (claimDeployReload(servedBy, url)) {
-          response = null;
-          pageData = undefined;
-        } else {
-          // The last reload landed on the same old document, so this payload would
-          // replace the page with components that cannot load here, and reloading
-          // again would loop. Stop, and leave the tab a way out.
-          showTerminalPageError(url);
-          return undefined;
-        }
-      }
-
       if (pageData === undefined && !response) {
         loadDocument(url);
         return undefined;
@@ -917,6 +898,31 @@ export async function createPageNavigationEngine<Component>(
         commitTarget.fetchUrl = fetchUrl;
         commitTarget.hash = redirectUrl.hash;
         commitTarget.method = method;
+      }
+
+      // The destination was rendered by another deployment, so this tab's chunks
+      // are gone. Treat the payload as absent: the document load below lands on the
+      // requested destination with its query and hash. A mutation has already run,
+      // so only a GET is allowed here, which includes the page a mutation redirected
+      // to. A response that names no build, from an older Void, is not evidence of a
+      // new one.
+      const servedBy = response?.headers.get(PAGES_BUILD_HEADER) ?? null;
+      if (method === 'GET' && servedBy !== null && isStaleBuild(pagesBuildId(), servedBy)) {
+        if (claimDeployReload(servedBy, url)) {
+          response = null;
+          pageData = undefined;
+        } else {
+          // The last reload landed on the same old document, so this payload would
+          // replace the page with components that cannot load here, and reloading
+          // again would loop. Stop, and leave the tab a way out.
+          showTerminalPageError(url);
+          return undefined;
+        }
+      }
+
+      if (pageData === undefined && !response) {
+        loadDocument(url);
+        return undefined;
       }
 
       if (response && method !== 'GET' && !response.ok) {

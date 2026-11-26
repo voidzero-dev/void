@@ -354,6 +354,29 @@ describe('createPagesPlugin build id', () => {
     expect(await idFor('one')).not.toBe(await idFor('two'));
   });
 
+  it('changes the id for the mode and base Vite inlines', async () => {
+    const root = createFixture();
+    // A new plugin per build, as Vite makes one.
+    const idFor = async (userConfig: Record<string, unknown>, mode: string) => {
+      endPagesBuild(root);
+      const plugin = createPagesPlugin(join(root, 'pages'), {
+        name: 'test:pages',
+        generateRenderer: () => '',
+        generateClient: () => '',
+        config: () => ({}),
+      });
+      const hook = getHookHandler(plugin.config) as unknown as (
+        userConfig: Record<string, unknown>,
+        env: { command: 'build'; mode: string },
+      ) => Promise<BuildConfig>;
+      return idIn(await hook(userConfig, { command: 'build', mode }));
+    };
+
+    const production = await idFor({}, 'production');
+    expect(await idFor({}, 'staging')).not.toBe(production);
+    expect(await idFor({ base: '/app/' }, 'production')).not.toBe(production);
+  });
+
   it('changes the id for an app define the client inlines', async () => {
     // Two apps with the same source, built apart, that differ only in a define.
     const idFor = async (value: string) =>
