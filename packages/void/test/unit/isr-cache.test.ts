@@ -1044,7 +1044,7 @@ describe('handleIsr', () => {
 
   it('keeps cached HTML when a stale client gets its reload response', async () => {
     const { store, kv } = createKvMock();
-    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0]!.seed());
+    store.set(isrKey(DPL, HOST, '/blog/post'), corruptCases[0].seed());
     const env = makeEnv(kv);
     const htmlKey = htmlEdgeKey(HOST, '/blog/post', DPL);
     edge.store.set(htmlKey, currentSharedCacheResponse(new Response('<html>cached</html>')));

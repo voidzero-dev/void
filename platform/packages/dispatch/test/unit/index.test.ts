@@ -3441,6 +3441,70 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     // The entry holds props this client cannot render, so the app answers.
     expect(workerFetch).toHaveBeenCalledOnce();
     expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+    // Clients of the build that rendered it can still use it.
+    expect(
+      edgeCacheStore.has('https://my-app.void.app/dashboard?__void=json&__void_isr=legacy'),
+    ).toBe(true);
+  });
+
+  it('stores the build of an HTML render with its JSON entry, so that build hits it', async () => {
+    const { env, workerFetch } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageHtml(), {
+        headers: { 'Content-Type': 'text/html', 'X-VoidPages-Build': 'build-2' },
+      }),
+    });
+    const documentCtx = createCtx();
+    await app.fetch(new Request('https://my-app.void.app/dashboard'), env, documentCtx);
+    await waitForBackgroundTasks(documentCtx);
+
+    const response = await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Build': 'build-2',
+        },
+      }),
+      env,
+      createCtx(),
+    );
+
+    expect(workerFetch).toHaveBeenCalledOnce();
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+    expect(await response.json()).toEqual(JSON.parse(pageData));
+  });
+
+  it('evicts cached HTML when a Pages answer opts out of sharing', async () => {
+    const htmlKey = 'https://my-app.void.app/dashboard?__void_isr=legacy';
+    edgeCacheStore.set(
+      htmlKey,
+      currentSharedCacheResponse(
+        new Response(pageHtml(), { headers: { 'Content-Type': 'text/html' } }),
+      ),
+    );
+    const { env } = createEnv({
+      routing: isrRouting,
+      workerResponse: new Response(pageData, {
+        headers: {
+          'content-type': 'application/json',
+          'X-VoidPages': 'true',
+          'Cache-Control': 'no-store',
+        },
+      }),
+    });
+    const ctx = createCtx();
+
+    await app.fetch(
+      new Request('https://my-app.void.app/dashboard', {
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      }),
+      env,
+      ctx,
+    );
+    await waitForBackgroundTasks(ctx);
+
+    expect(edgeCacheStore.has(htmlKey)).toBe(false);
   });
 
   it('keeps cached HTML when a stale client gets its reload response', async () => {
@@ -3469,7 +3533,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
       env,
       ctx,
     );
-    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    await waitForBackgroundTasks(ctx);
 
     // The answer belongs to the JSON path; other tabs still hold this HTML.
     expect(workerFetch).toHaveBeenCalledOnce();

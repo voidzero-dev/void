@@ -270,6 +270,26 @@ function claimDeployReload(build: string, url: string): boolean {
   return true;
 }
 
+/**
+ * Loads `url` as a new document. Setting `location.href` to the current URL with
+ * a fragment only scrolls, and that is the URL a refresh or a back/forward visit
+ * asks for, so that case reloads the page instead.
+ */
+function loadDocument(url: string): void {
+  const { origin, pathname, search, hash } = window.location;
+  const target = new URL(url, `${origin}${pathname}${search}`);
+  const sameDocument =
+    target.origin === origin && target.pathname === pathname && target.search === search;
+  if (!sameDocument || target.hash === '') {
+    window.location.href = url;
+    return;
+  }
+  if (target.hash !== hash) {
+    history.replaceState(history.state, '', url);
+  }
+  window.location.reload();
+}
+
 function abortSignalPromise(signal: AbortSignal): Promise<never> {
   if (signal.aborted) {
     return Promise.reject(abortError());
@@ -798,7 +818,7 @@ export async function createPageNavigationEngine<Component>(
       const cachedPageData = await cacheEntry.response;
       _prefetchCache.consume(fetchUrl, method);
       if (cachedPageData === null) {
-        window.location.href = url;
+        loadDocument(url);
         return undefined;
       }
       // Deferred initialization and adapters mutate props; retain the cached wire payload.
@@ -867,7 +887,7 @@ export async function createPageNavigationEngine<Component>(
       }
 
       if (pageData === undefined && !response) {
-        window.location.href = url;
+        loadDocument(url);
         return undefined;
       }
 
@@ -903,7 +923,7 @@ export async function createPageNavigationEngine<Component>(
             pageData = staticPageData.pageData;
             deferredRegistry.setup(pageData, staticPageData.resolvedDeferred);
           } else {
-            window.location.href = url;
+            loadDocument(url);
             return undefined;
           }
         } else {
@@ -917,7 +937,7 @@ export async function createPageNavigationEngine<Component>(
       if (pageData !== undefined) {
         // Static page-data fallback already loaded the page object.
       } else if (!response) {
-        window.location.href = url;
+        loadDocument(url);
         return undefined;
       } else if (contentType.includes('application/x-ndjson')) {
         if (!response.body) {
@@ -1014,7 +1034,7 @@ export async function createPageNavigationEngine<Component>(
     // Reuse the preload only if the response selects the matched page; redirects
     // or rewrites may select another. Cancellation stops waiting for the imports.
     if (!components[pageData.component]) {
-      window.location.href = url;
+      loadDocument(url);
       return undefined;
     }
     let component: Component;

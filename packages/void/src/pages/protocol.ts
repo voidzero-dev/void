@@ -687,6 +687,9 @@ function renderedResponse(
     headers: adjustDevCssCsp(
       pageResponseHeaders(c, {
         'content-type': contentType,
+        // ISR copies the page data out of this document into its JSON cache, and
+        // keeps the build with it.
+        ...buildHeaders(pagesBuildId()),
         ...POWERED_BY,
       }),
       assetTags?.devCssNonce,

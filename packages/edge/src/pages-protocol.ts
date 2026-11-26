@@ -14,7 +14,7 @@ export const PAGES_BUILD_HEADER = 'X-VoidPages-Build';
  * evidence of a new build, so it never counts as a mismatch.
  */
 export function isStaleBuild(buildId: string, seen: string | null | undefined): boolean {
-  return buildId !== '' && seen != null && seen !== buildId;
+  return buildId !== '' && typeof seen === 'string' && seen !== buildId;
 }
 
 /** Request and response headers that carry a build, empty when none is known. */

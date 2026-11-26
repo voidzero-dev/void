@@ -1658,6 +1658,22 @@ describe('Pages build recovery', () => {
     expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
   });
 
+  it('names its build on the HTML document, which ISR copies into its JSON cache', async () => {
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+
+    const response = await handlePageGet(
+      () => ({ title: 'post' }),
+      undefined,
+      await createTestContext('GET', '/blog/post'),
+      'blog/post',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(response.headers.get('X-VoidPages-Build')).toBe('build-2');
+  });
+
   it('keeps its response for a stale mutation, so the action never replays', async () => {
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
     const action = vi.fn();

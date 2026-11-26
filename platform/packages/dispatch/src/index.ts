@@ -166,12 +166,19 @@ export function isHtmlResponse(response: Response): boolean {
   );
 }
 
-function jsonCacheResponse(pageData: string, ttl: number, state: 'HIT' | 'MISS'): Response {
+function jsonCacheResponse(
+  pageData: string,
+  ttl: number,
+  state: 'HIT' | 'MISS',
+  build: string | null,
+): Response {
   const response = new Response(pageData, {
     headers: {
       'content-type': 'application/json',
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      // Kept with the payload, so a client from another build skips this entry.
+      ...(build ? { [PAGES_BUILD_HEADER]: build } : {}),
       Vary: 'X-VoidPages, X-VoidPages-Version',
       'Cache-Control': `public, s-maxage=${ttl}, max-age=0, must-revalidate`,
       'x-isr-cache': state,
@@ -195,7 +202,10 @@ async function populateJsonEdgeCache(
   if (!pageData) {
     return;
   }
-  await cache.put(cacheKey, jsonCacheResponse(pageData, ttl, state));
+  await cache.put(
+    cacheKey,
+    jsonCacheResponse(pageData, ttl, state, response.headers.get(PAGES_BUILD_HEADER)),
+  );
 }
 
 type SharedIsrEntry = Readonly<{
@@ -1213,20 +1223,20 @@ const dispatcher = {
         // Pages protocol: check JSON edge cache, fall through on miss
         if (isPagesRequest) {
           const jsonCached = await cache.match(jsonCacheKey);
-          // A payload rendered by another build carries props this client cannot
-          // render. Fall through so the app answers and reloads the tab.
-          if (
-            jsonCached &&
-            hasCurrentSharedCachePolicy(jsonCached) &&
-            pagesPayloadFitsBuild(
-              jsonCached.headers.get(PAGES_BUILD_HEADER),
-              request.headers.get(PAGES_BUILD_HEADER),
-            )
-          ) {
-            requestType = 'isr';
-            return meter(clientRevalidateResponse(jsonCached));
-          }
-          if (jsonCached) {
+          if (jsonCached && hasCurrentSharedCachePolicy(jsonCached)) {
+            // A payload rendered by another build carries props this client cannot
+            // render. Fall through so the app answers and reloads the tab, and keep
+            // the entry: it is still right for clients of its own build.
+            if (
+              pagesPayloadFitsBuild(
+                jsonCached.headers.get(PAGES_BUILD_HEADER),
+                request.headers.get(PAGES_BUILD_HEADER),
+              )
+            ) {
+              requestType = 'isr';
+              return meter(clientRevalidateResponse(jsonCached));
+            }
+          } else if (jsonCached) {
             await cache.delete(jsonCacheKey);
           }
           // Miss — fall through to general dispatch (worker returns JSON for X-VoidPages)
@@ -1813,11 +1823,13 @@ const dispatcher = {
         }
       }
 
-      // A Pages request only speaks for the JSON path. Its answer can be the app's
-      // reload response, which must not evict HTML that other tabs still use.
+      // The app answers a stale Pages client with a reload response that carries no
+      // page data. It says nothing about the cached HTML, which other tabs still use.
+      const pagesReload =
+        request.headers.has('X-VoidPages') && !response.headers.has('X-VoidPages');
       if (
         sharedIsrEntry &&
-        !request.headers.has('X-VoidPages') &&
+        !pagesReload &&
         response.status === 200 &&
         !writebackFallbackApplied &&
         (resolveRevalidateTtl(

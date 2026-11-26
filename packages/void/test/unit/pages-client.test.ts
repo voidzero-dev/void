@@ -248,6 +248,62 @@ describe('Pages build recovery', () => {
     expect(document.body.replaceChildren).toHaveBeenCalled();
   });
 
+  it('reloads when a refresh of a URL with a fragment is answered by another build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const reload = vi.fn();
+    Object.assign(window.location, { pathname: '/docs', hash: '#install', reload });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+
+    await router.refresh();
+
+    // Assigning the same URL with a fragment only scrolls, so the tab would keep
+    // its stale page without loading anything.
+    expect(reload).toHaveBeenCalledOnce();
+    expect(window.location.href).toBeUndefined();
+  });
+
+  it('reloads a back/forward visit to an entry with a fragment answered by another build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    stubReloadGuard();
+    const reload = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleReloadResponse()),
+    );
+    const { router } = await createTestRouter();
+    // The browser has already moved the address to the entry it went back to.
+    Object.assign(window.location, { pathname: '/b', hash: '#h', reload });
+
+    await router.visit('/b#h', { preserveState: true, _popstate: true });
+
+    expect(reload).toHaveBeenCalledOnce();
+    expect(history.replaceState).not.toHaveBeenCalled();
+  });
+
+  it('reloads a back/forward visit whose prefetch was answered by another build', async () => {
+    stubClientGlobals();
+    vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');
+    const reload = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => staleJson(stalePage)),
+    );
+    const { router } = await createTestRouter();
+    await router.prefetch('/b');
+    Object.assign(window.location, { pathname: '/b', hash: '#h', reload });
+
+    await router.visit('/b#h', { preserveState: true, _popstate: true });
+
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
   it('applies a mutation answered by another build and never reloads', async () => {
     stubClientGlobals();
     vi.stubEnv('__VOID_PAGES_BUILD_ID', 'build-2');

@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'pathslash';
 import { loadEnv, normalizePath } from 'vite';
 import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
-import { computePagesBuildId } from './build-id-source.ts';
+import { computePagesBuildId, endPagesBuild } from './build-id-source.ts';
+import type { PagesBuildInputs } from './build-id-source.ts';
 import { PAGES_BUILD_ID_DEFINE } from './build-id.ts';
 import { assertLinkPrefetchValue } from './prefetch.ts';
 import type { CacheForInput, LinkPrefetchValue } from './prefetch.ts';
@@ -83,18 +84,30 @@ function buildIdExcludes(root: string, userConfig: UserConfig): Array<string> {
   return [...dirs].map((dir) => (isAbsolute(dir) ? dir : join(root, dir)));
 }
 
+/** Entries sorted by key, so the order they were written in does not change the id. */
+function sortedEntries(record: Record<string, unknown>): Array<[string, unknown]> {
+  return Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
 /**
  * Values the client bundle inlines without appearing in a source file: the
  * env vars Vite exposes, and the app's `define` entries. Two builds that differ
  * only here still emit different chunks, so the id has to cover them.
  */
-function clientBuildInputs(root: string, userConfig: UserConfig, mode: string): string {
-  const envDir = typeof userConfig.envDir === 'string' ? userConfig.envDir : root;
-  const env = Object.entries(loadEnv(mode, envDir, userConfig.envPrefix ?? 'VITE_')).sort(
-    ([a], [b]) => a.localeCompare(b),
-  );
-  const define = Object.entries(userConfig.define ?? {}).sort(([a], [b]) => a.localeCompare(b));
-  return JSON.stringify({ env, define });
+function clientBuildInputs(root: string, userConfig: UserConfig, mode: string): PagesBuildInputs {
+  const envDir = userConfig.envDir;
+  const env =
+    envDir === false
+      ? {}
+      : loadEnv(
+          mode,
+          typeof envDir === 'string' ? (isAbsolute(envDir) ? envDir : join(root, envDir)) : root,
+          userConfig.envPrefix ?? 'VITE_',
+        );
+  return {
+    env: JSON.stringify(sortedEntries(env)),
+    define: JSON.stringify(sortedEntries(userConfig.define ?? {})),
+  };
 }
 
 /** Shared Vite lifecycle; adapters own their generated code and environment configuration. */
@@ -209,6 +222,15 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
       viteConfig = config;
     },
 
+    // Every environment has resolved its config, and so read the id, by now. The
+    // next build in this process hashes again.
+    buildApp: {
+      order: 'post',
+      async handler() {
+        endPagesBuild(root);
+      },
+    },
+
     config(userConfig, env) {
       // Set before the early return: pages/ may be created after the server starts.
       const dev = env.command === 'serve';
@@ -227,7 +249,17 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
         // The dev server serves a single build, so a tab never outlives the chunks
         // it imported, and an app without a client entry has no tab to recover.
         // Leaving the id undefined keeps every build check a no-op there.
-        if (dev || resolved == null || options.deployRecovery === false) {
+        if (
+          dev ||
+          resolved === null ||
+          resolved === undefined ||
+          options.deployRecovery === false
+        ) {
+          return resolved;
+        }
+        // An explicit app define pins the id, for a fixture or for one that
+        // outlives this process such as a commit sha. Vite applies it as written.
+        if (userConfig.define?.[PAGES_BUILD_ID_DEFINE] !== undefined) {
           return resolved;
         }
         buildId ??= computePagesBuildId(
@@ -240,9 +272,6 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
           define: {
             ...resolved.define,
             [PAGES_BUILD_ID_DEFINE]: JSON.stringify(buildId),
-            // An explicit app define wins: it pins the id for a fixture or forces
-            // one that outlives this process, such as a commit sha.
-            ...userConfig.define,
           },
         };
       };
