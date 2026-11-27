@@ -127,7 +127,7 @@ describe('init Git arguments', () => {
     expect(parseInitArgs(['--git', '--no-git']).git).toBe(false);
     expect(parseInitArgs(['--no-git', '--git']).git).toBe(true);
     expect(parseInitArgs(['--tsconfig', '--git'])).toMatchObject({ tsconfig: true, git: true });
-    expect(parseInitArgs(['--vp-create']).vpCreate).toBe(true);
+    expect(() => parseInitArgs(['--vp-create'])).toThrow('Unknown option');
     expect(() => parseInitArgs(['--agents'])).toThrow('Unknown option');
   });
 
@@ -198,7 +198,11 @@ describe('init scaffold arguments', () => {
       install: false,
       git: false,
     });
-    expect(parseInitArgs(['--package-manager', 'pnpm'])).toMatchObject({ packageManager: 'pnpm' });
+    expect(() => parseInitArgs(['--package-manager', 'pnpm'])).toThrow('Unknown option');
+    vi.stubEnv('VOID_PACKAGE_MANAGER', 'pnpm');
+    vi.stubEnv('VOID_VP_CREATE', '1');
+    expect(parseInitArgs([])).not.toHaveProperty('packageManager');
+    expect(parseInitArgs([])).not.toHaveProperty('vpCreate');
   });
 
   it('scaffolds with --no-install without running the package manager install', async () => {
@@ -235,13 +239,12 @@ describe('init scaffold arguments', () => {
   });
 
   it('uses the delegated package manager for a plain Vite starter', async () => {
+    vi.stubEnv('VOID_PACKAGE_MANAGER', 'pnpm');
     const root = mkdtempSync(join(tmpdir(), 'void-init-delegated-pm-'));
     try {
       await runInitCommand(
         root,
         parseInitArgs([
-          '--package-manager',
-          'pnpm',
           '--toolchain',
           'vite',
           '--framework',
@@ -1540,6 +1543,7 @@ function restoreInteractiveTerminal(): void {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   restoreInteractiveTerminal();
   delete process.env.VOID_PLATFORM_REGISTRY_DIR;
   rmSync(platformRegistryDirectory, { recursive: true, force: true });
@@ -1564,6 +1568,8 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  vi.stubEnv('VOID_PACKAGE_MANAGER', '');
+  vi.stubEnv('VOID_VP_CREATE', '');
   previousCI = process.env.CI;
   process.env.CI = 'true';
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => true });
@@ -2571,6 +2577,7 @@ describe('isScaffoldableEmptyProject', () => {
   });
 
   it('leaves devEngines package manager selection to vp create', async () => {
+    vi.stubEnv('VOID_VP_CREATE', '1');
     const root = mkdtempSync(join(tmpdir(), 'void-init-vp-create-'));
     try {
       mockSelect
@@ -2579,7 +2586,7 @@ describe('isScaffoldableEmptyProject', () => {
         .mockResolvedValueOnce('static');
       mockConfirm.mockResolvedValueOnce(false);
 
-      await runInitCommand(root, parseInitArgs(['--vp-create']));
+      await runInitCommand(root, parseInitArgs([]));
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.devDependencies['vite-plus']).toBe(

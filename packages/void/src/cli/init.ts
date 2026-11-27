@@ -83,8 +83,6 @@ export type InitArgs = {
   github: boolean;
   install?: boolean;
   git?: boolean;
-  vpCreate?: boolean;
-  packageManager?: ProjectState['packageManager'];
   toolchain?: ScaffoldToolchain;
   framework?: ScaffoldFramework;
   starter?: ScaffoldStarterMode;
@@ -113,6 +111,26 @@ function parseChoice<T extends string>(
   return value as T;
 }
 
+function readDelegatedPackageManager(): ProjectState['packageManager'] | undefined {
+  const packageManager = process.env.VOID_PACKAGE_MANAGER;
+  if (!packageManager) {
+    return undefined;
+  }
+
+  const supportedPackageManagers: ReadonlyArray<ProjectState['packageManager']> = [
+    'npm',
+    'pnpm',
+    'yarn',
+    'bun',
+  ];
+  if (!supportedPackageManagers.includes(packageManager as ProjectState['packageManager'])) {
+    throw new Error(
+      `init: VOID_PACKAGE_MANAGER must be one of ${supportedPackageManagers.join(', ')}.`,
+    );
+  }
+  return packageManager as ProjectState['packageManager'];
+}
+
 export function parseInitArgs(args: Array<string>): InitArgs {
   let parsed: ReturnType<typeof parseArgs>;
   try {
@@ -123,8 +141,6 @@ export function parseInitArgs(args: Array<string>): InitArgs {
         github: { type: 'boolean' },
         install: { type: 'boolean' },
         git: { type: 'boolean' },
-        'vp-create': { type: 'boolean' },
-        'package-manager': { type: 'string' },
         toolchain: { type: 'string' },
         framework: { type: 'string' },
         starter: { type: 'string' },
@@ -143,13 +159,6 @@ export function parseInitArgs(args: Array<string>): InitArgs {
     github: parsed.values.github === true,
     install: parsed.values.install as boolean | undefined,
     git: parsed.values.git as boolean | undefined,
-    vpCreate: parsed.values['vp-create'] === true,
-    packageManager: parseChoice('package-manager', parsed.values['package-manager'], [
-      'npm',
-      'pnpm',
-      'yarn',
-      'bun',
-    ]),
     toolchain: parseChoice(
       'toolchain',
       parsed.values.toolchain,
@@ -2555,6 +2564,8 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
 }
 
 async function runInitSteps(root: string, report: InitReport, initArgs?: InitArgs): Promise<void> {
+  const delegatedPackageManager = readDelegatedPackageManager();
+  const isVpCreate = process.env.VOID_VP_CREATE === '1';
   const targeted = Boolean(initArgs && (initArgs.tsconfig || initArgs.github));
   const requestedRoot = root;
   if (!targeted) {
@@ -2608,7 +2619,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     !workspaceSubpackage && (!targeted || initArgs?.git !== undefined)
       ? await setupGit(root, initArgs?.git)
       : false;
-  const preScaffoldState = detectProjectState(root, initArgs?.packageManager);
+  const preScaffoldState = detectProjectState(root, delegatedPackageManager);
   const detectedPagesFramework = detectPagesFramework(root);
   let scaffoldedPagesFramework: ScaffoldFramework | undefined;
   let scaffoldedStarterMode: Exclude<ScaffoldStarterMode, 'static'> | undefined;
@@ -2638,7 +2649,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       parsePackageManagerField(existingPackageJson) !== undefined ||
       resolveWorkspaceDeferral(root, existingPackageJson) !== undefined;
     const scaffoldPackageManager =
-      scaffoldToolchain === 'vite-plus' && !hasPackageManager && !initArgs?.packageManager
+      scaffoldToolchain === 'vite-plus' && !hasPackageManager && !delegatedPackageManager
         ? 'pnpm'
         : preScaffoldState.packageManager;
     const scaffoldWroteDeps = scaffoldPagesApp(
@@ -2648,7 +2659,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       starterMode,
       scaffoldToolchain,
       report,
-      scaffoldStarter && !workspaceSubpackage && !initArgs?.vpCreate,
+      scaffoldStarter && !workspaceSubpackage && !isVpCreate,
     );
     report.setStarter(describeStarter(scaffoldedPagesFramework, starterMode, subfolder));
 
@@ -2679,7 +2690,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     didScaffoldStarter = true;
   }
 
-  const state = detectProjectState(root, initArgs?.packageManager);
+  const state = detectProjectState(root, delegatedPackageManager);
   const pagesFramework = scaffoldedPagesFramework ?? detectPagesFramework(root);
 
   if (!targeted && !didScaffoldStarter) {

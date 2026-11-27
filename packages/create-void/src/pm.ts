@@ -70,16 +70,17 @@ export function pmInitCommand(
   return [
     ...pmDlx(pm, version),
     'init',
-    '--package-manager',
-    pm,
     ...initArgs,
     ...(invokedByVitePlus && !hasToolchain ? ['--toolchain', 'vite-plus'] : []),
     ...(invokedByVitePlus && !hasInstallOption ? ['--no-install'] : []),
-    ...(invokedByVitePlus ? ['--vp-create'] : []),
   ];
 }
 
-export type InitCommandRunner = (argv: ReadonlyArray<string>, cwd?: string) => Promise<void>;
+export type InitCommandRunner = (
+  argv: ReadonlyArray<string>,
+  cwd: string | undefined,
+  env: NodeJS.ProcessEnv,
+) => Promise<void>;
 
 export function runVoidInit(
   pm: PM,
@@ -88,10 +89,18 @@ export function runVoidInit(
   cwd: string,
   runner: InitCommandRunner = run,
 ): Promise<void> {
-  return runner(pmInitCommand(pm, version, initArgs), cwd);
+  const invokedByVitePlus = process.env.VP_USER_AGENT?.startsWith('vp/') ?? false;
+  return runner(pmInitCommand(pm, version, initArgs), cwd, {
+    VOID_PACKAGE_MANAGER: pm,
+    VOID_VP_CREATE: invokedByVitePlus ? '1' : '',
+  });
 }
 
-export function run(argv: ReadonlyArray<string>, cwd?: string): Promise<void> {
+export function run(
+  argv: ReadonlyArray<string>,
+  cwd?: string,
+  env: NodeJS.ProcessEnv = {},
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const [cmd, ...args] = argv;
     // On Windows the package-manager entry points (npm, npx, pnpm, yarn, bunx)
@@ -99,7 +108,12 @@ export function run(argv: ReadonlyArray<string>, cwd?: string): Promise<void> {
     // throws ENOENT. Enable a shell only on win32; every arg here is a fixed
     // literal or a plain flag checked by parseCreateArgs, so there is no
     // injection surface.
-    const child = spawn(cmd, args, { stdio: 'inherit', cwd, shell: process.platform === 'win32' });
+    const child = spawn(cmd, args, {
+      stdio: 'inherit',
+      cwd,
+      env: { ...process.env, ...env },
+      shell: process.platform === 'win32',
+    });
     child.on('close', (code) => {
       if (code === 0) {
         resolve();

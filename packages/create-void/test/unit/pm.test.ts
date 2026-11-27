@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { detectPM, pmDlx, pmInitCommand } from '../../src/pm.ts';
+import { detectPM, pmDlx, pmInitCommand, runVoidInit } from '../../src/pm.ts';
 
 describe('create-void package manager delegation', () => {
   beforeEach(() => vi.stubEnv('VP_USER_AGENT', ''));
@@ -28,23 +28,10 @@ describe('create-void package manager delegation', () => {
   });
 
   it.each([
-    [
-      'npm',
-      [
-        'npm',
-        'exec',
-        '--yes',
-        '--package=void@1.2.3',
-        '--',
-        'void',
-        'init',
-        '--package-manager',
-        'npm',
-      ],
-    ],
-    ['pnpm', ['pnpm', 'dlx', 'void@1.2.3', 'init', '--package-manager', 'pnpm']],
-    ['yarn', ['yarn', 'dlx', 'void@1.2.3', 'init', '--package-manager', 'yarn']],
-    ['bun', ['bunx', 'void@1.2.3', 'init', '--package-manager', 'bun']],
+    ['npm', ['npm', 'exec', '--yes', '--package=void@1.2.3', '--', 'void', 'init']],
+    ['pnpm', ['pnpm', 'dlx', 'void@1.2.3', 'init']],
+    ['yarn', ['yarn', 'dlx', 'void@1.2.3', 'init']],
+    ['bun', ['bunx', 'void@1.2.3', 'init']],
   ] as const)('builds the %s void init command', (pm, expected) => {
     vi.stubEnv('npm_config_user_agent', '');
     expect(pmInitCommand(pm, '1.2.3', [])).toEqual(expected);
@@ -60,8 +47,6 @@ describe('create-void package manager delegation', () => {
       '--',
       'void',
       'init',
-      '--package-manager',
-      'yarn',
       '--no-install',
     ]);
   });
@@ -73,12 +58,9 @@ describe('create-void package manager delegation', () => {
       'dlx',
       'void@1.2.3',
       'init',
-      '--package-manager',
-      'pnpm',
       '--toolchain',
       'vite-plus',
       '--no-install',
-      '--vp-create',
     ]);
   });
 
@@ -89,12 +71,9 @@ describe('create-void package manager delegation', () => {
       'dlx',
       'void@1.2.3',
       'init',
-      '--package-manager',
-      'pnpm',
       '--toolchain',
       'vite',
       '--no-install',
-      '--vp-create',
     ]);
   });
 
@@ -105,12 +84,9 @@ describe('create-void package manager delegation', () => {
       'dlx',
       'void@1.2.3',
       'init',
-      '--package-manager',
-      'pnpm',
       '--install',
       '--toolchain',
       'vite-plus',
-      '--vp-create',
     ]);
   });
 
@@ -122,13 +98,21 @@ describe('create-void package manager delegation', () => {
       'dlx',
       'void@1.2.3',
       'init',
-      '--package-manager',
-      'pnpm',
       '--framework',
       'react',
       '--no-install',
     ]);
     expect(command).not.toContain('install');
+  });
+
+  it('passes the package manager and Vite+ origin through environment variables', async () => {
+    vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    await runVoidInit('pnpm', '1.2.3', [], '/tmp/void-app', async (argv, cwd, env) => {
+      expect(argv).not.toContain('--package-manager');
+      expect(argv).not.toContain('--vp-create');
+      expect(cwd).toBe('/tmp/void-app');
+      expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'pnpm', VOID_VP_CREATE: '1' });
+    });
   });
 
   it.each([

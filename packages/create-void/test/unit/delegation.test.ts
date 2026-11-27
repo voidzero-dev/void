@@ -35,9 +35,11 @@ describe('create-void delegation', () => {
           '--no-install',
         ],
         root,
-        async (argv, cwd) => {
-          expect(argv).toContain('--package-manager');
-          expect(argv[argv.indexOf('--package-manager') + 1]).toBe('npm');
+        async (argv, cwd, env) => {
+          expect(argv).not.toContain('--package-manager');
+          expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'npm', VOID_VP_CREATE: '' });
+          vi.stubEnv('VOID_PACKAGE_MANAGER', env.VOID_PACKAGE_MANAGER);
+          vi.stubEnv('VOID_VP_CREATE', env.VOID_VP_CREATE);
           await runInitCommand(cwd!, parseInitArgs(argv.slice(argv.indexOf('init') + 1)));
         },
       );
@@ -84,15 +86,16 @@ describe('create-void delegation', () => {
           '--no-install',
         ],
         appDirectory,
-        async (argv, cwd) => {
+        async (argv, cwd, env) => {
           invoked = true;
+          expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'pnpm', VOID_VP_CREATE: '' });
+          vi.stubEnv('VOID_PACKAGE_MANAGER', env.VOID_PACKAGE_MANAGER);
+          vi.stubEnv('VOID_VP_CREATE', env.VOID_VP_CREATE);
           expect(argv).toEqual([
             'pnpm',
             'dlx',
             `void@${VOID_VERSION.version}`,
             'init',
-            '--package-manager',
-            'pnpm',
             '--toolchain',
             'vite',
             '--framework',
