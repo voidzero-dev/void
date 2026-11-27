@@ -242,6 +242,7 @@ function runner(overrides?: {
   let triggerCalls = 0;
   let statusCalls = 0;
   let activeVersionId: string | null = CURRENT;
+  let deploymentId = 'initial-deployment';
   let deploymentVersions: Array<VersionTraffic> = [{ version_id: CURRENT, percentage: 100 }];
   let uploaded = false;
   return operationFixture((args: Array<string>) => {
@@ -254,7 +255,7 @@ function runner(overrides?: {
         }
         return overrides.status;
       }
-      return ok(JSON.stringify({ versions: deploymentVersions }));
+      return ok(JSON.stringify({ id: deploymentId, versions: deploymentVersions }));
     }
     if (args[0] === 'versions' && args[1] === 'upload') {
       uploaded = true;
@@ -270,12 +271,14 @@ function runner(overrides?: {
       const result =
         deployCalls === 1 ? (overrides?.activate ?? ok()) : (overrides?.rollback ?? ok());
       if (result.status === 0) {
+        deploymentId = `deployment-${deployCalls}`;
         deploymentVersions = args.flatMap((argument) => {
           const matched = argument.match(/^([^@]+)@(\d+(?:\.\d+)?)$/);
           return matched ? [{ version_id: matched[1], percentage: Number(matched[2]) }] : [];
         });
         activeVersionId =
           deploymentVersions.find((version) => version.percentage === 100)?.version_id ?? null;
+        return { ...result, data: result.data ?? { id: deploymentId } };
       }
       return result;
     }
@@ -3975,6 +3978,48 @@ describe('Cloudflare version activation', () => {
       };
     }
 
+    it('skips staging cleanup when a failed status read is followed by a different deployment ID', async () => {
+      const { options, runWrangler } = stagedActivation(
+        { ...ok(), status: 1 },
+        status(
+          'other-staging',
+          { version_id: CURRENT, percentage: 100 },
+          { version_id: NEXT, percentage: 0 },
+        ),
+      );
+
+      const result = await activateCloudflareVersion(options);
+
+      expect(deployRequests(runWrangler)).toEqual([staging]);
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'status-failed',
+        beforeActivation: true,
+        rollback: 'unsafe',
+      });
+    });
+
+    it('stops when the staging write does not report its deployment ID', async () => {
+      const { options, runWrangler } = stagedActivation();
+
+      const result = await activateCloudflareVersion({
+        ...options,
+        runWrangler: (operation, command) => {
+          const result = runWrangler(operation, command);
+          return operation.type === 'versions.deploy' ? ok() : result;
+        },
+      });
+
+      expect(deployRequests(runWrangler)).toEqual([staging]);
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'status-failed',
+        beforeActivation: true,
+        diagnostic: 'Cloudflare did not return the 0% staging deployment ID.',
+        rollback: 'unsafe',
+      });
+    });
+
     it('waits for Cloudflare to show its 0% staging deployment before activating', async () => {
       const { options, runWrangler, sleep } = stagedActivation(previous);
 
@@ -4308,10 +4353,11 @@ describe('Cloudflare version activation', () => {
 
   it('does not restore failed readiness staging over a concurrent candidate', async () => {
     let deploymentVersions = [{ version_id: CURRENT, percentage: 100 }];
+    let deploymentId = 'initial';
     let deployCalls = 0;
     const runWrangler = operationFixture(async (args: Array<string>) => {
       if (args[0] === 'deployments') {
-        return ok(JSON.stringify({ versions: deploymentVersions }));
+        return ok(JSON.stringify({ id: deploymentId, versions: deploymentVersions }));
       }
       if (args[0] === 'versions' && args[1] === 'list') {
         return ok(JSON.stringify([{ id: CURRENT, annotations: {} }]));
@@ -4321,11 +4367,12 @@ describe('Cloudflare version activation', () => {
       }
       if (args[0] === 'versions' && args[1] === 'deploy') {
         deployCalls++;
+        deploymentId = 'staged';
         deploymentVersions = [
           { version_id: CURRENT, percentage: 100 },
           { version_id: NEXT, percentage: 0 },
         ];
-        return ok();
+        return { ...ok(), data: { id: deploymentId } };
       }
       throw new Error(`Unexpected command: ${args.join(' ')}`);
     });
@@ -4338,6 +4385,7 @@ describe('Cloudflare version activation', () => {
         workersDevSubdomain: 'developer-platform-experience',
         message: encodeCloudflareVersionMessage([]),
         fetch: async () => {
+          deploymentId = 'concurrent';
           deploymentVersions = [
             { version_id: CURRENT, percentage: 100 },
             { version_id: CONCURRENT, percentage: 0 },

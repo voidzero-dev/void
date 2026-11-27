@@ -34,6 +34,7 @@ import {
   operationFixtureRequest,
 } from '../../../deploy-cloudflare/test/operation-fixture.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
+import { createCfVersionRunner } from '../../src/cli/cf-version-runner.ts';
 import { readCloudflareLink } from '../../src/cli/cloudflare-link.ts';
 import { verifyGeneratedDeployConfig } from '../../src/cli/deploy-artifact-validation.ts';
 import {
@@ -200,6 +201,118 @@ const cleanExit: DeployWranglerRunResult = {
   signal: null,
   error: null,
 };
+
+it('does not change traffic when another Cloudflare deployment has the staged split', async () => {
+  const root = makeProject({
+    'wrangler.json': JSON.stringify({ name: 'site', workers_dev: true }),
+  });
+  const live = '11111111-1111-4111-8111-111111111111';
+  const candidate = '22222222-2222-4222-8222-222222222222';
+  const stagedTraffic = [
+    { version_id: live, percentage: 100 },
+    { version_id: candidate, percentage: 0 },
+  ];
+  const writes: Array<Array<{ version_id: string; percentage: number }>> = [];
+  const runWrangler = createCfVersionRunner({
+    output: { directory: root, dispose: async () => {} },
+    workerName: 'site',
+    verifyResources: async () => cleanExit,
+    runCf: (args) => {
+      const command = args.slice(1, 3).join(' ');
+      if (command === 'deployments list') {
+        return {
+          ...cleanExit,
+          stdout: JSON.stringify({
+            deployments: [
+              {
+                id: writes.length ? 'other-deployment' : 'live-deployment',
+                versions: writes.at(-1) ?? [{ version_id: live, percentage: 100 }],
+              },
+            ],
+          }),
+        };
+      }
+      if (command === 'versions create') {
+        return { ...cleanExit, stdout: JSON.stringify({ versionId: candidate }) };
+      }
+      if (command === 'deployments create') {
+        const versions = JSON.parse(args[args.indexOf('--versions') + 1]) as typeof stagedTraffic;
+        writes.push(versions);
+        return { ...cleanExit, stdout: JSON.stringify({ id: 'void-staging', versions }) };
+      }
+      throw new Error(`Unexpected cf command: ${command}`);
+    },
+  });
+
+  const result = await activateCloudflareVersionPrimitive({
+    runWrangler,
+    configPath: join(root, 'wrangler.json'),
+    workerName: 'site',
+    workersDevSubdomain: 'example',
+    preserveTriggers: true,
+    message: 'Staged deployment',
+    verifyUploader: () => true,
+    fetch: async () => Response.json({ ready: true }),
+  });
+
+  expect(writes).toEqual([stagedTraffic]);
+  expect(result).toMatchObject({ ok: false, reason: 'deployment-changed', beforeActivation: true });
+});
+
+it('reports successful staging cleanup when deployment status catches up after the activation check', async () => {
+  const root = makeProject({
+    'wrangler.json': JSON.stringify({ name: 'site', workers_dev: true }),
+  });
+  const live = '11111111-1111-4111-8111-111111111111';
+  const candidate = '22222222-2222-4222-8222-222222222222';
+  const previous = {
+    id: 'live-deployment',
+    versions: [{ version_id: live, percentage: 100 }],
+  };
+  const staging = {
+    id: 'void-staging',
+    versions: [...previous.versions, { version_id: candidate, percentage: 0 }],
+  };
+  // The status read only sees the staging write when Void checks ownership for cleanup.
+  const statusReads = [previous, previous, previous, staging];
+  const writes: Array<Array<string>> = [];
+  const runWrangler: DeployWranglerRun = (operation) => {
+    switch (operation.type) {
+      case 'deployments.status':
+        return { ...cleanExit, data: statusReads.shift() };
+      case 'versions.upload':
+        return { ...cleanExit, data: { versionId: candidate } };
+      case 'versions.deploy':
+        writes.push(
+          operation.versions.map(({ versionId, percentage }) => `${versionId}@${percentage}`),
+        );
+        return { ...cleanExit, data: { id: writes.length === 1 ? staging.id : 'restored' } };
+      default:
+        throw new Error(`Unexpected Cloudflare operation: ${operation.type}`);
+    }
+  };
+
+  const result = await activateCloudflareVersionPrimitive({
+    runWrangler,
+    configPath: join(root, 'wrangler.json'),
+    workerName: 'site',
+    accountId: 'test-account',
+    workersDevSubdomain: 'example',
+    preserveTriggers: true,
+    message: 'Staged deployment',
+    verifyUploader: () => true,
+    fetch: async () => Response.json({ ready: true }),
+    versionHistoryRetryDelaysMs: [],
+  });
+
+  expect(writes).toEqual([[`${live}@100`, `${candidate}@0`], [`${live}@100`]]);
+  if (result.ok) {
+    throw new Error('Expected staging cleanup to stop activation');
+  }
+  expect(formatCloudflareActivationError(result)).toBe(
+    'deploy: Cloudflare deployment status did not show the expected deployment before activation. Void redeployed the previous version at 100% of traffic. Inspect `void project status` before retrying.',
+  );
+});
 
 // Most native deploy failures leave through exit(1), which skips the deploy_end that runDeploy
 // writes on a throw. These tests read the JSONL file back from a temp home folder.
@@ -794,8 +907,21 @@ describe('Cloudflare activation diagnostics', () => {
         ok: false,
         reason: 'readiness-failed',
         rollback: 'unsafe',
+        activeVersionId: null,
       }),
-    ).toContain('did not invoke the changed Wrangler binary');
+    ).toContain(
+      "could not confirm it is Void's 0% staging deployment. Inspect `void project status` before retrying.",
+    );
+  });
+
+  it('recommends reinstalling Wrangler when uploader verification blocks readiness cleanup', () => {
+    const message = formatCloudflareActivationError({
+      ok: false,
+      reason: 'readiness-failed',
+      rollback: 'unsafe',
+    });
+    expect(message).toContain('the verified Wrangler uploader changed');
+    expect(message).toContain('reinstall Wrangler from a trusted lockfile');
   });
 
   it.each(['readiness-failed', 'uploader-changed'] as const)(
@@ -1875,7 +2001,7 @@ describe('existing Cloudflare site handoff', () => {
             percentage,
           }));
           deploymentId = `publish-${publishes.length}`;
-          return cleanExit;
+          return { ...cleanExit, data: { id: deploymentId } };
         case 'triggers.deploy':
         case 'triggers.clear-crons':
           return cleanExit;

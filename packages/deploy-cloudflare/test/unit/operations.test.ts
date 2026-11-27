@@ -8,7 +8,6 @@ import { activateCloudflareVersion, encodeCloudflareVersionMessage } from '../..
 
 const current = '11111111-1111-4111-8111-111111111111';
 const next = '22222222-2222-4222-8222-222222222222';
-const other = '33333333-3333-4333-8333-333333333333';
 
 function setup(
   data: unknown,
@@ -19,6 +18,7 @@ function setup(
   const calls: Array<CloudflareOperation> = [];
   let uploaded = false;
   let triggerFailed = false;
+  let deployment = 0;
   let versions = [{ version_id: current, percentage: 100 }];
   const runWrangler: CloudflareCommandRunner = vi.fn((operation: CloudflareOperation) => {
     calls.push(operation);
@@ -30,7 +30,7 @@ function setup(
     });
     switch (operation.type) {
       case 'deployments.status':
-        return ok({ versions });
+        return ok({ id: String(deployment), versions });
       case 'versions.list':
         return ok([
           {
@@ -63,7 +63,7 @@ function setup(
             return { ...ok(), status: 1, errorCode: 10_000 };
           }
           if (rollback === 'deployed-elsewhere') {
-            versions = [{ version_id: other, percentage: 100 }];
+            deployment++;
           }
           return { ...ok(), status: 1, errorCode: 10_220 };
         }
@@ -79,7 +79,7 @@ function setup(
           version_id: versionId,
           percentage,
         }));
-        return ok();
+        return ok({ id: String(++deployment) });
       case 'triggers.deploy':
         if (failure === 'triggers' && !triggerFailed) {
           triggerFailed = true;
@@ -207,7 +207,7 @@ it.each(recoveries)(
   },
 );
 
-it('does not force a restore after someone else deploys', async () => {
+it('does not force a restore after another deployment reuses the staged split', async () => {
   const { result, rollbacks } = await recover(recoveries[0], 'deployed-elsewhere');
   expect(result).toMatchObject({ ok: false, reason: 'readiness-failed', rollback: 'unsafe' });
   expect(result).not.toHaveProperty('restoredOlderSecrets');

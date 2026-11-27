@@ -597,7 +597,7 @@ function formatCloudflareActivationFailure(
     case 'status-failed':
       if (result.versionId) {
         if (result.beforeActivation || result.rollback === 'not-needed') {
-          return `deploy: Worker version ${result.versionId} was uploaded, but Cloudflare deployment status could not be verified before activation${status}.${stagingCleanup} Inspect \`void project status\` before retrying.`;
+          return `deploy: Worker version ${result.versionId} was uploaded, but Cloudflare deployment status could not be verified before activation${status}.${stagingCleanup} Inspect \`void project status\` before retrying.${diagnostic}`;
         }
         return `deploy: Worker version ${result.versionId} was published, but current deployment status could not be verified${status}. Inspect \`void project status\` before retrying.`;
       }
@@ -864,7 +864,10 @@ function formatCloudflareReadinessRestoration(
     case 'failed':
       return 'Automatic traffic restoration failed; inspect `void project status` immediately.';
     case 'unsafe':
-      return 'Void did not invoke the changed Wrangler binary to restore traffic; reinstall Wrangler from a trusted lockfile and inspect `void project status` immediately.';
+      // Uploader verification stops cleanup before a status read, so activeVersionId is absent.
+      return result.activeVersionId === undefined
+        ? 'Void skipped staging cleanup because the verified Wrangler uploader changed. Inspect `void project status` and reinstall Wrangler from a trusted lockfile before retrying.'
+        : `${formatStagingCleanup(result).trim()} Inspect \`void project status\` before retrying.`;
     case 'unavailable':
       return 'No previous version was available to restore; inspect `void project status` immediately.';
     default:

@@ -1686,9 +1686,13 @@ async function activateCloudflareVersionWithSecretsFile(
           ? customRouteReadinessOriginField(readinessUrl)
           : {}),
         ...(stagedVersionOverride
-          ? await restorePreviousVersion(options, previous.versionId, 'readiness failed', [
-              stagedVersionPercentages(previous.versionId, versionId),
-            ])
+          ? await restorePreviousVersion(
+              options,
+              previous.versionId,
+              'readiness failed',
+              [stagedVersionPercentages(previous.versionId, versionId)],
+              stagedVersionOverride.deploymentId,
+            )
           : { rollback: 'not-needed' as const }),
       };
     }
@@ -1706,6 +1710,7 @@ async function activateCloudflareVersionWithSecretsFile(
             previous.versionId,
             'uploader verification failed',
             [stagedVersionPercentages(previous.versionId, versionId)],
+            stagedVersionOverride.deploymentId,
           )
         : { rollback: 'not-needed' as const }),
     };
@@ -1764,6 +1769,8 @@ async function activateCloudflareVersionWithSecretsFile(
   if (
     ownerBeforeActivation.kind === 'failed' ||
     ownerBeforeActivation.versionId !== previous.versionId ||
+    (stagedVersionOverride !== undefined &&
+      ownerBeforeActivation.deploymentId !== stagedVersionOverride.deploymentId) ||
     !productionVersionPercentagesEqual(
       ownerBeforeActivation.versions,
       stagedTraffic ?? previousTraffic,
@@ -1774,12 +1781,15 @@ async function activateCloudflareVersionWithSecretsFile(
         ? { reason: 'status-failed' as const, status: ownerBeforeActivation.status }
         : { reason: 'deployment-changed' as const };
     const restore =
-      stagedTraffic?.length && (ownerBeforeActivation.kind === 'failed' || laggingStagingStatus)
+      stagedVersionOverride &&
+      stagedTraffic?.length &&
+      (ownerBeforeActivation.kind === 'failed' || laggingStagingStatus)
         ? await restorePreviousVersion(
             options,
             previous.versionId,
             'pre-activation status check failed',
             [stagedTraffic],
+            stagedVersionOverride.deploymentId,
           )
         : ownerBeforeActivation.kind === 'ok'
           ? {
@@ -2928,7 +2938,7 @@ function stagedVersionPercentages(
 }
 
 type ReadinessStagingResult =
-  | { ok: true; previousDeploymentId: string | undefined }
+  | { ok: true; previousDeploymentId: string | undefined; deploymentId: string }
   | Extract<CloudflareVersionActivation, { ok: false }>;
 
 /** Stage the candidate at 0% beside the unchanged previous version so readiness can select it. */
@@ -2969,7 +2979,19 @@ async function stageCandidateForReadiness(
       rollback: 'not-needed',
     };
   }
-  return owner;
+  const deploymentId = isRecord(staged.data) ? staged.data.id : undefined;
+  if (typeof deploymentId !== 'string' || !deploymentId.trim()) {
+    return {
+      ok: false,
+      reason: 'status-failed',
+      beforeActivation: true,
+      diagnostic: 'Cloudflare did not return the 0% staging deployment ID.',
+      versionId,
+      previousVersionId,
+      rollback: 'unsafe',
+    };
+  }
+  return { ...owner, deploymentId };
 }
 
 async function verifyReadinessStagingOwner(
@@ -2979,7 +3001,10 @@ async function verifyReadinessStagingOwner(
   >,
   previousVersionId: string | null,
   versionId: string,
-): Promise<ReadinessStagingResult> {
+): Promise<
+  | { ok: true; previousDeploymentId: string | undefined }
+  | Extract<CloudflareVersionActivation, { ok: false }>
+> {
   const owner = await readCurrentProductionVersion(options);
   if (owner.kind === 'failed') {
     return {
@@ -3280,6 +3305,7 @@ async function restorePreviousVersion(
   previousVersionId: string | null,
   cause: string,
   expectedOwnedTraffic: ReadonlyArray<ReadonlyArray<ProductionVersionPercentage>>,
+  expectedDeploymentId?: string,
 ): Promise<PreviousVersionRestore> {
   if (!previousVersionId) {
     return { rollback: 'unavailable' };
@@ -3292,6 +3318,7 @@ async function restorePreviousVersion(
     return {
       owns:
         owner.kind === 'ok' &&
+        (expectedDeploymentId === undefined || owner.deploymentId === expectedDeploymentId) &&
         expectedOwnedTraffic.some((expected) =>
           productionVersionPercentagesEqual(owner.versions, expected),
         ),
