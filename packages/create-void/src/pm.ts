@@ -41,6 +41,10 @@ function isYarnClassic(userAgent = process.env.npm_config_user_agent): boolean {
   return /^yarn\/1(?:\.|$)/.test(userAgent ?? '');
 }
 
+// Vite+ 1.7 does not expose a command-specific marker to template processes.
+// VP_USER_AGENT only identifies the CLI, and VP_PACKAGE_MANAGER is an override,
+// so this is the best available signal but can still misidentify `vp exec` or
+// `vp dlx` when that override is set. Prefer a dedicated Vite+ marker if added.
 function isVpCreateInvocation(): boolean {
   return (
     (process.env.VP_USER_AGENT?.startsWith('vp/') ?? false) &&
