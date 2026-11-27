@@ -26,7 +26,10 @@ import {
 import { verifyExternalPlatformHyperdrive } from './platform-auth-database.ts';
 import { parsePostgresConnectionString } from './platform-cloudflare.ts';
 import { enableInstallationServices } from './platform-install-activation.ts';
-import { prepareInstallationAuthentication } from './platform-install-preparation.ts';
+import {
+  preflightInstallationAuthentication,
+  prepareInstallationAuthentication,
+} from './platform-install-preparation.ts';
 import { provisionInstallationServices } from './platform-install-provisioning.ts';
 import { uploadInstallationWorkers } from './platform-install-workers.ts';
 import { workerCutoverRollsForward } from './platform-installer-cutover.ts';
@@ -57,6 +60,7 @@ import type {
   PlatformInstallationSecrets,
   PlatformInstallationResult,
   PlatformInstallRunState,
+  PlatformLiveAuthenticationState,
   PlatformWorkerKey,
   PlatformWorkerSecretUpdateIntent,
   InstallerClient,
@@ -407,11 +411,43 @@ export async function installPlatform(
     workerDeploymentCommitted: false,
     authenticationEnforcementActive: false,
   };
+  const assertSecretUpdateAuthority = () =>
+    assertPlatformWorkerSecretUpdateAuthority({
+      explicitUpdates: explicitWorkerSecretUpdates,
+      localIntent: state.secrets.pendingWorkerSecretUpdateIntent,
+      manifest: state.manifest,
+      requiresEmailSigningSecret:
+        state.manifest.deployment.capabilities.email || state.plan.deployment.capabilities.email,
+    });
+  const upgradePreflightLock = dependencies.upgradePreflightLock;
+  const authenticationInput = { state, runtime, authenticationProtocolTransition, dependencies };
+  let checkedAuthentication: PlatformLiveAuthenticationState | null | undefined;
+  if (upgradePreflightLock) {
+    assertSecretUpdateAuthority();
+    assertPlatformRuntimeSafety(
+      runtime,
+      state.manifest.safetyProtocols,
+      upgradePreflightLock.requiredSafetyProtocols,
+    );
+    await upgradePreflightLock.preflightDatabaseUpgrade?.(
+      runtimeDirectory,
+      runtime.database,
+      state.manifest,
+      hadPriorWorkers,
+    );
+    checkedAuthentication = await preflightInstallationAuthentication(
+      authenticationInput,
+      upgradePreflightLock,
+    );
+  }
+
   const pendingSecrets = secretCheckpoint(state.secrets, state.workerSecretUpdateIntent);
-  writePendingInstallationSecrets(state.manifest, {
-    ...pendingSecrets,
-    databaseClaimState: 'claiming',
-  });
+  writePendingInstallationSecrets(
+    state.manifest,
+    { ...pendingSecrets, databaseClaimState: 'claiming' },
+    undefined,
+    dependencies.onFirstWrite,
+  );
 
   dependencies.onProgress?.('Preparing the platform database');
   try {
@@ -456,17 +492,13 @@ export async function installPlatform(
       'platform: This installation changed on another host. Local state was refreshed; rerun the command to review a current plan.',
     );
   }
-  try {
-    assertPlatformWorkerSecretUpdateAuthority({
-      explicitUpdates: explicitWorkerSecretUpdates,
-      localIntent: state.secrets.pendingWorkerSecretUpdateIntent,
-      manifest: state.manifest,
-      requiresEmailSigningSecret:
-        state.manifest.deployment.capabilities.email || state.plan.deployment.capabilities.email,
-    });
-  } catch (error) {
-    await releaseDatabaseLock();
-    throw error;
+  if (!upgradePreflightLock) {
+    try {
+      assertSecretUpdateAuthority();
+    } catch (error) {
+      await releaseDatabaseLock();
+      throw error;
+    }
   }
   // Progress is checkpointed under the same lifecycle lock as mutations. Do not
   // update it from parallel Worker upload callbacks.
@@ -485,11 +517,13 @@ export async function installPlatform(
   };
   let operationStarted = false;
   try {
-    assertPlatformRuntimeSafety(
-      runtime,
-      state.manifest.safetyProtocols,
-      releaseDatabaseLock.requiredSafetyProtocols,
-    );
+    if (!upgradePreflightLock) {
+      assertPlatformRuntimeSafety(
+        runtime,
+        state.manifest.safetyProtocols,
+        releaseDatabaseLock.requiredSafetyProtocols,
+      );
+    }
     if (existing) {
       await dependencies.verifyExistingOwnership?.(
         state.manifest,
@@ -521,12 +555,10 @@ export async function installPlatform(
     };
     await checkpointOperation('preparing');
     await prepareInstallationAuthentication({
-      state,
+      ...authenticationInput,
       releaseDatabaseLock,
-      runtime,
-      authenticationProtocolTransition,
+      checkedAuthentication,
       now,
-      dependencies,
     });
 
     // Establish the durable installation checkpoint before creating any

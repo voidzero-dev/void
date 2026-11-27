@@ -351,6 +351,7 @@ export async function runInstalledPlatformCommand(
     args.subcommand === 'rollback' ? loadPlatformRuntime(args.fromRuntime) : null;
   let progress: ReturnType<typeof createPlatformProgress> | undefined;
   let reportResult: (() => void) | undefined;
+  let upgradeWritten = false;
 
   const execute = async (
     manifest: PlatformInstallationManifest,
@@ -815,6 +816,14 @@ export async function runInstalledPlatformCommand(
           }
         : {}),
       databaseRollbackSource: rollbackSourceRuntime ?? undefined,
+      ...(args.subcommand === 'upgrade'
+        ? {
+            upgradePreflightLock: databaseLock,
+            onFirstWrite: () => {
+              upgradeWritten = true;
+            },
+          }
+        : {}),
       onProgress: (message) => {
         markPhase(message);
         progress?.message(message);
@@ -954,10 +963,14 @@ export async function runInstalledPlatformCommand(
     reportResult?.();
     markPhase('complete');
   } catch (error) {
-    const operationStarted = progress !== undefined;
-    progress?.error(`Platform ${args.subcommand} failed.`);
+    const needsRecovery = args.subcommand === 'upgrade' ? upgradeWritten : progress !== undefined;
+    if (needsRecovery) {
+      progress?.error(`Platform ${args.subcommand} failed.`);
+    } else {
+      progress?.clear();
+    }
     progress = undefined;
-    if (operationStarted && args.subcommand !== 'uninstall' && args.subcommand !== 'disable') {
+    if (needsRecovery && args.subcommand !== 'uninstall' && args.subcommand !== 'disable') {
       note(
         [
           'Traffic may remain paused. Inspect the saved state before continuing:',

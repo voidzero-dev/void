@@ -117,6 +117,12 @@ export type PlatformDatabaseLifecycleLock = (() => Promise<void>) & {
   } | null>;
   authoritativeManifest?: PlatformInstallationManifest | null;
   checkpoint?: (manifest: PlatformInstallationManifest) => Promise<void>;
+  preflightDatabaseUpgrade?: (
+    runtimeDirectory: string,
+    database: PlatformRuntimeDatabaseManifest,
+    manifest: PlatformInstallationManifest,
+    hasPriorWorkers: boolean,
+  ) => Promise<void>;
   prepareDatabase?: (
     runtimeDirectory: string,
     database: PlatformRuntimeDatabaseManifest,
@@ -159,7 +165,7 @@ export type PlatformDatabaseLifecycleLock = (() => Promise<void>) & {
   ) => Promise<void>;
 };
 
-type PlatformLiveAuthenticationState = NonNullable<
+export type PlatformLiveAuthenticationState = NonNullable<
   Awaited<ReturnType<NonNullable<PlatformDatabaseLifecycleLock['readAuthenticationState']>>>
 >;
 
@@ -276,6 +282,11 @@ export type PlatformInstallerDependencies = Readonly<{
     installationId: string,
     ownershipNonce: string,
   ) => Promise<PlatformDatabaseLifecycleLock>;
+  /** The upgrade command already holds this lock before the installer can write any state. */
+  upgradePreflightLock?: Pick<
+    PlatformDatabaseLifecycleLock,
+    'preflightDatabaseUpgrade' | 'readAuthenticationState' | 'requiredSafetyProtocols'
+  >;
   claimDatabase?: (
     databaseUrl: string,
     installationId: string,
@@ -293,6 +304,7 @@ export type PlatformInstallerDependencies = Readonly<{
   now?: () => string;
   onProgress?: (message: string) => void;
   operation?: PlatformLifecycleOperation['action'];
+  onFirstWrite?: () => void;
   prepareDatabase?: (
     runtimeDirectory: string,
     database: PlatformRuntimeDatabaseManifest,
