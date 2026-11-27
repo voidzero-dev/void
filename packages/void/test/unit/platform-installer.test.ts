@@ -117,6 +117,7 @@ type DefaultedClientMethods =
   | 'deleteKvValue'
   | 'disableHyperdriveCaching'
   | 'getHyperdriveConfig'
+  | 'hasWorkerDurableObjectBinding'
   | 'getWorkerPlainTextBindings'
   | 'listKvKeys'
   | 'listWorkerDomains'
@@ -153,6 +154,7 @@ function installPlatform(
       apiBaseUrl: resolvePinnedApiBaseUrl(),
       deleteKvBulk: unexpectedCloudflareCall('deleteKvBulk'),
       deleteKvValue: async () => {},
+      hasWorkerDurableObjectBinding: async () => true,
       getWorkerPlainTextBindings: unexpectedCloudflareCall('getWorkerPlainTextBindings'),
       listKvKeys: unexpectedCloudflareCall('listKvKeys'),
       listWorkerDomains: unexpectedCloudflareCall('listWorkerDomains'),

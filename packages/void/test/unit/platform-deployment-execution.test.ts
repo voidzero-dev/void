@@ -173,6 +173,7 @@ it.each([1, 0])(
         verifyDeploymentExecutionDrain: checkDrain,
         revalidateBeforeWorkerDeploy: async () => {},
         client: {
+          hasWorkerDurableObjectBinding: vi.fn(async () => true),
           apiBaseUrl: 'https://api.cloudflare.com/client/v4',
           createZone: provision,
           createAiGateway: provision,

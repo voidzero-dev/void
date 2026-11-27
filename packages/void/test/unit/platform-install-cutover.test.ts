@@ -12,6 +12,7 @@ import {
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
 } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
+import { resolvePlatformRuntime } from '@void/platform/installer';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
 import { hyperdriveOriginFromConnectionString } from '../../src/cli/platform-cloudflare.ts';
@@ -72,6 +73,8 @@ afterEach(async () => {
 type FakeVersion = {
   annotations: Record<string, string>;
   id: string;
+  bindsScheduler: boolean;
+  declaresScheduler: boolean;
   resources: {
     bindings: Array<{ name: string; text: string; type: string }>;
     script_runtime?: { migration_tag: string };
@@ -108,6 +111,8 @@ async function createFakeCloudflare() {
   let clock = Date.parse('2026-10-01T00:00:00.000Z');
   let failBlockedCreate: string | null = null;
   let failUpload: string | null = null;
+  let loseSchedulerActivationResponse = false;
+  const schedulerNamespaces = new Set<string>();
 
   const configOf = (operation: CloudflareOperation): Record<string, unknown> | null => {
     return operation.configPath
@@ -123,9 +128,20 @@ async function createFakeCloudflare() {
   const storeVersion = (name: string, operation: CloudflareOperation): FakeVersion => {
     const config = configOf(operation)!;
     const vars = (config.vars ?? {}) as Record<string, string>;
-    const migrations = Array.isArray(config.migrations) ? config.migrations : [];
+    const migrations = Array.isArray(config.migrations)
+      ? (config.migrations as Array<{ tag: string; new_sqlite_classes?: Array<string> }>)
+      : [];
     const tag = (migrations.at(-1) as { tag?: string } | undefined)?.tag;
     const version: FakeVersion = {
+      bindsScheduler:
+        (
+          config.durable_objects as { bindings: Array<{ class_name: string }> } | undefined
+        )?.bindings.some((b) => b.class_name === 'SecurityScanScheduler') ?? false,
+      declaresScheduler:
+        migrations.some((migration) =>
+          migration.new_sqlite_classes?.includes('SecurityScanScheduler'),
+        ) ||
+        (tag === undefined && schedulerNamespaces.has(name)),
       annotations: { 'workers/message': 'message' in operation ? (operation.message ?? '') : '' },
       id: randomUUID(),
       resources: {
@@ -145,6 +161,15 @@ async function createFakeCloudflare() {
     return version;
   };
   const activate = (name: string, versionId: string) => {
+    const version = workers.get(name)!.versions.get(versionId)!;
+    if (version.declaresScheduler) {
+      if (!schedulerNamespaces.has(name) && workers.get(name)!.deployments.length > 0) {
+        expect([...kv.keys()].some((key) => key.endsWith('/' + PLATFORM_DISABLED_KEY))).toBe(true);
+      }
+      schedulerNamespaces.add(name);
+    } else if (schedulerNamespaces.has(name)) {
+      throw new Error('Cannot orphan the scheduler namespace');
+    }
     workers.get(name)!.deployments.unshift({
       created_on: new Date((clock += 1000)).toISOString(),
       id: randomUUID(),
@@ -182,18 +207,21 @@ async function createFakeCloudflare() {
         return failed('upload failed');
       }
       const version = storeVersion(worker!, args);
+      if (version.bindsScheduler && !schedulerNamespaces.has(worker!)) {
+        return failed(
+          'Durable Object binding SECURITY_SCAN_SCHEDULER references an unprovisioned class',
+        );
+      }
       return ok({ versionId: version.id });
     }
     if (args.type === 'versions.deploy') {
-      const entry = workers.get(worker!)!;
-      entry.deployments.unshift({
-        created_on: new Date((clock += 1000)).toISOString(),
-        id: randomUUID(),
-        versions: args.versions.map((target) => ({
-          percentage: target.percentage,
-          version_id: target.versionId,
-        })),
-      });
+      expect(args.versions).toHaveLength(1);
+      expect(args.versions[0].percentage).toBe(100);
+      activate(worker!, args.versions[0].versionId);
+      if (loseSchedulerActivationResponse && schedulerNamespaces.has(worker!)) {
+        loseSchedulerActivationResponse = false;
+        return failed('lost activation response');
+      }
       return ok();
     }
     if (args.type === 'deployments.list') {
@@ -280,6 +308,10 @@ async function createFakeCloudflare() {
       name: list('hyperdrive').find((entry) => entry.id === id)!.name,
       origin: hyperdriveOriginFromConnectionString(DATABASE_URL),
     }),
+    hasWorkerDurableObjectBinding: async (_account: string, name: string, _className: string) => {
+      const worker = workers.get(name)!;
+      return worker.versions.get(worker.deployments[0].versions[0].version_id)!.bindsScheduler;
+    },
     getWorkerPlainTextBindings: plainTextBindings,
     listKvKeys: async (_account: string, namespace: string, prefix: string) =>
       [...kv.keys()].flatMap((key) =>
@@ -338,6 +370,9 @@ async function createFakeCloudflare() {
   return {
     client,
     commands,
+    loseSchedulerActivationResponse: () => {
+      loseSchedulerActivationResponse = true;
+    },
     failBlockedCreate: (worker: string) => {
       failBlockedCreate = worker;
     },
@@ -406,6 +441,7 @@ async function runInstall(
   cloud: Awaited<ReturnType<typeof createFakeCloudflare>>,
   existing: PlatformInstallationManifest | null,
   options: {
+    runtime?: PlatformInstallerDependencies['runtime'];
     sharedEmail?: boolean;
     bootstrapEmail?: PlatformInstallerDependencies['bootstrapEmail'];
     secrets?: PlatformInstallationSecrets;
@@ -428,6 +464,7 @@ async function runInstall(
         }),
       claimDatabase: async () => {},
       client: cloud.client,
+      runtime: options.runtime,
       prepareDatabase: async () => ({
         appliedMigrations: 0,
         previousSchemaDigest: '',
@@ -473,6 +510,108 @@ function resumeSecrets(manifest: PlatformInstallationManifest) {
     updateExistingWorkers: true,
   });
 }
+
+async function installBeforeSecurityAudits(
+  cloud: Awaited<ReturnType<typeof createFakeCloudflare>>,
+) {
+  const runtime = resolvePlatformRuntime();
+  return runInstall(cloud, null, {
+    runtime: {
+      ...runtime,
+      manifestSha256: '0'.repeat(64),
+      manifest: { ...runtime.manifest, platformVersion: '1.10.0', securityAudits: undefined },
+    },
+  });
+}
+
+it.each(['activation', 'next worker'] as const)(
+  'resumes a 1.10.0 scheduler migration interrupted at %s',
+  async (interruption) => {
+    const cloud = await createFakeCloudflare();
+    const { manifest } = await installBeforeSecurityAudits(cloud);
+    const { apiWorker, proxyWorker } = manifest.deployment.resources;
+    if (interruption === 'activation') {
+      cloud.loseSchedulerActivationResponse();
+    } else {
+      cloud.failUpload(proxyWorker);
+    }
+    await expect(
+      runInstall(
+        cloud,
+        manifest,
+        interruption === 'activation' ? { secrets: rotateSecrets(manifest) } : {},
+      ),
+    ).rejects.toThrow(interruption === 'activation' ? 'lost activation response' : 'upload failed');
+    const failed = currentManifest();
+    const gate =
+      failed.resources.find((resource) => resource.key === 'routing-kv')!.id +
+      '/' +
+      PLATFORM_DISABLED_KEY;
+    expect(cloud.kv.has(gate)).toBe(true);
+    if (interruption === 'activation') {
+      expect(
+        cloud.commands.some(
+          ({ args }) =>
+            args.type === 'versions.deploy' &&
+            args.message?.startsWith('Void platform restoration'),
+        ),
+      ).toBe(false);
+      cloud.secretUploads.length = 0;
+    }
+    const completed = await runInstall(
+      cloud,
+      failed,
+      interruption === 'activation' ? { secrets: resumeSecrets(failed) } : {},
+    );
+    expect(completed.manifest.status).toBe('installed');
+    expect(cloud.kv.has(gate)).toBe(false);
+    expect(
+      await cloud.client.hasWorkerDurableObjectBinding(
+        'account',
+        apiWorker,
+        'SecurityScanScheduler',
+      ),
+    ).toBe(true);
+    if (interruption === 'activation') {
+      expect(cloud.secretUploads).toContainEqual(
+        expect.objectContaining({
+          worker: proxyWorker,
+          secrets: expect.objectContaining({ CF_API_TOKEN: 'rotated-runtime-token' }),
+        }),
+      );
+    }
+    const migrations = (m: PlatformInstallationManifest) =>
+      m.steps.filter((step) => step.key.startsWith('worker-scheduler-migration:'));
+    expect(migrations(completed.manifest).length).toBeGreaterThan(0);
+    const repeated = await runInstall(cloud, completed.manifest);
+    expect(migrations(repeated.manifest)).toEqual(migrations(completed.manifest));
+  },
+);
+
+it('finishes binding the scheduler while a disabled platform stays disabled', async () => {
+  const cloud = await createFakeCloudflare();
+  const { manifest } = await installBeforeSecurityAudits(cloud);
+  const { manifest: upgraded } = await runInstall(cloud, {
+    ...manifest,
+    desiredState: 'disabled',
+    status: 'disabled',
+  });
+  expect(upgraded.status).toBe('disabled');
+  expect(
+    cloud.kv.has(
+      upgraded.resources.find((resource) => resource.key === 'routing-kv')!.id +
+        '/' +
+        PLATFORM_DISABLED_KEY,
+    ),
+  ).toBe(true);
+  expect(
+    await cloud.client.hasWorkerDurableObjectBinding(
+      'account',
+      upgraded.deployment.resources.apiWorker,
+      'SecurityScanScheduler',
+    ),
+  ).toBe(true);
+});
 
 it('rolls forward a partially restored credential update without restoring old secret versions', async () => {
   const cloud = await createFakeCloudflare();
@@ -559,7 +698,7 @@ it('refuses a concurrent version replacement while recovering a credential updat
   cloud.replaceActiveVersion(failed.deployment.resources.apiWorker);
   const start = cloud.commands.length;
   await expect(runInstall(cloud, failed, { secrets: rotateSecrets(failed) })).rejects.toThrow(
-    'changed concurrently after the credential update',
+    'changed concurrently during the retained cutover',
   );
   expect(
     cloud.commands

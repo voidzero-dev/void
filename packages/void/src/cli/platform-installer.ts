@@ -29,7 +29,7 @@ import { enableInstallationServices } from './platform-install-activation.ts';
 import { prepareInstallationAuthentication } from './platform-install-preparation.ts';
 import { provisionInstallationServices } from './platform-install-provisioning.ts';
 import { uploadInstallationWorkers } from './platform-install-workers.ts';
-import { workerCutoverUpdatesSecrets } from './platform-installer-cutover.ts';
+import { workerCutoverRollsForward } from './platform-installer-cutover.ts';
 import {
   assertVoidCreatedHyperdriveTrustsDatabase,
   claimPlatformDatabase,
@@ -251,6 +251,14 @@ export async function installPlatform(
       'platform: This installation has private previews. Use a runtime with private preview support.',
     );
   }
+  if (
+    runtime.securityAudits !== 1 &&
+    existing?.steps.some((step) => step.key.startsWith('worker-scheduler-migration:'))
+  ) {
+    throw new Error(
+      'platform: Resume this installation with a runtime that exports SecurityScanScheduler.',
+    );
+  }
   if (runtime.emailProtocolVersion !== 1 && plan.deployment.capabilities.email) {
     throw new Error(
       'platform: This runtime cannot serve enabled platform email without email protocol version 1.',
@@ -334,6 +342,7 @@ export async function installPlatform(
     hadPriorWorkers &&
     existing?.deployment.authentication.configurable !== true &&
     runtime.authenticationProtocolVersion === 1;
+  let restoredPublicEndpoints = previousPublicEndpoints;
   let workerTrafficGuarded = false;
   let manifest: PlatformInstallationManifest;
   if (!existing) {
@@ -583,11 +592,21 @@ export async function installPlatform(
       );
     const requiresSandboxDrain =
       !preserveDisabled && targetSandboxDrainProtocol >= 1 && sandboxDrainState === 'pending';
+    const apiAction = state.plan.actions.find((action) => action.key === 'api-worker');
+    const provisionScheduler =
+      runtime.securityAudits === 1 &&
+      apiAction?.action === 'update' &&
+      !(await dependencies.client.hasWorkerDurableObjectBinding(
+        plan.account.id,
+        apiAction.name,
+        'SecurityScanScheduler',
+      ));
     const requiresTrafficGuard =
+      provisionScheduler ||
       !previousPublicEndpoints ||
       (hadPriorWorkers && !!state.workerSecretUpdateIntent) ||
       (!!interruptedCutover &&
-        workerCutoverUpdatesSecrets(state.manifest, interruptedCutover.generation)) ||
+        workerCutoverRollsForward(state.manifest, interruptedCutover.generation)) ||
       recoveringUnsafeTraffic ||
       createsWorker ||
       recoveringCreatedWorker ||
@@ -636,11 +655,21 @@ export async function installPlatform(
       publicEndpoints: !preserveDisabled,
       trafficState: preserveDisabled ? 'staging' : 'enabled',
     });
+    // The maintenance version declares the class but cannot bind its namespace until activation.
+    const schedulerConfigs = provisionScheduler
+      ? createPlatformWorkerConfigs({
+          ...configInput,
+          privatePreviews: runtime.privatePreviews === 1,
+          publicEndpoints: !preserveDisabled,
+          trafficState: 'staging',
+          deferSecurityScanSchedulerBinding: true,
+        })
+      : null;
     // The Cloudflare CLI asks the operator before it replaces changes made
     // outside Void. Let it ask now: the resources that these configs use
     // exist, and this run has not paused traffic or deployed a Worker.
     const outsideChangeConfigs = workerKeys.flatMap((key) => {
-      const config = enabledConfigs[key];
+      const config = key === 'api' && schedulerConfigs ? schedulerConfigs.api : enabledConfigs[key];
       return dependencies.replaceOutsideChanges?.includes(String(config.name)) ? [config] : [];
     });
     if (outsideChangeConfigs.length > 0) {
@@ -717,40 +746,12 @@ export async function installPlatform(
         state.manifest = next;
       },
     }));
-    state.workerCutoverGeneration = nextWorkerCutoverGeneration(state.manifest);
-    if (state.workerSecretUpdateIntent) {
-      // Keep this authorized intent resumable on either side of the next
-      // manifest checkpoint before binding it to the new generation.
-      state.workerSecretUpdateIntent = { ...state.workerSecretUpdateIntent, generation: null };
-      writePendingInstallationSecrets(
-        state.manifest,
-        secretCheckpoint(state.secrets, state.workerSecretUpdateIntent),
-      );
-      state.manifest = recordWorkerSecretUpdateState(
-        state.manifest,
-        state.workerCutoverGeneration,
-        'pending',
-        state.workerSecretUpdateIntent.id,
-        now(),
-      );
-      writeInstallationManifest(state.manifest);
-      await writeRemoteInstallationCheckpoint(dependencies.client, state.plan, state.manifest);
-      state.workerSecretUpdateIntent = {
-        ...state.workerSecretUpdateIntent,
-        generation: state.workerCutoverGeneration,
-      };
-      writePendingInstallationSecrets(
-        state.manifest,
-        secretCheckpoint(state.secrets, state.workerSecretUpdateIntent),
-      );
-    }
-    await uploadInstallationWorkers({
+    const uploadOptions = {
       state,
       dependencies,
       requiresStagedCommit,
       recoveringUnsafeTraffic,
       workerActions,
-      workerKeys,
       workerDeploymentSecrets,
       zoneId,
       now,
@@ -764,7 +765,60 @@ export async function installPlatform(
       ids,
       runParallelPinnedPlatformWrangler,
       runPinnedPlatformWrangler,
-    });
+    };
+    const beginWorkerCutover = async () => {
+      state.workerCutoverGeneration = nextWorkerCutoverGeneration(state.manifest);
+      if (state.workerSecretUpdateIntent) {
+        // Keep this authorized intent resumable on either side of the next
+        // manifest checkpoint before binding it to the new generation.
+        state.workerSecretUpdateIntent = { ...state.workerSecretUpdateIntent, generation: null };
+        writePendingInstallationSecrets(
+          state.manifest,
+          secretCheckpoint(state.secrets, state.workerSecretUpdateIntent),
+        );
+        state.manifest = recordWorkerSecretUpdateState(
+          state.manifest,
+          state.workerCutoverGeneration,
+          'pending',
+          state.workerSecretUpdateIntent.id,
+          now(),
+        );
+        writeInstallationManifest(state.manifest);
+        await writeRemoteInstallationCheckpoint(dependencies.client, state.plan, state.manifest);
+        state.workerSecretUpdateIntent = {
+          ...state.workerSecretUpdateIntent,
+          generation: state.workerCutoverGeneration,
+        };
+        writePendingInstallationSecrets(
+          state.manifest,
+          secretCheckpoint(state.secrets, state.workerSecretUpdateIntent),
+        );
+      }
+    };
+    await beginWorkerCutover();
+    if (schedulerConfigs) {
+      const generation = state.workerCutoverGeneration;
+      await uploadInstallationWorkers({
+        ...uploadOptions,
+        workerKeys: ['api'],
+        configs: schedulerConfigs,
+        requiresStagedCommit: true,
+        provisionsDurableObject: true,
+      });
+      state.manifest = recordWorkerCutoverResolution(
+        state.manifest,
+        generation,
+        'committed',
+        now(),
+      );
+      state.manifest = recordWorkerTrafficState(state.manifest, generation, false, now());
+      // A later rollback can restore only this maintenance version.
+      restoredPublicEndpoints = false;
+      writeInstallationManifest(state.manifest);
+      await writeRemoteInstallationCheckpoint(dependencies.client, state.plan, state.manifest);
+      await beginWorkerCutover();
+    }
+    await uploadInstallationWorkers({ ...uploadOptions, workerKeys });
     // Second pass: the old API may have saved settings to the database only while
     // the Workers were uploading.
     await publishInstallationAiLogging({
@@ -1090,7 +1144,7 @@ export async function installPlatform(
       dependencies,
       workerTrafficGuarded,
       authenticationProtocolTransition,
-      previousPublicEndpoints,
+      previousPublicEndpoints: restoredPublicEndpoints,
       operationStarted,
       now,
       writeRemoteInstallationCheckpoint,

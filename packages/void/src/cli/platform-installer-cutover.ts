@@ -89,11 +89,16 @@ export function recordWorkerSecretUpdateState(
   );
 }
 
-export function workerCutoverUpdatesSecrets(
+/** An older version may lack a newly provisioned class or hold a revoked credential. */
+export function workerCutoverRollsForward(
   manifest: PlatformInstallationManifest,
   generation: number,
 ): boolean {
-  return manifest.steps.some((step) => step.key === `worker-secret-updates:${generation}:pending`);
+  return manifest.steps.some(
+    (step) =>
+      step.key === `worker-secret-updates:${generation}:pending` ||
+      step.key === `worker-scheduler-migration:${generation}`,
+  );
 }
 
 export function recordWorkerCutoverStage(

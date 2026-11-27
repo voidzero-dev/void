@@ -126,6 +126,8 @@ Some upgrades pause application traffic until the new version passes health chec
 2. Fix the reported problem.
 3. Run the printed resume command with the same runtime. Traffic resumes when it succeeds.
 
+If the upgrade adds the security scan scheduler, Void pauses traffic while it provisions the new Durable Object class. Once Cloudflare creates the class, resume the upgrade with the same runtime if it stops. Cloudflare can no longer activate an older API Worker that lacks the class.
+
 ::: details Migration safety, credential rotation, and rollback
 
 To update the runtime Cloudflare token, GitHub OAuth credentials when GitHub login is enabled, or R2 credentials,
