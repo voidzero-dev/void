@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, relative } from 'pathslash';
+import { isAbsolute, join, normalize, relative } from 'pathslash';
 import { searchForWorkspaceRoot } from 'vite';
 import { findInstalledPackage } from '../installed-packages.ts';
 
@@ -95,12 +95,15 @@ export function computePagesBuildId(
   excludeDirs: Array<string>,
   inputs: PagesBuildInputs = {},
 ): string {
+  root = normalize(root);
   const current = currentBuildIds.get(root);
   if (current !== undefined) {
     return current;
   }
   const workspace = searchForWorkspaceRoot(root);
-  const excluded = new Set(excludeDirs.map((dir) => (isAbsolute(dir) ? dir : join(root, dir))));
+  const excluded = new Set(
+    excludeDirs.map((dir) => (isAbsolute(dir) ? normalize(dir) : join(root, dir))),
+  );
   const files = buildSourceFiles(root, workspace, excluded);
   const buildInputs = `${inputs.env ?? ''}\0${inputs.define ?? ''}`;
   const fingerprint = fingerprintOf(workspace, files, buildInputs);
@@ -118,7 +121,7 @@ export function endPagesBuild(root?: string): void {
   if (root === undefined) {
     currentBuildIds.clear();
   } else {
-    currentBuildIds.delete(root);
+    currentBuildIds.delete(normalize(root));
   }
 }
 

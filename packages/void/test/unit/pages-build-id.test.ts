@@ -144,6 +144,17 @@ describe('computePagesBuildId', () => {
     expect(computePagesBuildId(root, [])).not.toBe(first);
   });
 
+  it('ends a build through an equivalent spelling of the app root', () => {
+    const root = createSourceFixture('export default function Page() {}\n');
+    const first = computePagesBuildId(root, []);
+
+    writeFileSync(join(root, 'pages/index.tsx'), 'export default function Page() { return 1 }\n');
+    expect(computePagesBuildId(`${root}/pages/..`, [])).toBe(first);
+    endPagesBuild(`${root}/pages/..`);
+
+    expect(computePagesBuildId(root, [])).not.toBe(first);
+  });
+
   it('reuses the id while size and modification time still match', () => {
     const root = createSourceFixture('export default function Page() {}\n');
     const path = join(root, 'pages/index.tsx');
@@ -173,6 +184,17 @@ describe('computePagesBuildId', () => {
     writeFileSync(join(root, '.env.local'), 'SECRET=1\n');
 
     expect(buildIdOf(root, [join(root, 'dist')])).toBe(first);
+  });
+
+  it('normalizes absolute output directories before excluding them', () => {
+    const root = createSourceFixture('export default function Page() {}\n');
+    const excluded = [`${join(root, 'dist')}/.`];
+    const first = buildIdOf(root, excluded);
+
+    mkdirSync(join(root, 'dist'), { recursive: true });
+    writeFileSync(join(root, 'dist/generated.js'), 'changed\n');
+
+    expect(buildIdOf(root, excluded)).toBe(first);
   });
 
   it('counts dot files that configure the build', () => {
