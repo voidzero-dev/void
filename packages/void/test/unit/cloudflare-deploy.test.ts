@@ -13052,6 +13052,9 @@ describe('runCloudflareDeploy — previews', () => {
       'Cloudflare created deployment dep_1 for preview "pr-64", but Preview URLs are off for Worker "spaapp", so it has no URL.',
     );
     expect(unwrap(output)).toContain('Set preview_urls: true (preview_urls in wrangler.jsonc)');
+    expect(unwrap(output)).toContain(
+      'The preview stays on the Worker until you remove it: void project preview delete pr-64 --platform cloudflare',
+    );
   });
 
   it.each([

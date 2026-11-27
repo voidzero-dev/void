@@ -174,7 +174,7 @@ void deploy --platform cloudflare --preview pr-64 --json        # create or upda
 void project preview delete pr-64 --platform cloudflare         # remove
 ```
 
-Deploy production once first and set the Worker name (`cloudflare.name`, or `name` in `wrangler.jsonc`). The token needs **Workers → Editor**, since the Worker already exists, and `CLOUDFLARE_ACCOUNT_ID` pins the account. The preview job runs the pull request's code with this token, which can also deploy production. Pull requests from forks and Dependabot get no preview.
+Deploy production once first and set the Worker name (`cloudflare.name`, or `name` in `wrangler.jsonc`). The token needs **Workers Scripts: Edit** (part of **Workers → Editor**), since the Worker already exists, and `CLOUDFLARE_ACCOUNT_ID` pins the account. The preview job runs the pull request's code with this token, which can also deploy production. Pull requests from forks and Dependabot get no preview.
 
 This workflow deploys a preview on every push, comments its URL once, and deletes it when the pull request closes:
 
@@ -211,7 +211,8 @@ jobs:
           PREVIEW: pr-${{ github.event.pull_request.number }}
         run: |
           pnpm exec void deploy --platform cloudflare --preview "$PREVIEW" --json > preview.json
-          echo "url=$(jq -er .previewUrl preview.json)" >> "$GITHUB_OUTPUT"
+          url=$(jq -er .previewUrl preview.json)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
       # The preview URL never changes for a pull request, so comment once.
       - env:
           GH_TOKEN: ${{ github.token }}
@@ -243,7 +244,7 @@ jobs:
         run: pnpm exec void project preview delete "$PREVIEW" --platform cloudflare
 ```
 
-Using npm, Yarn or Bun? Use the setup steps that `void init --github` writes. If an earlier job builds the site, download its output and add `--skip-build`. Preview URLs are public; see [`void deploy --preview`](../reference/cli/deploy.md#void-deploy-preview) for the JSON output, naming rules and limits.
+Add the same `--dir` and `--spa` flags as your production deploy. Using npm, Yarn or Bun? Use the setup steps that `void init --github` writes. If an earlier job builds the site, download its output and add `--skip-build`. Preview URLs are public; see [`void deploy --preview`](../reference/cli/deploy.md#void-deploy-preview) for the JSON output, naming rules and limits.
 
 ### Databases and secrets
 

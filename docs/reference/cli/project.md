@@ -252,7 +252,7 @@ Delete a Cloudflare Preview made with [`void deploy --preview`](./deploy.md#void
 - Exit code 0: the preview was deleted, or it did not exist. A cleanup job can run more than once.
 - Exit code 1: the Worker was not found in the account, or Cloudflare returned another error.
 
-Pass `--platform cloudflare` when the project's saved platform is not Cloudflare.
+Pass `--platform cloudflare` unless the project's saved platform is Cloudflare.
 
 ## `void project cancel [deployId]` {#void-project-cancel-deployid}
 

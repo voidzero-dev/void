@@ -131,9 +131,9 @@ Deploy a static site or SPA to a named [Cloudflare Preview](https://developers.c
 void deploy --platform cloudflare --preview pr-64
 ```
 
-Add `--skip-build` or `--dir` to reuse an earlier build.
+Use the same `--dir` and `--spa` flags as your production deploy. Add `--skip-build` or `--dir` to reuse an earlier build.
 
-A Preview keeps its URL across deploys: `https://<name>-<worker>.<subdomain>.workers.dev`, or `<name>.<your preview domain>` on a custom domain.
+A Preview keeps its URL across deploys: `https://<name>-<worker>.<subdomain>.workers.dev`.
 
 Before the first preview:
 
@@ -144,7 +144,7 @@ Before the first preview:
 
 Only static sites and SPAs can deploy a preview. A static preview gets none of the Worker's bindings, vars or secrets.
 
-Use lowercase letters, digits and single hyphens, starting with a letter. On workers.dev, `<name>-<worker>` must fit in 63 characters. Name previews after the pull request, such as `pr-64`.
+Use lowercase letters, digits and single hyphens, starting with a letter. `<name>-<worker>` must fit in 63 characters. Name previews after the pull request, such as `pr-64`.
 
 With `--json`, stdout carries one JSON object on a single line (shown formatted here):
 
@@ -170,6 +170,6 @@ With `--json`, stdout carries one JSON object on a single line (shown formatted 
 
 On failure, stdout is empty and the exit code is not 0; read stderr.
 
-Preview URLs are public. Protect them with [Cloudflare Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/) when needed. Workers Free allows 100 previews per Worker; Cloudflare removes the oldest one beyond that.
+Preview URLs are public. Protect them with [Cloudflare Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/) when needed. Workers Free allows 100 previews per Worker; beyond that, Cloudflare deletes the one deployed to least recently.
 
 Remove a preview with [`void project preview delete`](./project.md#void-project-preview-delete-name). See [Pull request previews](../../integrations/cloudflare.md#pull-request-previews) for a GitHub Actions workflow.

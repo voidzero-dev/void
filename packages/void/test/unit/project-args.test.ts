@@ -427,10 +427,15 @@ describe('parseProjectArgs preview', () => {
     [['preview', 'delete', 'pr-64', 'pr-65']],
     [['preview', 'list']],
     [['preview', 'delete pr-64']],
-    [['preview', 'delete', 'pr-64', '--platform', 'aws']],
   ])('refuses %j', (args) => {
     expect(() => parseProjectArgs(args)).toThrow(
       'project: Usage: void project preview delete <name> [--platform cloudflare].',
+    );
+  });
+
+  it('names the platform it does not accept', () => {
+    expect(() => parseProjectArgs(['preview', 'delete', 'pr-64', '--platform', 'void'])).toThrow(
+      "project: `preview --platform` accepts only 'cloudflare', got 'void'.",
     );
   });
 });

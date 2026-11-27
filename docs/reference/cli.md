@@ -38,7 +38,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `void deploy`                                              | Build and deploy to the configured platform                                   |
 | `void deploy --skip-migrations`                            | Deploy code without applying application or authentication SQL migrations     |
-| `void deploy --platform cloudflare --preview <name>`       | Deploy a static site to a Cloudflare Preview; production is unchanged         |
+| `void deploy --platform cloudflare --preview <name>`       | Deploy a static site or SPA to a Cloudflare Preview; production is unchanged  |
 | `void project preview delete <name> --platform cloudflare` | Delete a Cloudflare Preview                                                   |
 | `void prepare`                                             | Generate `.void` artifacts without starting Vite                              |
 | `void info [--json]`                                       | Inspect persistent resource names before moving their code                    |

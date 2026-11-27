@@ -149,6 +149,9 @@ function formatCloudflarePreviewError(
       return [
         `deploy: Cloudflare created deployment ${result.deploymentId} for preview "${previewName}", but Preview URLs are off for Worker "${workerName}", so it has no URL.`,
         `Set preview_urls: true (${cloudflareConfigKey(options.configPath, 'preview_urls')}), run void deploy --platform cloudflare once, then deploy the preview again. This also turns on version URLs for production versions.`,
+        // The Preview stays on Cloudflare, counts toward the per-Worker limit, and serves once
+        // Preview URLs are on, so say how to remove it.
+        `The preview stays on the Worker until you remove it: void project preview delete ${previewName} --platform cloudflare`,
       ].join('\n');
     case 'deploy-failed':
       return [

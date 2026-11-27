@@ -374,7 +374,9 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
       if (arg === '--platform' || arg.startsWith('--platform=')) {
         const value = arg === '--platform' ? rest[++i] : arg.slice('--platform='.length);
         if (value !== 'cloudflare') {
-          throw new Error(usage);
+          throw new Error(
+            `project: \`preview --platform\` accepts only 'cloudflare', got '${value ?? ''}'.`,
+          );
         }
         platform = 'cloudflare';
       } else {
