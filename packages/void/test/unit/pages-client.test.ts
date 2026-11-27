@@ -5,6 +5,7 @@ import type { RouteDestination } from 'void/routes';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import {
   createRouterFacade,
+  createSsrRouter,
   createVoidRouter,
   initIslands,
   mergeDataIntoHref,
@@ -1029,6 +1030,55 @@ describe('createVoidRouter', () => {
     const { router } = await createTestRouter({ adapter: { applyUpdate } });
     await router.visit('/next', options);
     expect(applyUpdate.mock.calls[0][3]).toEqual({ preserveState });
+  });
+
+  it('exposes the rendered page query to usePageQuery()', async () => {
+    stubClientGlobals();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        pageJson({ component: 'home', props: {}, query: { status: 'paid', page: 2 } }),
+      ),
+    );
+    const { router } = await createTestRouter();
+    expect(router._pageQuery).toEqual({});
+
+    await router.visit('/payments');
+
+    expect(router._pageQuery).toEqual({ status: 'paid', page: 2 });
+    // A page-level facade reads the page it rendered, not the committed one.
+    const facade = createRouterFacade(
+      router,
+      () => '/payments',
+      () => ({}),
+      () => ({ page: 3 }),
+    );
+    expect(facade._pageQuery).toEqual({ page: 3 });
+  });
+
+  it('reads the address bar for a page whose data carries no query', async () => {
+    stubClientGlobals();
+    // A prerendered page has no request behind its data, so the payload has no query.
+    window.location.search = '?tab=api&tab=usage';
+    const { router } = await createTestRouter();
+
+    expect(router._pageQuery).toEqual({ tab: ['api', 'usage'] });
+  });
+
+  it('reads address bar keys that name Object.prototype members as plain values', async () => {
+    stubClientGlobals();
+    window.location.search = '?toString=x&constructor=y&__proto__=z';
+    const { router } = await createTestRouter();
+
+    expect(router._pageQuery).toEqual({ toString: 'x', constructor: 'y' });
+    expect(Object.keys(router._pageQuery)).toEqual(['toString', 'constructor']);
+  });
+
+  it('carries the SSR page query', () => {
+    expect(
+      createSsrRouter('/payments', {}, 'http://localhost/payments', { page: 2 })._pageQuery,
+    ).toEqual({ page: 2 });
+    expect(createSsrRouter('/payments')._pageQuery).toEqual({});
   });
 
   it('returns stable route values from the SSR proxy', () => {

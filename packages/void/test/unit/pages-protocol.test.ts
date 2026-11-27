@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describe, expect, it, vi, afterEach } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
+import { markActionKey } from '../../src/pages/action-key.ts';
 import { defer } from '../../src/pages/defer.ts';
 import {
   handlePageGet,
@@ -17,12 +18,14 @@ import {
 import { defineHandler } from '../../src/runtime/handler/index.ts';
 import type { CloudContext, CloudEnv } from '../../src/runtime/handler/index.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type RenderPage = { component: string };
 type PageResponse = {
   component: string;
   props: Record<string, unknown>;
   params?: Record<string, string>;
+  query?: Record<string, unknown>;
   url: string;
   errors: Record<string, string> | null;
   shared?: Record<string, unknown>;
@@ -829,6 +832,197 @@ describe('handlePageMutation', () => {
 
     const body = await json<PageResponse>(response);
     expect(body.url).toBe('/users?page=2');
+  });
+
+  it("carries the loader's validated query when the page exposes it", async () => {
+    const query = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate(value: unknown) {
+          const raw = value as Record<string, string>;
+          const page = Number(raw.page ?? '1');
+          if (Number.isNaN(page)) {
+            return { issues: [{ message: 'page must be a number' }] };
+          }
+          return { value: { page, q: raw.q } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const c = await createTestContext('GET', '/users?page=2&q=ada', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageGet(
+      defineHandler.withValidator({ query })(() => ({ users: [] })),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+      undefined,
+      { exposeQuery: true },
+    );
+
+    const body = await json<PageResponse>(response);
+    // The raw search is `page=2`, so a string here means the page read the URL instead.
+    expect(body.query).toEqual({ page: 2, q: 'ada' });
+  });
+
+  it('keeps the validated query on the server until the page exposes it', async () => {
+    const query = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate(value: unknown) {
+          return { value: { page: Number((value as Record<string, string>).page) } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const loader = defineHandler.withValidator({ query })(() => ({ users: [] }));
+    const read = async (options?: { exposeQuery?: boolean }) => {
+      const c = await createTestContext('GET', '/users?page=2', {
+        headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      });
+      const response = await handlePageGet(
+        loader,
+        undefined,
+        c,
+        'users',
+        mockRenderFn,
+        mockGetAssetTags,
+        undefined,
+        options,
+      );
+      return (await json<PageResponse>(response)).query;
+    };
+
+    expect(await read()).toEqual({ page: '2' });
+    expect(await read({ exposeQuery: true })).toEqual({ page: 2 });
+  });
+
+  it('names exposeQuery when a published query cannot be serialized', async () => {
+    class Money {
+      constructor(readonly cents: number) {}
+    }
+    const query = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate() {
+          return { value: { price: new Money(100) } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const c = await createTestContext('GET', '/users', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    await expect(
+      handlePageGet(
+        defineHandler.withValidator({ query })(() => ({ users: [] })),
+        undefined,
+        c,
+        'users',
+        mockRenderFn,
+        mockGetAssetTags,
+        undefined,
+        { exposeQuery: true, dev: true },
+      ),
+    ).rejects.toThrow(/exposeQuery/);
+  });
+
+  it('falls back to the raw request query when the loader has no schema', async () => {
+    const c = await createTestContext('GET', '/users?tag=a&tag=b&q=ada', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageGet(
+      () => ({ users: [] }),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(body.query).toEqual({ tag: ['a', 'b'], q: 'ada' });
+  });
+
+  it('keeps query keys that name Object.prototype members as plain values', async () => {
+    const c = await createTestContext('GET', '/users?toString=x&constructor=y&__proto__=z', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageGet(
+      () => ({ users: [] }),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(response.status).toBe(200);
+    const body = await json<PageResponse>(response);
+    // Page data cannot carry a __proto__ key, so it stays in the URL only.
+    expect(body.query).toEqual({ toString: 'x', constructor: 'y' });
+    expect(Object.keys(body.query ?? {})).toEqual(['toString', 'constructor']);
+  });
+
+  it('drops the action key from the page query on a mutation re-render', async () => {
+    const c = await createTestContext('POST', '/books?delete&page=2', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    markActionKey(c.req.raw);
+
+    const response = await handlePageMutation(
+      () => undefined,
+      () => ({ books: [] }),
+      undefined,
+      c,
+      'books',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    // The page URL leaves the action key out, so the page query must too.
+    expect(body.url).toBe('/books?page=2');
+    expect(body.query).toEqual({ page: '2' });
+  });
+
+  it("never hands the page the action's validated query", async () => {
+    const coupon = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate(value: unknown) {
+          return { value: { coupon: `looked-up:${(value as Record<string, string>).coupon}` } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const c = await createTestContext('POST', '/books?coupon=SPRING', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+
+    const response = await handlePageMutation(
+      defineHandler.withValidator({ query: coupon })(() => undefined),
+      // The page loader validates nothing, so the action is the last writer.
+      () => ({ books: [] }),
+      undefined,
+      c,
+      'books',
+      mockRenderFn,
+      mockGetAssetTags,
+      undefined,
+      // The page publishes its query, so a stale action slot would leak it.
+      { exposeQuery: true },
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(body.query).toEqual({ coupon: 'SPRING' });
   });
 
   it('Response redirect — passes through', async () => {

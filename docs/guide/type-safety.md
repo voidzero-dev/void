@@ -147,7 +147,7 @@ const url = routeUrl('/users/[id]', {
 // /users/42?tab=activity#details
 ```
 
-TypeScript checks the route and required parameter names. Patterns follow your filenames: `pages/users/[id].tsx`, `.vue`, or `.svelte` uses `/users/[id]`.
+TypeScript checks the route, required parameter names, and the destination page's query schema. Patterns follow your filenames: `pages/users/[id].tsx`, `.vue`, or `.svelte` uses `/users/[id]`.
 
 Parameters accept strings or numbers and are URL-encoded for you. Query values can be strings, numbers, booleans, or arrays. Arrays become repeated keys; `null` and `undefined` values are omitted.
 
@@ -240,6 +240,66 @@ import type { PageParams } from 'void/routes';
 
 const { slug } = c.req.param() as PageParams<'/posts/[slug]'>;
 ```
+
+### Page query
+
+A loader can validate its query with `defineHandler.withValidator({ query })`. Exporting the schema as `query` also types the page's links:
+
+```ts
+// pages/admin/payments.server.ts
+import { defineHandler } from 'void';
+import { z } from 'zod';
+import { listPayments } from '../../lib/payments';
+
+export const query = z.object({
+  status: z.enum(['paid', 'pending']),
+  page: z.coerce.number().default(1),
+});
+
+// Publish the validated values to the page. Leave this out and the browser
+// only receives the request's raw query strings.
+export const exposeQuery = true;
+
+export const loader = defineHandler.withValidator({ query })(async (c, { query }) => {
+  return { payments: await listPayments(query) };
+});
+```
+
+`routeUrl()`, `router.visit()`, and `c.redirect()` check their `query` against that schema. A key outside it, a value outside it, or a missing required key is a type error:
+
+```ts
+import { routeUrl } from 'void/routes';
+
+routeUrl('/admin/payments', { query: { status: 'paid' } });
+routeUrl('/admin/payments', { query: { statsu: 'paid' } }); // Type error: no such key
+routeUrl('/admin/payments', { query: { status: 'void' } }); // Type error: not in the schema
+routeUrl('/admin/payments'); // Type error: `status` is required
+```
+
+Read the values the loader validated with `usePageQuery()`, passing the page pattern to type it.
+
+```ts
+import { usePageQuery, useRouter } from '@void/react'; // @void/vue, @void/svelte, @void/solid
+
+const router = useRouter();
+const query = usePageQuery<'/admin/payments'>();
+// { status: 'paid' | 'pending'; page: number }
+
+function showPending() {
+  return router.visit({
+    pathname: '/admin/payments',
+    query: { ...query, status: 'pending', page: 1 },
+  });
+}
+```
+
+The result is typed by the schema's output, so a coerced `page` is a number here even though the URL only carries text. Spreading it into a navigation changes one filter and keeps the rest.
+
+Values reach the page only when it sets `export const exposeQuery = true`. Without it the browser gets the request's raw query strings, so a schema that transforms a value into something the loader never returned cannot send it out on its own.
+
+A prerendered page is built without a request query, so `usePageQuery()` returns the values its build had: empty, or the schema's defaults with `exposeQuery`. They match the props the page was built with. Read `useRouter().query` for what the address bar carries.
+
+A page without a query schema keeps accepting any `RouteQuery`, and `usePageQuery()` returns the request's query values as strings. Routes served by an HTTP handler are not checked, because one URL can serve several methods with different query schemas.
 
 ### Prerender paths
 

@@ -1,4 +1,9 @@
-import type { EncodedRoutePathMap, RoutePathMap, RouteTypesConfig } from 'void/routes';
+import type {
+  EncodedRoutePathMap,
+  PageQueryMap,
+  RoutePathMap,
+  RouteTypesConfig,
+} from 'void/routes';
 
 /**
  * Encode one path segment of a route param. `encodeURIComponent` keeps dots, and
@@ -141,12 +146,39 @@ export type RequestUrl = TypedRoutes extends true
 export type RouteQueryValue = string | number | boolean | null | undefined;
 export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;
 
+/**
+ * The page's own query, read from the schema its server file exports. A page
+ * without one keeps accepting any `RouteQuery`.
+ */
+type RouteQueryOptions<P> = P extends keyof PageQueryMap
+  ? [PageQueryMap[P]['input']] extends [never]
+    ? { query?: RouteQuery }
+    : Record<never, never> extends PageQueryMap[P]['input']
+      ? { query?: PageQueryMap[P]['input'] }
+      : { query: PageQueryMap[P]['input'] }
+  : { query?: RouteQuery };
+
 export type RouteOptions<P extends RoutePath> = {
-  query?: RouteQuery;
   hash?: string;
-} & ([RoutePathMap[P]] extends [never]
-  ? { params?: never }
-  : { params: { [K in RoutePathMap[P] & string]: string | number } });
+} & RouteQueryOptions<P> &
+  ([RoutePathMap[P]] extends [never]
+    ? { params?: never }
+    : { params: { [K in RoutePathMap[P] & string]: string | number } });
+
+/**
+ * The options `routeUrl()` requires for `P`. Required as soon as a route param
+ * or the page's query schema has a required key.
+ */
+export type RouteUrlArgs<P extends RoutePath> = [RouteOptionsRequired<P>] extends [never]
+  ? [options?: RouteOptions<P>]
+  : [options: RouteOptions<P>];
+
+/** `true` for each page of `P` that needs options. A union path needs them if one page does. */
+type RouteOptionsRequired<P> = P extends RoutePath
+  ? Record<never, never> extends RouteOptions<P>
+    ? never
+    : true
+  : never;
 
 export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath
   ? { pathname: P } & RouteOptions<P>
@@ -161,12 +193,7 @@ type UrlOptions = {
 };
 
 /** Build a relative URL from a known route pattern. */
-export function routeUrl<P extends RoutePath>(
-  path: P,
-  ...args: [RoutePathMap[NoInfer<P>]] extends [never]
-    ? [options?: RouteOptions<P>]
-    : [options: RouteOptions<P>]
-): RouteUrl {
+export function routeUrl<P extends RoutePath>(path: P, ...args: RouteUrlArgs<P>): RouteUrl {
   return buildRouteUrl(path, args[0]);
 }
 
@@ -193,6 +220,9 @@ function buildRouteUrl(path: string, options?: UrlOptions): BuiltRouteUrl {
       return [name, String(value)];
     }),
   );
+  // The base is a fixed literal, so this cannot throw. Only its pathname and
+  // query are read back below.
+  // pi-lens-ignore: unchecked-throwing-call
   const url = new URL('https://void.invalid');
   url.pathname = interpolateRouteParams(path, params, true);
 

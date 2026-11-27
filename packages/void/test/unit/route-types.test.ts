@@ -423,6 +423,119 @@ describe('generateRouteTypes', () => {
     expect(actionMap).toContain('    "/users/:id": PageActionMap["/users/[id]"];');
   });
 
+  it('generates PageQueryMap from page loader query validators', () => {
+    const scan = makeScan({
+      pages: [
+        {
+          ...pageRenderingDefaults,
+          pattern: '/admin/payments',
+          params: [],
+          catchAll: false,
+          componentPath: 'admin/payments.vue',
+          serverPath: 'admin/payments.server.ts',
+          methods: ['loader'],
+          componentId: 'admin/payments',
+        },
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
+    const schema = 'typeof import("../pages/admin/payments.server.ts")';
+
+    expect(dts).toContain(
+      [
+        '  export interface PageQueryMap {',
+        '    "/admin/payments": {',
+        `      input: PageQueryInputFallback<PageQueryInputOf<PageQuerySchema<${schema}>>>;`,
+        `      output: PageQueryOutputFallback<PageQueryOutputOf<PageQuerySchema<PageQueryPublished<${schema}>>>>;`,
+        '    };',
+        '  }',
+      ].join('\n'),
+    );
+    // The read type follows the same opt-in the payload does.
+    expect(dts).toContain(
+      '  type PageQueryPublished<M> = M extends { exposeQuery: true } ? M : never;',
+    );
+    // The schema comes from the page's exported value, never from the loader's
+    // inferred type, which would reference this file back through `void`.
+    expect(dts).not.toContain('["loader"]');
+    // RouteOptions reads the map, so a page's link query is checked against its schema.
+    expect(dts).toContain('  type RouteQueryOptions<P> = P extends keyof PageQueryMap');
+    expect(dts).toContain("        : { query: PageQueryMap[P]['input'] }");
+    // One declaration only, or projects without skipLibCheck get TS2300.
+    expect(dts.match(/export type RouteUrlArgs/g)).toHaveLength(1);
+  });
+
+  it('leaves pages without a loader out of PageQueryMap', () => {
+    const scan = makeScan({
+      pages: [
+        {
+          ...pageRenderingDefaults,
+          pattern: '/users',
+          params: [],
+          catchAll: false,
+          componentPath: 'users/index.vue',
+          serverPath: 'users/index.server.ts',
+          methods: ['action'],
+          componentId: 'users',
+        },
+        {
+          ...pageRenderingDefaults,
+          pattern: '/about',
+          params: [],
+          catchAll: false,
+          componentPath: 'about.md',
+          serverPath: null,
+          methods: [],
+          componentId: 'about',
+        },
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
+
+    expect(dts).toContain('  export interface PageQueryMap {}');
+    expect(dts).not.toContain('PageQueryMap {\n    "/users"');
+    expect(dts).not.toContain('PageQueryMap {\n    "/about"');
+  });
+
+  it('joins a .dev + .prod page pair into one PageQueryMap key', () => {
+    const page = {
+      ...pageRenderingDefaults,
+      pattern: '/payments',
+      params: [],
+      catchAll: false,
+    };
+    const scan = makeScan({
+      pages: [
+        {
+          ...page,
+          componentPath: 'payments.dev.vue',
+          serverPath: 'payments.dev.server.ts',
+          methods: ['loader'],
+          componentId: 'payments.dev',
+          env: 'dev',
+        },
+        {
+          ...page,
+          componentPath: 'payments.prod.vue',
+          serverPath: 'payments.prod.server.ts',
+          methods: ['loader'],
+          componentId: 'payments.prod',
+          env: 'prod',
+        },
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
+    const map = dts.split('  export interface PageQueryMap {')[2];
+
+    expect(map).toContain('    "/payments": {');
+    expect(map).toContain('    } | {');
+    expect(map).toContain('payments.dev.server.ts');
+    expect(map).toContain('payments.prod.server.ts');
+  });
+
   it('generates WebSocketRouteMap entries', () => {
     const scan = makeScan({
       websockets: [

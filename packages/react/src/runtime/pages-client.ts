@@ -118,6 +118,8 @@ const viewTransitionWaiters = new Map<number, () => void>();
 const pendingVisitSettlers = new Map<number, VisitSettler>();
 const committedResources = new Set<number>();
 const EMPTY_PARAMS: Record<string, string> = {};
+/** Root router has no page yet; a page-level facade supplies the rendered page's query. */
+const EMPTY_QUERY: Record<string, unknown> = {};
 
 let terminalResource: ReactPageResource | null = null;
 let activePendingNavigationId: number | null = null;
@@ -312,6 +314,9 @@ function createRouter(engine: PageNavigationEngine<ReactComponent>): VoidRouter 
     get params() {
       return {};
     },
+    get _pageQuery() {
+      return EMPTY_QUERY;
+    },
     visit(url, options = {}) {
       if (!scheduleVisit) {
         return Promise.reject(new Error('router.visit() called before router initialized'));
@@ -356,6 +361,7 @@ function RouteResource({
   const pageData = result?.pageData;
   const pageDataUrl = pageData?.url ?? '';
   const routeParams = pageData?.params ?? EMPTY_PARAMS;
+  const routeQuery = pageData?.query ?? EMPTY_QUERY;
   const routeRouter = useMemo(() => {
     if (!outerRouter) {
       throw new Error('pages: Missing router context for the page outlet.');
@@ -380,8 +386,9 @@ function RouteResource({
         return pageUrl + resource.hash;
       },
       () => routeParams,
+      () => routeQuery,
     );
-  }, [outerRouter, pageDataUrl, resource.fetchUrl, resource.hash, routeParams]);
+  }, [outerRouter, pageDataUrl, resource.fetchUrl, resource.hash, routeParams, routeQuery]);
 
   // Hooks above run on every render, so a resource with no result keeps the hook count.
   if (!result || !pageData) {

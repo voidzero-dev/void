@@ -2,6 +2,7 @@ export { Form } from './form.ts';
 export { Link } from './link.ts';
 export { useRouter } from './use-router.ts';
 export { useParams } from './use-params.ts';
+export { usePageQuery } from './use-page-query.ts';
 export { useShared } from './use-shared.ts';
 export { useForm } from './use-form.ts';
 export { useNavigation } from './use-navigation.ts';

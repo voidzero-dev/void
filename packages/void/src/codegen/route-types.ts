@@ -1,4 +1,5 @@
 import { relative } from 'pathslash';
+import type { PageDefinition } from '../pages/types.ts';
 import type { RouteDefinition } from '../router/parse-filename.ts';
 import type { ScanResult } from '../router/scan.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
@@ -47,6 +48,76 @@ function encodeRoutePattern(pattern: string): string {
       return url.pathname.slice(1);
     })
     .join('/');
+}
+
+/**
+ * One PageQueryMap entry per page whose loader could validate its query.
+ *
+ * The schema is read from the page server's exported `query` value, not from
+ * the loader. A page server reaches `void/routes` through `void`, so reading
+ * the loader's inferred type from there would make it refer to itself and
+ * TypeScript would infer `any` for the handler. A schema value has no such
+ * dependency.
+ *
+ * A `.dev` + `.prod` pair shares one pattern, so its two pages become a union.
+ */
+function pageQueryEntry(importPath: string): Array<string> {
+  const module = `typeof import(${JSON.stringify(importPath)})`;
+  return [
+    `      input: PageQueryInputFallback<PageQueryInputOf<PageQuerySchema<${module}>>>;`,
+    `      output: PageQueryOutputFallback<PageQueryOutputOf<PageQuerySchema<PageQueryPublished<${module}>>>>;`,
+  ];
+}
+
+function pageQueryLines(
+  pages: Array<PageDefinition>,
+  pagesDir: string | undefined,
+  outDir: string,
+): Array<string> {
+  if (!pagesDir) {
+    return [];
+  }
+  const typedPatterns = new Set(
+    pages.flatMap((page) =>
+      page.serverPath !== null && page.methods.includes('loader') ? [page.pattern] : [],
+    ),
+  );
+  if (typedPatterns.size === 0) {
+    return [];
+  }
+
+  const entriesByPattern = new Map<string, Array<Array<string>>>();
+  for (const page of pages) {
+    if (!typedPatterns.has(page.pattern)) {
+      continue;
+    }
+    // A side of a `.dev` + `.prod` pair without a loader validates nothing.
+    const entry =
+      page.serverPath !== null && page.methods.includes('loader')
+        ? pageQueryEntry(relative(outDir, `${pagesDir}/${page.serverPath}`))
+        : ['      input: RouteQuery;', '      output: Record<string, string | Array<string>>;'];
+    const entries = entriesByPattern.get(page.pattern);
+    if (entries) {
+      entries.push(entry);
+    } else {
+      entriesByPattern.set(page.pattern, [entry]);
+    }
+  }
+
+  const lines: Array<string> = ['  export interface PageQueryMap {'];
+  for (const [pattern, entries] of entriesByPattern) {
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
+    entries.forEach((entry, index) => {
+      if (index > 0) {
+        lines.push('    } | {');
+      }
+      lines.push(...entry);
+    });
+    lines.push('    };');
+    legacyRouteAlias(lines, 'PageQueryMap', pattern);
+  }
+  lines.push('  }');
+  return lines;
 }
 
 /**
@@ -139,12 +210,47 @@ export function generateRouteTypes(
     '  export type RoutePath = keyof RoutePathMap & string;',
     '  export type RouteQueryValue = string | number | boolean | null | undefined;',
     '  export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;',
+    // A page's exported `query` schema, or never when it exports none.
+    '  type PageQuerySchema<M> = M extends { query: infer S } ? Extract<S, StandardSchemaV1> : never;',
+    // A query string carries text, so an input that is not a URL primitive (a
+    // Date, a class instance) is passed as a string. An `unknown` input, such
+    // as Zod 4's `z.coerce.number()`, takes any URL value. Arrays map per item.
+    '  type RouteQueryItemOf<T> = unknown extends T ? RouteQueryValue : T extends RouteQueryValue ? T : string;',
+    '  type RouteQueryValueOf<T> = unknown extends T',
+    '    ? RouteQueryValue | ReadonlyArray<RouteQueryValue>',
+    '    : T extends ReadonlyArray<infer E> ? ReadonlyArray<RouteQueryItemOf<E>> : RouteQueryItemOf<T>;',
+    // Map each branch of a union input on its own, so a branch keeps its own keys.
+    '  type RouteQueryFieldsOf<I> = I extends unknown ? { [K in keyof I]: RouteQueryValueOf<I[K]> } : never;',
+    // An `unknown` input (a preprocessed schema) names no keys, so any URL query fits.
+    '  type PageQueryInputOf<S> = S extends StandardSchemaV1',
+    '    ? unknown extends StandardSchemaV1.InferInput<S> ? RouteQuery : RouteQueryFieldsOf<StandardSchemaV1.InferInput<S>>',
+    '    : never;',
+    // The page only receives a validated query that is an object; otherwise it reads the raw strings.
+    '  type PageQueryOutputOf<S> = S extends StandardSchemaV1 ? Extract<StandardSchemaV1.InferOutput<S>, object> : never;',
+    // A page publishes its validated query only when it sets the flag, so the
+    // read type follows the same opt-in the payload does.
+    '  type PageQueryPublished<M> = M extends { exposeQuery: true } ? M : never;',
+    // A `.dev` + `.prod` pair shares one key, so a side without a schema has to
+    // keep accepting anything instead of vanishing into the union.
+    '  type PageQueryInputFallback<T> = [T] extends [never] ? RouteQuery : T;',
+    '  type PageQueryOutputFallback<T> = [T] extends [never] ? Record<string, string | Array<string>> : T;',
+    '  type RouteQueryOptions<P> = P extends keyof PageQueryMap',
+    "    ? [PageQueryMap[P]['input']] extends [never]",
+    '      ? { query?: RouteQuery }',
+    "      : {} extends PageQueryMap[P]['input']",
+    "        ? { query?: PageQueryMap[P]['input'] }",
+    "        : { query: PageQueryMap[P]['input'] }",
+    '    : { query?: RouteQuery };',
     '  export type RouteOptions<P extends RoutePath> = {',
-    '    query?: RouteQuery;',
     '    hash?: string;',
-    '  } & ([RoutePathMap[P]] extends [never]',
+    '  } & RouteQueryOptions<P> & ([RoutePathMap[P]] extends [never]',
     '    ? { params?: never }',
     '    : { params: { [K in RoutePathMap[P] & string]: string | number } });',
+    // A union path needs the options as soon as one of its pages does.
+    '  type RouteOptionsRequired<P> = P extends RoutePath ? ({} extends RouteOptions<P> ? never : true) : never;',
+    '  export type RouteUrlArgs<P extends RoutePath> = [RouteOptionsRequired<P>] extends [never]',
+    '    ? [options?: RouteOptions<P>]',
+    '    : [options: RouteOptions<P>];',
     '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
     '    ? { pathname: P } & RouteOptions<P>',
     '    : never;',
@@ -178,9 +284,7 @@ export function generateRouteTypes(
     '  export type RouteUrlInput = Href | URL | RouteDestination;',
     '  export function routeUrl<P extends RoutePath>(',
     '    path: P,',
-    '    ...args: [RoutePathMap[NoInfer<P>]] extends [never]',
-    '      ? [options?: RouteOptions<P>]',
-    '      : [options: RouteOptions<P>]',
+    '    ...args: RouteUrlArgs<P>',
     '  ): RouteUrl;',
     '',
     '  export interface RouteTypesConfig {',
@@ -230,6 +334,20 @@ export function generateRouteTypes(
     '  export type PageParams<P extends PagePath> = P extends PagePath',
     '    ? { [K in Exclude<PagePathMap[P], "*"> & string]: string }',
     '    : never;',
+    '',
+    '  export interface PageQueryMap {}',
+    '  export type PageQueryInput<P> = P extends keyof PageQueryMap',
+    "    ? [PageQueryMap[P]['input']] extends [never]",
+    '      ? RouteQuery',
+    "      : PageQueryMap[P]['input']",
+    '    : RouteQuery;',
+    '  export type PageQuery<P> = P extends keyof PageQueryMap',
+    "    ? [PageQueryMap[P]['output']] extends [never]",
+    '      ? Record<string, string | Array<string>>',
+    "      : PageQueryMap[P]['output']",
+    '    : Record<string, string | Array<string>>;',
+    '',
+    ...pageQueryLines(scan.pages.pages, pagesDir, outDir),
     '',
     // `routeUrl()` returns `/caf%C3%A9%20menu` for `/café menu`, so accept that spelling too.
     '  export interface EncodedRoutePathMap {',

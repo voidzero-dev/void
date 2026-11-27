@@ -437,7 +437,7 @@ const config = defineConfig({
         'error',
         {
           allowWithName:
-            '^(RoutePathMap|PagePathMap|EncodedRoutePathMap|RouteTypesConfig|RouteMap|WebSocketRouteMap|PageActionMap|VoidAuthTypes|QueueMap)$',
+            '^(RoutePathMap|PagePathMap|EncodedRoutePathMap|RouteTypesConfig|RouteMap|WebSocketRouteMap|PageActionMap|PageQueryMap|VoidAuthTypes|QueueMap)$',
         },
       ],
       // Framework callback and JSX types use void for handlers that may be async.

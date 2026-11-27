@@ -95,7 +95,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
           value: pageObj.errors || {},
           get children() {
             return createComponent(RouterContext.Provider, {
-              value: createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl),
+              value: createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl, pageObj.query || {}),
               get children() {
                 return createComponent(NavigationContext.Provider, {
                   value: () => idleNavigationState(),
@@ -176,9 +176,11 @@ const [boundaryGeneration, setBoundaryGeneration] = createSignal(0);
 const [layouts, setLayouts] = createSignal([]);
 const shared = createMutable({});
 const params = createMutable({});
+const query = createMutable({});
 const [errors, setErrors] = createSignal({});
 const [routeUrl, setRouteUrl] = createSignal(window.location.pathname + window.location.search + window.location.hash);
 const [routeParams, setRouteParams] = createSignal({});
+const [routeQuery, setRouteQuery] = createSignal({});
 const [navigation, setNavigation] = createSignal(idleNavigationState());
 
 // Pages and layouts keep the objects returned by useShared() and useParams()
@@ -219,6 +221,8 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
           setErrors(pageData.errors || {});
           replaceInPlace(params, nextParams);
           setRouteParams(nextParams);
+          replaceInPlace(query, pageData.query);
+          setRouteQuery(pageData.query || {});
         });
       },
       onDeferredUpdate(props) {
@@ -240,7 +244,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     },
   }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
-const reactiveRouter = createRouterFacade(router, () => routeUrl(), () => routeParams());
+const reactiveRouter = createRouterFacade(router, () => routeUrl(), () => routeParams(), () => query);
 
 setActionRouter(reactiveRouter);
 
@@ -252,6 +256,8 @@ batch(() => {
   setErrors(initialPageData.errors || {});
   replaceInPlace(params, initialPageData.params);
   setRouteParams(initialPageData.params || {});
+  replaceInPlace(query, initialPageData.query);
+  setRouteQuery(initialPageData.query || {});
 });
 
 function renderSlot(depth) {
