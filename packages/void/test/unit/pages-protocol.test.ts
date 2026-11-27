@@ -12,11 +12,13 @@ import {
 import {
   deserializePageData,
   decodePageData,
+  requestAppSetup,
   serializePageData,
 } from '../../src/pages/serialize.ts';
 import { defineHandler } from '../../src/runtime/handler/index.ts';
 import type { CloudContext, CloudEnv } from '../../src/runtime/handler/index.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import { createStaticNotFound } from '../../src/runtime/routing/pages.ts';
 
 type RenderPage = { component: string };
 type PageResponse = {
@@ -72,6 +74,31 @@ function createTestContext(
 
 const mockRenderFn = vi.fn(async (pageObj: RenderPage) => `<html>${pageObj.component}</html>`);
 const mockGetAssetTags = vi.fn(async () => ({ css: '', preloads: '', body: '' }));
+
+it('keeps the same setup request when the static 404 tries an error boundary', async () => {
+  const setup = vi.fn(() => ({ touched: false }));
+  const render = createStaticNotFound({
+    componentId: 'missing',
+    headConfig: null,
+    renderOptions: {
+      boundaries: { notFound: 'missing', notFoundErrors: ['error'], errors: ['error'] },
+    },
+    load: async () => ({ loader: () => new Response(null, { status: 404 }) }),
+    assets: mockGetAssetTags,
+    render: async (page, _assets, _url, request) => {
+      const state = await requestAppSetup(setup, request);
+      if (page.component === 'missing') {
+        state.touched = true;
+        throw new Error('404 component threw');
+      }
+      expect(page.documentOnly).toBe(true);
+      return `<p>touched ${state.touched}</p>`;
+    },
+  });
+  const response = await render(new Request('http://localhost/'), {});
+  expect(await response.text()).toContain('touched true');
+  expect(setup).toHaveBeenCalledTimes(1);
+});
 
 describe('handlePageGet', () => {
   it.each(['plain', 'validated', 'middleware'] as const)(
@@ -314,6 +341,7 @@ describe('handlePageGet', () => {
       }),
       expect.anything(),
       'http://localhost/posts/abc-123',
+      c.req,
     );
   });
 

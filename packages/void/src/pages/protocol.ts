@@ -87,6 +87,7 @@ type RenderPage = (
   pageObj: PageObject,
   assetTags: AssetTags,
   requestUrl: string,
+  request: CloudContext['req'],
 ) => Promise<PageRenderResult>;
 type RenderPageWithMetadata = RenderPage & {
   preambleScript?: string;
@@ -256,10 +257,10 @@ async function renderWithAssetTags(
   renderFn: RenderPage,
   pageObj: PageObject,
   assetTags: AssetTags,
-  requestUrl: string,
+  request: CloudContext,
 ): Promise<PageRenderResult> {
   try {
-    return await renderFn(pageObj, assetTags, requestUrl);
+    return await renderFn(pageObj, assetTags, request.req.url, request.req);
   } catch (error) {
     attachRenderErrorAssetTags(error, assetTags);
   }
@@ -300,7 +301,7 @@ async function renderPageHtml(
   const html =
     renderMode === 'client'
       ? renderClientOnlyPage(pageObj, assetTags, renderFn)
-      : await renderWithAssetTags(renderFn, pageObj, assetTags, c.req.url);
+      : await renderWithAssetTags(renderFn, pageObj, assetTags, c);
   return { html, assetTags };
 }
 
@@ -437,6 +438,15 @@ function isRecoverableHttpException(error: unknown): error is HTTPException {
   );
 }
 
+export function isPageResponseError(error: unknown): error is Pick<HTTPException, 'getResponse'> {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    'getResponse' in error &&
+    typeof error.getResponse === 'function'
+  );
+}
+
 /** Recover HTTP failures outside the loader leaf without executing application code again. */
 export async function recoverPageHttpException(
   error: unknown,
@@ -466,12 +476,8 @@ async function renderPageFailure(
   configHead: HeadConfig | undefined,
   options: PageRenderOptions | undefined,
 ): Promise<Response | undefined> {
-  const httpError =
-    error &&
-    typeof error === 'object' &&
-    'getResponse' in error &&
-    typeof error.getResponse === 'function';
-  const explicit = httpError ? (error as { getResponse(): Response }).getResponse() : original;
+  const httpError = isPageResponseError(error);
+  const explicit = httpError ? error.getResponse() : original;
   const recoverHttpError = isRecoverableHttpException(error);
   if (
     explicit &&

@@ -85,6 +85,7 @@ function voidVue(options?: VoidVueOptions): Plugin[];
 ```ts
 interface VoidVueOptions {
   vue?: VuePluginOptions; // passed through to @vitejs/plugin-vue
+  appSetup?: string; // path from the project root to the Vue app setup module
   viewTransitions?: boolean; // enable View Transitions API for navigations
   prefetch?: {
     defaultStrategy?: boolean | LinkPrefetchStrategy | LinkPrefetchStrategy[]; // default: false
@@ -92,6 +93,34 @@ interface VoidVueOptions {
     cacheFor?: number | string | [string, string]; // default: '30s'
   };
   deployRecovery?: boolean; // reload a tab whose build is gone. default: true
+}
+```
+
+### Vue app setup {#vue-app-setup}
+
+Set `voidVue({ appSetup: './src/vue-app.ts' })` in your Vite config to install Vue plugins, provide values, or configure the app before it renders. Default-export a synchronous setup function from that file. Void calls it on the server for each request that renders a Vue app, and in the browser before mounting the page app and each island app.
+
+Guard browser APIs in the setup module with `if (!import.meta.env.SSR)`.
+
+Return optional synchronous `dehydrate()` and `hydrate(state)` functions to transfer state for server-rendered pages with hydration enabled. Void calls `dehydrate()` as soon as the page finishes rendering, before running deferred callbacks. When `dehydrate()` returns a value, Void includes it in the initial HTML and passes it to `hydrate(state)` before mounting the page app.
+
+Each island in the browser starts with the state its own `setup(app)` creates. Pass server data to islands as props, including any values that the page or its loaders changed on the server.
+
+```ts
+// src/vue-app.ts
+import { createPinia } from 'pinia';
+import type { App } from 'vue';
+
+export default function setup(app: App) {
+  const pinia = createPinia();
+  app.use(pinia);
+
+  return {
+    dehydrate: () => pinia.state.value,
+    hydrate(state: typeof pinia.state.value) {
+      pinia.state.value = state;
+    },
+  };
 }
 ```
 
