@@ -143,7 +143,7 @@ Content-Type: application/json
 { "queue": "<queue-name>", "messages": [{ "id": "1", "timestamp": <unix_ms>, "body": <any>, "attempts": 1 }] }
 ```
 
-The endpoint requires a local dev trigger token. Void prints a paste-ready curl command with the current token when the dev server starts.
+The endpoint requires a local dev trigger token. Void prints a paste-ready curl command with the current token when the dev server starts. The development trigger is unavailable in `vp preview` and `vite preview`.
 
 ```bash
 curl -X POST http://localhost:5173/__void/queue \
