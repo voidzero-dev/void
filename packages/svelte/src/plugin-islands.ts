@@ -78,6 +78,17 @@ export function islandsPlugin(
       configResolved(config) {
         resolvedConfig = config;
         isDev = config.command === 'serve';
+        const compiler = config.plugins.find(({ name }) => name === 'vite-plugin-svelte:config');
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Vite erases the plugin API type.
+        const api = compiler?.api as { options?: SvelteOptions } | undefined;
+        if (isDev && api?.options) {
+          const previous = api.options.dynamicCompileOptions;
+          api.options.dynamicCompileOptions = async (input) => {
+            const base = await previous?.(input);
+            const wrapper = /^\/@void-(island-wrap|md-svelte)\//.test(input.filename);
+            return wrapper && input.code.includes('data-island=') ? { ...base, hmr: false } : base;
+          };
+        }
       },
 
       configureServer(server) {
@@ -296,7 +307,7 @@ function generateWrapperComponent(id: string): string {
   let props = $props();
 </script>
 <div data-island="${islandId}" data-props={serializePageData(props)} data-hydrate="${hydrate}">
-  <Cmp {...props} />
+  {#each [1] as _}<Cmp {...props} />{/each}
 </div>
 `;
 }
