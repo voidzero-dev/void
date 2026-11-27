@@ -5238,6 +5238,37 @@ export default config;
 
 describe('detectProjectState', () => {
   // Without a lockfile, an npm fallback would reject `workspace:` specs or write the wrong lockfile.
+  it.each(['npm', 'pnpm', 'yarn', 'bun'] as const)(
+    'detects %s from devEngines.packageManager when no lockfile is present',
+    (packageManager) => {
+      withTempDir((root) => {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({ devEngines: { packageManager: { name: packageManager } } }, null, 2) +
+            '\n',
+        );
+        expect(detectProjectState(root).packageManager).toBe(packageManager);
+      });
+    },
+  );
+
+  it('prefers package.json#packageManager over devEngines.packageManager', () => {
+    withTempDir((root) => {
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify(
+          {
+            packageManager: 'yarn@4.0.0',
+            devEngines: { packageManager: { name: 'npm' } },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      expect(detectProjectState(root).packageManager).toBe('yarn');
+    });
+  });
+
   it('prefers package.json#packageManager when no lockfile is present (pnpm)', () => {
     withTempDir((root) => {
       writeFileSync(

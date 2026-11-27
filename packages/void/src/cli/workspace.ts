@@ -8,7 +8,27 @@ export function parsePackageManagerField(pkg: unknown): PackageManager | undefin
   if (!pkg || typeof pkg !== 'object') {
     return undefined;
   }
-  const raw = (pkg as { packageManager?: unknown }).packageManager;
+  const packageJson = pkg as {
+    packageManager?: unknown;
+    devEngines?: { packageManager?: unknown };
+  };
+  const packageManager = parsePackageManagerName(packageJson.packageManager);
+  if (packageManager) {
+    return packageManager;
+  }
+
+  const devEnginesPackageManager = packageJson.devEngines?.packageManager;
+  if (
+    devEnginesPackageManager &&
+    typeof devEnginesPackageManager === 'object' &&
+    !Array.isArray(devEnginesPackageManager)
+  ) {
+    return parsePackageManagerName((devEnginesPackageManager as { name?: unknown }).name);
+  }
+  return undefined;
+}
+
+function parsePackageManagerName(raw: unknown): PackageManager | undefined {
   if (typeof raw !== 'string') {
     return undefined;
   }
