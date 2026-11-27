@@ -10,7 +10,10 @@ const VOID_VERSION = JSON.parse(
 ) as { version: string };
 
 describe('create-void delegation', () => {
-  beforeEach(() => vi.stubEnv('VP_USER_AGENT', ''));
+  beforeEach(() => {
+    vi.stubEnv('VP_USER_AGENT', '');
+    vi.stubEnv('VP_PACKAGE_MANAGER', '');
+  });
   afterEach(() => vi.unstubAllEnvs());
 
   it('writes the npm package manager for an npm create void Vite+ starter', async () => {

@@ -41,6 +41,13 @@ function isYarnClassic(userAgent = process.env.npm_config_user_agent): boolean {
   return /^yarn\/1(?:\.|$)/.test(userAgent ?? '');
 }
 
+function isVpCreateInvocation(): boolean {
+  return (
+    (process.env.VP_USER_AGENT?.startsWith('vp/') ?? false) &&
+    Boolean(process.env.VP_PACKAGE_MANAGER)
+  );
+}
+
 /** Run the matching Void CLI without adding it to the generated project. */
 export function pmDlx(pm: PM, version: string): ReadonlyArray<string> {
   const pkg = `void@${version}`;
@@ -64,13 +71,12 @@ export function pmInitCommand(
   const hasToolchain = initArgs.some(
     (arg) => arg === '--toolchain' || arg.startsWith('--toolchain='),
   );
-  const invokedByVitePlus = process.env.VP_USER_AGENT?.startsWith('vp/') ?? false;
-
+  const invokedByVpCreate = isVpCreateInvocation();
   return [
     ...pmDlx(pm, version),
     'init',
     ...initArgs,
-    ...(invokedByVitePlus && !hasToolchain ? ['--toolchain', 'vite-plus'] : []),
+    ...(invokedByVpCreate && !hasToolchain ? ['--toolchain', 'vite-plus'] : []),
   ];
 }
 
@@ -87,7 +93,7 @@ export function runVoidInit(
   cwd: string,
   runner: InitCommandRunner = run,
 ): Promise<void> {
-  const invokedByVitePlus = process.env.VP_USER_AGENT?.startsWith('vp/') ?? false;
+  const invokedByVitePlus = isVpCreateInvocation();
   return runner(pmInitCommand(pm, version, initArgs), cwd, {
     VOID_PACKAGE_MANAGER: pm,
     VOID_VP_CREATE: invokedByVitePlus ? '1' : '',

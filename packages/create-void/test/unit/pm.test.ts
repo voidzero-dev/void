@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { detectPM, pmDlx, pmInitCommand, runVoidInit } from '../../src/pm.ts';
 
 describe('create-void package manager delegation', () => {
-  beforeEach(() => vi.stubEnv('VP_USER_AGENT', ''));
+  beforeEach(() => {
+    vi.stubEnv('VP_USER_AGENT', '');
+    vi.stubEnv('VP_PACKAGE_MANAGER', '');
+  });
   afterEach(() => vi.unstubAllEnvs());
 
   it.each([
@@ -53,6 +56,7 @@ describe('create-void package manager delegation', () => {
 
   it('selects Vite+ when invoked by the Vite+ CLI', () => {
     vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    vi.stubEnv('VP_PACKAGE_MANAGER', 'pnpm');
     expect(pmInitCommand('pnpm', '1.2.3', [])).toEqual([
       'pnpm',
       'dlx',
@@ -65,6 +69,7 @@ describe('create-void package manager delegation', () => {
 
   it('preserves an explicitly selected toolchain when invoked by the Vite+ CLI', () => {
     vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    vi.stubEnv('VP_PACKAGE_MANAGER', 'pnpm');
     expect(pmInitCommand('pnpm', '1.2.3', ['--toolchain', 'vite'])).toEqual([
       'pnpm',
       'dlx',
@@ -77,6 +82,7 @@ describe('create-void package manager delegation', () => {
 
   it('preserves an explicit install request when invoked by the Vite+ CLI', () => {
     vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    vi.stubEnv('VP_PACKAGE_MANAGER', 'pnpm');
     expect(pmInitCommand('pnpm', '1.2.3', ['--install'])).toEqual([
       'pnpm',
       'dlx',
@@ -105,11 +111,22 @@ describe('create-void package manager delegation', () => {
 
   it('passes the package manager and Vite+ origin through environment variables', async () => {
     vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    vi.stubEnv('VP_PACKAGE_MANAGER', 'pnpm');
     await runVoidInit('pnpm', '1.2.3', [], '/tmp/void-app', async (argv, cwd, env) => {
       expect(argv).not.toContain('--package-manager');
       expect(argv).not.toContain('--vp-create');
       expect(cwd).toBe('/tmp/void-app');
       expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'pnpm', VOID_VP_CREATE: '1' });
+    });
+  });
+
+  it('does not treat a generic vp invocation as vp create without VP_PACKAGE_MANAGER', async () => {
+    vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+    vi.stubEnv('VP_PACKAGE_MANAGER', undefined);
+
+    expect(pmInitCommand('pnpm', '1.2.3', [])).toEqual(['pnpm', 'dlx', 'void@1.2.3', 'init']);
+    await runVoidInit('pnpm', '1.2.3', [], '/tmp/void-app', async (_argv, _cwd, env) => {
+      expect(env.VOID_VP_CREATE).toBe('');
     });
   });
 
