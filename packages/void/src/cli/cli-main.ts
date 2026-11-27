@@ -8,7 +8,7 @@ import { parseDeployArgs } from './args.ts';
 import { authSubcommands, parseAuthArgs } from './auth-args.ts';
 import { buildSubcommands, parseBuildArgs } from './build-args.ts';
 import { cloudflareSubcommands, parseCloudflareArgs } from './cloudflare-args.ts';
-import { formatCloudflareUserMessage } from './cloudflare-user-output.ts';
+import { formatCloudflareUserMessage, logCloudflareUserError } from './cloudflare-user-output.ts';
 import { parseConnectArgs } from './connect-args.ts';
 import { dbSubcommands, parseDbArgs } from './db-args.ts';
 import { domainSubcommands, parseDomainArgs } from './domain-args.ts';
@@ -241,7 +241,7 @@ if (helpPath) {
 
   const { runDeploy } = await import('./deploy.ts');
   await runDeploy(root, deployArgs).catch((err: unknown) => {
-    log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
+    logCloudflareUserError(err instanceof Error ? err.message : String(err));
     process.exit(1);
   });
 } else if (command === 'connect') {

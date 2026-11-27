@@ -25,6 +25,14 @@ import { apiSecretDraftVersion, voidSecretDraftVersion } from '../secret-draft-f
 const CURRENT = '11111111-1111-4111-8111-111111111111';
 const NEXT = '22222222-2222-4222-8222-222222222222';
 const CONCURRENT = '33333333-3333-4333-8333-333333333333';
+const STAGING_PAIR = {
+  id: 'staging-deployment',
+  versions: [
+    { version_id: CURRENT, percentage: 100 },
+    { version_id: CONCURRENT, percentage: 0 },
+  ],
+};
+const STAGING_GUIDANCE = 'Active Deployment still shows this exact pair';
 
 function triggersWith(overrides: Partial<CloudflareTriggerConfig> = {}): CloudflareTriggerConfig {
   return {
@@ -78,7 +86,7 @@ function sdkDraftActivation(
     async (operation: CloudflareOperation): Promise<CloudflareCommandResult> => {
       operations.push(operation);
       if (operation.type === 'deployments.status') {
-        return { ...ok(), data: { versions: traffic } };
+        return { ...ok(), data: { id: 'production-deployment', versions: traffic } };
       }
       if (operation.type === 'versions.list') {
         return {
@@ -561,7 +569,10 @@ describe('Cloudflare version activation', () => {
         entered.resolve();
         return release.promise;
       });
-      const activation = activateCloudflareVersion(fixture.options);
+      const activation = activateCloudflareVersion({
+        ...fixture.options,
+        accountId: 'test-account',
+      });
       await entered.promise;
       fixture.changeOwner(
         kind === 'replacement'
@@ -572,11 +583,15 @@ describe('Cloudflare version activation', () => {
             ],
       );
       release.resolve(true);
-      expect(await activation).toMatchObject({
+      const result = await activation;
+      expect(result).toMatchObject({
         ok: false,
         reason: 'deployment-changed',
         rollback: 'not-needed',
       });
+      if (kind === 'companion') {
+        expect(result).toHaveProperty('diagnostic', expect.stringContaining(STAGING_GUIDANCE));
+      }
       expect(fixture.events).not.toContain('upload');
       expect(fixture.events).not.toContain('publish');
       expect(fixture.fetcher).not.toHaveBeenCalled();
@@ -1166,6 +1181,39 @@ describe('Cloudflare version activation', () => {
       runWrangler.mock.calls.some(([args]) => args[0] === 'versions' && args[1] === 'deploy'),
     ).toBe(false);
   });
+
+  it.each(['atomic publication', 'readiness staging', 'activation'] as const)(
+    'explains the staging pair before %s',
+    async (gate) => {
+      const base = runner(
+        gate === 'readiness staging' ? { upload: ok(`Worker Version ID: ${NEXT}`) } : {},
+      );
+      let statuses = 0;
+      const runWrangler = operationFixture((args: Array<string>) =>
+        args[0] === 'deployments' && ++statuses === 2
+          ? ok(JSON.stringify(STAGING_PAIR))
+          : base(args),
+      );
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        accountId: 'test-account',
+        workerName: 'my-worker',
+        verifyUploader: () => true,
+        atomic: gate === 'atomic publication',
+        workersDevSubdomain: 'example',
+        message: encodeCloudflareVersionMessage([]),
+        fetch: async () => Response.json({ ready: true }),
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        reason: 'deployment-changed',
+        diagnostic: expect.stringContaining(STAGING_GUIDANCE),
+      });
+      expect(deployRequests(runWrangler)).toEqual([]);
+      expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false);
+    },
+  );
+
   it('pins active secrets for atomic publication when the active version is the latest', async () => {
     const base = runner({
       bootstrap: ok(`Worker Version ID: ${NEXT}\nhttps://my-worker.example.workers.dev`),
@@ -1761,19 +1809,30 @@ describe('Cloudflare version activation', () => {
     expect(candidateIds).toEqual([NEXT, CONCURRENT]);
   });
 
-  it.each([{ phase: 'before' }, { phase: 'after' }] as const)(
-    'stops without saving a candidate when a rollback lands during the version list wait ($phase upload)',
-    async ({ phase }) => {
+  it.each([
+    { phase: 'before', change: 'rollback' },
+    { phase: 'after', change: 'rollback' },
+    { phase: 'before', change: 'staging pair' },
+    { phase: 'after', change: 'staging pair' },
+  ] as const)(
+    'stops without saving a candidate when a $change appears during the version list wait ($phase upload)',
+    async ({ phase, change }) => {
       const base = runner();
       let uploaded = false;
-      let rolledBack = false;
+      let ownerChanged = false;
       let reads = 0;
       const runWrangler = operationFixture((args: Array<string>) => {
         if (args[0] === 'versions' && args[1] === 'upload') {
           uploaded = true;
         }
-        if (args[0] === 'deployments' && rolledBack) {
-          return ok(JSON.stringify({ versions: [{ version_id: CONCURRENT, percentage: 100 }] }));
+        if (args[0] === 'deployments' && ownerChanged) {
+          return ok(
+            JSON.stringify(
+              change === 'staging pair'
+                ? STAGING_PAIR
+                : { versions: [{ version_id: CONCURRENT, percentage: 100 }] },
+            ),
+          );
         }
         if (args[0] === 'versions' && args[1] === 'list' && uploaded === (phase === 'after')) {
           reads++;
@@ -1793,13 +1852,13 @@ describe('Cloudflare version activation', () => {
         return base(args);
       });
       const sleep = vi.fn(async (_milliseconds: number) => {
-        // Someone rolls production back to CONCURRENT while this deploy waits.
-        rolledBack = true;
+        ownerChanged = true;
       });
       const recordVerifiedCandidate = vi.fn();
       const fetch = vi.fn(async () => Response.json({ ready: true }));
       const result = await activateCloudflareVersion({
         runWrangler,
+        accountId: 'test-account',
         workerName: 'my-worker',
         verifyUploader: () => true,
         verifyInheritedSecrets: true,
@@ -1812,11 +1871,14 @@ describe('Cloudflare version activation', () => {
       expect(result).toMatchObject({
         ok: false,
         reason: 'deployment-changed',
-        activeVersionId: CONCURRENT,
+        activeVersionId: change === 'staging pair' ? CURRENT : CONCURRENT,
         rollback: 'not-needed',
       });
+      if (change === 'staging pair') {
+        expect(result).toHaveProperty('diagnostic', expect.stringContaining(STAGING_GUIDANCE));
+      }
       expect(sleep.mock.calls).toEqual([[10]]);
-      // A receipt naming CURRENT as the parent would break the next deploy from CONCURRENT.
+      // The deployment must match the starting snapshot before Void records the candidate.
       expect(recordVerifiedCandidate).not.toHaveBeenCalled();
       expect(runWrangler.mock.calls.some(([args]) => args[1] === 'upload')).toBe(phase === 'after');
       expect(fetch).not.toHaveBeenCalled();
@@ -3817,13 +3879,17 @@ describe('Cloudflare version activation', () => {
     ).toBe(false);
   });
 
-  it('probes a zero-percent Durable Object version through a production workers.dev URL', async () => {
-    const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+  it('probes and publishes a Durable Object candidate when only the first status read shows the split', async () => {
+    const runWrangler = runner({
+      status: ok(JSON.stringify(STAGING_PAIR)),
+      upload: ok(`Worker Version ID: ${NEXT}`),
+    });
     const fetcher = vi.fn(async () => Response.json({ ready: true }));
 
     await expect(
       activateCloudflareVersion({
         runWrangler,
+        accountId: 'test-account',
         verifyUploader: () => true,
         workerName: 'my-worker',
         workersDevSubdomain: 'developer-platform-experience',

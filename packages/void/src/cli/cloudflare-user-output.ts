@@ -1,3 +1,9 @@
+import { log } from '@voidzero-dev/vite-plus-prompts';
+import { formatUrl, printNextStep } from './output.ts';
+
+const ROLLBACK_GUIDE =
+  'https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/#rolling-back-from-a-split-deployment';
+
 /**
  * Keep Void's public CLI vocabulary at the product level while preserving real
  * Cloudflare config filenames and environment variables that users may need to
@@ -12,6 +18,7 @@ export function formatCloudflareUserMessage(message: string): string {
   };
 
   let result = message
+    .replaceAll(/Cloudflare Worker "[^"\r\n]*(?:"|\.{3}$)/gm, protect)
     .replaceAll(/(?:[A-Za-z]:)?[^\s`"']*wrangler\.jsonc?/gi, protect)
     .replaceAll(/\bWRANGLER_[A-Z0-9_]+\b/g, protect)
     .replaceAll(/\.wrangler\b/gi, protect)
@@ -31,4 +38,18 @@ export function formatCloudflareUserMessage(message: string): string {
     return preserved[Number(index)] ?? '';
   });
   return result;
+}
+
+export function logCloudflareUserError(message: string): void {
+  const lines = formatCloudflareUserMessage(message).split('\n');
+  const linkIndex = lines.indexOf(ROLLBACK_GUIDE);
+  if (linkIndex >= 0) {
+    const output = { columns: Infinity, write: process.stdout.write.bind(process.stdout) };
+    log.error(lines.slice(0, linkIndex).join('\n'), { output: output as typeof process.stdout });
+    printNextStep(formatUrl(ROLLBACK_GUIDE), { wrap: false });
+  }
+  const details = lines.slice(linkIndex + 1).join('\n');
+  if (linkIndex < 0 || details.trim()) {
+    log.error(linkIndex < 0 ? details : details.trimStart());
+  }
 }
