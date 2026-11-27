@@ -194,6 +194,29 @@ export function cloudflare(options: {
             : {}),
         };
         delete config.env;
+        if (config.containers) {
+          // The emitted config lives in the Worker output directory, but the input paths
+          // are relative to the app root.
+          const rebase = (path: string) =>
+            isAbsolute(path) ? path : relative(destination, resolve(root, path)) || '.';
+          config.containers = config.containers.map((container) => {
+            if (!container.images) {
+              return container;
+            }
+            const images = { ...container.images };
+            for (const [name, image] of Object.entries(images)) {
+              if (image.dockerfile === undefined) {
+                continue;
+              }
+              const local = { ...image, dockerfile: rebase(image.dockerfile) };
+              if (image.build_context !== undefined) {
+                local.build_context = rebase(image.build_context);
+              }
+              images[name] = local;
+            }
+            return { ...container, images };
+          });
+        }
         writeFileAtomic(join(destination, 'wrangler.json'), `${JSON.stringify(config, null, 2)}\n`);
         if (options.finalizeAssets) {
           options.finalizeAssets(client, builder.environments.client);

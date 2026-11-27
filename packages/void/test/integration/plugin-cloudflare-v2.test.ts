@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   getRootConfigPath,
   getWorkerAssetsDir,
@@ -19,6 +19,7 @@ import {
 import { createBuilder, createServer, normalizePath, preview, resolveConfig } from 'vite';
 import type { InlineConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { verifyGeneratedDeployConfig } from '../../src/cli/deploy-artifact-validation.ts';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
 import {
   nativeAuxiliaryWorkers,
@@ -177,6 +178,61 @@ describe('Cloudflare v2 compatibility', () => {
     await expect(prepareCfBuildOutput(root)).rejects.toThrow('Invalid Void Container');
     // Two real Vite builds take about four seconds, near the default timeout.
   }, 15_000);
+
+  it('preserves app-relative Container image paths when writing the built Worker config', async () => {
+    const root = project();
+    writeFileSync(
+      join(root, 'worker.js'),
+      "export class Box {}\nexport default { fetch: () => new Response('ok') };\n",
+    );
+    mkdirSync(join(root, 'sandbox'));
+    writeFileSync(join(root, 'sandbox', 'Dockerfile'), 'FROM scratch\n');
+    const images = {
+      default: { dockerfile: './sandbox/Dockerfile', build_context: './sandbox' },
+      absolute: { dockerfile: join(root, 'sandbox', 'Dockerfile') },
+      remote: { image: 'docker.io/example/box:1' },
+    };
+    const containers = [
+      { name: 'box', class_name: 'Box', scheduling_policy: 'durable_object', images },
+    ] as const;
+    const builder = await createBuilder({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: cloudflare({
+        config: () => ({
+          name: 'container-app',
+          account_id: 'account-id',
+          main: 'worker.js',
+          durable_objects: { bindings: [{ name: 'BOX', class_name: 'Box' }] },
+          migrations: [{ tag: 'v1', new_sqlite_classes: ['Box'] }],
+          containers: [...containers],
+        }),
+        viteEnvironment: { name: 'ssr' },
+      }),
+    });
+    await builder.buildApp();
+    expect(
+      verifyGeneratedDeployConfig(root, {
+        accountId: 'account-id',
+        workerName: 'container-app',
+        expectedContainers: [...containers],
+      }),
+    ).toEqual({ ok: true });
+    const output = join(root, 'dist', 'ssr');
+    const built = JSON.parse(readFileSync(join(output, 'wrangler.json'), 'utf8')) as {
+      containers: Array<{ images: typeof images }>;
+    };
+    const emitted = built.containers[0].images;
+    expect(resolve(output, emitted.default.dockerfile)).toBe(join(root, 'sandbox', 'Dockerfile'));
+    expect(resolve(output, emitted.default.build_context)).toBe(join(root, 'sandbox'));
+    expect(emitted.absolute).toEqual(images.absolute);
+    expect(emitted.remote).toEqual(images.remote);
+    expect(images.default).toEqual({
+      dockerfile: './sandbox/Dockerfile',
+      build_context: './sandbox',
+    });
+  });
 
   // The plugin does not support local Containers on Windows.
   it.skipIf(process.platform === 'win32')(
