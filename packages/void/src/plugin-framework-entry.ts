@@ -73,6 +73,20 @@ function isFileEntry(root: string, main: string): boolean {
   return statSync(resolve(root, main), { throwIfNoEntry: false })?.isFile() === true;
 }
 
+function resolveCustomWorkerEntry(framework: Framework, root: string, main: unknown): string {
+  if (typeof main !== 'string' || main.trim() === '') {
+    throw new Error('config: cloudflare.main must be a non-empty Worker entry path.');
+  }
+  if (!isFileEntry(root, main)) {
+    return main;
+  }
+  const original = resolve(root, main);
+  if (original === resolve(root, '.void', `${framework}-trigger-wrapper.ts`)) {
+    throw new Error("config: cloudflare.main cannot point to Void's generated framework wrapper.");
+  }
+  return original;
+}
+
 /** The framework's own server entry, before our trigger wrapper. */
 export function getOriginalFrameworkEntry(
   framework: Framework,
@@ -80,7 +94,7 @@ export function getOriginalFrameworkEntry(
   configuredMain?: unknown,
 ): string {
   switch (framework) {
-    case 'tanstack-start': {
+    case 'tanstack-start':
       if (
         configuredMain === undefined ||
         configuredMain === TANSTACK_SERVER_ENTRY ||
@@ -88,22 +102,11 @@ export function getOriginalFrameworkEntry(
       ) {
         return TANSTACK_SERVER_ENTRY;
       }
-      if (typeof configuredMain !== 'string' || configuredMain.trim() === '') {
-        throw new Error('config: cloudflare.main must be a non-empty Worker entry path.');
-      }
-      if (!isFileEntry(root, configuredMain)) {
-        return configuredMain;
-      }
-      const original = resolve(root, configuredMain);
-      if (original === resolve(root, '.void', 'tanstack-start-trigger-wrapper.ts')) {
-        throw new Error(
-          "config: cloudflare.main cannot point to Void's generated framework wrapper.",
-        );
-      }
-      return original;
-    }
+      return resolveCustomWorkerEntry(framework, root, configuredMain);
     case 'react-router':
-      return generateReactRouterEntry(root);
+      return configuredMain === undefined
+        ? generateReactRouterEntry(root)
+        : resolveCustomWorkerEntry(framework, root, configuredMain);
     case 'vinext-app':
       return 'vinext/server/app-router-entry';
     case 'vinext-pages':

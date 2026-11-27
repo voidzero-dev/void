@@ -74,6 +74,36 @@ Declare variables in `env.ts` and read them with `import { env } from "void/env"
 
 Read server secrets in a `.server.ts` companion module and import it into your loader or action. Void rejects server-secret reads in route files that also contain browser components.
 
+## Custom Worker Entry
+
+To customize how your Cloudflare Worker handles requests or add named exports such as a `WorkerEntrypoint`, set `cloudflare.main` to a path relative to your app root in `void.config.ts`.
+
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  cloudflare: { main: './worker.ts' },
+});
+```
+
+In `worker.ts`, default-export the Worker handler and forward page requests to React Router.
+
+```ts
+import { createRequestHandler } from 'react-router';
+
+const handleRequest = createRequestHandler(
+  // @ts-expect-error React Router's Vite plugin provides this module.
+  () => import('virtual:react-router/server-build'),
+  import.meta.env.MODE,
+);
+
+export default {
+  fetch(request: Request) {
+    return handleRequest(request);
+  },
+};
+```
+
 ## Accessing Bindings Directly
 
 You can also access Cloudflare bindings via the `cloudflare:workers` module:

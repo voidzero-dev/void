@@ -76,6 +76,69 @@ it('renders the home document without an app server entry', { retry: 2 }, async 
   expect(await response.text()).toContain('React Router + Void');
 });
 
+it.each(['dev', 'preview'] as const)('runs a custom Worker entry in %s', async (script) => {
+  const fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+  onTestFinished(() => fixture.cleanup());
+  const config = join(fixture.root, 'void.config.ts');
+  writeFileSync(
+    config,
+    readFileSync(config, 'utf8').replace(
+      'defineConfig({',
+      "defineConfig({\n  cloudflare: { main: './worker.ts' },",
+    ),
+  );
+  writeFileSync(
+    join(fixture.root, 'worker.ts'),
+    `import { WorkerEntrypoint } from 'cloudflare:workers';
+import { createRequestHandler } from 'react-router';
+
+const handleRequest = createRequestHandler(
+  () => import('virtual:react-router/server-build'),
+  import.meta.env.MODE,
+);
+
+export class Marker extends WorkerEntrypoint {
+  value() {
+    return 'custom Worker entry';
+  }
+}
+
+export default {
+  async fetch(request, _env, ctx) {
+    if (new URL(request.url).pathname === '/custom-worker') {
+      return new Response(await ctx.exports.Marker.value());
+    }
+    return handleRequest(request);
+  },
+};
+`,
+  );
+  if (script === 'preview') {
+    execFileSync('vp', ['run', 'build'], {
+      cwd: fixture.root,
+      stdio: 'pipe',
+      env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
+      shell: process.platform === 'win32',
+    });
+  }
+  const server = await startServer(
+    (port) =>
+      spawn('vp', [script, '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+        cwd: fixture.root,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
+      }),
+    30_000,
+  );
+  onTestFinished(() => killChild(server.child));
+  const response = await fetch(`${server.base}/custom-worker`);
+  expect(response.status, server.output().slice(-4000)).toBe(200);
+  expect(await response.text()).toBe('custom Worker entry');
+  const home = await fetch(`${server.base}/`);
+  expect(home.status).toBe(200);
+  expect(await home.text()).toContain('React Router + Void');
+});
+
 // React Router owns its request handler; void/db must still reach MySQL from a loader.
 describe('playground/react-router with MySQL', () => {
   const USERS = [
