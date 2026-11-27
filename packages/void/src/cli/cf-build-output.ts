@@ -38,6 +38,7 @@ import { WORKER_CONDITIONS } from './worker-conditions.ts';
 export interface CfBuildOutput {
   directory: string;
   assetsDirectory?: string;
+  forwardAssetRedirects?: boolean;
   activeSecrets?: {
     versionId: string;
     bindings: ReadonlyArray<{ name: string; type: 'secret_text' | 'secret_key' }>;

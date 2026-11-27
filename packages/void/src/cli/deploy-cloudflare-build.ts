@@ -337,14 +337,24 @@ export async function buildCloudflareWorker(input: {
   const generatedConfigPath = (
     deps.resolveGeneratedConfigPath ?? resolveGeneratedDeployConfigPathDefault
   )(root);
-  const prepareBuildOutput = () =>
-    frameworkPreset?.cloudflareArtifact === 'worker-output'
-      ? prepareCfFrameworkBuildOutput({
-          projectRoot: root,
-          configPath: generatedConfigPath,
-          accountId,
-        })
-      : prepareCfBuildOutput(dirname(generatedConfigPath), accountId, undefined, root);
+  const prepareBuildOutput = async () => {
+    const output =
+      frameworkPreset?.cloudflareArtifact === 'worker-output'
+        ? await prepareCfFrameworkBuildOutput({
+            projectRoot: root,
+            configPath: generatedConfigPath,
+            accountId,
+          })
+        : await prepareCfBuildOutput(dirname(generatedConfigPath), accountId, undefined, root);
+    if (
+      output &&
+      frameworkPreset !== undefined &&
+      (voidConfig.inference?.appType ?? 'framework') === 'framework'
+    ) {
+      output.forwardAssetRedirects = true;
+    }
+    return output;
+  };
   if (usesCf) {
     // Validate the exact upload format before changing a remote database or secret.
     const preflight = await prepareBuildOutput();

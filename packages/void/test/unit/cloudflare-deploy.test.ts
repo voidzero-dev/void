@@ -1217,6 +1217,52 @@ it('reaches the native Worker build for VitePress with a configured Void backend
   }
 });
 
+it.each([undefined, 'void'] as const)(
+  'selects Versions API asset redirects with a vinext dependency and appType %s',
+  async (appType) => {
+    const config = { name: 'site', account_id: 'personal', compatibility_date: '2026-02-24' };
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'site', dependencies: { void: '*', vinext: '*' } }),
+      'void.config.ts': `export default ${JSON.stringify({
+        inference: { appType, build: 'node build.mjs' },
+        cloudflare: config,
+      })};`,
+      'dist/ssr/wrangler.json': JSON.stringify({ ...config, main: 'index.js' }),
+      'dist/ssr/index.js': 'export default { fetch: () => new Response("hello") };',
+    });
+    const [cloudflareDeployHelpers, cfVersionRunner] = await Promise.all([
+      import('../../src/cli/deploy-cloudflare-helpers.ts'),
+      import('../../src/cli/cf-version-runner.ts'),
+    ]);
+    const connect = cloudflareDeployHelpers.connectCloudflareDeployAccount;
+    const connectAccount = vi
+      .spyOn(cloudflareDeployHelpers, 'connectCloudflareDeployAccount')
+      .mockImplementation(async (options) => {
+        const connection = await connect(options);
+        return connection && { ...connection, usesCf: true, cfUploaderIsPinned: () => true };
+      });
+    const pinSecrets = vi.spyOn(cfVersionRunner, 'createActiveSecretPinner');
+    const { deps } = harness({
+      activateVersion: async () => ({
+        ok: true,
+        versionId: '22222222-2222-4222-8222-222222222222',
+        previewUrl: 'https://site.example.com',
+        previousVersionId: null,
+      }),
+    });
+    try {
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+      expect(pinSecrets).toHaveBeenCalledOnce();
+      expect(pinSecrets.mock.calls[0][0].output?.forwardAssetRedirects).toBe(
+        appType === undefined ? true : undefined,
+      );
+    } finally {
+      pinSecrets.mockRestore();
+      connectAccount.mockRestore();
+    }
+  },
+);
+
 describe('existing Cloudflare site handoff', () => {
   const existing = {
     versionId: 'original',
