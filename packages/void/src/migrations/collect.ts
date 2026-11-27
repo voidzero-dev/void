@@ -10,7 +10,20 @@ export function collectMigrations(migrationsDir: string): Array<{ name: string; 
     return [];
   }
 
-  return readdirSync(migrationsDir)
+  const entries = readdirSync(migrationsDir, { withFileTypes: true });
+  const nested = entries.find(
+    (entry) =>
+      (entry.isDirectory() || entry.isSymbolicLink()) &&
+      existsSync(join(migrationsDir, entry.name, 'migration.sql')),
+  );
+  if (nested) {
+    throw new Error(
+      `db: Unsupported nested migration folder '${join(migrationsDir, nested.name)}'. Void migrations use flat .sql files from drizzle-kit 0.x.`,
+    );
+  }
+
+  return entries
+    .map((entry) => entry.name)
     .filter((f) => f.endsWith('.sql') && f !== 'seed.sql')
     .sort()
     .map((name) => ({
