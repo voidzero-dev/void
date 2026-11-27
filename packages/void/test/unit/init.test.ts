@@ -483,6 +483,26 @@ describe('init summary', () => {
     }
   });
 
+  it('lets vp create install dependencies while generating the database migration', async () => {
+    vi.stubEnv('VOID_VP_CREATE', '1');
+    const root = mkdtempSync(join(tmpdir(), 'void-init-vp-create-no-install-'));
+    try {
+      await runInitCommand(root, parseInitArgs([...STARTER_FLAGS, '--no-install']));
+
+      expect(installCalls()).toHaveLength(0);
+      expect(drizzleGenerateCalls()).toHaveLength(1);
+      expect(listMigrationSqlFiles(root)).toEqual(['0000_generated.sql']);
+      expect(summaryMessages('→').join('\n')).not.toContain('install dependencies');
+      expect(summaryMessages('→').join('\n')).not.toContain('db generate');
+      expect(summaryMessages('✓')).toContain('Generated the initial database migration');
+      expect(String(mockOutro.mock.calls.at(-1)?.[0])).not.toContain(
+        'Follow the next steps to finish setup.',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     [
       'sqlite',
@@ -2593,6 +2613,7 @@ describe('isScaffoldableEmptyProject', () => {
         SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
       );
       expect(pkg.devEngines).toBeUndefined();
+      expect(installCalls()).toHaveLength(0);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

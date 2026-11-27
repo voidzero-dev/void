@@ -60,7 +60,6 @@ describe('create-void package manager delegation', () => {
       'init',
       '--toolchain',
       'vite-plus',
-      '--no-install',
     ]);
   });
 
@@ -73,7 +72,6 @@ describe('create-void package manager delegation', () => {
       'init',
       '--toolchain',
       'vite',
-      '--no-install',
     ]);
   });
 

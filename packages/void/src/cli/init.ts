@@ -2894,28 +2894,31 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
         : './node_modules/.bin/void'
       : projectVoidRunner[state.packageManager];
   const manualMigration = `${voidRunner} db generate`;
-  if (scaffoldAddedDependencies && initArgs?.install === false) {
-    const install = resolveProjectInstall(root, state.packageManager);
-    const manualInstall = commandInProject(root, install.manualCommand);
-    report.next(`Run \`${manualInstall}\` to install dependencies`);
-  } else if (scaffoldAddedDependencies) {
-    const install = resolveProjectInstall(root, state.packageManager);
-    const manualInstall = commandInProject(root, install.manualCommand);
-    report.unfinished = migrationMode
-      ? `Run \`${manualInstall}\`, then \`${manualMigration}\` to finish setup`
-      : `Run \`${manualInstall}\` to finish setup`;
-    const duration = await installProjectDependencies(root, install);
-    report.done(`Installed dependencies in ${formatDuration(duration)}`);
-  } else if (packageDependencyRemoved && !workspaceSubpackageSkip) {
-    // The project is installed, so its user has a way to run the installer.
-    const installer = projectInstaller(readPackageJson(root), state.packageManager);
-    const manualInstall = commandInProject(root, `${installer} install`);
-    report.next(`Run \`${manualInstall}\` to update your lockfile`);
+  if (!isVpCreate) {
+    // Ignore `--no-install` when `vp create void` is used.
+    if (scaffoldAddedDependencies && initArgs?.install === false) {
+      const install = resolveProjectInstall(root, state.packageManager);
+      const manualInstall = commandInProject(root, install.manualCommand);
+      report.next(`Run \`${manualInstall}\` to install dependencies`);
+    } else if (scaffoldAddedDependencies) {
+      const install = resolveProjectInstall(root, state.packageManager);
+      const manualInstall = commandInProject(root, install.manualCommand);
+      report.unfinished = migrationMode
+        ? `Run \`${manualInstall}\`, then \`${manualMigration}\` to finish setup`
+        : `Run \`${manualInstall}\` to finish setup`;
+      const duration = await installProjectDependencies(root, install);
+      report.done(`Installed dependencies in ${formatDuration(duration)}`);
+    } else if (packageDependencyRemoved && !workspaceSubpackageSkip) {
+      // The project is installed, so its user has a way to run the installer.
+      const installer = projectInstaller(readPackageJson(root), state.packageManager);
+      const manualInstall = commandInProject(root, `${installer} install`);
+      report.next(`Run \`${manualInstall}\` to update your lockfile`);
+    }
+    if (migrationMode && initArgs?.install === false) {
+      report.next(`Run \`${commandInProject(root, manualMigration)}\` to finish setup`);
+    }
   }
-  if (migrationMode && initArgs?.install === false) {
-    report.next(`Run \`${commandInProject(root, manualMigration)}\` to finish setup`);
-  }
-  if (migrationMode && initArgs?.install !== false) {
+  if (migrationMode && (initArgs?.install !== false || isVpCreate)) {
     report.unfinished = `Run \`${commandInProject(root, manualMigration)}\` to finish setup`;
     await generateStarterMigration(root, migrationMode);
     report.done('Generated the initial database migration');
@@ -2947,7 +2950,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
   } else {
     const devCommand = commandInProject(root, getDevCommand(root, framework));
     printSuccess(
-      initArgs?.install === false && (scaffoldAddedDependencies || migrationMode)
+      initArgs?.install === false && !isVpCreate && (scaffoldAddedDependencies || migrationMode)
         ? 'Project initialized. Follow the next steps to finish setup.'
         : `Project initialized. Run \`${devCommand}\` to start developing.`,
     );
