@@ -120,15 +120,23 @@ describe('create-void package manager delegation', () => {
     });
   });
 
-  it('does not treat a generic vp invocation as vp create without VP_PACKAGE_MANAGER', async () => {
-    vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
-    vi.stubEnv('VP_PACKAGE_MANAGER', undefined);
+  it.each([undefined, ''])(
+    'does not treat vp dlx or vp exec as vp create when VP_PACKAGE_MANAGER is %s',
+    async (packageManager) => {
+      vi.stubEnv('VP_USER_AGENT', 'vp/1.7.0');
+      vi.stubEnv('VP_PACKAGE_MANAGER', packageManager);
 
-    expect(pmInitCommand('pnpm', '1.2.3', [])).toEqual(['pnpm', 'dlx', 'void@1.2.3', 'init']);
-    await runVoidInit('pnpm', '1.2.3', [], '/tmp/void-app', async (_argv, _cwd, env) => {
-      expect(env.VOID_VP_CREATE).toBe('');
-    });
-  });
+      expect(pmInitCommand('pnpm', '1.2.3', [])).toEqual([
+        'pnpm',
+        'dlx',
+        'void@1.2.3',
+        'init',
+      ]);
+      await runVoidInit('pnpm', '1.2.3', [], '/tmp/void-app', async (_argv, _cwd, env) => {
+        expect(env.VOID_VP_CREATE).toBe('');
+      });
+    },
+  );
 
   it.each([
     ['pnpm/10.0.0 npm/? node/v24.22.1', 'pnpm'],
