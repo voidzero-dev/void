@@ -160,6 +160,7 @@ export async function prepareExistingCloudflareDeploy(options: {
     runWrangler: options.runWrangler,
     configPath: options.configPath,
     workerName: config.name,
+    accountId: options.accountId,
   });
   const patch: LinkedWorkerPatch = { account_id: options.accountId, keep_vars: true };
   // Native deploys may add version metadata only to their generated artifact.

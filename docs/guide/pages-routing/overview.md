@@ -15,6 +15,8 @@ You can also use your own client-side router and call Void's APIs with [typed fe
 
 In an empty project, `void init` can set up Pages for you. Choose Vite+ or plain Vite, then React, Vue, Svelte, or Solid and a database or static starter. The generated app includes the matching Vite config and page files.
 
+With TypeScript 7 and Vue 3.5’s default compiler, `_error.vue`, `_not-found.vue`, and regular components used by pages fail to compile when `defineProps<T>()` uses a type imported from a relative file or a package. New Vue starters default to TypeScript 6 so these imports work. In existing projects on TypeScript 7, install `typescript@6` or declare the props type in the component. [vuejs/core#15085](https://github.com/vuejs/core/pull/15085)
+
 If you're adding Pages mode manually, install a framework adapter alongside `void`:
 
 ::: code-group

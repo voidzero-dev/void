@@ -9,6 +9,7 @@ import {
   isVoidSecretOnlyDraft,
   isWranglerSecretOnlyDraft,
 } from './secret-draft.ts';
+import { cloudflareStagingPairGuidance } from './staging-guidance.ts';
 
 export type ExistingCloudflareWorker = {
   versionId: string;
@@ -24,6 +25,7 @@ type ExistingCloudflareWorkerOptions = {
   runWrangler: CloudflareCommandRunner;
   configPath: string;
   workerName: string;
+  accountId?: string;
   versionId?: string;
 };
 
@@ -97,7 +99,8 @@ async function readCloudflareWorker(
     typeof versions[0].version_id !== 'string'
   ) {
     throw new Error(
-      'The existing Worker must have one deployed version receiving all traffic. Finish any gradual rollout before linking.',
+      cloudflareStagingPairGuidance(deployment, options)?.diagnostic ??
+        'The existing Worker must have one deployed version receiving all traffic. Finish any gradual rollout before linking.',
     );
   }
   const versionId = versions[0].version_id;
@@ -135,7 +138,8 @@ async function readCloudflareWorker(
     : await read({ type: 'deployments.status', ...target });
   if (after === null || !isDeepStrictEqual(deployment.versions, after.versions)) {
     throw new Error(
-      'Cloudflare production changed while linking. Retry from the current deployment.',
+      cloudflareStagingPairGuidance(after, options)?.diagnostic ??
+        'Cloudflare production changed while linking. Retry from the current deployment.',
     );
   }
   return {

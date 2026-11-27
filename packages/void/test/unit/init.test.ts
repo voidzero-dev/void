@@ -2359,6 +2359,7 @@ describe('isScaffoldableEmptyProject', () => {
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.dependencies.vue).toBeDefined();
       expect(pkg.devDependencies['@void/vue']).toBeDefined();
+      expect(pkg.devDependencies.typescript).toBe('^6.0.3');
       expect(pkg.devDependencies.void).toBeDefined();
 
       expect(readConfig(root)).toEqual({

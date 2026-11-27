@@ -282,6 +282,20 @@ void project rollback [version]
 
 Void restores recorded triggers along with the code. Versions without a complete trigger snapshot keep current routes and schedules. Database recovery is separate: use [`void db restore`](../reference/cli/database.md#void-db-restore) to undo D1 migrations.
 
+#### Clear a deployment with a candidate at 0%
+
+A failed deploy can leave the live version at 100% and a candidate at 0%.
+
+1. Pause other deploys and let any in progress finish. In the Cloudflare dashboard, select the account and Worker named in the error, then open **Deployments**.
+2. Confirm **Active Deployment** still shows the exact versions and percentages Void reported. Continue only if the 0% version is unused, including by version overrides.
+3. Select **Rollback** on the live version. [Cloudflare's split deployment rollback guide](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/#rolling-back-from-a-split-deployment)
+
+Retry when **Active Deployment** lists only the live version. If Void still reports the pair, wait and retry.
+
+Cloudflare can reject a rollback after a secret change (error `10220`).
+
+A newer inactive upload can still block a first link or a static deploy that inherits secrets after rollback. If Void reports a version-history or secret inheritance error, inspect the active and latest Worker versions in Cloudflare before retrying.
+
 #### Scope and limitations
 
 Void deploys native apps, static sites, SPAs, supported SSGs, and Cloudflare builds from TanStack Start, React Router, SvelteKit, Nuxt, Analog, and Astro. The vinext adapters are experimental.

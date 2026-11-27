@@ -39,6 +39,8 @@ export function createPlatformWorkerConfigs(input: {
    * The class and its migration then ship whatever the capability says.
    */
   securityScanScheduler?: boolean;
+  /** Provision the class in maintenance before binding it on an existing API Worker. */
+  deferSecurityScanSchedulerBinding?: boolean;
   runtimeEntrypoints: Readonly<
     Record<'api' | 'dispatch' | 'proxy' | 'tail' | 'emailGateway', string>
   >;
@@ -166,7 +168,7 @@ export function createPlatformWorkerConfigs(input: {
         { name: 'SANDBOX_CONCURRENCY_COUNTER', class_name: 'SandboxConcurrencyCounter' },
         // Bound whatever the capability says: an idle SQLite DO works on Workers
         // Free, and dropping the class later would need a delete migration.
-        ...(input.securityScanScheduler
+        ...(input.securityScanScheduler && !input.deferSecurityScanSchedulerBinding
           ? [{ name: 'SECURITY_SCAN_SCHEDULER', class_name: 'SecurityScanScheduler' }]
           : []),
       ],

@@ -472,3 +472,93 @@ it('upgrades the 1.3.0 through 1.5.0 schema to OAuth refresh tokens', async () =
     await db.close();
   }
 }, 30_000);
+
+// 1.6.1/1.6.2 (0000..0063) and 1.8.0 through 1.11.0 (0000..0064) tolerate migration 0065:
+// it creates only new security audit tables with ON DELETE cascade foreign keys to projects.
+it('upgrades the 1.6.x and 1.8.0 through 1.11.0 schemas to security audits', async () => {
+  const root = resolve(import.meta.dirname, '../../drizzle');
+  const journal = JSON.parse(readFileSync(resolve(root, 'meta/_journal.json'), 'utf8')) as {
+    entries: Array<{ idx: number; tag: string; when: number }>;
+  };
+  const compatibility = JSON.parse(readFileSync(resolve(root, 'compatibility.json'), 'utf8'));
+  const digestFor = (entries: Array<{ idx: number; tag: string; when: number }>) =>
+    platformDatabaseSchemaDigest(
+      compatibility.lineage,
+      entries.map((entry) => ({
+        index: entry.idx,
+        tag: entry.tag,
+        timestampMillis: entry.when,
+        sha256: createHash('sha256')
+          .update(readFileSync(resolve(root, entry.tag + '.sql')))
+          .digest('hex'),
+      })),
+    );
+  const schema63 = journal.entries.filter((entry) => entry.idx < 64);
+  expect(schema63.at(-1)?.tag).toBe('0063_oauth_refresh_tokens');
+  const digest63 = digestFor(schema63);
+  expect(digest63).toBe('41c9f2abec1a793d64d2acd71aa2fd737c3b3a594bc3d1c3c19b9546da05263c');
+  for (const platformVersion of ['1.6.0', '1.6.1', '1.6.2', '1.7.0']) {
+    expect(compatibility.rollbackSafeFrom).toContainEqual({
+      platformVersion,
+      schemaDigest: digest63,
+    });
+  }
+  const schema64 = journal.entries.filter((entry) => entry.idx < 65);
+  expect(schema64.at(-1)?.tag).toBe('0064_project_ai_logging');
+  const digest64 = digestFor(schema64);
+  expect(digest64).toBe('908e7aab4ad12e872e2e0e7e17bb5072971e9a260fb378f6f6abc43af68ea883');
+  for (const platformVersion of ['1.8.0', '1.9.0', '1.9.1', '1.10.0', '1.11.0']) {
+    expect(compatibility.rollbackSafeFrom).toContainEqual({
+      platformVersion,
+      schemaDigest: digest64,
+    });
+  }
+  const db = new PGlite();
+  const seedSecurity = (p: string, u: string) =>
+    `INSERT INTO project_security_settings (project_id) VALUES ('${p}');` +
+    `INSERT INTO security_scans (id, project_id, deployment_id, status, trigger) VALUES ('scan-${p}', '${p}', 'dep-${p}', 'succeeded', 'deploy');` +
+    `INSERT INTO security_findings (id, project_id, number, fingerprint_key, verdict, title, category, first_scan_id, last_seen_scan_id) VALUES ('find-${p}', '${p}', 1, 'fp-${p}', 'confirmed', 'Finding', 'xss', 'scan-${p}', 'scan-${p}');` +
+    `INSERT INTO security_finding_events (id, finding_id, project_id, scan_id, actor_kind, action) VALUES ('evt-${p}', 'find-${p}', '${p}', 'scan-${p}', 'scanner', 'created');` +
+    `INSERT INTO security_public_requests (id, project_id, state, requested_via, target_deployment_id) VALUES ('req-${p}', '${p}', 'waiting_scan', 'project', 'dep-${p}');` +
+    `INSERT INTO security_scan_bypasses (id, project_id, request_id, deployment_id, actor_kind, actor_user_id, reason, request_state) VALUES ('byp-${p}', '${p}', 'req-${p}', 'dep-${p}', 'user', '${u}', 'approved', 'waiting_scan');`;
+  try {
+    for (const entry of schema64) {
+      await db.exec(readFileSync(resolve(root, entry.tag + '.sql'), 'utf8'));
+    }
+    await db.exec(
+      "INSERT INTO users (id, provider_id, login) VALUES ('kept', 'kept', 'kept'), ('deleted', 'deleted', 'deleted');" +
+        "INSERT INTO projects (id, user_id, slug) VALUES ('kept-proj', 'kept', 'kept-proj'), ('deleted-proj', 'kept', 'deleted-proj'), ('user-proj', 'deleted', 'user-proj');",
+    );
+    await db.exec(readFileSync(resolve(root, '0065_security_audits.sql'), 'utf8'));
+    await db.exec(
+      seedSecurity('kept-proj', 'kept') +
+        seedSecurity('deleted-proj', 'kept') +
+        seedSecurity('user-proj', 'deleted'),
+    );
+    // An older runtime on the upgraded schema inserts, updates, and deletes projects cleanly.
+    await db.exec(
+      "INSERT INTO projects (id, user_id, slug) VALUES ('older-runtime', 'kept', 'older-runtime');",
+    );
+    await db.exec("UPDATE projects SET active_deployment_id = 'dep-2' WHERE id = 'kept-proj';");
+    await db.exec("DELETE FROM projects WHERE id IN ('deleted-proj', 'user-proj');");
+    await db.exec("DELETE FROM users WHERE id = 'deleted';");
+    expect((await db.query('SELECT id FROM projects ORDER BY id')).rows).toEqual([
+      { id: 'kept-proj' },
+      { id: 'older-runtime' },
+    ]);
+    for (const table of [
+      'project_security_settings',
+      'security_scans',
+      'security_findings',
+      'security_finding_events',
+      'security_public_requests',
+      'security_scan_bypasses',
+    ]) {
+      expect((await db.query(`SELECT project_id FROM ${table}`)).rows).toEqual([
+        { project_id: 'kept-proj' },
+      ]);
+    }
+  } finally {
+    await db.close();
+  }
+}, 30_000);

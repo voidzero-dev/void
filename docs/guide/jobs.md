@@ -62,7 +62,7 @@ Content-Type: application/json
 
 Set `cron` to an expression exported by your job. A successful call returns `{ "ok": true }`.
 
-The endpoint requires a local dev trigger token. Void prints a paste-ready curl command with the current token when the dev server starts.
+The endpoint requires a local dev trigger token. Void prints a paste-ready curl command with the current token when the dev server starts. The development trigger is unavailable in `vp preview` and `vite preview`.
 
 ```bash
 curl -X POST http://localhost:5173/__void/scheduled \

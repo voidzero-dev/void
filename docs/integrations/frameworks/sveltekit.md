@@ -21,7 +21,7 @@ cd my-app
 ### 2. Install dependencies
 
 ```bash
-npm install -D @sveltejs/adapter-cloudflare void
+npm install -D @sveltejs/adapter-cloudflare@8 void
 ```
 
 ### 3. Configure `vite.config.ts`

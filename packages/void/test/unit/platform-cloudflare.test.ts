@@ -1164,6 +1164,31 @@ describe('platform Cloudflare client', () => {
     ]);
   });
 
+  it('checks the class on the API Worker even when a different Worker binds a class with the same name', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async () =>
+        Response.json({
+          success: true,
+          result: {
+            bindings: [
+              {
+                type: 'durable_object_namespace',
+                class_name: 'SecurityScanScheduler',
+                script_name: 'other-worker',
+              },
+              { type: 'durable_object_namespace', class_name: 'UsageCounter' },
+            ],
+          },
+        }),
+    });
+    await expect(
+      client.hasWorkerDurableObjectBinding('account', 'api', 'SecurityScanScheduler'),
+    ).resolves.toBe(false);
+    await expect(
+      client.hasWorkerDurableObjectBinding('account', 'api', 'UsageCounter'),
+    ).resolves.toBe(true);
+  });
+
   it('reads only plain-text Worker ownership bindings', async () => {
     const client = new PlatformCloudflareClient('token', {
       fetcher: async () =>

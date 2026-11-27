@@ -60,6 +60,7 @@ import {
   generateClassATriggerWrapper,
   hasVinextMiddleware,
   getOriginalFrameworkEntry,
+  reactRouterEdgeEntryPlugin,
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
 import { createFrameworkPlugins } from './plugin-framework.ts';
@@ -800,6 +801,7 @@ export function voidPlugin(options?: {
       frameworkBuildWrapperPlugin,
       frameworkTriggersPlugin(root, { devTriggerToken }),
       devTriggersHintPlugin(root, devTriggerToken),
+      ...(framework === 'react-router' ? [reactRouterEdgeEntryPlugin()] : []),
       ...cloudflare({
         configPath: cloudflareConfigPath,
         ...inspectorPortOption,
@@ -813,6 +815,28 @@ export function voidPlugin(options?: {
   }
 
   // Default mode: full Hono routing + generated entry
+
+  const pagesClientInput: Plugin = {
+    name: 'void:pages-client-input',
+    apply: 'build',
+    applyToEnvironment: (environment) => environment.name !== 'client',
+    options: {
+      order: 'post',
+      handler(options) {
+        const { input } = options;
+        if (
+          input &&
+          typeof input === 'object' &&
+          !Array.isArray(input) &&
+          input['pages-client'] === 'virtual:void-pages-client'
+        ) {
+          const entries = { ...input };
+          delete entries['pages-client'];
+          return { ...options, input: entries };
+        }
+      },
+    },
+  };
 
   // Non-CF targets: skip binding inference, D1, migrations, wrangler
   if (isNodeTarget(config.target)) {
@@ -870,6 +894,7 @@ export function voidPlugin(options?: {
       serverRuntimeOptimizerPlugin,
       envSchemaPlugin(root),
       ...pagesDevCssAssetsPlugin(root, devTriggerToken),
+      pagesClientInput,
       routingPlugin(root, {
         getApplicationAnalysis,
         isAuthEnabled: () => false,
@@ -1027,6 +1052,7 @@ export function voidPlugin(options?: {
     bindingRuntimePlugin(bindingNames),
     ...(bindings.needsSandbox ? [createSandboxSdkResolvePlugin()] : []),
     ...pagesDevCssAssetsPlugin(root, devTriggerToken),
+    pagesClientInput,
     routes,
     drizzlePlugin(root, true, dialect, {
       d1BindingName: bindingNames?.d1,

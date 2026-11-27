@@ -12,7 +12,7 @@ import type { QueueDefinition } from '../queues/scan.ts';
 import { buildEnv } from '../shared/untrusted-env.ts';
 import type { PlatformClient } from './client.ts';
 import type { DeploymentResponse, ProjectResponse } from './client.ts';
-import { formatCloudflareUserMessage } from './cloudflare-user-output.ts';
+import { formatCloudflareUserMessage, logCloudflareUserError } from './cloudflare-user-output.ts';
 import { promptAndCreateProject, reportProjectCreationWarnings } from './create-project.ts';
 import type {
   PrerenderSourceInputs,
@@ -44,7 +44,7 @@ export const log: Record<
   'error' | 'info' | 'message' | 'step' | 'warn',
   (message: string) => void
 > = {
-  error: (message: string) => clackLog.error(formatCloudflareUserMessage(message)),
+  error: logCloudflareUserError,
   info: (message: string) => clackLog.info(formatCloudflareUserMessage(message)),
   message: (message: string) => clackLog.message(formatCloudflareUserMessage(message)),
   step: (message: string) => clackLog.step(formatCloudflareUserMessage(message)),

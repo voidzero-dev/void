@@ -14,6 +14,7 @@ import {
 import type { IsolatedPlayground } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
+  assertPagesClientBuild,
   registerSharedClientTests,
   registerSharedDevSsrTest,
 } from '../../../../test/pages-client-contract.ts';
@@ -277,6 +278,7 @@ describe('solid-pages client (preview)', { retry: 2 }, () => {
 
   beforeAll(async () => {
     execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
+    assertPagesClientBuild(fixture.root);
 
     const server = await startServer(
       (port) => (child = spawnFixtureServer(fixture.root, 'preview', port)),

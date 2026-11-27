@@ -386,6 +386,94 @@ describe('existing Worker preservation', () => {
     expect(runWrangler.mock.calls[1][0]).toContain('original');
   });
 
+  describe('staging-pair guidance', () => {
+    const live = { version_id: 'original', percentage: 100 };
+    const candidate = { version_id: 'staged', percentage: 0 };
+    const pair = { id: 'deployment', versions: [candidate, live] };
+
+    function inspect(...deployments: Array<object>) {
+      const runWrangler = operationFixture((args: Array<string>) => ({
+        status: 0,
+        stderr: '',
+        stdout: JSON.stringify(
+          args[0] === 'deployments'
+            ? deployments.shift()
+            : {
+                id: 'original',
+                resources: {
+                  bindings: worker.bindings,
+                  script: worker.script,
+                  script_runtime: worker.runtime,
+                },
+              },
+        ),
+      }));
+      return readExistingCloudflareWorker({
+        runWrangler,
+        accountId: 'test-account',
+        workerName: 'site',
+        configPath: '/app/wrangler.jsonc',
+      });
+    }
+
+    it('explains the staging pair on the first Worker status read', async () => {
+      await expect(inspect(pair)).rejects.toThrow(
+        'Cloudflare Worker "site" in account test-account has original at 100% and staged at 0%',
+      );
+    });
+
+    it('trims both IDs in the staging-pair guidance', async () => {
+      const padded = {
+        ...pair,
+        versions: [
+          { ...live, version_id: ' original ' },
+          { ...candidate, version_id: ' staged ' },
+        ],
+      };
+      await expect(inspect(padded)).rejects.toThrow(
+        'Cloudflare Worker "site" in account test-account has original at 100% and staged at 0%',
+      );
+    });
+
+    it('explains the staging pair when it appears during Worker inspection', async () => {
+      await expect(inspect({ versions: [live] }, pair)).rejects.toThrow(
+        'Cloudflare Worker "site" in account test-account has original at 100% and staged at 0%',
+      );
+    });
+
+    it.each([
+      {
+        name: 'gradual rollout',
+        ...pair,
+        versions: [
+          { ...live, percentage: 90 },
+          { ...candidate, percentage: 10 },
+        ],
+      },
+      { name: 'missing deployment ID', versions: [live, candidate] },
+      {
+        name: 'extra version',
+        ...pair,
+        versions: [live, candidate, { ...candidate, version_id: 'extra' }],
+      },
+      {
+        name: 'duplicate version',
+        ...pair,
+        versions: [live, { ...candidate, version_id: live.version_id }],
+      },
+      {
+        name: 'version IDs that match after trimming',
+        ...pair,
+        versions: [live, { ...candidate, version_id: ' original ' }],
+      },
+      { name: 'string percentage', ...pair, versions: [live, { ...candidate, percentage: '0' }] },
+    ])('keeps the generic refusal for $name', async ({ name: _name, ...deployment }) => {
+      await expect(inspect(deployment)).rejects.toThrow(
+        'The existing Worker must have one deployed version receiving all traffic.',
+      );
+    });
+  });
+
   it('does not infer an active migration tag from an explicitly requested candidate', async () => {
     const runWrangler = operationFixture(
       (_args: Array<string>, _options: { capture: boolean }) => ({

@@ -92,7 +92,9 @@ Action errors that reach a client boundary keep their HTTP status and public mes
 
 ## HTTP exceptions
 
-Throw an `HTTPException` to show a specific error in your page's layout. For example, a suspended account can return `403` with an explanation:
+Throw an `HTTPException` to show a specific error. Void renders the selected `_error` inside the page's layouts at or above the error component's directory, including any named layout at those positions. Deeper layouts are dropped. With `layout = false`, the error renders on its own. To keep a section's navigation, [add an `_error` in that section](#nested-errors).
+
+A suspended account can return `403` with an explanation.
 
 ```ts
 // pages/account.server.ts

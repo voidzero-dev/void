@@ -38,7 +38,7 @@ import {
   recordWorkerTrafficState,
   withoutCompletedPlatformWorkerMigrations,
   resolvePlatformPreviousTriggerConfig,
-  workerCutoverUpdatesSecrets,
+  workerCutoverRollsForward,
 } from './platform-installer-cutover.ts';
 import {
   assertPlatformTriggerStabilization,
@@ -165,10 +165,7 @@ export async function recoverInterruptedPlatformWorkerCutover(
   } = input;
   let { manifest, workerActions } = input;
   if (interruptedCutover) {
-    const retainUpdatedCredentials = workerCutoverUpdatesSecrets(
-      manifest,
-      interruptedCutover.generation,
-    );
+    const rollForward = workerCutoverRollsForward(manifest, interruptedCutover.generation);
     const recoveryOrder: ReadonlyArray<PlatformWorkerKey> = [
       'dispatch',
       'tail',
@@ -196,10 +193,9 @@ export async function recoverInterruptedPlatformWorkerCutover(
         { ...previousConfigs[key], name: snapshot.workerName },
         preservedRoutes,
       );
-      if (retainUpdatedCredentials) {
-        // Recovery may have restored some Workers before Cloudflare refused an
-        // old secret version. Accept only this cutover's old or staged version;
-        // the next guarded generation reapplies the authorized credentials.
+      if (rollForward) {
+        // A class migration or secret rotation can make the old version undeployable.
+        // Only the checkpointed old or staged version belongs to this cutover.
         const directory = mkdtempSync(join(tmpdir(), 'void-platform-resume-'));
         try {
           const configPath = join(directory, 'wrangler.json');
@@ -215,7 +211,7 @@ export async function recoverInterruptedPlatformWorkerCutover(
             (snapshot.previousVersionId === null || currentVersionId !== snapshot.previousVersionId)
           ) {
             throw new Error(
-              `Worker ${snapshot.workerName} changed concurrently after the credential update; refusing to overwrite it.`,
+              `Worker ${snapshot.workerName} changed concurrently during the retained cutover; refusing to overwrite it.`,
             );
           }
         } finally {
@@ -264,15 +260,13 @@ export async function recoverInterruptedPlatformWorkerCutover(
     manifest = recordWorkerCutoverResolution(
       manifest,
       interruptedCutover.generation,
-      retainUpdatedCredentials ? 'committed' : 'restored',
+      rollForward ? 'committed' : 'restored',
       now(),
     );
     manifest = recordWorkerTrafficState(
       manifest,
       interruptedCutover.generation,
-      !retainUpdatedCredentials &&
-        previousPublicEndpoints &&
-        interruptedCutover.unsafeTraffic.size === 0,
+      !rollForward && previousPublicEndpoints && interruptedCutover.unsafeTraffic.size === 0,
       now(),
     );
     onManifestChange(manifest);
@@ -956,6 +950,10 @@ export async function deployPlatformWorker(
       await options.publishRoutes(workerName, options.managedRoutes);
     }
     await options.onTrafficPublished();
+    if (options.provisionsDurableObject) {
+      // The previous version lacks the class Cloudflare has now provisioned.
+      return null;
+    }
     const committedVersionId = uploadedVersionId;
     const rollback = () =>
       rollbackPlatformWorker({
@@ -982,7 +980,8 @@ export async function deployPlatformWorker(
     const unsafeTraffic =
       error instanceof PlatformWorkerCustomDomainsChangedError ||
       error instanceof PlatformWorkerRoutesChangedError;
-    const rollbackVersionId = activatedVersionId && uploadedVersionId ? uploadedVersionId : null;
+    const rollbackVersionId =
+      activatedVersionId && !options.provisionsDurableObject ? uploadedVersionId : null;
     const recoveryFailures = await recoverFailedPlatformWorkerDeployment({
       checkpointUnsafeTraffic: options.onUnsafeTraffic,
       closeRoutingGate: options.retainNewWorker,

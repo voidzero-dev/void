@@ -218,6 +218,7 @@ export type InstallerClient = Pick<
   | 'createZone'
   | 'deleteKvBulk'
   | 'deleteKvValue'
+  | 'hasWorkerDurableObjectBinding'
   | 'getWorkerPlainTextBindings'
   | 'listKvKeys'
   | 'listWorkerDomains'
@@ -394,6 +395,8 @@ export type PlatformWorkerDeploymentOptions = Readonly<{
   retainNewWorker: () => Promise<void>;
   /** False uploads a new version even when the active one has identical input. */
   reuseMatchingVersion?: boolean;
+  /** Activating this version provisions a class the previous version cannot serve. */
+  provisionsDurableObject?: boolean;
   /**
    * The operator agreed to replace changes made to this Worker outside Void.
    * Its active version can then lack Void's record of its triggers.

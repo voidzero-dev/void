@@ -1,3 +1,4 @@
+import { recordInstallationStep } from '@void/platform';
 import type { createPlatformWorkerConfigs } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
 import { writePlatformTiming } from './platform-installer-process.ts';
@@ -51,6 +52,7 @@ export function platformWorkerDeployCallbacks(input: {
   readonly key: PlatformWorkerKey;
   readonly action: PlatformInstallPlanAction;
   readonly generation: number;
+  readonly provisionsDurableObject?: boolean;
   readonly now: () => string;
   readonly readManifest: () => PlatformInstallationManifest;
   readonly writeManifest: (manifest: PlatformInstallationManifest) => Promise<void>;
@@ -83,18 +85,30 @@ export function platformWorkerDeployCallbacks(input: {
     readCloudflare: (path) => client.request(path),
     onStaged: async (previousVersionId, stagedVersionId, previousTriggers) => {
       await checkpoint(async () => {
-        await writeManifest(
-          recordWorkerCutoverStage(
-            readManifest(),
-            generation,
-            key,
-            previousVersionId,
-            stagedVersionId,
-            action.name,
-            previousTriggers,
-            now(),
-          ),
+        const completedAt = now();
+        let next = recordWorkerCutoverStage(
+          readManifest(),
+          generation,
+          key,
+          previousVersionId,
+          stagedVersionId,
+          action.name,
+          previousTriggers,
+          completedAt,
         );
+        // Save roll-forward intent with the version id, before Cloudflare can activate it.
+        if (input.provisionsDurableObject) {
+          next = recordInstallationStep(
+            next,
+            {
+              key: `worker-scheduler-migration:${generation}`,
+              resultHash: 'SecurityScanScheduler',
+              completedAt,
+            },
+            completedAt,
+          );
+        }
+        await writeManifest(next);
       });
     },
     onTrafficPublished: async () => {
@@ -144,6 +158,7 @@ export async function uploadInstallationWorkers(input: {
   readonly state: PlatformInstallRunState;
   readonly dependencies: PlatformInstallerDependencies;
   readonly requiresStagedCommit: boolean;
+  readonly provisionsDurableObject?: boolean;
   readonly recoveringUnsafeTraffic: boolean;
   readonly workerActions: ReadonlyArray<PlatformInstallPlanAction>;
   readonly workerKeys: ReadonlyArray<PlatformWorkerKey>;
@@ -319,6 +334,7 @@ export async function uploadInstallationWorkers(input: {
             key,
             action,
             generation: workerCutoverGeneration,
+            provisionsDurableObject: input.provisionsDurableObject,
             now,
             readManifest: () => state.manifest,
             writeManifest,
@@ -336,6 +352,7 @@ export async function uploadInstallationWorkers(input: {
                 .map((route) => route.pattern),
           preservedRoutes,
           previousConfig: previousWorkerConfig,
+          provisionsDurableObject: input.provisionsDurableObject,
           previousPublicEndpoints,
           ...(dependencies.replaceOutsideChanges?.includes(action.name)
             ? { replaceOutsideChanges: true }

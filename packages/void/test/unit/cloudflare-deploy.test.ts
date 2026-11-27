@@ -25,7 +25,10 @@ import ignore from 'ignore';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
-import { activateCloudflareVersion as activateCloudflareVersionPrimitive } from '../../../deploy-cloudflare/src/index.ts';
+import {
+  activateCloudflareVersion as activateCloudflareVersionPrimitive,
+  assertCloudflareDurableObjectLifecycleSupported,
+} from '../../../deploy-cloudflare/src/index.ts';
 import {
   operationFixture,
   operationFixtureRequest,
@@ -296,6 +299,13 @@ describe('Cloudflare deploy log end record', () => {
 });
 
 describe('Cloudflare activation diagnostics', () => {
+  it('returns the staging-pair diagnostic for a deployment change', () => {
+    const diagnostic = 'Open the Worker Deployments tab and check Active Deployment.';
+    expect(
+      formatCloudflareActivationError({ ok: false, reason: 'deployment-changed', diagnostic }),
+    ).toBe(diagnostic);
+  });
+
   it.each(['worker', 'static'] as const)(
     'flushes the %s upload diagnostic before exiting',
     async (kind) => {
@@ -1727,6 +1737,112 @@ describe('existing Cloudflare site handoff', () => {
       expect.objectContaining({ allowPendingAtomicMigration: true }),
     );
     expect(activateVersion).toHaveBeenCalledWith(expect.objectContaining({ atomic: true }));
+  });
+
+  it('guides an established Durable Object Worker through clearing a staging pair and retrying', async () => {
+    const root = site();
+    const configPath = join(root, 'wrangler.jsonc');
+    const config = {
+      ...parseRootWranglerConfig(configPath),
+      name: 'wrangler-canary',
+      migrations: [{ tag: 'v1', new_sqlite_classes: ['Room'] }],
+      workers_dev: true,
+      preview_urls: false,
+      routes: [],
+    };
+    writeFileSync(configPath, JSON.stringify(config));
+    vi.stubEnv('CLOUDFLARE_WORKERS_SUBDOMAIN', 'example');
+
+    const live = '11111111-1111-4111-8111-111111111111';
+    const abandoned = '22222222-2222-4222-8222-222222222222';
+    const next = '33333333-3333-4333-8333-333333333333';
+    const liveOnly = [{ version_id: live, percentage: 100 }];
+    let traffic = [...liveOnly, { version_id: abandoned, percentage: 0 }];
+    let deploymentId = 'stuck-deployment';
+    const versions = [live, abandoned].map((id, index) => ({ id, number: index + 1 }));
+    const publishes: Array<Array<string>> = [];
+    const runWrangler: DeployWranglerRun = (operation) => {
+      switch (operation.type) {
+        case 'auth.whoami':
+          return { ...cleanExit, data: { loggedIn: true, accounts: [] } };
+        case 'deployments.status':
+          return { ...cleanExit, data: { id: deploymentId, versions: traffic } };
+        case 'versions.list':
+          return { ...cleanExit, data: versions.slice() };
+        case 'versions.view':
+          return {
+            ...cleanExit,
+            data: {
+              ...versions.find(({ id }) => id === operation.versionId),
+              resources: {
+                bindings: [{ name: 'ROOM', type: 'durable_object_namespace', class_name: 'Room' }],
+                script: { handlers: ['fetch'] },
+                script_runtime: {},
+              },
+            },
+          };
+        case 'versions.upload':
+          versions.push({ id: next, number: 3 });
+          return { ...cleanExit, data: { versionId: next } };
+        case 'versions.deploy':
+          publishes.push(
+            operation.versions.map(({ versionId, percentage }) => `${versionId}@${percentage}`),
+          );
+          traffic = operation.versions.map(({ versionId, percentage }) => ({
+            version_id: versionId,
+            percentage,
+          }));
+          deploymentId = `publish-${publishes.length}`;
+          return cleanExit;
+        case 'triggers.deploy':
+        case 'triggers.clear-crons':
+          return cleanExit;
+        default:
+          throw new Error(`Unexpected Cloudflare operation: ${operation.type}`);
+      }
+    };
+    const { deps, exitCalls } = harness({
+      runWrangler,
+      runBuild: () => build(root),
+      assertDurableObjectLifecycle: (options) =>
+        assertCloudflareDurableObjectLifecycleSupported({
+          ...options,
+          readMigrationTag: async () => 'v1',
+        }),
+      activateVersion: (options) =>
+        activateCloudflareVersionPrimitive({
+          ...options,
+          fetch: async () => Response.json({ ready: true, versionId: next }),
+        }),
+    });
+    const deploy = () => runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+    const output = await captureDeployOutput(async () => {
+      await expect(deploy()).rejects.toBeInstanceOf(ExitError);
+    });
+    const message = output.replaceAll(/\s+/g, ' ');
+    expect
+      .soft(message)
+      .toContain(
+        `Cloudflare Worker "wrangler-canary" in account personal has ${live} at 100% and ${abandoned} at 0%`,
+      );
+    expect.soft(message).toContain('Pause other deploys');
+    expect.soft(message).toContain('Active Deployment still shows this exact pair');
+    expect.soft(message).toContain('version overrides');
+    expect.soft(message).toContain('roll back to the live version');
+    expect.soft(message).toContain('If Void still reports the pair, wait and retry.');
+    expect
+      .soft(output)
+      .toContain(
+        'https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/#rolling-back-from-a-split-deployment',
+      );
+    expect(publishes).toEqual([]);
+    expect(versions.at(-1)?.id).toBe(abandoned);
+
+    deploymentId = 'cleared-deployment';
+    traffic = liveOnly;
+    expect(await captureDeployOutput(deploy)).toContain('Successfully deployed!');
+    expect(exitCalls).toEqual([1]);
+    expect(publishes).toEqual([[`${live}@100`, `${next}@0`], [`${next}@100`]]);
   });
 
   it('uses the project Cloudflare deploy mode on subsequent plain deploys', async () => {

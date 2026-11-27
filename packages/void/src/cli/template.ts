@@ -117,7 +117,9 @@ export const SCAFFOLD_FRAMEWORKS: Record<ScaffoldFramework, ScaffoldFrameworkCon
     dependencies: {
       vue: '^3.5.30',
     },
-    devDependencies: {},
+    devDependencies: {
+      typescript: '^6.0.3',
+    },
     tsconfigCompilerOptions: {
       jsx: 'preserve',
     },

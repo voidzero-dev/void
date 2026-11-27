@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import spawn from 'cross-spawn';
-import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vite-plus/test';
 import {
   createIsolatedPlayground,
   killChild,
@@ -56,6 +56,24 @@ describe('playground/react-router dev', { retry: 2 }, () => {
     expect(html).toContain('Alice');
     expect(html).toContain('ok');
   });
+});
+
+it('renders the home document without an app server entry', { retry: 2 }, async () => {
+  const fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+  onTestFinished(() => fixture.cleanup());
+  rmSync(join(fixture.root, 'app/entry.server.tsx'));
+  const packagePath = join(fixture.root, 'package.json');
+  const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+  // Select the Node default and skip React Router's automatic isbot install.
+  pkg.dependencies['@react-router/node'] = '*';
+  pkg.dependencies.isbot = '*';
+  writeFileSync(packagePath, JSON.stringify(pkg));
+  const server = await startServer((port) => spawnFixtureServer(fixture.root, 'dev', port), 30_000);
+  onTestFinished(() => killChild(server.child));
+  const response = await fetch(`${server.base}/`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('content-type')).toMatch(/^text\/html/);
+  expect(await response.text()).toContain('React Router + Void');
 });
 
 // React Router owns its request handler; void/db must still reach MySQL from a loader.

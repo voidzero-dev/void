@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'pathslash';
+import type { Plugin } from 'vite';
 import { findEnvFile } from './codegen/env-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
 import type { DatabaseDialect, NotFoundHandling } from './config.ts';
@@ -10,6 +11,7 @@ import {
 } from './plugin-framework-triggers.ts';
 import type { Framework } from './plugin-inference.ts';
 import { compileAssetFallbackHelper } from './router/compile.ts';
+import { readPackageJson } from './shared/package-json.ts';
 
 /**
  * Resolve the server entry module for a Class A framework. We always wrap
@@ -203,6 +205,61 @@ ${fetchMethod}
 ${isBuild && assetFallback ? `${compileAssetFallbackHelper(assetsDir, false, notFound)}\n` : ''}`;
   writeFileIfChanged(wrapperPath, body);
   return wrapperPath;
+}
+
+const REACT_ROUTER_NODE_DEFAULT = /\/dist\/config\/defaults\/entry\.server\.node\.tsx$/;
+
+const reactRouterEdgeEntry = `import { createElement } from "react";
+import { renderToReadableStream } from "react-dom/server";
+import { ServerRouter } from "react-router";
+import { isbot } from "isbot";
+
+export const streamTimeout = 5_000;
+
+export default async function handleRequest(request, status, headers, context) {
+  if (request.method === "HEAD") {
+    return new Response(null, { status, headers });
+  }
+
+  let shellRendered = false;
+  const body = await renderToReadableStream(
+    createElement(ServerRouter, { context, url: request.url }),
+    {
+      signal: AbortSignal.timeout(streamTimeout + 1000),
+      onError(error) {
+        status = 500;
+        if (shellRendered) console.error(error);
+      },
+    },
+  );
+  shellRendered = true;
+
+  if (context.isSpaMode || isbot(request.headers.get("user-agent"))) {
+    await body.allReady;
+  }
+  headers.set("Content-Type", "text/html");
+  return new Response(body, { status, headers });
+}
+`;
+
+export function reactRouterEdgeEntryPlugin(): Plugin {
+  return {
+    name: 'void:react-router-edge-entry',
+    enforce: 'pre',
+    load: {
+      filter: { id: REACT_ROUTER_NODE_DEFAULT },
+      handler(id) {
+        if (!this.environment.config.resolve.conditions.includes('workerd')) {
+          return;
+        }
+        // React Router selects this module after checking its configured app directory.
+        const packageRoot = id.replace(REACT_ROUTER_NODE_DEFAULT, '');
+        if (readPackageJson(packageRoot)?.name === '@react-router/dev') {
+          return reactRouterEdgeEntry;
+        }
+      },
+    },
+  };
 }
 
 /** Generate a worker entry for React Router v7 projects. */

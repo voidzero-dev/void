@@ -1237,6 +1237,24 @@ export class PlatformCloudflareClient {
     }
   }
 
+  async hasWorkerDurableObjectBinding(
+    accountId: string,
+    workerName: string,
+    className: string,
+  ): Promise<boolean> {
+    const { bindings } = await this.request<{
+      bindings: ReadonlyArray<{ type: string; class_name?: string; script_name?: string }>;
+    }>(
+      `/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/settings`,
+    );
+    return bindings.some(
+      (binding) =>
+        binding.type === 'durable_object_namespace' &&
+        binding.class_name === className &&
+        (binding.script_name === undefined || binding.script_name === workerName),
+    );
+  }
+
   async getWorkerPlainTextBindings(
     accountId: string,
     workerName: string,
