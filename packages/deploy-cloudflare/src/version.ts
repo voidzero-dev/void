@@ -22,6 +22,7 @@ import {
   VOID_SECRET_DRAFT_MESSAGE,
   VOID_SECRET_DRAFT_SOURCE,
 } from './secret-draft.ts';
+import { cloudflareStagingPairGuidance } from './staging-guidance.ts';
 
 const DURABLE_MIGRATION_VERSION_ERROR = 10_211;
 const CLOUDFLARE_SECRET_CHANGED_ERROR = 10_220;
@@ -117,7 +118,6 @@ export type CloudflareVersionActivation =
         | 'triggers-failed';
       status?: number;
       cloudflareErrorCode?: number;
-      /** Bounded uploader error text with terminal escapes removed and common credential formats redacted. */
       diagnostic?: string;
       /** Wrangler reached Cloudflare's Containers entitlement endpoint and received a 403. */
       containersUnavailable?: boolean;
@@ -822,6 +822,7 @@ function isCandidatePreviewUrl(
 }
 
 export type CloudflareVersionActivationOptions = {
+  accountId?: string;
   /** Human-readable deployment phases; the caller owns terminal rendering. */
   onProgress?: (message: string) => void;
   /** Reuse an inspected Worker without republishing its domains or other triggers. */
@@ -1040,6 +1041,7 @@ async function activateCloudflareVersionWithSecretsFile(
           reason: 'deployment-changed',
           activeVersionId: owner.kind === 'ok' ? owner.versionId : null,
           rollback: 'not-needed',
+          ...cloudflareStagingPairGuidance(owner.deployment, options),
         };
       }
     }
@@ -1334,6 +1336,7 @@ async function activateCloudflareVersionWithSecretsFile(
         reason: 'deployment-changed',
         activeVersionId: owner.kind === 'ok' ? owner.versionId : null,
         rollback: 'not-needed',
+        ...cloudflareStagingPairGuidance(owner.deployment, options),
       };
     }
   }
@@ -1505,6 +1508,7 @@ async function activateCloudflareVersionWithSecretsFile(
         activeVersionId: ownerAfterWait.kind === 'ok' ? ownerAfterWait.versionId : null,
         rollback: 'not-needed',
         triggerRepair: 'succeeded',
+        ...cloudflareStagingPairGuidance(ownerAfterWait.deployment, options),
       };
     }
   }
@@ -1743,6 +1747,7 @@ async function activateCloudflareVersionWithSecretsFile(
       activeVersionId: ownerBeforeActivation.versionId,
       rollback: 'not-needed',
       triggerRepair: 'succeeded',
+      ...cloudflareStagingPairGuidance(ownerBeforeActivation.deployment, options),
     };
   }
 
@@ -2370,6 +2375,7 @@ async function bootstrapFirstDeployment(
         reason: 'deployment-changed',
         activeVersionId: current.kind === 'ok' ? current.versionId : null,
         rollback: 'not-needed',
+        ...cloudflareStagingPairGuidance(current.deployment, options),
       };
     }
   }
@@ -2788,7 +2794,7 @@ async function readCurrentProductionVersion(
     Parameters<typeof activateCloudflareVersion>[0],
     'configPath' | 'runWrangler' | 'workerName'
   >,
-): Promise<CurrentProductionVersion> {
+): Promise<CurrentProductionVersion & { deployment?: Record<string, unknown> }> {
   const result = await options.runWrangler(
     { type: 'deployments.status', configPath: options.configPath, workerName: options.workerName },
     { capture: true },
@@ -2838,6 +2844,7 @@ async function readCurrentProductionVersion(
       kind: 'ok',
       versionId: active?.versionId ?? null,
       versions,
+      deployment,
     };
   } catch {
     return { kind: 'failed', status: result.status };
@@ -2915,7 +2922,7 @@ async function stageCandidateForReadiness(
 async function verifyReadinessStagingOwner(
   options: Pick<
     Parameters<typeof activateCloudflareVersion>[0],
-    'configPath' | 'runWrangler' | 'workerName'
+    'accountId' | 'configPath' | 'runWrangler' | 'workerName'
   >,
   previousVersionId: string | null,
   versionId: string,
@@ -2952,6 +2959,7 @@ async function verifyReadinessStagingOwner(
       previousVersionId,
       activeVersionId: owner.versionId,
       rollback: 'not-needed',
+      ...cloudflareStagingPairGuidance(owner.deployment, options),
     };
   }
   return null;
