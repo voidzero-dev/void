@@ -2562,7 +2562,7 @@ describe('isScaffoldableEmptyProject', () => {
       );
       expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
       expect(pkg.packageManager).toBeUndefined();
-      expect(pkg.devEngines.packageManager).toEqual({ name: 'pnpm' });
+      expect(pkg.devEngines.packageManager).toEqual({ name: 'pnpm', onFail: 'download' });
       expectPnpmAllowBuilds(root);
       expect(detectProjectState(root).packageManager).toBe('pnpm');
       expect(installCalls()[0][0]).toBe('vp');
@@ -2631,7 +2631,7 @@ describe('isScaffoldableEmptyProject', () => {
       await runInitCommand(root);
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-      expect(pkg.devEngines.packageManager).toEqual({ name: 'npm' });
+      expect(pkg.devEngines.packageManager).toEqual({ name: 'npm', onFail: 'download' });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -2664,7 +2664,10 @@ describe('isScaffoldableEmptyProject', () => {
         expect(installCalls()[0][0]).toBe('vp');
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
         expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
-        expect(pkg.devEngines.packageManager).toEqual({ name: packageManager.split('@')[0] });
+        expect(pkg.devEngines.packageManager).toEqual({
+          name: packageManager.split('@')[0],
+          onFail: 'download',
+        });
         if (packageManager.startsWith('npm@')) {
           expect(pkg.overrides.vite).toBe('$vite');
         } else if (packageManager.startsWith('bun@')) {

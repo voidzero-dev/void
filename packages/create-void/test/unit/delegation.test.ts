@@ -48,7 +48,7 @@ describe('create-void delegation', () => {
       );
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-      expect(pkg.devEngines.packageManager).toEqual({ name: 'npm' });
+      expect(pkg.devEngines.packageManager).toEqual({ name: 'npm', onFail: 'download' });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -2118,7 +2118,11 @@ function scaffoldPagesApp(
   if (writeDevEnginesPackageManager) {
     const devEngines = asRecord(pkg.devEngines) ?? {};
     const existingPackageManager = asRecord(devEngines.packageManager) ?? {};
-    devEngines.packageManager = { ...existingPackageManager, name: packageManager };
+    devEngines.packageManager = {
+      ...existingPackageManager,
+      name: packageManager,
+      onFail: 'download',
+    };
     pkg.devEngines = devEngines;
   }
 
