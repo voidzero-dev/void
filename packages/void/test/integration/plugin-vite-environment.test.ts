@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getWorkerBundleDir } from '@cloudflare/build-output-utils';
-import type { PluginOption } from 'vite';
+import type { Plugin, PluginOption } from 'vite';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pagesPlugin as reactPagesPlugin } from '../../../react/src/plugin-pages.ts';
@@ -1635,6 +1635,37 @@ export default { marker: "kept", fetch: handle };
         expect(buildCode).not.toContain('dev-triggers');
         expect(buildCode).not.toContain('handleDevTrigger');
       }
+    },
+  );
+
+  // The dependency scan stops at the wrapper, so it cannot find the module that the wrapper
+  // imports. The stand-in configures the Worker environment as the adapter does, after Void's
+  // plugins: workerd conditions, and no discovery in the server that `astro build` and
+  // `astro sync` start to generate types.
+  it.each([
+    ['serve', false, true],
+    ['serve', true, false],
+    ['build', false, false],
+  ] as const)(
+    "names handle()'s module for the dependency optimizer of a Worker environment that discovers dependencies (command: %s, discovery off: %s)",
+    async (command, noDiscovery, named) => {
+      const root = createAstroRoot(undefined);
+      const adapter: Plugin = {
+        name: 'adapter-stand-in',
+        config: () => ({
+          environments: { ssr: { resolve: { conditions: ['workerd', 'worker'] } }, node: {} },
+        }),
+        configEnvironment: (name) =>
+          name === 'ssr' ? { optimizeDeps: { noDiscovery, include: [] } } : undefined,
+      };
+      const config = await resolveConfig(
+        { root, configFile: false, logLevel: 'silent', plugins: [voidPlugin(), adapter] },
+        command,
+        command === 'build' ? 'production' : 'development',
+      );
+      expect(config.environments.ssr.optimizeDeps.include?.includes(handler)).toBe(named);
+      // An environment that does not run in workerd is left alone.
+      expect(config.environments.node.optimizeDeps.include ?? []).not.toContain(handler);
     },
   );
 });

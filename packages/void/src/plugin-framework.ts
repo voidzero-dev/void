@@ -379,6 +379,24 @@ export function createFrameworkPlugins(input: {
       ? {
           name: 'void:astro-server-entry',
           enforce: 'pre',
+          // The dependency scan stops at a wrapper, a `\0` id, so it never records the module that
+          // the wrapper imports. The Worker's imports reveal it later, and the optimizer runs a
+          // second time on the first start. The adapter names its server entry for the optimizer;
+          // name `handle()`'s module as well. The hook runs after the adapter's, which turns
+          // discovery off in the server that `astro build` and `astro sync` start to generate
+          // types: an include would be prebundled there for nothing.
+          configEnvironment: {
+            order: 'post',
+            handler(_name, environment, { command }) {
+              if (
+                command === 'serve' &&
+                environment.resolve?.conditions?.includes('workerd') &&
+                !environment.optimizeDeps?.noDiscovery
+              ) {
+                return { optimizeDeps: { include: [ASTRO_HANDLER] } };
+              }
+            },
+          },
           configResolved(resolvedConfig) {
             astroDevTriggers = resolvedConfig.command === 'serve' && hasOwnAstroMiddleware(root);
           },
