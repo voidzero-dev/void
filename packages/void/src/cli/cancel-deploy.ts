@@ -1,7 +1,7 @@
-import { outro, log, confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
 import { PlatformClient } from './client.ts';
 import type { DeploymentResponse } from './client.ts';
+import { outro, log, confirm, isCancel } from './interactive-prompts.ts';
 import { printSuccess } from './output.ts';
 import { readProjectConfig } from './project.ts';
 

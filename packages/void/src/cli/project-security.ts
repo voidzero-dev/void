@@ -1,10 +1,10 @@
 import { securityPickProblemNote } from '@void/platform/security-models';
 import { securityTraceLines } from '@void/platform/security-policy';
-import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { isCI } from 'ci-info';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 import { getToken, openBrowser } from './auth.ts';
 import { PlatformApiError, PlatformClient } from './client.ts';
+import { confirm, isCancel } from './interactive-prompts.ts';
 import { cleanBlock, cleanLine } from './output.ts';
 import type { ProjectSecurityArgs } from './project-security-args.ts';
 import {

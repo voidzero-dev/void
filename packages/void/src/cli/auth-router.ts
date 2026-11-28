@@ -1,6 +1,6 @@
-import { isCancel, select } from '@voidzero-dev/vite-plus-prompts';
 import type { AccountArgs } from './account-args.ts';
 import type { AuthArgs } from './auth-args.ts';
+import { isCancel, select } from './interactive-prompts.ts';
 import { listPlatformConnections, normalizePlatformApiUrl } from './platform-registry.ts';
 import { readDeploymentPlatform } from './project.ts';
 

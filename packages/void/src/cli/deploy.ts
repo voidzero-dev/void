@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs';
-import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { join } from 'pathslash';
 import { stashCloudflareDeployPointer } from '../cloudflare-config.ts';
 import { readConfig } from '../config.ts';
@@ -32,6 +31,7 @@ import {
   maskGithubActionsSecret,
 } from './github-oidc.ts';
 import { assertInstalledVoidMatchesCli } from './installed-void.ts';
+import { confirm, isCancel } from './interactive-prompts.ts';
 import { openDeployLog } from './log-file.ts';
 import type { CliLogger } from './log-file.ts';
 import { buildDeployLogSummary } from './log-summary.ts';

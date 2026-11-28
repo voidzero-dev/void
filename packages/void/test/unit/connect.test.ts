@@ -33,6 +33,7 @@ vi.mock('../../src/cli/client.ts', () => ({
     whoami = mocks.whoami;
   },
 }));
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   log: { step: vi.fn(), info: vi.fn() },
   outro: vi.fn(),

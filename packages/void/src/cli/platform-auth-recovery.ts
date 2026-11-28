@@ -2,8 +2,8 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { platformAuthenticationRecoveryMessage } from '@void/platform';
-import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { openBrowser } from './auth.ts';
+import { confirm, isCancel } from './interactive-prompts.ts';
 import { resolveOperatorOrigin } from './operator-auth.ts';
 import { printSuccess, formatUrl } from './output.ts';
 import {

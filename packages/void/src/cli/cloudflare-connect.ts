@@ -1,11 +1,11 @@
 import { existsSync } from 'node:fs';
-import { log, isCancel, select } from '@voidzero-dev/vite-plus-prompts';
 import { basename, join } from 'pathslash';
 import {
   createBundledCloudflareAuthRunner,
   ensureCloudflareAuthentication,
 } from './cloudflare-auth.ts';
 import type { CloudflareAccount } from './cloudflare-auth.ts';
+import { log, isCancel, select } from './interactive-prompts.ts';
 import {
   LATEST_KNOWN_COMPAT_DATE,
   readRootWranglerConfig,

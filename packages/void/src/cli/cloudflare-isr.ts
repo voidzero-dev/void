@@ -1,9 +1,9 @@
 import type { ApprovedCloudflareKvBinding } from '@void/deploy-cloudflare';
 import { readStoredResourceName } from '@void/deploy-cloudflare';
-import { confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
 import { writeVoidProjectConfig } from '../config-write.ts';
 import { resolveBindingNames } from '../config.ts';
 import type { VoidConfig } from '../config.ts';
+import { confirm, isCancel, log } from './interactive-prompts.ts';
 
 /** A configured opt-in authorizes only the cache identity declared before the build. */
 export function approvedCloudflareIsrBinding(

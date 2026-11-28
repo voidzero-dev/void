@@ -11,7 +11,6 @@ import {
 import { createRequire } from 'node:module';
 import type { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
-import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
 import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
 import type { QueryResult } from 'pg';
 import {
@@ -70,6 +69,7 @@ import {
 } from './db-export-sequences.ts';
 import type { SeedModuleImporter } from './db-seed-loader.ts';
 import { formatTimestamp } from './gen.ts';
+import { confirm, isCancel, outro, log, text } from './interactive-prompts.ts';
 import { Buffer } from './node-buffer.ts';
 import { printSuccess, dim, formatCount, formatUrl, getErrorMessage, pc } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';

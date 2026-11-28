@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
-import { outro, log, cancel, isCancel, password, confirm } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
 import { PlatformClient } from './client.ts';
 import { validateSecretValues } from './env-validation.ts';
+import { outro, log, cancel, isCancel, password, confirm } from './interactive-prompts.ts';
 import { Buffer } from './node-buffer.ts';
 import { printSuccess, formatCount, note } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';

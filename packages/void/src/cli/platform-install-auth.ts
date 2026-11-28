@@ -14,7 +14,7 @@ import type {
   PlatformDeploymentManifest,
   PlatformLoginKind,
 } from '@void/platform';
-import { confirm, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
+import { confirm, multiselect, password, select, text } from './interactive-prompts.ts';
 import { formatUrl } from './output.ts';
 import {
   activatePlatformAccessCredentials,

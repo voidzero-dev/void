@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 // oxlint-disable-next-line import/no-namespace -- The test replaces or spies on members of the module object.
@@ -160,6 +161,35 @@ describe('void db seed', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('completes a seed that reads piped stdin and waits for beforeExit', async () => {
+    const root = createProjectRoot({
+      seedFile: {
+        name: 'seed.mjs',
+        content: `import { once } from 'node:events';
+export default async function ({ db }) {
+  let text = '';
+  for await (const chunk of process.stdin) text += chunk;
+  db.$client.prepare('INSERT INTO messages (text) VALUES (?)').run(text.trim());
+  await once(process, 'beforeExit');
+  setImmediate(() => {});
+  await once(process, 'beforeExit');
+}
+`,
+      },
+    });
+    const cli = fileURLToPath(new URL('../../dist/cli/cli.mjs', import.meta.url));
+    const result = spawnSync(process.execPath, [cli, 'db', 'seed', '--yes'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      input: 'seed message\n',
+      timeout: 20_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toMatch(/Seeded from db[/\\]seed\.mjs\./);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'seed message' }]);
+  }, 30_000);
 
   it('seeds from db/seed.sql by default', async () => {
     const root = createProjectRoot({

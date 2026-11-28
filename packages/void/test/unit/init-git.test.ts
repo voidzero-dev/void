@@ -11,6 +11,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
 });
 
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', async (importOriginal) => {
   const { CANCEL_SYMBOL, isCancel } =
     await importOriginal<typeof import('@voidzero-dev/vite-plus-prompts')>();

@@ -79,6 +79,7 @@ vi.mock('../../src/cli/output.ts', async (importOriginal) => ({
   printSuccess: vi.fn(),
 }));
 
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   confirm: vi.fn(),
   isCancel: () => false,

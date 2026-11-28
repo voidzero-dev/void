@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseRootWranglerConfig, readWranglerTopLevelString } from '@void/deploy-cloudflare';
-import { confirm, isCancel, log, password } from '@voidzero-dev/vite-plus-prompts';
 import { join } from 'pathslash';
 import { readConfig } from '../config.ts';
 import { readProjectPaths } from '../project-paths.ts';
@@ -38,6 +37,7 @@ import type {
   EmailPreflight,
   EmailWranglerRun,
 } from './email-cloudflare.ts';
+import { confirm, isCancel, log, password } from './interactive-prompts.ts';
 import { printSuccess, createSpinner, formatUrl, note, pc } from './output.ts';
 import { resolveCommandProjectId } from './resolve-project.ts';
 import { writeProvisionedWranglerConfig } from './wrangler.ts';

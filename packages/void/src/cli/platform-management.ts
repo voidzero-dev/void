@@ -14,8 +14,8 @@ import type {
   InstallationResourceKind,
   PlatformInstallationManifest,
 } from '@void/platform';
-import { confirm, isCancel, log, outro, select } from '@voidzero-dev/vite-plus-prompts';
 import { ensurePlatformAccessToken } from './cf-access.ts';
+import { confirm, isCancel, log, outro, select } from './interactive-prompts.ts';
 import { printSuccess, formatUrl, note, pc } from './output.ts';
 import { activatePlatformAccessCredentials } from './platform-access-setup.ts';
 import { turnOffInstalledProjectZeroTrust } from './platform-app-access.ts';

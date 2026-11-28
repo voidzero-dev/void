@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { CloudflareWorkerInspectionError } from '@void/deploy-cloudflare';
 import type { CloudflareCommandResult, ExistingCloudflareWorker } from '@void/deploy-cloudflare';
-import { isCancel, select } from '@voidzero-dev/vite-plus-prompts';
 import { isCI as ciInfoIsCI } from 'ci-info';
 import {
   CloudflareAuthenticationError,
@@ -25,6 +24,7 @@ import {
   SelfHostFirstDeployError,
   SelfHostSecretListError,
 } from './env-validation.ts';
+import { isCancel, select } from './interactive-prompts.ts';
 import { getErrorMessage } from './output.ts';
 import { writeProvisionedWranglerConfig } from './wrangler.ts';
 

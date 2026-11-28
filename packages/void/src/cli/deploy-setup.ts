@@ -1,7 +1,7 @@
-import { cancel, confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
 import { PlatformClient } from './client.ts';
 import { promptAndCreateProject } from './create-project.ts';
+import { cancel, confirm, isCancel, log } from './interactive-prompts.ts';
 import { promptForLoginToken } from './login.ts';
 import { attachSelectedPlatform, readProjectConfig, writeProjectConfig } from './project.ts';
 import type { ProjectConfig } from './project.ts';

@@ -28,6 +28,7 @@ const prompts = vi.hoisted(() => ({
   info: vi.fn(),
   warn: vi.fn(),
 }));
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => {
   const actual = await original<typeof import('@voidzero-dev/vite-plus-prompts')>();
   return {

@@ -70,6 +70,7 @@ const mocks = vi.hoisted(() => ({
   },
   cfRunner: vi.fn(),
 }));
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => ({
   ...(await original<typeof import('@voidzero-dev/vite-plus-prompts')>()),
   // These fixtures retain GitHub-only setup; Access choices have their own matrix.

@@ -18,6 +18,7 @@ import { genSubcommands, parseGenArgs } from './gen-args.ts';
 import { githubSubcommands, parseGithubArgs } from './github-args.ts';
 import { getHelpPath, printGlobalHelp, printHelpPage, printVoidHeader } from './help.ts';
 import { parseInfoArgs } from './info-args.ts';
+import { PromptInputClosedError } from './interactive-prompts.ts';
 import { operatorGroups } from './operator-args.ts';
 import { OperatorClientError } from './operator-client.ts';
 import { formatUrl, pc } from './output.ts';
@@ -88,7 +89,10 @@ async function runSubcommandGroup<T>(
       await run(root, parsed);
     }
   } catch (err) {
-    if (command === 'platform' && args.includes('--json')) {
+    if (
+      (command === 'platform' || err instanceof PromptInputClosedError) &&
+      args.includes('--json')
+    ) {
       console.error(
         JSON.stringify(
           err instanceof OperatorClientError
@@ -130,6 +134,8 @@ async function runSubcommandGroup<T>(
           ? `${platformMessage}\n${isPartialResult(err) ? 'Partial result' : 'Details'}:\n${JSON.stringify(err.details, null, 2)}`
           : platformMessage,
       );
+    } else if (err instanceof PromptInputClosedError) {
+      console.error(message);
     } else {
       // A command printing JSON keeps stdout for its result.
       log.error(message, args.includes('--json') ? { output: process.stderr } : undefined);

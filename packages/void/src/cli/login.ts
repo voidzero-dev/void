@@ -1,5 +1,4 @@
 import type { PlatformAuthenticationDiscovery } from '@void/platform';
-import { outro, log, select, isCancel, cancel } from '@voidzero-dev/vite-plus-prompts';
 import {
   getToken,
   getApiUrl,
@@ -9,6 +8,7 @@ import {
   savePlatformToken,
 } from './auth.ts';
 import { isExpiredTokenError, PlatformClient } from './client.ts';
+import { outro, log, select, isCancel, cancel } from './interactive-prompts.ts';
 import { printSuccess, createSpinner, formatUrl, pc } from './output.ts';
 
 export type LoginPlatform = {

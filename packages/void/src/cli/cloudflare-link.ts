@@ -9,7 +9,6 @@ import type {
   CloudflareCommandRunner,
   ApprovedCloudflareKvBinding,
 } from '@void/deploy-cloudflare';
-import { confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
 import { applyEdits, modify, parse } from 'jsonc-parser';
 import type { ParseError } from 'jsonc-parser';
 import { basename, join } from 'pathslash';
@@ -18,6 +17,7 @@ import { isUnchangedDeploySeed } from '../config-write.ts';
 import { isVersionIdChain } from './cloudflare-candidate.ts';
 import type { RunDeployOptions } from './deploy.ts';
 import { discoverFrameworkWranglerFiles } from './framework-config-migrate.ts';
+import { confirm, isCancel, log } from './interactive-prompts.ts';
 import { readDeploymentPlatform, writeDeploymentPlatform } from './project.ts';
 
 const LINK_FILE = '.void/cloudflare-link.json';

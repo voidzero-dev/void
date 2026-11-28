@@ -1,6 +1,5 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { isCancel, log as clackLog, text } from '@voidzero-dev/vite-plus-prompts';
 import { join, resolve } from 'pathslash';
 import { findEnvFile } from '../codegen/env-types.ts';
 import { isNodeTarget } from '../config.ts';
@@ -21,6 +20,7 @@ import type {
   RunDeployOptions,
 } from './deploy-types.ts';
 import { fetchRemoteSecretNames, formatEnvReport, validateProdEnv } from './env-validation.ts';
+import { isCancel, log as clackLog, text } from './interactive-prompts.ts';
 import type { CliLogger } from './log-file.ts';
 import { formatCount, getErrorMessage, pc } from './output.ts';
 import { detectPreset, formatProjectCommand, resolveProjectCommand } from './preset.ts';
