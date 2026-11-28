@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
 import { normalizePath } from 'vite';
 import type { Plugin, UserConfig } from 'vite';
 import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
@@ -10,6 +10,8 @@ import type {
 } from 'void/pages';
 import { babelParse, parse } from 'vue/compiler-sfc';
 import type { SFCScriptCompileOptions } from 'vue/compiler-sfc';
+import { generateSetupCall, generateSsrAppSetup, generateSsrRender } from './app-render.ts';
+import type { AppSetupModule } from './app-render.ts';
 
 export type { PrefetchConfig } from 'void/pages';
 
@@ -199,14 +201,26 @@ function hasNonIslandPages(dir: string): boolean {
 
 export function pagesPlugin(
   pagesDir: string,
-  options?: PagesPluginOptions,
+  options?: PagesPluginOptions & { appSetup?: AppSetupModule },
   parserPlugins?: BabelParserPlugins,
 ): ReadonlyArray<Plugin> {
   const normalizedPagesDir = normalizePath(pagesDir);
+  const appSetup = options?.appSetup;
   return [
     {
       name: 'void-vue:pages-transform',
       enforce: 'pre',
+
+      config(_, env) {
+        if (
+          appSetup &&
+          env.command === 'serve' &&
+          !env.isPreview &&
+          !statSync(appSetup.id, { throwIfNoEntry: false })?.isFile()
+        ) {
+          throw new Error(`voidVue appSetup file not found: ${appSetup.file}`);
+        }
+      },
 
       transform: {
         filter: { id: /\.vue$/ },
@@ -243,12 +257,13 @@ export function pagesPlugin(
       root: options?.root,
       deployRecovery: options?.deployRecovery,
       generateRenderer(scan) {
-        return generateRendererModule(scan, pagesDir);
+        return generateRendererModule(scan, pagesDir, appSetup);
       },
       generateClient(scan, staticPageData) {
         return generateClientEntry(
           scan,
           pagesDir,
+          appSetup,
           options?.viewTransitions,
           options?.prefetch,
           staticPageData,
@@ -294,26 +309,30 @@ export function pagesPlugin(
   ];
 }
 
-function generateRendererModule(scan: PageScanResult, pagesDir: string): string {
+function generateRendererModule(
+  scan: PageScanResult,
+  pagesDir: string,
+  appSetup: AppSetupModule | undefined,
+): string {
   return `
 import { createSSRApp, h, reactive, provide } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { createSsrRouter, idleNavigationState } from "void/pages-client";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
-import { serializePageData } from "void/pages-server";
+import { serializePageData${appSetup ? ', appStateScript, requestAppSetup' : ''} } from "void/pages-server";${appSetup ? generateSsrAppSetup(appSetup) : ''}
 
 ${generateComponentManifest(scan, pagesDir)}
 
 ${PATCH_PROPS_RUNTIME}
 
-export async function renderPage(pageObj, assetTags, requestUrl) {
+export async function renderPage(pageObj, assetTags, requestUrl${appSetup ? ', request' : ''}) {
   const PageComponent = (await components[pageObj.component]()).default;
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
     layoutIds.map(async (id) => (await components[id]()).default)
   );
 
-  const app = createSSRApp({
+  ${appSetup ? 'const { app, appHooks } = await requestApp' : 'const app = createSSRApp'}({
     setup() {
       provide("__void_shared", reactive(pageObj.shared || {}));
       provide("__void_params", reactive(pageObj.params || {}));
@@ -329,13 +348,10 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
         return vnode;
       };
     }
-  });
+  }${appSetup ? ', request' : ''});
 
-  let renderFailure;
-  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
-  const html = await renderToString(app);
-  if (renderFailure) throw renderFailure.error;
-  const pageData = serializePageData(pageObj);
+  ${generateSsrRender(appSetup)}
+  const pageData = serializePageData(pageObj);${appSetup ? '\n  const appState = pageObj.documentOnly || request.method === "HEAD" ? "" : appStateScript(appHooks);' : ''}
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
   const bodyAttrs = pageObj.head ? renderBodyAttrs(pageObj.head) : "";
@@ -346,7 +362,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 <body\${bodyAttrs}>
   \${pageObj.documentOnly ? "" : '<script id="__VOID_PAGE_DATA__" type="application/json">' + pageData + '</script>'}
   <div id="app">\${html}</div>
-  \${assetTags.body}
+  \${assetTags.body}${appSetup ? '${appState}' : ''}
 </body>
 </html>\`;
 }
@@ -356,18 +372,31 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 function generateClientEntry(
   scan: PageScanResult,
   pagesDir: string,
+  appSetup: AppSetupModule | undefined,
   viewTransitions?: boolean,
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
   const { defaultStrategy, hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
+  const errorHandler = appSetup
+    ? `{
+    const handleAppError = app.config.errorHandler;
+    app.config.errorHandler = (error, ...args) => {
+      if (!handleAppError || boundaryManifest.plans[currentPageId] ||
+          pageBoundarySlots(boundaryManifest, currentPageId, components).length) {
+        showTerminalPageError(routeUrl.value);
+      }
+      handleAppError?.(error, ...args);
+    };
+  }`
+    : 'app.config.errorHandler = () => showTerminalPageError(routeUrl.value);';
   return `
 import { createApp, createSSRApp, h, reactive, provide, shallowRef, nextTick, ref } from "vue";
 import { createDeferred, resolveDeferred, rejectDeferred } from "@void/vue/deferred";
 import { setActionRouter } from "@void/vue";
 import { PageErrorBoundary } from "@void/vue/pages-boundary";
 import { pageBoundarySlots, showTerminalPageError, createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
-import { parseCacheFor } from "void/pages-prefetch";
+import { parseCacheFor } from "void/pages-prefetch";${appSetup ? `\nimport { hydrateAppState } from "void/pages-server";\nimport setupApp from ${JSON.stringify(appSetup.id)};` : ''}
 
 ${generateComponentManifest(scan, pagesDir)}
 
@@ -459,8 +488,13 @@ const app = createVoidApp({
       return wrap(vnode, 0);
     };
   }
-});
-if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = () => showTerminalPageError(routeUrl.value);
+});${
+    appSetup
+      ? `${generateSetupCall(appSetup)}
+hydrateAppState(appHooks);`
+      : ''
+  }
+if (Object.keys(boundaryManifest.plans).length) ${errorHandler}
 
 app.mount(appEl);
 appEl.setAttribute("data-hydrated", "true");

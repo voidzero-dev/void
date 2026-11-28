@@ -20,18 +20,23 @@ import {
   editIslandSource,
 } from 'void/pages-islands-plugin';
 import type { IslandSourceEdit } from 'void/pages-islands-plugin';
+import { generateSetupCall, generateSsrAppSetup, generateSsrRender } from './app-render.ts';
+import type { AppSetupModule } from './app-render.ts';
 
 const COMPONENT_EXTENSIONS = ['.vue', '.tsx', '.jsx', '.ts', '.js'];
 
-const HYDRATE_ISLAND = `
+function generateHydrateIsland(appSetup: AppSetupModule | undefined): string {
+  const setupImports = appSetup ? `import setupApp from ${JSON.stringify(appSetup.id)};\n` : '';
+  return `${setupImports}
 async function hydrateIsland(el, mod, props, frontmatter) {
   const { createSSRApp, h } = await import("vue");
   const Component = mod.default || mod;
   const app = createSSRApp({ render: () => h(Component, props) });
-  app.provide("__void_frontmatter", frontmatter);
+  app.provide("__void_frontmatter", frontmatter);${appSetup ? generateSetupCall(appSetup) : ''}
   app.mount(el);
   el.setAttribute("data-hydrated", "true");
 }`;
+}
 
 /** Imports for the `<style>` blocks of a Vue component. */
 function styleBlockImports(file: string, content: string): Array<string> {
@@ -52,10 +57,11 @@ function styleBlockImports(file: string, content: string): Array<string> {
 
 export function islandsPlugin(
   pagesDir: string,
-  options?: { root?: string },
+  options?: { root?: string; appSetup?: AppSetupModule },
 ): ReadonlyArray<Plugin> {
   let pageScan: PageScanResult | null = null;
   const root = options?.root ?? dirname(pagesDir);
+  const appSetup = options?.appSetup;
   const islandManifest = createIslandManifest(root, COMPONENT_EXTENSIONS);
   let cssFiles = new Set<string>();
   let isDev = false;
@@ -89,9 +95,14 @@ export function islandsPlugin(
         }
       },
 
-      buildEnd() {
-        recordIslandStyles(this, pageScan, pagesDir);
-        if (this.environment.config.consumer !== 'client') {
+      async buildEnd() {
+        if (this.environment.config.consumer === 'server') {
+          const renderer = '\0' + ISLANDS_RENDERER_ID;
+          const setup =
+            appSetup && this.getModuleInfo(renderer)
+              ? await this.resolve(appSetup.id, renderer)
+              : null;
+          recordIslandStyles(this, pageScan, pagesDir, setup?.id);
           return;
         }
         // Vite drops a scoped style block when its component is not in the
@@ -124,7 +135,7 @@ export function islandsPlugin(
             }
             const mdScriptIds = mdClientScriptIds(resolvedConfig);
             const needsJS = computePagesNeedingClientJS(pageScan, pagesDir, resolvedConfig);
-            return generateIslandRenderer(pageScan, pagesDir, mdScriptIds, needsJS);
+            return generateIslandRenderer(pageScan, pagesDir, mdScriptIds, needsJS, appSetup);
           }
           if (id === '\0' + ISLANDS_CLIENT_ENTRY_ID) {
             if (!pageScan) {
@@ -139,7 +150,7 @@ export function islandsPlugin(
                 computePagesNeedingClientJS(pageScan, pagesDir, resolvedConfig).size > 0,
               isDev,
               styleBlockImports,
-              hydrateIsland: HYDRATE_ISLAND,
+              hydrateIsland: generateHydrateIsland(appSetup),
             });
           }
         },
@@ -238,6 +249,7 @@ function generateIslandRenderer(
   pagesDir: string,
   mdScriptIds: Set<string>,
   pagesNeedingClientJS: Set<string>,
+  appSetup: AppSetupModule | undefined,
 ): string {
   const mdScriptIdsCode = `const __mdClientScriptIds = new Set(${JSON.stringify([...mdScriptIds])});`;
   const needsJSCode = `const __pagesNeedingClientJS = new Set(${JSON.stringify([...pagesNeedingClientJS])});`;
@@ -246,7 +258,7 @@ function generateIslandRenderer(
 import { createSSRApp, h, reactive, provide } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
-import { islandFrontmatterScript } from "void/pages-server";
+import { islandFrontmatterScript${appSetup ? ', requestAppSetup' : ''} } from "void/pages-server";${appSetup ? generateSsrAppSetup(appSetup) : ''}
 
 ${generateComponentManifest(scan, pagesDir)}
 ${mdScriptIdsCode}
@@ -256,7 +268,7 @@ function escapeAttr(s) {
   return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
-export async function renderIslandPage(pageObj, assetTags) {
+export async function renderIslandPage(pageObj, assetTags${appSetup ? ', requestUrl, request' : ''}) {
   const __pageModule = await components[pageObj.component]();
   const PageComponent = __pageModule.default;
   const __frontmatter = __pageModule.frontmatter;
@@ -265,7 +277,7 @@ export async function renderIslandPage(pageObj, assetTags) {
     layoutIds.map(async (id) => (await components[id]()).default)
   );
 
-  const app = createSSRApp({
+  ${appSetup ? 'const { app } = await requestApp' : 'const app = createSSRApp'}({
     setup() {
       provide("__void_shared", reactive(pageObj.shared || {}));
       provide("__void_params", reactive(pageObj.params || {}));
@@ -280,12 +292,9 @@ export async function renderIslandPage(pageObj, assetTags) {
         return vnode;
       };
     }
-  });
+  }${appSetup ? ', request' : ''});
 
-  let renderFailure;
-  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
-  const html = await renderToString(app);
-  if (renderFailure) throw renderFailure.error;
+  ${generateSsrRender(appSetup)}
   // Islands hydrate as separate roots. Send the page frontmatter so their
   // useFrontmatter() returns the same value in the browser.
   const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")

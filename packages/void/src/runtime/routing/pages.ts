@@ -201,8 +201,13 @@ export function createStaticNotFound(
   const handle = createPageGetHandler({
     ...options,
     renderOptions: { ...options.renderOptions, renderMode: 'server' },
-    render: (page, assets, url) =>
-      options.render({ ...page, documentOnly: true }, { ...assets, body: '', preloads: '' }, url),
+    render: (page, assets, url, request) =>
+      options.render(
+        { ...page, documentOnly: true },
+        { ...assets, body: '', preloads: '' },
+        url,
+        request,
+      ),
   });
   return (request, env) => handle(new Context(new Request(new URL('/404', request.url)), { env }));
 }

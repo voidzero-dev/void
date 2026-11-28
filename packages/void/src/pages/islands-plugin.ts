@@ -358,14 +358,16 @@ export function recordIslandStyles(
   context: IslandBuildContext,
   pageScan: PageScanResult | null,
   pagesDir: string,
+  setupModule?: string,
 ): void {
   if (!pageScan || context.environment?.config.consumer !== 'server') {
     return;
   }
-  const styles = collectIslandStyles(
-    (id) => context.getModuleInfo(id),
-    islandStyleRoots(pageScan, pagesDir),
-  );
+  const roots = islandStyleRoots(pageScan, pagesDir);
+  if (setupModule) {
+    roots.unshift(setupModule);
+  }
+  const styles = collectIslandStyles((id) => context.getModuleInfo(id), roots);
   // Another server environment (an auxiliary Worker) does not have the pages.
   if (styles) {
     islandStylesByPagesDir.set(normalizePath(pagesDir), styles);
