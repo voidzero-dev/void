@@ -51,7 +51,9 @@ npm create void@latest my-app -- --toolchain vite-plus --framework react --start
 
 `npm create void <name>` takes a single directory name and creates it inside the current directory. Use up to 63 characters from `a-z`, `0-9`, and `-`, with a letter or digit at each end.
 
-For non-interactive scaffolding, choose `--deploy none` and run `void connect` later to sign in.
+When stdin is not a terminal, init ignores piped answers and keeps existing database settings. For full init, pass `--deploy` unless the project already has a saved deployment target. Use `--deploy none` for local setup, or run `void connect <url> --no-login` before choosing a Void platform.
+
+Use a terminal to add demo code through init. For a supported deployment target, see [GitHub Actions deployment](../../guide/deployment.md#github). To associate your app with a Void platform project, see [project linking](./project.md#void-project-link-name).
 
 Vite+ is the recommended toolchain. Vite+ starters include [`@cloudflare/oxlint-config`](https://github.com/cloudflare/oxlint-config). Run `vp lint` to check your code.
 
