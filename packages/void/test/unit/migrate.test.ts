@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { migrateLegacyVoidConfig, runMigrateCommand } from '../../src/cli/migrate.ts';
+import { renderDeploySeedConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
 
 const root = packageFixturePath(import.meta.dirname, '.tmp-migrate-test');
@@ -134,15 +135,46 @@ describe('migrateLegacyVoidConfig', () => {
     expect(existsSync(join(root, 'void.json'))).toBe(true);
   });
 
-  it('leaves invalid JSON and an existing typed config untouched', () => {
+  it('leaves invalid JSON untouched', () => {
     setup('{broken');
     expect(() => migrateLegacyVoidConfig(root)).toThrow('Invalid JSON');
     expect(readFileSync(join(root, 'void.json'), 'utf8')).toBe('{broken');
+  });
 
+  it.each([
+    ['authored', "export default { target: 'bun' };\n"],
+    ['deploy-generated', renderDeploySeedConfig({ cloudflare: { name: 'site' } })],
+  ])('gives recovery instructions for an existing %s typed config', (_kind, source) => {
     setup('{"target":"node"}');
-    writeFileSync(join(root, 'void.config.ts'), 'export default { target: "bun" };\n');
-    expect(() => migrateLegacyVoidConfig(root)).toThrow('void.config.ts already exists');
-    expect(existsSync(join(root, 'void.json'))).toBe(true);
+    writeFileSync(join(root, 'void.config.ts'), source);
+    expect(() => migrateLegacyVoidConfig(root)).toThrow(
+      'Rename it to a backup, run `void migrate`, then merge your saved settings into the new file and keep the migrated resource IDs.',
+    );
+    expect(readFileSync(join(root, 'void.config.ts'), 'utf8')).toBe(source);
+    expect(readFileSync(join(root, 'void.json'), 'utf8')).toBe('{"target":"node"}');
+  });
+
+  it('asks to move legacy settings into the typed config when a provisioned lock exists', () => {
+    setup('{}');
+    rmSync(join(root, 'void.json'));
+    const typed = 'export default { cloudflare: { name: "existing" } };\n';
+    const source = { name: 'existing' };
+    const resolved = {
+      ...source,
+      kv_namespaces: [{ binding: 'KV', id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }],
+    };
+    const legacy = JSON.stringify(resolved);
+    const lock = JSON.stringify({ version: 1, source, resolved, text: legacy });
+    writeFileSync(join(root, 'void.config.ts'), typed);
+    writeFileSync(join(root, 'wrangler.jsonc'), legacy);
+    writeFileSync(join(root, 'void.lock.json'), lock);
+
+    expect(() => migrateLegacyVoidConfig(root)).toThrow(
+      'migrate: void.config.ts already exists. Move the legacy settings into it before deleting the old files.',
+    );
+    expect(readFileSync(join(root, 'void.config.ts'), 'utf8')).toBe(typed);
+    expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(legacy);
+    expect(readFileSync(join(root, 'void.lock.json'), 'utf8')).toBe(lock);
   });
 
   it('finishes an interrupted migration if the typed config matches', () => {

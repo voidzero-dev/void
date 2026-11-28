@@ -110,7 +110,7 @@ Void signs you in through your browser when needed and saves the selected accoun
 
 After `--skip-migrations`, direct Cloudflare deployment history shows the applied migration state as unknown. Rolling back code doesn't reverse database changes.
 
-When using an API token, grant **Workers Admin** to create the Worker or **Workers Editor** to update it. See [Cloudflare CI credentials](../../integrations/cloudflare.md#deploying-from-ci) for zone and resource permissions. Commit `void.lock.json` after the first deploy before using other machines or CI.
+When using an API token, grant **Workers Admin** to create the Worker or **Workers Editor** to update it. See [Cloudflare CI credentials](../../integrations/cloudflare.md#deploying-from-ci) for zone and resource permissions. Commit `void.lock.json` after the first deploy before using other machines or CI. If the deploy creates `void.config.ts`, commit it and any `.gitignore` changes too.
 
 Use `void secret put <NAME>` for production server values. Local `.env` values are never deployed. Run `void db generate` and commit schema changes before deploying.
 

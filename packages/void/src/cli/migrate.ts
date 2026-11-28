@@ -151,7 +151,9 @@ export function migrateLegacyVoidConfig(root: string): boolean {
     const existing = readFileSync(typedPath, 'utf8');
     if (!GENERATED_MARKERS.some((marker) => existing.startsWith(marker))) {
       throw new Error(
-        `migrate: ${TYPED_CONFIG_FILE} already exists. Move the legacy settings into it before deleting the old files.`,
+        existsSync(join(root, VOID_LOCK_FILE))
+          ? `migrate: ${TYPED_CONFIG_FILE} already exists. Move the legacy settings into it before deleting the old files.`
+          : `migrate: ${TYPED_CONFIG_FILE} already exists. Rename it to a backup, run \`void migrate\`, then merge your saved settings into the new file and keep the migrated resource IDs.`,
       );
     }
     current = validateConfig(loadTypedVoidConfigFile(typedPath), TYPED_CONFIG_FILE);

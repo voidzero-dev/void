@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'pathslash';
 import { writeFileAtomic } from '../shared/atomic-write.ts';
 
-const CANDIDATE_FILE = '.void/cloudflare-candidate.json';
+export const CANDIDATE_FILE = '.void/cloudflare-candidate.json';
 const INVALID_CANDIDATE_MESSAGE =
   'The saved Cloudflare candidate receipt is invalid. Restore or remove .void/cloudflare-candidate.json before retrying.';
 

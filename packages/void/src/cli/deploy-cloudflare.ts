@@ -3,6 +3,7 @@ import { detectFramework } from '../plugin-inference.ts';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 import { readCloudflareCandidate } from './cloudflare-candidate.ts';
 import { createCloudflareChildReporter } from './cloudflare-child-report.ts';
+import { hasDeployConfigSource } from './cloudflare-deploy/classify.ts';
 import { readCloudflareLink } from './cloudflare-link.ts';
 import { withRecordedReadinessAccessOrigin } from './cloudflare-readiness.ts';
 import {
@@ -56,6 +57,8 @@ export async function runCloudflareDeploy(
   deps = { ...deps, exit };
   // One redactor for the whole deploy, so a bearer learned by one child is scrubbed everywhere.
   const reporter = createCloudflareChildReporter(cliLog);
+  const seedConfig =
+    !initialCloudflareLink && !options.reuseExistingWorker && !hasDeployConfigSource(root);
   const voidConfig = readConfig(root);
   const atomic = options.atomic === true || voidConfig.deploy?.cloudflare?.mode === 'atomic';
   if (atomic && (options.reuseExistingWorker || initialCloudflareLink)) {
@@ -131,7 +134,7 @@ export async function runCloudflareDeploy(
     return exit(1);
   }
 
-  const source = await prepareCloudflareDeploySource(root, options, voidConfig);
+  const source = await prepareCloudflareDeploySource(root, { ...options, seedConfig }, voidConfig);
   if (!source) {
     return exit(1);
   }
