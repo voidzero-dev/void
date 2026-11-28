@@ -172,6 +172,8 @@ Import attributes require `"module": "ESNext"` in your `tsconfig.json`:
 
 ## Hydration Strategies
 
+Put Svelte `<svelte:head>` content in a page or layout. Svelte matches head blocks by component, so islands that hydrate independently can claim another instance's head tags. If the tags do not match, Svelte can remount the island and reset its DOM state.
+
 The `island` attribute value controls _when_ the component hydrates:
 
 | Strategy          | Hydrates when...            | Use case                                   |

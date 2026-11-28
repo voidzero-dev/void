@@ -13,7 +13,7 @@ type IslandCssApp = {
   /** The adapter's plugin export in `dist/plugin.mjs`, e.g. `voidReact`. */
   pluginName: string;
   /** App files by path. `index` and `about` must ship no JavaScript. */
-  files: Record<string, string>;
+  files: Record<string, string> | ((root: string) => Record<string, string>);
   /** Rules (as minified CSS) every page must link, found once in the client build. */
   expectedCss: Array<string>;
   /** Extra assertions for each page. */
@@ -55,7 +55,7 @@ export default { plugins: [voidPlugin(), ${app.pluginName}(), voidMarkdown()] };
 export default defineConfig({ output: 'static', worker: { compatibility_date: '2026-02-24' } });
 `,
       'pages/about.md': '---\ntitle: About\n---\n\n# About\n',
-      ...app.files,
+      ...(typeof app.files === 'function' ? app.files(root) : app.files),
     };
     for (const [file, content] of Object.entries(files)) {
       mkdirSync(dirname(join(root, file)), { recursive: true });
