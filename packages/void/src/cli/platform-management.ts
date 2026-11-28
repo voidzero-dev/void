@@ -352,7 +352,7 @@ export async function runInstalledPlatformCommand(
   let progress: ReturnType<typeof createPlatformProgress> | undefined;
   let reportResult: (() => void) | undefined;
   let upgradeWritten = false;
-  let interruptedUpgrade = false;
+  let savedManifest: PlatformInstallationManifest | undefined;
 
   const execute = async (
     manifest: PlatformInstallationManifest,
@@ -951,9 +951,7 @@ export async function runInstalledPlatformCommand(
       const authoritative = releaseDatabase.authoritativeManifest;
       const databaseCheckpointExists = authoritative !== null && authoritative !== undefined;
       const currentManifest = selectAuthoritativePlatformManifest(current, authoritative);
-      interruptedUpgrade =
-        currentManifest.operation?.action === 'upgrade' &&
-        currentManifest.operation.phase !== 'complete';
+      savedManifest = currentManifest;
       if (authoritative && JSON.stringify(authoritative) !== JSON.stringify(current)) {
         writeInstallationManifest(authoritative);
       }
@@ -967,8 +965,12 @@ export async function runInstalledPlatformCommand(
     reportResult?.();
     markPhase('complete');
   } catch (error) {
+    const operation = savedManifest?.operation;
+    const interruptedOperation = operation !== undefined && operation.phase !== 'complete';
     const needsRecovery =
-      args.subcommand === 'upgrade' ? upgradeWritten || interruptedUpgrade : progress !== undefined;
+      args.subcommand === 'upgrade'
+        ? upgradeWritten || interruptedOperation || savedManifest?.status === 'failed'
+        : progress !== undefined;
     if (needsRecovery) {
       progress?.error(`Platform ${args.subcommand} failed.`);
     } else {
@@ -976,15 +978,24 @@ export async function runInstalledPlatformCommand(
     }
     progress = undefined;
     if (needsRecovery && args.subcommand !== 'uninstall' && args.subcommand !== 'disable') {
-      note(
-        [
-          'Traffic may remain paused. Inspect the saved state before continuing:',
-          `void platform status ${commandArgument(manifest.id)}`,
+      const guidance = [
+        'Traffic may remain paused. Inspect the saved state before continuing:',
+        `void platform status ${commandArgument(manifest.id)}`,
+      ];
+      if (
+        args.subcommand !== 'upgrade' ||
+        upgradeWritten ||
+        (interruptedOperation &&
+          operation.action === 'upgrade' &&
+          operation.toVersion === runtime?.manifest.platformVersion &&
+          operation.runtimeManifestSha256 === runtime.manifestSha256)
+      ) {
+        guidance.push(
           'After resolving the error, resume with the same runtime:',
           platformLifecycleResumeCommand(args, manifest.id),
-        ].join('\n'),
-        'Recovery',
-      );
+        );
+      }
+      note(guidance.join('\n'), 'Recovery');
     }
     throw error;
   } finally {

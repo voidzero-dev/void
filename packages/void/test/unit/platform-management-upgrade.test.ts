@@ -473,33 +473,40 @@ describe('installed platform upgrade', () => {
     delete process.env.VOID_PLATFORM_PROJECT_SECRET_KEYS_JSON;
   });
 
-  it('still tells the operator how to resume a paused upgrade when a retry is refused before writing', async () => {
-    const installed = state.manifest!;
-    state.manifest = {
-      ...installed,
-      status: 'verifying',
-      operation: {
-        id: 'interrupted-upgrade',
-        fromVersion: installed.platformVersion,
-        toVersion: state.runtime!.manifest.platformVersion,
-        action: 'upgrade',
-        phase: 'verifying',
-        startedAt: installed.updatedAt,
-        updatedAt: installed.updatedAt,
-      },
-    };
-    const refusal = new Error(
-      'platform: The PostgreSQL database is not at the exact forward-only schema required for runtime rollback.',
-    );
-    vi.mocked(installPlatform).mockRejectedValueOnce(refusal);
+  it.each([
+    { action: 'upgrade', sameRuntime: true, canResume: true },
+    { action: 'upgrade', sameRuntime: false, canResume: false },
+    { action: 'repair', sameRuntime: true, canResume: false },
+  ] as const)(
+    'reports saved $action state when upgrade is refused before writing (same runtime: $sameRuntime)',
+    async ({ action, sameRuntime, canResume }) => {
+      const installed = state.manifest!;
+      state.manifest = {
+        ...installed,
+        status: 'verifying',
+        operation: {
+          id: 'interrupted-operation',
+          fromVersion: installed.platformVersion,
+          toVersion: state.runtime!.manifest.platformVersion,
+          runtimeManifestSha256: sameRuntime ? state.runtime!.manifestSha256 : '0'.repeat(64),
+          action,
+          phase: 'verifying',
+          startedAt: installed.updatedAt,
+          updatedAt: installed.updatedAt,
+        },
+      };
+      const refusal = new Error(
+        'platform: The PostgreSQL database is not at the exact forward-only schema required for runtime rollback.',
+      );
+      vi.mocked(installPlatform).mockRejectedValueOnce(refusal);
 
-    await expect(upgrade()).rejects.toBe(refusal);
+      await expect(upgrade()).rejects.toBe(refusal);
 
-    expect(note).toHaveBeenCalledWith(
-      expect.stringContaining('void platform status ' + installed.id),
-      'Recovery',
-    );
-  });
+      const recovery = vi.mocked(note).mock.calls.find(([, title]) => title === 'Recovery');
+      expect(recovery?.[0]).toContain('void platform status ' + installed.id);
+      expect(recovery?.[0]?.includes('void platform upgrade ' + installed.id)).toBe(canResume);
+    },
+  );
 
   it.each([false, true])(
     'plans an upgrade with management authority instead of its runtime token (environment override: %s)',
