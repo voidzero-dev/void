@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'pathslash';
+import { dirname, join, resolve } from 'pathslash';
 import { normalizePath } from 'vite';
 import type { Plugin } from 'vite';
 import { Buffer } from './cli/node-buffer.ts';
@@ -562,7 +562,7 @@ function astroMiddlewareClaims(): Map<string, AstroMiddlewareClaim> {
 
 /**
  * Whether the Astro app has middleware that Void did not write. Void cannot add its dev trigger
- * middleware then, so the wrapper around Astro's Cloudflare server entry answers the triggers.
+ * middleware then, so the wrapper around the adapter's request handler answers the triggers.
  */
 export function hasOwnAstroMiddleware(root: string): boolean {
   const middlewarePath = join(root, ASTRO_MIDDLEWARE_RELATIVE);
@@ -573,18 +573,42 @@ export function hasOwnAstroMiddleware(root: string): boolean {
   return existsSync(join(root, 'src', 'middleware', 'index.ts'));
 }
 
-/** The Worker entry from the app's Cloudflare config, unless it is Astro's server entry. */
-function customAstroWorkerEntry(root: string): string | undefined {
-  let main: unknown;
+/**
+ * The adapter modules that Void's wrapper covers (`void:astro-server-entry`): the server entry,
+ * and the one whose `handle()` an app's own Worker entry calls.
+ */
+const ASTRO_WRAPPED_MODULES = [
+  '@astrojs/cloudflare/entrypoints/server',
+  '@astrojs/cloudflare/handler',
+];
+
+/**
+ * The app's own Worker entry from its Cloudflare config, when its source names neither module
+ * that Void wraps, so its requests reach Astro another way. An entry that cannot be read counts
+ * too, and so does one that leaves the call to another module of the app.
+ */
+function unwrappedAstroWorkerEntry(root: string): string | undefined {
+  let rootConfig: ReturnType<typeof readRootWranglerConfig>;
   try {
-    main = readRootWranglerConfig(root)?.config.main;
+    rootConfig = readRootWranglerConfig(root);
   } catch {
     return undefined;
   }
-  return typeof main === 'string' &&
-    !/^@astrojs\/cloudflare\/entrypoints\/server(?:\.js)?$/.test(main)
-    ? main
-    : undefined;
+  const main = rootConfig?.config.main;
+  if (
+    !rootConfig ||
+    typeof main !== 'string' ||
+    /^@astrojs\/cloudflare\/entrypoints\/server(?:\.js)?$/.test(main)
+  ) {
+    return undefined;
+  }
+  let source: string;
+  try {
+    source = readFileSync(resolve(dirname(rootConfig.configPath), main), 'utf8');
+  } catch {
+    return main;
+  }
+  return ASTRO_WRAPPED_MODULES.some((name) => source.includes(name)) ? undefined : main;
 }
 
 /**
@@ -595,8 +619,9 @@ function customAstroWorkerEntry(root: string): string | undefined {
  *
  * Astro middleware lives at a single discoverable entry, so if the user
  * already has `src/middleware.ts` we don't overwrite it. The wrapper around
- * Astro's Cloudflare server entry answers the triggers then. A custom Worker
- * entry can skip that server entry, so we warn when the app sets one.
+ * the adapter's request handler answers the triggers then, also for a custom
+ * Worker entry that calls `handle()`. An entry that reaches Astro another way
+ * skips the wrapper, so we warn about one.
  *
  * If we wrote the file we remove it when the last dev server using it closes,
  * so the user's source tree stays clean. `src/middleware.ts` belongs to the
@@ -610,13 +635,13 @@ export function astroDevTriggerInjectPlugin(root: string): Plugin {
   /** Whether the dev server being set up now holds the middleware Void wrote. */
   const ensureFile = (): boolean => {
     if (hasOwnAstroMiddleware(root)) {
-      const entry = customAstroWorkerEntry(root);
+      const entry = unwrappedAstroWorkerEntry(root);
       if (entry) {
         voidWarn(
           `Your Astro app has its own middleware and its own Worker entry (${entry}).\n` +
-            '         In dev, /__void/scheduled and /__void/queue do not work if this entry calls\n' +
-            '         handle() from @astrojs/cloudflare/handler. To use them, call fetch() on the\n' +
-            '         default export of @astrojs/cloudflare/entrypoints/server instead.',
+            '         In dev, /__void/scheduled and /__void/queue work only when this entry serves\n' +
+            '         requests with handle() from @astrojs/cloudflare/handler, or with fetch() on\n' +
+            '         the default export of @astrojs/cloudflare/entrypoints/server.',
         );
       }
       return false;

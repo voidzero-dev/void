@@ -49,6 +49,8 @@ const voidDir = toSlash(import.meta.dirname);
 
 const ASTRO_SERVER_ENTRY = '@astrojs/cloudflare/entrypoints/server';
 const ASTRO_SCOPED_SERVER_ENTRY = '\0void:astro-server-entry';
+const ASTRO_HANDLER = '@astrojs/cloudflare/handler';
+const ASTRO_SCOPED_HANDLER = '\0void:astro-handler';
 
 /**
  * A define value as Vite writes it into code (its handleDefineValue): a string is code, anything
@@ -356,7 +358,11 @@ export function createFrameworkPlugins(input: {
     },
   };
 
-  // Astro's Cloudflare adapter owns the Worker entry. Void wraps its default entry:
+  // Astro's Cloudflare adapter owns the Worker entry. Void wraps the two modules through which an
+  // app reaches the adapter's request handler: the adapter's server entry, which is the default
+  // Worker entry, and `@astrojs/cloudflare/handler`, whose `handle()` an app's own Worker entry
+  // calls. The server entry imports `handle` by a relative path, which this plugin does not see,
+  // so each request is wrapped once.
   // - For PostgreSQL and MySQL, each request runs inside Void's request scope
   //   (`withRuntimeEnv`), as the Class A wrapper does, so void/db keeps one client per request
   //   instead of one per query. D1 apps run without it: inside a request scope, void/db reads D1
@@ -373,28 +379,53 @@ export function createFrameworkPlugins(input: {
       ? {
           name: 'void:astro-server-entry',
           enforce: 'pre',
+          // The dependency scan stops at a wrapper, a `\0` id, so it never records the module that
+          // the wrapper imports. The Worker's imports reveal it later, and the optimizer runs a
+          // second time on the first start. The adapter names its server entry for the optimizer;
+          // name `handle()`'s module as well. The hook runs after the adapter's, which turns
+          // discovery off in the server that `astro build` and `astro sync` start to generate
+          // types: an include would be prebundled there for nothing.
+          configEnvironment: {
+            order: 'post',
+            handler(_name, environment, { command }) {
+              if (
+                command === 'serve' &&
+                environment.resolve?.conditions?.includes('workerd') &&
+                !environment.optimizeDeps?.noDiscovery
+              ) {
+                return { optimizeDeps: { include: [ASTRO_HANDLER] } };
+              }
+            },
+          },
           configResolved(resolvedConfig) {
             astroDevTriggers = resolvedConfig.command === 'serve' && hasOwnAstroMiddleware(root);
           },
           resolveId: {
-            filter: { id: /^@astrojs\/cloudflare\/entrypoints\/server(?:\.js)?$/ },
-            handler(_id, importer) {
+            filter: { id: /^@astrojs\/cloudflare\/(?:entrypoints\/server(?:\.js)?|handler)$/ },
+            handler(id, importer) {
+              const scoped =
+                id === ASTRO_HANDLER ? ASTRO_SCOPED_HANDLER : ASTRO_SCOPED_SERVER_ENTRY;
               if (
                 (!scopeAstroRequests && !astroDevTriggers) ||
-                importer === ASTRO_SCOPED_SERVER_ENTRY ||
+                // The wrapper's own import of the module it wraps.
+                importer === scoped ||
                 this.environment?.name === 'client'
               ) {
                 return;
               }
-              return ASTRO_SCOPED_SERVER_ENTRY;
+              return scoped;
             },
           },
           load: {
             // \0 prefix is Vite's virtual module convention
-            filter: { id: /^\0void:astro-server-entry$/ },
-            handler() {
+            filter: { id: /^\0void:astro-(?:server-entry|handler)$/ },
+            handler(id) {
+              const wrapsHandle = id === ASTRO_SCOPED_HANDLER;
+              const source = JSON.stringify(wrapsHandle ? ASTRO_HANDLER : ASTRO_SERVER_ENTRY);
               const imports = [
-                `import original from ${JSON.stringify(ASTRO_SERVER_ENTRY)};`,
+                wrapsHandle
+                  ? `import { handle as original } from ${source};`
+                  : `import original from ${source};`,
                 ...(scopeAstroRequests
                   ? [`import { withRuntimeEnv } from ${JSON.stringify(envModuleFile)};`]
                   : []),
@@ -404,19 +435,23 @@ export function createFrameworkPlugins(input: {
                     ]
                   : []),
               ];
-              const handle = astroDevTriggers
-                ? 'async () => (await handleDevTrigger(request, env, ctx)) ?? original.fetch(request, env, ctx)'
-                : '() => original.fetch(request, env, ctx)';
+              const callOriginal = wrapsHandle
+                ? 'original(request, env, ctx)'
+                : 'original.fetch(request, env, ctx)';
+              const respond = astroDevTriggers
+                ? `async () => (await handleDevTrigger(request, env, ctx)) ?? ${callOriginal}`
+                : `() => ${callOriginal}`;
+              const body = (indent: string): string =>
+                `${indent}const respond = ${respond};\n` +
+                `${indent}return ${scopeAstroRequests ? 'withRuntimeEnv(env, respond)' : 'respond()'};`;
+              // The wrapper's own `handle` takes the place of the one that `export *` passes on.
+              const wrapped = wrapsHandle
+                ? `export function handle(request, env, ctx) {\n${body('  ')}\n}`
+                : `export default {\n  ...original,\n  fetch(request, env, ctx) {\n${body('    ')}\n  },\n};`;
               return `${imports.join('\n')}
-export * from ${JSON.stringify(ASTRO_SERVER_ENTRY)};
+export * from ${source};
 
-export default {
-  ...original,
-  fetch(request, env, ctx) {
-    const handle = ${handle};
-    return ${scopeAstroRequests ? 'withRuntimeEnv(env, handle)' : 'handle()'};
-  },
-};
+${wrapped}
 `;
             },
           },

@@ -11,7 +11,7 @@ export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/svelte/test/integration/svelte-pages-client.test.ts': 30_000,
   'packages/void/test/e2e/cloudflare-deploy-live.test.ts': 6,
   'packages/void/test/integration/analog.test.ts': 38_000,
-  'packages/void/test/integration/astro.test.ts': 26_000,
+  'packages/void/test/integration/astro.test.ts': 36_000,
   'packages/void/test/integration/cli-help.test.ts': 1718,
   'packages/void/test/integration/cli-runtime-check.test.ts': 900,
   'packages/void/test/integration/cloudflare-deploy-build.test.ts': 6700,
