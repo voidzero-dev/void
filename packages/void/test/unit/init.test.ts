@@ -200,9 +200,8 @@ describe('init scaffold arguments', () => {
     });
     expect(() => parseInitArgs(['--package-manager', 'pnpm'])).toThrow('Unknown option');
     vi.stubEnv('VOID_PACKAGE_MANAGER', 'pnpm');
-    vi.stubEnv('VOID_VP_CREATE', '1');
     expect(parseInitArgs([])).not.toHaveProperty('packageManager');
-    expect(parseInitArgs([])).not.toHaveProperty('vpCreate');
+    expect(() => parseInitArgs(['--vp-create'])).toThrow('Unknown option');
   });
 
   it('scaffolds with --no-install without running the package manager install', async () => {
@@ -479,26 +478,6 @@ describe('init summary', () => {
       ]);
     } finally {
       write.mockRestore();
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('lets vp create install dependencies while generating the database migration', async () => {
-    vi.stubEnv('VOID_VP_CREATE', '1');
-    const root = mkdtempSync(join(tmpdir(), 'void-init-vp-create-no-install-'));
-    try {
-      await runInitCommand(root, parseInitArgs([...STARTER_FLAGS, '--no-install']));
-
-      expect(installCalls()).toHaveLength(0);
-      expect(drizzleGenerateCalls()).toHaveLength(1);
-      expect(listMigrationSqlFiles(root)).toEqual(['0000_generated.sql']);
-      expect(summaryMessages('→').join('\n')).not.toContain('install dependencies');
-      expect(summaryMessages('→').join('\n')).not.toContain('db generate');
-      expect(summaryMessages('✓')).toContain('Generated the initial database migration');
-      expect(String(mockOutro.mock.calls.at(-1)?.[0])).not.toContain(
-        'Follow the next steps to finish setup.',
-      );
-    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -1589,7 +1568,6 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.stubEnv('VOID_PACKAGE_MANAGER', '');
-  vi.stubEnv('VOID_VP_CREATE', '');
   previousCI = process.env.CI;
   process.env.CI = 'true';
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => true });
@@ -2596,24 +2574,31 @@ describe('isScaffoldableEmptyProject', () => {
     }
   });
 
-  it('leaves devEngines package manager selection to vp create', async () => {
-    vi.stubEnv('VOID_VP_CREATE', '1');
-    const root = mkdtempSync(join(tmpdir(), 'void-init-vp-create-'));
+  it('preserves an existing devEngines package manager policy', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-pinned-npm-'));
+    const packageManager = { name: 'npm', version: '11.20.0', onFail: 'warn' };
     try {
-      mockSelect
-        .mockResolvedValueOnce('vite-plus')
-        .mockResolvedValueOnce('react')
-        .mockResolvedValueOnce('static');
-      mockConfirm.mockResolvedValueOnce(false);
-
-      await runInitCommand(root, parseInitArgs([]));
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({ private: true, devEngines: { packageManager } }),
+      );
+      await runInitCommand(
+        root,
+        parseInitArgs([
+          '--toolchain',
+          'vite',
+          '--framework',
+          'react',
+          '--starter',
+          'static',
+          '--deploy',
+          'none',
+        ]),
+      );
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-      expect(pkg.devDependencies['vite-plus']).toBe(
-        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
-      );
-      expect(pkg.devEngines).toBeUndefined();
-      expect(installCalls()).toHaveLength(0);
+      expect(pkg.devEngines.packageManager).toEqual(packageManager);
+      expect(installCalls()[0][0]).toBe('npm');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

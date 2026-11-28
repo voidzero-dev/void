@@ -41,17 +41,6 @@ function isYarnClassic(userAgent = process.env.npm_config_user_agent): boolean {
   return /^yarn\/1(?:\.|$)/.test(userAgent ?? '');
 }
 
-// Vite+ 1.7 does not expose a command-specific marker to template processes.
-// VP_USER_AGENT only identifies the CLI, and VP_PACKAGE_MANAGER is an override,
-// so this is the best available signal but can still misidentify `vp exec` or
-// `vp dlx` when that override is set. Prefer a dedicated Vite+ marker if added.
-function isVpCreateInvocation(): boolean {
-  return (
-    (process.env.VP_USER_AGENT?.startsWith('vp/') ?? false) &&
-    Boolean(process.env.VP_PACKAGE_MANAGER)
-  );
-}
-
 /** Run the matching Void CLI without adding it to the generated project. */
 export function pmDlx(pm: PM, version: string): ReadonlyArray<string> {
   const pkg = `void@${version}`;
@@ -72,16 +61,7 @@ export function pmInitCommand(
   version: string,
   initArgs: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
-  const hasToolchain = initArgs.some(
-    (arg) => arg === '--toolchain' || arg.startsWith('--toolchain='),
-  );
-  const invokedByVpCreate = isVpCreateInvocation();
-  return [
-    ...pmDlx(pm, version),
-    'init',
-    ...initArgs,
-    ...(invokedByVpCreate && !hasToolchain ? ['--toolchain', 'vite-plus'] : []),
-  ];
+  return [...pmDlx(pm, version), 'init', ...initArgs];
 }
 
 export type InitCommandRunner = (
@@ -97,10 +77,8 @@ export function runVoidInit(
   cwd: string,
   runner: InitCommandRunner = run,
 ): Promise<void> {
-  const invokedByVitePlus = isVpCreateInvocation();
   return runner(pmInitCommand(pm, version, initArgs), cwd, {
     VOID_PACKAGE_MANAGER: pm,
-    VOID_VP_CREATE: invokedByVitePlus ? '1' : '',
   });
 }
 

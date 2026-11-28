@@ -16,8 +16,9 @@ describe('create-void delegation', () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it('writes the npm package manager for an npm create void Vite+ starter', async () => {
-    vi.stubEnv('VP_USER_AGENT', '');
+  it('preserves --no-install for an npm Vite+ starter with a package-manager override', async () => {
+    vi.stubEnv('VP_USER_AGENT', 'vp/1.8.0');
+    vi.stubEnv('VP_PACKAGE_MANAGER', 'npm@11.19.1');
     vi.stubEnv('npm_config_user_agent', 'npm/11.0.0 node/v24.22.1');
     const root = mkdtempSync(join(tmpdir(), 'create-void-npm-'));
     try {
@@ -40,15 +41,15 @@ describe('create-void delegation', () => {
         root,
         async (argv, cwd, env) => {
           expect(argv).not.toContain('--package-manager');
-          expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'npm', VOID_VP_CREATE: '' });
+          expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'npm' });
           vi.stubEnv('VOID_PACKAGE_MANAGER', env.VOID_PACKAGE_MANAGER);
-          vi.stubEnv('VOID_VP_CREATE', env.VOID_VP_CREATE);
           await runInitCommand(cwd!, parseInitArgs(argv.slice(argv.indexOf('init') + 1)));
         },
       );
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
       expect(pkg.devEngines.packageManager).toEqual({ name: 'npm', onFail: 'download' });
+      expect(existsSync(join(root, 'node_modules'))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -91,9 +92,8 @@ describe('create-void delegation', () => {
         appDirectory,
         async (argv, cwd, env) => {
           invoked = true;
-          expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'pnpm', VOID_VP_CREATE: '' });
+          expect(env).toMatchObject({ VOID_PACKAGE_MANAGER: 'pnpm' });
           vi.stubEnv('VOID_PACKAGE_MANAGER', env.VOID_PACKAGE_MANAGER);
-          vi.stubEnv('VOID_VP_CREATE', env.VOID_VP_CREATE);
           expect(argv).toEqual([
             'pnpm',
             'dlx',
