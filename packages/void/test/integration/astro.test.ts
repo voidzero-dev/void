@@ -137,8 +137,23 @@ describe('playground/astro dev', () => {
   });
 });
 
-// Astro owns its Worker entry; Void runs it in a request scope for PostgreSQL.
-describe('playground/astro with PostgreSQL', () => {
+// The entry that Astro's adapter guide shows for an app with a Worker entry of its own.
+const OWN_WORKER_ENTRY = `import { handle } from '@astrojs/cloudflare/handler';
+
+export default {
+  fetch(request, env, ctx) {
+    return handle(request, env, ctx);
+  },
+} satisfies ExportedHandler<Env>;
+`;
+
+// Astro owns its Worker entry; Void runs it in a request scope for PostgreSQL. An app's own Worker
+// entry reaches Astro through the adapter's handle(), which gets the same request scope and dev
+// triggers.
+describe.each([
+  ["the adapter's Worker entry", undefined],
+  ['its own Worker entry that calls handle()', OWN_WORKER_ENTRY],
+])('playground/astro with PostgreSQL and %s', (_entry, ownWorkerEntry) => {
   const USERS = [
     { id: 1, name: 'Ada', email: 'ada@example.com' },
     { id: 2, name: 'Linus', email: 'linus@example.com' },
@@ -221,15 +236,22 @@ export const onRequest = defineMiddleware((_context, next) => next());
     playground = createIsolatedPlayground(ROOT, PLAYGROUND);
     const root = playground.root;
     const configPath = join(root, 'void.config.ts');
-    writeFileSync(
-      configPath,
-      readFileSync(configPath, 'utf8')
-        .replace('defineConfig({', "defineConfig({\n  database: 'pg',")
-        .replace(
-          "compatibility_flags: ['nodejs_als']",
-          "compatibility_flags: ['nodejs_compat', 'nodejs_als']",
-        ),
-    );
+    let config = readFileSync(configPath, 'utf8')
+      .replace('defineConfig({', "defineConfig({\n  database: 'pg',")
+      .replace(
+        "compatibility_flags: ['nodejs_als']",
+        "compatibility_flags: ['nodejs_compat', 'nodejs_als']",
+      );
+    if (ownWorkerEntry) {
+      expect(config).toContain("name: 'playground-astro',");
+      config = config.replace(
+        "name: 'playground-astro',",
+        "name: 'playground-astro',\n    main: './src/worker.ts',",
+      );
+      mkdirSync(join(root, 'src'), { recursive: true });
+      writeFileSync(join(root, 'src/worker.ts'), ownWorkerEntry);
+    }
+    writeFileSync(configPath, config);
     rmSync(join(root, 'db/migrations'), { recursive: true, force: true });
     writeFileSync(
       join(root, 'db/schema.ts'),

@@ -540,20 +540,43 @@ describe('astroDevTriggerInjectPlugin', () => {
     expect(code).toContain(`from "${frameworkTriggersDispatchPath(root)}"`);
   });
 
-  // Next to the app's own middleware, the wrapper around Astro's server entry answers the
-  // triggers. A custom Worker entry can skip that server entry.
+  // Next to the app's own middleware, the wrapper around the adapter's request handler answers
+  // the triggers: its server entry, and handle(), which an app's own Worker entry calls. An entry
+  // that names neither reaches Astro another way.
+  const OWN_ENTRY = './src/worker.ts';
   it.each([
-    [undefined, false],
-    ['@astrojs/cloudflare/entrypoints/server', false],
-    ['./src/worker.ts', true],
+    ['no main', undefined, undefined, false],
+    ["the adapter's server entry", '@astrojs/cloudflare/entrypoints/server', undefined, false],
+    [
+      'an entry that calls handle()',
+      OWN_ENTRY,
+      "import { handle } from '@astrojs/cloudflare/handler';\n",
+      false,
+    ],
+    [
+      "an entry that calls the server entry's fetch()",
+      OWN_ENTRY,
+      "import handler from '@astrojs/cloudflare/entrypoints/server';\n",
+      false,
+    ],
+    [
+      'an entry that runs Astro with cf()',
+      OWN_ENTRY,
+      "import { cf, finalize } from '@astrojs/cloudflare/fetch';\n",
+      true,
+    ],
+    ['an entry that cannot be read', OWN_ENTRY, undefined, true],
   ])(
-    'skips an app with its own middleware and warns only for a custom Worker entry (main: %s)',
-    (main, warns) => {
+    'skips an app with its own middleware and warns only for a Worker entry that skips the wrapper (main: %s)',
+    (_name, main, entry, warns) => {
       const root = createTempRoot();
       mkdirSync(join(root, 'src'), { recursive: true });
       const existing = '// user middleware\nexport const onRequest = () => {};\n';
       writeFileSync(join(root, 'src', 'middleware.ts'), existing);
       writeFileSync(join(root, 'wrangler.jsonc'), JSON.stringify({ main }));
+      if (entry) {
+        writeFileSync(join(root, 'src', 'worker.ts'), entry);
+      }
       const log = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       callConfigureServer(astroDevTriggerInjectPlugin(root));
@@ -562,6 +585,7 @@ describe('astroDevTriggerInjectPlugin', () => {
       const output = log.mock.calls.map((call) => String(call[0])).join('\n');
       if (warns) {
         expect(output).toContain('its own Worker entry (./src/worker.ts)');
+        expect(output).toContain('handle() from @astrojs/cloudflare/handler');
         expect(output).toContain('default export of @astrojs/cloudflare/entrypoints/server');
       } else {
         expect(output).toBe('');
