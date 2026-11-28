@@ -76,7 +76,7 @@ import { sameMigrationsDir, writeProvisionedWranglerConfig } from './wrangler.ts
 /** Validate source-level native deploy inputs before account operations or project code. */
 export async function prepareCloudflareDeploySource(
   root: string,
-  options: RunDeployOptions,
+  options: RunDeployOptions & { seedConfig: boolean },
   voidConfig: VoidConfig,
 ): Promise<
   ({ configPath: string } & Awaited<ReturnType<typeof computeDesiredCloudflareResources>>) | null

@@ -11,6 +11,7 @@ import {
 } from '../../src/cli/cloudflare-link.ts';
 import { readDeploymentPlatform } from '../../src/cli/project.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
+import { DEPLOY_CONFIG_MARKER } from '../../src/config-write.ts';
 
 let root: string;
 const config =
@@ -34,6 +35,27 @@ describe('Cloudflare deployment onboarding', () => {
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(readDeploymentPlatform(root)).toBeNull();
     expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')).toBe(config);
+  });
+
+  it('offers to link a Worker with a deploy-generated config and a saved lock', async () => {
+    rmSync(join(root, 'wrangler.jsonc'));
+    writeFileSync(
+      join(root, 'void.config.ts'),
+      `${DEPLOY_CONFIG_MARKER}\nexport default { cloudflare: { name: 'site' } };\n`,
+    );
+    const source = { name: 'site' };
+    const resolved = { ...source, account_id: 'personal' };
+    writeFileSync(
+      join(root, 'void.lock.json'),
+      JSON.stringify({ version: 1, source, resolved, text: JSON.stringify(resolved) }),
+    );
+    const confirm = vi.fn().mockResolvedValue(true);
+
+    expect(await maybeLinkCloudflareDeploy(root, {}, { interactive: true, confirm })).toBe(
+      'existing',
+    );
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(readDeploymentPlatform(root)).toBeNull();
   });
   it('offers to link a Worker whose config starts with a UTF-8 BOM', async () => {
     const bomConfig = `\uFEFF${config}`;
