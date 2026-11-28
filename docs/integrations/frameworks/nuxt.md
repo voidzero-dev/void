@@ -70,9 +70,11 @@ export default defineConfig({
 ### 5. Deploy
 
 ```bash
-void auth login
+void connect --platform cloudflare
 void deploy
 ```
+
+`void connect` signs you in to Cloudflare, asks which account to use, and saves it as the deploy target. To deploy to a Void platform run by your team instead, see [Deployment](../../guide/deployment.md).
 
 ## Using Void Features
 
