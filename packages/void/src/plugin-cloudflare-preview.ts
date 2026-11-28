@@ -1,12 +1,19 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { getRootConfigPath, getWorkerConfigPath } from '@cloudflare/build-output-utils';
+import type { CloudflareConfig } from '@cloudflare/vite-plugin';
 import { dirname, join } from 'pathslash';
 import type { Plugin } from 'vite';
+import { addLocalQueueProducers } from './plugin-cloudflare-config.ts';
+import type { LocalQueueProducers } from './plugin-cloudflare-config.ts';
 import { writeFileAtomic } from './shared/atomic-write.ts';
 import { loadLocalEnv } from './shared/env.ts';
 
 /** Give preview local bindings without changing the deployable build or storing their values. */
-export function withLocalPreviewBindings(plugins: Array<Plugin>, root: string): Array<Plugin> {
+export function withLocalPreviewBindings(
+  plugins: Array<Plugin>,
+  root: string,
+  localQueueProducers?: LocalQueueProducers,
+): Array<Plugin> {
   let directory: string | undefined;
   const cleanup = () => {
     if (directory) {
@@ -35,9 +42,10 @@ export function withLocalPreviewBindings(plugins: Array<Plugin>, root: string): 
       const output = dirname(getRootConfigPath(root));
       cpSync(output, dirname(getRootConfigPath(directory)), { recursive: true });
       const path = getWorkerConfigPath(directory);
-      const worker = JSON.parse(readFileSync(path, 'utf8')) as {
-        env?: Record<string, { type?: unknown }>;
-      };
+      const worker = JSON.parse(readFileSync(path, 'utf8')) as Pick<
+        CloudflareConfig['worker'],
+        'env'
+      >;
       worker.env ??= {};
       const inlineBindingTypes = new Set<unknown>(['text', 'json', 'secret']);
       for (const name of Object.keys(loadLocalEnv(root))) {
@@ -46,6 +54,7 @@ export function withLocalPreviewBindings(plugins: Array<Plugin>, root: string): 
           worker.env[name] = { type: 'secret' };
         }
       }
+      addLocalQueueProducers(worker, localQueueProducers);
       writeFileAtomic(path, JSON.stringify(worker));
       // The upstream preview resolves declared secrets from this env directory.
       // A private artifact copy isolates local-only declarations from deployment

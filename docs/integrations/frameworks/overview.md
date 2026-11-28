@@ -42,6 +42,8 @@ With `voidPlugin()` added to the framework's Vite config, frameworks get most of
 - **Queue consumers:** typed producers and consumers via the `queues/` directory.
 - **Revalidation and prerendering:** configure them with [`routing.revalidate`](../../guide/edge/revalidation.md) and [`routing.prerender`](../../guide/edge/prerendering.md) in `void.config.ts`. Void apps can also set these per page in companion `.server.ts` files.
 
+In vinext dev and preview, `send()` succeeds but doesn't run this app's queue handler. In dev, run the handler with the [manual queue trigger](../../guide/queues.md#local-development), using the dev server's port and the token in `.void/dev-trigger-token`. Preview reads `queues/` and `env.ts` from the source tree, so don't change them between the build and preview.
+
 For framework apps, Void revalidation caches public HTML document responses with both `void deploy` and `void deploy --platform cloudflare`. Client data requests continue to use the framework's own behavior. A response with `Set-Cookie` or `Cache-Control: private`, `no-store`, or `no-cache` is never shared.
 
 Frameworks can also access bindings directly via the framework's own mechanisms (e.g. `env` from `cloudflare:workers` in SvelteKit 3, Analog, and Astro, `platform.env` in SvelteKit 2, `event.context.cloudflare.env` in Nuxt).

@@ -1,14 +1,58 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { convertToWranglerConfig } from '@cloudflare/config';
+import { bindings, convertToWranglerConfig } from '@cloudflare/config';
 import type { CloudflareConfig, PluginConfig } from '@cloudflare/vite-plugin';
 import { resolve, dirname, basename, join } from 'pathslash';
 import { parse as parseToml } from 'smol-toml';
 import { migrateBuiltWranglerConfig } from './cli/cf-config-migrate.ts';
 import { readGeneratedWranglerConfigFile } from './cli/generated-wrangler-config.ts';
+import { voidWarn } from './log.ts';
+import type { QueueDefinition } from './queues/scan.ts';
 
 /** Void keeps its Wrangler-shaped public options independently of the upstream plugin. */
 export type WorkerConfig = ReturnType<typeof convertToWranglerConfig>;
 export type WorkerConfigFields = Record<string, unknown>;
+
+export type LocalQueueProducers = () => {
+  queues: ReadonlyArray<Pick<QueueDefinition, 'filePath' | 'name' | 'bindingName'>>;
+  reserved: ReadonlyArray<string>;
+};
+
+export function addLocalQueueProducers(
+  worker: Pick<CloudflareConfig['worker'], 'env'>,
+  read: LocalQueueProducers | undefined,
+  warn: (message: string) => void = voidWarn,
+): Array<string> | undefined {
+  // A framework can open a dev or preview server while building its pages.
+  if (!read || process.env.CLOUDFLARE_VITE_BUILD === 'true') {
+    return;
+  }
+  const { queues, reserved } = read();
+  if (queues.length === 0) {
+    return;
+  }
+  const taken = new Set(reserved);
+  const byBinding = new Map<string, Array<(typeof queues)[number]>>();
+  for (const queue of queues) {
+    const group = byBinding.get(queue.bindingName) ?? [];
+    group.push(queue);
+    byBinding.set(queue.bindingName, group);
+  }
+  let added: Array<string> | undefined;
+  for (const [binding, group] of byBinding) {
+    if (group.length > 1) {
+      const files = group.map(({ filePath }) => filePath).join(', ');
+      warn(
+        `Queue files ${files} share binding ${binding}. Void skips inference for this binding. Rename the conflicting files so each queue has a distinct binding.`,
+      );
+      continue;
+    }
+    if (!taken.has(binding) && !Object.hasOwn(worker.env ?? {}, binding)) {
+      (worker.env ??= {})[binding] = bindings.queue({ name: group[0].name });
+      (added ??= []).push(binding);
+    }
+  }
+  return added;
+}
 
 type AuxiliaryConfig =
   | Partial<WorkerConfig>
@@ -133,6 +177,7 @@ export function restoreLocalContainerBindings(worker: CloudflareConfig['worker']
 export function nativeAuxiliaryWorkers(
   workers: Array<AuxiliaryWorkerConfig> | undefined,
   root: string,
+  readLocalQueueBindings?: () => ReadonlyArray<string> | undefined,
 ): PluginConfig['auxiliaryWorkers'] {
   return workers?.map(({ configPath, config, ...options }) => ({
     ...options,
@@ -145,11 +190,20 @@ export function nativeAuxiliaryWorkers(
             : readGeneratedWranglerConfigFile(path)
           : {}
       ) as WorkerConfig;
+      let worker = entryWorkerConfig;
+      const localBindings = readLocalQueueBindings?.();
+      if (localBindings && typeof config === 'function') {
+        const env = { ...entryWorkerConfig.env };
+        for (const name of localBindings) {
+          delete env[name];
+        }
+        worker = { ...entryWorkerConfig, env };
+      }
       const patch =
         typeof config === 'function'
           ? config(base, {
               entryWorkerConfig: convertToWranglerConfig({
-                worker: entryWorkerConfig,
+                worker,
                 containers: [],
               }),
             })

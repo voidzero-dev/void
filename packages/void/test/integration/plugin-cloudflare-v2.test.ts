@@ -426,6 +426,35 @@ export default {
     expect(existsSync(join(root, '.gitignore'))).toBe(false);
   });
 
+  it('keeps inferred local producers out of auxiliary Worker config callbacks', async () => {
+    const root = project();
+    vi.stubEnv('CLOUDFLARE_VITE_BUILD', undefined);
+    const helperProducers = vi.fn();
+    const plugins = cloudflare({
+      config: () => ({ name: 'entry', main: 'virtual:entry' }),
+      viteEnvironment: { name: 'ssr' },
+      localQueueProducers: () => ({
+        queues: [{ filePath: 'inbox.ts', name: 'inbox', bindingName: 'QUEUE_INBOX' }],
+        reserved: [],
+      }),
+      auxiliaryWorkers: [
+        {
+          config(_config, { entryWorkerConfig }) {
+            const producers = entryWorkerConfig.queues?.producers ?? [
+              { binding: 'QUEUE_INBOX', queue: 'helper-original' },
+            ];
+            helperProducers(producers);
+            return { name: 'helper', main: 'helper.js', queues: { producers } };
+          },
+        },
+      ],
+    });
+    await resolveConfig({ root, configFile: false, plugins }, 'serve');
+    expect(helperProducers).toHaveBeenCalledExactlyOnceWith([
+      { binding: 'QUEUE_INBOX', queue: 'helper-original' },
+    ]);
+  });
+
   it("starts no Worker in Vitest's server, in any mode, but keeps it in servers that tests start", async () => {
     const root = project();
     const plugins = () =>
@@ -462,7 +491,16 @@ export default {
     writeFileSync(join(oldOutput, 'config.json'), '{}');
     writeFileSync(
       join(root, 'worker.js'),
-      "export default { fetch: (_request, env) => new Response(env.PREVIEW_VALUE ?? 'built-worker') };",
+      `export default { async fetch(_request, env) {
+        await env.QUEUE_INBOX?.send({ test: true });
+        return Response.json({
+          value: env.PREVIEW_VALUE ?? 'built-worker',
+          sent: Boolean(env.QUEUE_INBOX),
+          dotenv: env.QUEUE_DOTENV,
+          reserved: 'QUEUE_RESERVED' in env,
+          collision: 'QUEUE_TWO_NAMES' in env,
+        });
+      } };`,
     );
     writeFileSync(join(root, 'index.html'), '<p>asset</p>');
     const plugins = () =>
@@ -476,6 +514,16 @@ export default {
         }),
         inspectorPort: false,
         viteEnvironment: { name: 'ssr' },
+        localQueueProducers: () => ({
+          queues: [
+            { filePath: 'inbox.ts', name: 'inbox', bindingName: 'QUEUE_INBOX' },
+            { filePath: 'dotenv.ts', name: 'dotenv', bindingName: 'QUEUE_DOTENV' },
+            { filePath: 'reserved.ts', name: 'reserved', bindingName: 'QUEUE_RESERVED' },
+            { filePath: 'two-names.ts', name: 'two-names', bindingName: 'QUEUE_TWO_NAMES' },
+            { filePath: 'two_names.ts', name: 'two_names', bindingName: 'QUEUE_TWO_NAMES' },
+          ],
+          reserved: ['QUEUE_RESERVED'],
+        }),
       });
     const builder = await createBuilder({
       root,
@@ -492,26 +540,35 @@ export default {
     expect(existsSync(join(root, 'dist/ssr/index.js'))).toBe(true);
     expect(existsSync(join(root, 'dist/client/index.html'))).toBe(true);
     expect(existsSync(join(getWorkerAssetsDir(root), 'index.html'))).toBe(true);
-    expect(readFileSync(join(root, 'dist/ssr/wrangler.json'), 'utf8')).toContain(
-      '"main": "index.js"',
-    );
-    writeFileSync(join(root, '.env'), 'PREVIEW_VALUE=local-preview-only');
-    // Exercise the native plugin's Worker runtime as well as its build output.
-    const server = await preview({
-      root,
-      configFile: false,
-      plugins: plugins(),
-      logLevel: 'silent',
-      server: { port: 0 },
-    });
-    try {
-      const response = await fetch(server.resolvedUrls!.local[0]);
-      expect(await response.text()).toBe('local-preview-only');
-      expect((await readBuildOutput(root)).workers.default.config.env).not.toHaveProperty(
-        'PREVIEW_VALUE',
-      );
-    } finally {
-      await server.close();
+    const files = [output.workers.default.configPath, join(root, 'dist/ssr/wrangler.json')];
+    const buildConfigs = files.map((file) => readFileSync(file, 'utf8'));
+    expect(buildConfigs[1]).toContain('"main": "index.js"');
+    expect(buildConfigs.every((text) => !text.includes('QUEUE_INBOX'))).toBe(true);
+    writeFileSync(join(root, '.env'), 'PREVIEW_VALUE=local-preview-only\nQUEUE_DOTENV=kept');
+    // Framework prerendering opens preview while the build flag is set.
+    // Clear the flag for the second check to simulate a separate CLI invocation.
+    for (const building of [true, false]) {
+      vi.stubEnv('CLOUDFLARE_VITE_BUILD', building ? 'true' : undefined);
+      const server = await preview({
+        root,
+        configFile: false,
+        plugins: plugins(),
+        logLevel: 'silent',
+        server: { port: 0 },
+      });
+      try {
+        const response = await fetch(server.resolvedUrls!.local[0]);
+        expect(await response.json()).toEqual({
+          value: 'local-preview-only',
+          sent: !building,
+          dotenv: 'kept',
+          reserved: false,
+          collision: false,
+        });
+      } finally {
+        await server.close();
+      }
+      expect(files.map((file) => readFileSync(file, 'utf8'))).toEqual(buildConfigs);
     }
   });
 });

@@ -68,6 +68,8 @@ const getUsers = createServerFn().handler(async () => {
 
 Use [KV](../../guide/kv.md), [object storage](../../guide/storage.md), and [AI](../../guide/ai.md) from server-side code with the same imports as a Void app. Add [cron jobs](../../guide/jobs.md) in `crons/` and [queue consumers](../../guide/queues.md) in `queues/`.
 
+In dev and preview, `send()` succeeds but doesn't run this app's queue handler. In dev, run the handler with the [manual queue trigger](../../guide/queues.md#local-development), using the dev server's port and the token in `.void/dev-trigger-token`. Preview reads `queues/` and `env.ts` from the source tree, so don't change them between the build and preview.
+
 ### Environment Variables
 
 Declare variables in `env.ts` and read them with `import { env } from "void/env"`. See [Environment Variables](../../guide/env-vars.md) for local values, production secrets, and public `VITE_*` values.

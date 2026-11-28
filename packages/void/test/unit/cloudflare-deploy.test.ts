@@ -7952,42 +7952,45 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
     expect(trace).toContain('wrangler:deploy');
   });
 
-  it('persists framework queue bindings before building', async () => {
-    const root = makeProject({
-      'package.json': JSON.stringify({
-        name: 'skapp',
-        dependencies: { '@sveltejs/kit': '2.0.0' },
-      }),
-      'void.json': JSON.stringify({}),
-      'queues/email.ts': [
-        'export const maxBatchSize = 25;',
-        'export const maxBatchTimeout = 10;',
-        'export const maxConcurrency = 2;',
-        'export const maxRetries = 4;',
-        'export const retryDelay = 30;',
-        'export default async function email() {}',
-      ].join('\n'),
-      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'skapp' }, null, 2),
-    });
-    const { deps } = harness();
-    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+  it.each(['@sveltejs/kit', '@tanstack/react-start'])(
+    'persists framework queue bindings before building %s',
+    async (framework) => {
+      const root = makeProject({
+        'package.json': JSON.stringify({
+          name: 'skapp',
+          dependencies: { [framework]: '2.0.0' },
+        }),
+        'void.json': JSON.stringify({}),
+        'queues/email.ts': [
+          'export const maxBatchSize = 25;',
+          'export const maxBatchTimeout = 10;',
+          'export const maxConcurrency = 2;',
+          'export const maxRetries = 4;',
+          'export const retryDelay = 30;',
+          'export default async function email() {}',
+        ].join('\n'),
+        'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'skapp' }, null, 2),
+      });
+      const { deps } = harness();
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
 
-    expect(parseRootWranglerConfig(join(root, 'wrangler.jsonc'))).toMatchObject({
-      queues: {
-        producers: [{ binding: 'QUEUE_EMAIL', queue: 'skapp-email' }],
-        consumers: [
-          {
-            queue: 'skapp-email',
-            max_batch_size: 25,
-            max_batch_timeout: 10,
-            max_concurrency: 2,
-            max_retries: 4,
-            retry_delay: 30,
-          },
-        ],
-      },
-    });
-  });
+      expect(parseRootWranglerConfig(join(root, 'wrangler.jsonc'))).toMatchObject({
+        queues: {
+          producers: [{ binding: 'QUEUE_EMAIL', queue: 'skapp-email' }],
+          consumers: [
+            {
+              queue: 'skapp-email',
+              max_batch_size: 25,
+              max_batch_timeout: 10,
+              max_concurrency: 2,
+              max_retries: 4,
+              retry_delay: 30,
+            },
+          ],
+        },
+      });
+    },
+  );
 
   it('clears removed framework concurrency from generated config and the lock before building', async () => {
     const root = makeProject({
