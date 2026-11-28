@@ -55,12 +55,12 @@ vi.mock('../../src/drizzle/config.ts', () => ({
     mockWithPrivateDrizzleConfig(...(args as Parameters<typeof mockWithPrivateDrizzleConfig>)),
 }));
 
-// Mock execFileSync (used by runDrizzleKit) so no child process is spawned.
-const mockExecFileSync = vi.fn<() => void>(() => undefined);
+const mockSpawnSync = vi.fn<(file: string, args: Array<string>) => { status: number }>(() => ({
+  status: 0,
+}));
 
 vi.mock('node:child_process', () => ({
-  execFileSync: (...args: Array<unknown>) =>
-    mockExecFileSync(...(args as Parameters<typeof mockExecFileSync>)),
+  spawnSync: (...args: Parameters<typeof mockSpawnSync>) => mockSpawnSync(...args),
 }));
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
@@ -80,9 +80,9 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
 const roots: Array<string> = [];
 
 function expectDrizzleKitRunWithPrivateConfig(command: 'push' | 'studio'): void {
-  expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-  const cliArgs = (mockExecFileSync.mock.calls[0] as unknown as [string, Array<string>])[1];
-  expect(cliArgs.slice(1)).toEqual([command, '--config', PRIVATE_CONFIG_PATH]);
+  expect(mockSpawnSync).toHaveBeenCalledTimes(1);
+  const cliArgs = mockSpawnSync.mock.calls[0][1];
+  expect(cliArgs.slice(-3)).toEqual([command, '--config', PRIVATE_CONFIG_PATH]);
 }
 
 function createProjectRoot(options: { database?: 'pg' } = {}): string {
@@ -139,9 +139,7 @@ describe('void db studio --remote (PostgreSQL)', () => {
   it('exits with code 1 when drizzle-kit studio fails', async () => {
     const root = createProjectRoot({ database: 'pg' });
     mockGetDatabaseUrl.mockResolvedValue({ url: 'postgres://user:pass@host:5432/mydb' });
-    mockExecFileSync.mockImplementationOnce(() => {
-      throw new Error('Command failed');
-    });
+    mockSpawnSync.mockReturnValueOnce({ status: 2 });
 
     await expect(runDbCommand(root, { action: 'studio', remote: true })).rejects.toThrow(
       'process.exit:1',
@@ -157,7 +155,7 @@ describe('void db studio --remote (PostgreSQL)', () => {
       'process.exit:1',
     );
     expect(mockGetDatabaseUrl).not.toHaveBeenCalled();
-    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   it('errors when no project is linked', async () => {
@@ -168,7 +166,7 @@ describe('void db studio --remote (PostgreSQL)', () => {
       'process.exit:1',
     );
     expect(mockGetDatabaseUrl).not.toHaveBeenCalled();
-    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 });
 
@@ -195,7 +193,7 @@ describe('void db studio --remote (D1)', () => {
     }
   });
 
-  it('errors with a PostgreSQL/MySQL-only message for D1 and does not call writeDrizzleConfig or execFileSync', async () => {
+  it('rejects remote D1 Studio before writing a config or running Drizzle Kit', async () => {
     const root = createProjectRoot();
 
     const { log: clackLog } = await import('@voidzero-dev/vite-plus-prompts');
@@ -212,7 +210,7 @@ describe('void db studio --remote (D1)', () => {
 
     expect(mockWriteDrizzleConfig).not.toHaveBeenCalled();
     expect(mockWithPrivateDrizzleConfig).not.toHaveBeenCalled();
-    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
     expect(mockGetDatabaseUrl).not.toHaveBeenCalled();
   });
 });
@@ -248,7 +246,7 @@ describe('void db studio and push (local)', () => {
       'No local database found. Start the dev server first.',
     );
     expect(mockGetDatabaseUrl).not.toHaveBeenCalled();
-    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   it('local PG studio errors when .env has no DATABASE_URL', async () => {
@@ -259,7 +257,7 @@ describe('void db studio and push (local)', () => {
     );
 
     expect(mockGetDatabaseUrl).not.toHaveBeenCalled();
-    expect(mockExecFileSync).not.toHaveBeenCalled();
+    expect(mockSpawnSync).not.toHaveBeenCalled();
   });
 
   it('local PG studio passes the .env database URL through a private config', async () => {

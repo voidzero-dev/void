@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -100,18 +100,75 @@ function configuredD1Binding(root: string): string {
   return resolveBindingNames(readConfig(root).inference?.bindings)?.d1 ?? 'DB';
 }
 
-function runDrizzleKit(root: string, args: Array<string>): void {
-  execFileSync(process.execPath, [drizzleKitBin, ...args], {
-    cwd: root,
-    stdio: 'inherit',
-  });
+const DRIZZLE_UNCHANGED = 2;
+
+// Drizzle Kit 0.31 can exit 0 after an error or an aborted prompt.
+const DRIZZLE_COMPLETION_SCRIPT = String.raw`
+const { stripVTControlCharacters } = require('node:util');
+const generating = process.argv[2] === 'generate';
+const noChanges = generating ? 'No schema changes, nothing to migrate 😴' : '[i] No changes detected';
+const migrationWritten = /^\[✓\] Your SQL migration file ➜ .+\.sql 🚀$/su;
+
+let result = 1;
+function recordCompletion(chunk) {
+  if (typeof chunk !== 'string') return;
+  const line = stripVTControlCharacters(chunk).trim();
+  if (line === noChanges) {
+    result = ${DRIZZLE_UNCHANGED};
+  } else if (generating ? migrationWritten.test(line) : line === '[✓] Changes applied') {
+    result = 0;
+  }
+}
+
+const write = process.stdout.write.bind(process.stdout);
+process.stdout.write = (chunk, ...args) => {
+  recordCompletion(chunk);
+  return write(chunk, ...args);
+};
+
+const log = console.log.bind(console);
+console.log = (...args) => {
+  if (args.length === 1) recordCompletion(args[0]);
+  return log(...args);
+};
+
+process.on('exit', (code) => {
+  process.exitCode = code === 0 ? result : 1;
+});
+
+require(process.argv[1]);
+`;
+
+function runDrizzleKit(
+  root: string,
+  command: 'push' | 'generate' | 'studio',
+  configPath: string,
+): void {
+  const args = [drizzleKitBin, command, '--config', configPath];
+  const { status, error } = spawnSync(
+    process.execPath,
+    command === 'studio'
+      ? args
+      : ['--input-type=commonjs', '--eval', DRIZZLE_COMPLETION_SCRIPT, '--', ...args],
+    { cwd: root, stdio: 'inherit' },
+  );
+  if (error || (status !== 0 && (command === 'studio' || status !== DRIZZLE_UNCHANGED))) {
+    if (command === 'push') {
+      console.error(
+        'Database schema push did not complete. For prompts, run `void db push` in a terminal. To review changes, use `void db generate` and `void db migrate`.',
+      );
+    }
+    throw error ?? new Error(`Drizzle Kit ${command} did not complete.`);
+  }
+  if (command === 'push' && status === 0) {
+    printSuccess('Database schema pushed.');
+  }
 }
 
 /**
  * Run a drizzle-kit command against a real database URL. The config holding
  * the URL lives in a private temp directory outside the project and is
- * removed afterwards. Exits with code 1 when drizzle-kit fails; it has
- * already printed its own error.
+ * removed afterwards.
  */
 async function runDrizzleKitWithDatabaseUrl(
   root: string,
@@ -122,7 +179,7 @@ async function runDrizzleKitWithDatabaseUrl(
   const { withPrivateDrizzleConfig } = await import('../drizzle/config.ts');
   const succeeded = withPrivateDrizzleConfig(root, url, dialect, (configPath) => {
     try {
-      runDrizzleKit(root, [command, '--config', configPath]);
+      runDrizzleKit(root, command, configPath);
       return true;
     } catch {
       return false;
@@ -401,7 +458,6 @@ async function runPush(root: string, dialect: DatabaseDialect): Promise<void> {
   if (dialect !== 'sqlite') {
     const url = getLocalDatabaseUrl(root, dialect);
     await runDrizzleKitWithDatabaseUrl(root, url, dialect, 'push');
-    printSuccess('Database schema pushed.');
     return;
   }
 
@@ -411,11 +467,10 @@ async function runPush(root: string, dialect: DatabaseDialect): Promise<void> {
   const configPath = writeDrizzleConfig(root, dbPath);
 
   try {
-    runDrizzleKit(root, ['push', '--config', configPath]);
+    runDrizzleKit(root, 'push', configPath);
   } catch {
     process.exit(1);
   }
-  printSuccess('Database schema pushed.');
 }
 
 async function runGenerate(root: string, dialect: DatabaseDialect): Promise<void> {
@@ -437,10 +492,10 @@ async function runGenerate(root: string, dialect: DatabaseDialect): Promise<void
     if (dialect === 'sqlite') {
       const { generateValidatedSqliteMigrations } = await import('../drizzle/generate.ts');
       await generateValidatedSqliteMigrations(readProjectPaths(root).migrationsDir, () => {
-        runDrizzleKit(root, ['generate', '--config', configPath]);
+        runDrizzleKit(root, 'generate', configPath);
       });
     } else {
-      runDrizzleKit(root, ['generate', '--config', configPath]);
+      runDrizzleKit(root, 'generate', configPath);
     }
   } catch (error) {
     log.error(getErrorMessage(error));
@@ -1786,7 +1841,7 @@ async function runStudio(root: string, dialect: DatabaseDialect, remote?: boolea
 
   log.info('Opening Drizzle Studio...');
   try {
-    runDrizzleKit(root, ['studio', '--config', configPath]);
+    runDrizzleKit(root, 'studio', configPath);
   } catch {
     process.exit(1);
   }
