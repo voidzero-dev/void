@@ -13,6 +13,12 @@ export async function maybeSetupDeployProject(root: string): Promise<ProjectConf
     log.info(`Project already linked: ${existing.slug}`);
     return existing;
   }
+  if (!process.stdin.isTTY) {
+    log.info(
+      'Run `void account login` if needed. Link in a terminal with `void project link`, or run `void project link <slug>`.',
+    );
+    return null;
+  }
 
   const existingToken = getToken(root);
   const shouldSetup = await confirm({

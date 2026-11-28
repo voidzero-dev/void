@@ -661,6 +661,11 @@ async function resolveInitRoot(root: string): Promise<string> {
   if (!shouldPromptForInitLocation(root)) {
     return root;
   }
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      'init: Run from the app root or an empty directory, or use a terminal to choose a project folder.',
+    );
+  }
 
   const choice = await select({
     message: 'This folder is not empty. Where should Void initialize?',
@@ -1411,6 +1416,7 @@ async function askDeploymentPlatform(
 
 export async function ensureVoidPlatformConnection(
   root: string,
+  activate = true,
 ): Promise<PlatformDiscoveryDocument> {
   let selectedApiUrl: string | null = null;
   let promptedForPlatform = false;
@@ -1425,6 +1431,11 @@ export async function ensureVoidPlatformConnection(
     // A genuinely new user must identify the company platform before login.
   }
   if (!selectedApiUrl) {
+    if (!process.stdin.isTTY) {
+      throw new Error(
+        'init: Run `void connect <url> --no-login` before choosing Void, or pass `--deploy none`.',
+      );
+    }
     promptedForPlatform = true;
     const value = await text({
       message: 'Void platform API URL:',
@@ -1437,7 +1448,9 @@ export async function ensureVoidPlatformConnection(
     selectedApiUrl = String(value);
   }
   const discovery = await discoverPlatform(selectedApiUrl);
-  saveDiscoveredPlatform(discovery);
+  if (activate) {
+    saveDiscoveredPlatform(discovery);
+  }
   if (promptedForPlatform) {
     log.step(`Connected to ${discovery.displayName} at ${formatUrl(discovery.apiUrl)}.`);
   }
@@ -1446,7 +1459,7 @@ export async function ensureVoidPlatformConnection(
 
 async function setupCloudflareDeployment(root: string): Promise<void> {
   try {
-    await connectCloudflare(root, true);
+    await connectCloudflare(root);
   } catch (error) {
     log.warn(error instanceof Error ? error.message : String(error));
     note(
@@ -2566,9 +2579,32 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
 async function runInitSteps(root: string, report: InitReport, initArgs?: InitArgs): Promise<void> {
   const delegatedPackageManager = readDelegatedPackageManager();
   const targeted = Boolean(initArgs && (initArgs.tsconfig || initArgs.github));
+  const interactive = process.stdin.isTTY;
   const requestedRoot = root;
   if (!targeted) {
     root = await resolveInitRoot(root);
+  }
+  const workspaceSubpackage = isInsideWorkspaceSubpackage(root);
+  if (workspaceSubpackage && initArgs?.git !== undefined) {
+    throw new Error(
+      'init: The --git/--no-git options are not available when adding a package to an existing monorepo.',
+    );
+  }
+  let deploymentPlatform: DeploymentPlatform | null = null;
+  let voidPlatformDiscovery: PlatformDiscoveryDocument | null = null;
+  if (!targeted && !interactive) {
+    if (!detectFramework(root) && isScaffoldableEmptyProject(root)) {
+      await promptScaffoldToolchain(initArgs?.toolchain);
+      await promptScaffoldFramework(detectPagesFramework(root) ?? initArgs?.framework);
+      await promptStarterMode(initArgs?.starter);
+    }
+    deploymentPlatform = await askDeploymentPlatform(
+      root,
+      initArgs?.deploy ?? readDeploymentPlatform(root) ?? undefined,
+    );
+    if (deploymentPlatform === 'void') {
+      voidPlatformDiscovery = await ensureVoidPlatformConnection(root, false);
+    }
   }
   /** The new folder for the project, when the user asked init to create one. */
   const subfolder = root === requestedRoot ? undefined : relative(requestedRoot, root);
@@ -2591,12 +2627,6 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       existsSync(join(root, file)),
     );
     report.next(`Commit ${new Intl.ListFormat('en').format(migrated)}`);
-  }
-  const workspaceSubpackage = isInsideWorkspaceSubpackage(root);
-  if (workspaceSubpackage && initArgs?.git !== undefined) {
-    throw new Error(
-      'init: The --git/--no-git options are not available when adding a package to an existing monorepo.',
-    );
   }
   // Say what init will do before its first question. `.git` is allowed in an
   // empty project, so detecting before `git init` gives the same result.
@@ -2622,7 +2652,6 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
   const detectedPagesFramework = detectPagesFramework(root);
   let scaffoldedPagesFramework: ScaffoldFramework | undefined;
   let scaffoldedStarterMode: Exclude<ScaffoldStarterMode, 'static'> | undefined;
-  let starterDeploymentPlatform: DeploymentPlatform | undefined;
   let didScaffoldStarter = false;
   let scaffoldAddedDependencies = false;
   let workspaceSubpackageSkip = false;
@@ -2640,7 +2669,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     const starterMode = await promptStarterMode(initArgs?.starter);
     // A partial starter takes the existing-project path on retry, so ask every
     // question before creating its files. The deployment choice is saved below.
-    starterDeploymentPlatform = await askDeploymentPlatform(root, initArgs?.deploy);
+    deploymentPlatform ??= await askDeploymentPlatform(root, initArgs?.deploy);
     const existingPackageJson = readPackageJson(root);
     const hasPackageManager =
       hasLocalLockfile(root) ||
@@ -2737,7 +2766,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     migrateFrameworkAdapterPaths(root);
   }
 
-  if (!targeted && !didScaffoldStarter) {
+  if (!targeted && !didScaffoldStarter && interactive) {
     applyDatabaseSetup(root, await promptDatabaseSetup(root), report);
   }
 
@@ -2764,6 +2793,8 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     } else if (existingDemoFiles.length > 0) {
       const names = existingDemoFiles.map((file) => relative(root, file)).join(', ');
       log.info(`Project already has ${names}, skipping demo`);
+    } else if (!interactive) {
+      log.info('Run `void init` in a terminal to scaffold demo code.');
     } else {
       const scaffold = await confirm({
         message: 'Scaffold demo code? (migration + API route + frontend fetch)',
@@ -2793,22 +2824,19 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     }
   }
 
-  let deploymentPlatform: DeploymentPlatform | null;
   if (targeted) {
     // Targeted runs keep the saved deployment preference without prompting.
     deploymentPlatform = readDeploymentPlatform(root);
   } else {
-    deploymentPlatform =
-      starterDeploymentPlatform ?? (await askDeploymentPlatform(root, initArgs?.deploy));
+    deploymentPlatform ??= await askDeploymentPlatform(root, initArgs?.deploy);
     writeDeploymentPlatform(root, deploymentPlatform);
   }
-  let voidPlatformDiscovery: PlatformDiscoveryDocument | null = null;
 
   if (!targeted && deploymentPlatform === 'cloudflare') {
     await setupCloudflareDeployment(root);
   }
   if (!targeted && deploymentPlatform === 'void') {
-    voidPlatformDiscovery = await ensureVoidPlatformConnection(root);
+    voidPlatformDiscovery ??= await ensureVoidPlatformConnection(root);
   }
 
   // GitHub reads workflows only from the repository root, so skip every
@@ -2843,6 +2871,12 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
         deploymentPlatform === 'cloudflare' ? 'cloudflare' : 'void',
         voidPlatformDiscovery?.apiUrl,
       );
+    } else if (!interactive) {
+      if (!existsSync(join(root, WORKFLOW_FILE))) {
+        const url = process.env.VOID_API_URL && voidPlatformDiscovery?.apiUrl;
+        const prefix = url ? `VOID_API_URL=${quoteShellArgument(url)} ` : '';
+        log.info(`Run \`${prefix}void init --github\` to set up GitHub Actions.`);
+      }
     } else {
       const setupGha = await confirm({
         message: 'Create .github/workflows/void-deploy.yml to deploy on pushes to main?',
@@ -2931,6 +2965,9 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
 
   if (gitInitialized) {
     report.next(`Git (optional): ${initialCommitCommand(root)}`);
+  }
+  if (!targeted && !interactive && voidPlatformDiscovery) {
+    saveDiscoveredPlatform(voidPlatformDiscovery);
   }
 
   report.print(targeted);
