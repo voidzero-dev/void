@@ -14,7 +14,7 @@ import { applyEdits, modify, parse } from 'jsonc-parser';
 import type { ParseError } from 'jsonc-parser';
 import { basename, join } from 'pathslash';
 import { materializeCloudflareConfig, persistCloudflareConfig } from '../cloudflare-config.ts';
-import { DEPLOY_CONFIG_MARKER } from '../config-write.ts';
+import { isUnchangedDeploySeed } from '../config-write.ts';
 import { isVersionIdChain } from './cloudflare-candidate.ts';
 import type { RunDeployOptions } from './deploy.ts';
 import { discoverFrameworkWranglerFiles } from './framework-config-migrate.ts';
@@ -231,7 +231,7 @@ export async function maybeLinkCloudflareDeploy(
     !files.length &&
     (!existsSync(typedPath) ||
       (!existsSync(join(root, 'void.lock.json')) &&
-        readFileSync(typedPath, 'utf8').startsWith(DEPLOY_CONFIG_MARKER)))
+        isUnchangedDeploySeed(readFileSync(typedPath, 'utf8'))))
   ) {
     return null;
   }

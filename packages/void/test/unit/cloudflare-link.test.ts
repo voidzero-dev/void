@@ -11,7 +11,7 @@ import {
 } from '../../src/cli/cloudflare-link.ts';
 import { readDeploymentPlatform } from '../../src/cli/project.ts';
 import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
-import { DEPLOY_CONFIG_MARKER } from '../../src/config-write.ts';
+import { renderDeploySeedConfig } from '../../src/config-write.ts';
 
 let root: string;
 const config =
@@ -41,7 +41,7 @@ describe('Cloudflare deployment onboarding', () => {
     rmSync(join(root, 'wrangler.jsonc'));
     writeFileSync(
       join(root, 'void.config.ts'),
-      `${DEPLOY_CONFIG_MARKER}\nexport default { cloudflare: { name: 'site' } };\n`,
+      renderDeploySeedConfig({ cloudflare: { name: 'site' } }),
     );
     const source = { name: 'site' };
     const resolved = { ...source, account_id: 'personal' };

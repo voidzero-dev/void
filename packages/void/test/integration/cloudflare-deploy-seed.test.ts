@@ -267,7 +267,7 @@ it.each([
   });
 });
 
-it('uses the managed fallback after Cloudflare account discovery fails before a lock is saved', async () => {
+it('uses the managed fallback only while the seed from a failed deploy is unchanged', async () => {
   const parent = createPackageFixtureDir(packageRoot, 'cloudflare-account-failure-');
   roots.push(parent);
   const root = project(parent, 'account-failure');
@@ -281,7 +281,15 @@ it('uses the managed fallback after Cloudflare account discovery fails before a 
     expect(readConfig(root).cloudflare?.name).toBe('account-failure');
     expect(existsSync(join(root, 'void.lock.json'))).toBe(false);
     const calls = requests.length;
+    const configPath = join(root, 'void.config.ts');
+    const source = readFileSync(configPath, 'utf8').replaceAll('\n', '\r\n');
+    writeFileSync(configPath, source);
     expect(await deploy(root, api, { args: ['deploy'] })).toContain('platform: No connection to');
+
+    writeFileSync(configPath, source.replace('"account-failure"', '"existing-worker"'));
+    expect(await deploy(root, api, { args: ['deploy'] })).toContain(
+      'without a deployment destination',
+    );
     expect(requests).toHaveLength(calls);
   });
 });

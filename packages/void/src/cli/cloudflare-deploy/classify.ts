@@ -7,7 +7,7 @@ import {
   VOID_LOCK_FILE,
 } from '../../cloudflare-config.ts';
 import { LEGACY_CONFIG_FILE, TYPED_CONFIG_FILE } from '../../config-loader.ts';
-import { DEPLOY_CONFIG_MARKER, renderVoidConfig } from '../../config-write.ts';
+import { renderDeploySeedConfig } from '../../config-write.ts';
 import type { VoidConfig } from '../../config.ts';
 import { assertNoRootSourceConventionConflicts } from '../../project-paths.ts';
 import { validateSsrEntry } from '../../ssr/entry.ts';
@@ -98,7 +98,7 @@ export function classifyCloudflareDeployApp(
       }
       const worker = { compatibility_date: LATEST_KNOWN_COMPAT_DATE };
       const config = { cloudflare: { name: deriveWorkerName(root) }, worker };
-      const contents = renderVoidConfig(config, DEPLOY_CONFIG_MARKER);
+      const contents = renderDeploySeedConfig(config);
       try {
         writeFileSync(join(root, TYPED_CONFIG_FILE), contents, { flag: 'wx' });
       } catch (error) {
