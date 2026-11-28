@@ -7,7 +7,10 @@ import {
 } from '@void/platform';
 import type { PlatformDeploymentManifest } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
-import { ensurePlatformAccessHealthChecks } from './platform-access-health.ts';
+import {
+  ensurePlatformAccessHealthChecks,
+  verifyPlatformAccessHealthChecks,
+} from './platform-access-health.ts';
 import { verifyInstalledPlatformAccessProtection } from './platform-access-preflight.ts';
 import {
   mergePlatformAccessCredentials,
@@ -164,6 +167,14 @@ export async function preflightInstallationAuthentication(
   );
   if (preview.state.plan.deployment.authentication.accessProtection) {
     await verifyInstallationAccessSetup(preview, liveAuthentication);
+    if (!input.dependencies.prepareHealthAccess) {
+      await verifyPlatformAccessHealthChecks({
+        client: preview.dependencies.client,
+        manifest: preview.state.manifest,
+        plan: preview.state.plan,
+        checkpoint: secretCheckpoint(preview.state.secrets, preview.state.workerSecretUpdateIntent),
+      });
+    }
   }
   return liveAuthentication;
 }

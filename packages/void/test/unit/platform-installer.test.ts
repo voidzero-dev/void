@@ -32,6 +32,7 @@ import type { PlatformRuntimeDatabaseManifest } from '@void/platform/installer';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
+import { platformAccessHealthTargets } from '../../src/cli/platform-access-health.ts';
 import type { AiLoggingProjectionKv } from '../../src/cli/platform-ai-logging-projection.ts';
 import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts';
 import {
@@ -6130,6 +6131,77 @@ describe('platform installer', () => {
     expect(claim).not.toHaveBeenCalled();
     expect(prepareHealthAccess).not.toHaveBeenCalled();
     expect(deployWorker).not.toHaveBeenCalled();
+    expect(upgradeKvWrites).toEqual([]);
+  });
+
+  it('preserves deployment admission when the reserved Access health policy has changed', async () => {
+    const { directory, sourceManifest, upgradedPlan, secrets, upgradeClient, upgradeKvWrites } =
+      await installedPlatform();
+    const deployment = createPlatformDeploymentManifest({
+      ...sourceManifest.deployment,
+      capabilities: { ...sourceManifest.deployment.capabilities, githubOAuth: false },
+      authentication: {
+        providers: ['cloudflare-access'],
+        configurable: true,
+        accessProtection: true,
+      },
+    });
+    const installation = { ...sourceManifest, deployment };
+    const plan = { ...upgradedPlan, deployment };
+    writeInstallationManifest(installation);
+    const checkpoint = vi.fn(async (_manifest: PlatformInstallationManifest) => {});
+    const lock = Object.assign(async () => {}, {
+      authoritativeManifest: installation,
+      checkpoint,
+      readAuthenticationState: async () => ({
+        enabledProviders: ['cloudflare-access'] as const,
+        sessionsRequired: true,
+        protectedByAccess: true,
+        protection: { teamDomain: 'https://company.cloudflareaccess.com', applications: [] },
+      }),
+    });
+    const claim = vi.fn(claimDatabase);
+    const destination = platformAccessHealthTargets(plan)[0].destination;
+    const request = vi.fn(async (path: string, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      if (path.includes('/apps?')) {
+        return [
+          {
+            id: 'health-app',
+            name: 'Project health',
+            type: 'self_hosted',
+            domain: destination,
+            destinations: [{ type: 'public', uri: destination }],
+          },
+        ];
+      }
+      expect(path).toContain('/apps/health-app/policies');
+      return [{ decision: 'allow', include: [{ everyone: {} }] }];
+    });
+    await expect(
+      installPlatform(
+        plan,
+        { ...secrets, authenticationPreparation: { accessSetupSpecJson: '{"mode":"create"}' } },
+        installation,
+        {
+          acquireDatabaseLifecycleLock: async () => lock,
+          upgradePreflightLock: lock,
+          claimDatabase: claim,
+          client: {
+            ...upgradeClient,
+            request: async <T>(path: string, init?: RequestInit) =>
+              (await request(path, init)) as T,
+          },
+          operation: 'upgrade',
+          revalidateBeforeWorkerDeploy: async () => {},
+          verifyAccessProtection: async () => {},
+        },
+      ),
+    ).rejects.toThrow('does not match the reserved health-check exception');
+
+    expect(listInstallationManifests(directory)[0]).toEqual(installation);
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
     expect(upgradeKvWrites).toEqual([]);
   });
 
