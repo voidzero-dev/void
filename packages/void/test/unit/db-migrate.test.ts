@@ -65,6 +65,7 @@ vi.mock('../../src/cli/auth.ts', async (importOriginal) => ({
   getToken: vi.fn(() => null),
 }));
 
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   intro: (...args: Array<unknown>) => mockIntro(...args),
   outro: (...args: Array<unknown>) => mockOutro(...args),

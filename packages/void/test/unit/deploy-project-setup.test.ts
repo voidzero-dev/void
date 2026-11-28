@@ -12,6 +12,7 @@ const mockStep = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.step
 const mockSuccess = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.success>();
 const mockWarn = vi.fn<typeof import('@voidzero-dev/vite-plus-prompts').log.warn>();
 
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   cancel: vi.fn(),
   confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),

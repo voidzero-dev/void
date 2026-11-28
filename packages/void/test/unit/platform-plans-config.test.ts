@@ -13,6 +13,7 @@ vi.mock('../../src/cli/operator-auth.ts', () => ({
   resolveOperatorOrigin: () => 'https://api.example.com',
   readOperatorToken: () => 'operator-fixture',
 }));
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   outro: vi.fn(),
   confirm: vi.fn(),

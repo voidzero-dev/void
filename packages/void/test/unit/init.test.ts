@@ -1196,6 +1196,7 @@ function expectPnpmAllowBuilds(root: string): void {
   expect(yaml).not.toContain('onlyBuiltDependencies:');
 }
 
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   settings: { accessible: false },
   intro: vi.fn(),

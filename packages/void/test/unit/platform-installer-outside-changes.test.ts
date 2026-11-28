@@ -13,6 +13,7 @@ import type { InstallationResourceKind, PlatformInstallationManifest } from '@vo
 import { getPlatformRuntimeDirectory, resolvePlatformRuntime } from '@void/platform/installer';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@voidzero-dev/vite-plus-prompts')>();
   return { ...actual, confirm: vi.fn(), log: { ...actual.log, step: vi.fn() }, note: vi.fn() };

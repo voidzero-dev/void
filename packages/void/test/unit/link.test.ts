@@ -25,6 +25,7 @@ const existingProject = {
   role: 'owner' as const,
 };
 
+vi.mock('../../src/cli/interactive-prompts.ts', () => import('@voidzero-dev/vite-plus-prompts'));
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   cancel: (...args: Parameters<typeof mockCancel>) => mockCancel(...args),
   confirm: (...args: Parameters<typeof mockConfirm>) => mockConfirm(...args),
