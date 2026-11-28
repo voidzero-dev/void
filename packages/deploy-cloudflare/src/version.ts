@@ -121,6 +121,8 @@ export type CloudflareVersionActivation =
       diagnostic?: string;
       /** Wrangler reached Cloudflare's Containers entitlement endpoint and received a 403. */
       containersUnavailable?: boolean;
+      /** The deployment stopped after upload and before activation. */
+      beforeActivation?: true;
       versionId?: string;
       previousVersionId?: string | null;
       rollback?: 'not-needed' | 'succeeded' | 'failed' | 'unavailable' | 'unsafe';
@@ -167,6 +169,7 @@ type CurrentProductionVersion =
       kind: 'ok';
       versionId: string | null;
       versions: ReadonlyArray<ProductionVersionPercentage>;
+      deploymentId?: string;
     }
   | { kind: 'failed'; status: number }
   | { kind: 'split' };
@@ -878,7 +881,7 @@ export type CloudflareVersionActivationOptions = {
   fetch?: typeof globalThis.fetch;
   sleep?: (milliseconds: number) => Promise<void>;
   /**
-   * Waits between reads of Cloudflare's Worker version list while it lags behind a write.
+   * Waits between reads while Cloudflare's Worker version list or staged deployment status lags.
    * Defaults to {@link STALE_VERSION_HISTORY_DELAYS_MS}.
    */
   versionHistoryRetryDelaysMs?: ReadonlyArray<number>;
@@ -1561,7 +1564,7 @@ async function activateCloudflareVersionWithSecretsFile(
     : undefined;
   let readinessUrl = reportedPreviewUrl;
   let readinessUsesCustomRoute = false;
-  let stagedVersionOverride = false;
+  let stagedVersionOverride: Extract<ReadinessStagingResult, { ok: true }> | undefined;
   if (!readinessUrl) {
     if (
       !options.preserveTriggers &&
@@ -1586,16 +1589,16 @@ async function activateCloudflareVersionWithSecretsFile(
       if (fallbackSubdomain && fallbackSubdomain === options.readinessHeadersWorkersDevSubdomain) {
         authenticatedWorkersDevSubdomain = fallbackSubdomain;
       }
-      const stagingFailure = await stageCandidateForReadiness(
+      const staging = await stageCandidateForReadiness(
         options,
         previous.versionId,
         versionId,
         message,
       );
-      if (stagingFailure) {
-        return stagingFailure;
+      if (!staging.ok) {
+        return staging;
       }
-      stagedVersionOverride = true;
+      stagedVersionOverride = staging;
     } else if (
       desiredTriggerConfig.workers_dev ||
       desiredTriggerConfig.routes.length > 0 ||
@@ -1657,19 +1660,19 @@ async function activateCloudflareVersionWithSecretsFile(
           )
         : customRouteReadinessUrl(desiredTriggerConfig.routes);
       if (stableReadinessUrl && stableReadinessUrl !== readinessUrl) {
-        const stagingFailure = await stageCandidateForReadiness(
+        const staging = await stageCandidateForReadiness(
           options,
           previous.versionId,
           versionId,
           message,
         );
-        if (stagingFailure) {
-          return stagingFailure;
+        if (!staging.ok) {
+          return staging;
         }
         readinessUrl = stableReadinessUrl;
         authenticatedWorkersDevSubdomain = extractWorkersDevSubdomain(stableReadinessUrl);
         readinessUsesCustomRoute = !desiredTriggerConfig.workers_dev;
-        stagedVersionOverride = true;
+        stagedVersionOverride = staging;
         ready = await probe(readinessUrl);
       }
     }
@@ -1683,9 +1686,13 @@ async function activateCloudflareVersionWithSecretsFile(
           ? customRouteReadinessOriginField(readinessUrl)
           : {}),
         ...(stagedVersionOverride
-          ? await restorePreviousVersion(options, previous.versionId, 'readiness failed', [
-              stagedVersionPercentages(previous.versionId, versionId),
-            ])
+          ? await restorePreviousVersion(
+              options,
+              previous.versionId,
+              'readiness failed',
+              [stagedVersionPercentages(previous.versionId, versionId)],
+              stagedVersionOverride.deploymentId,
+            )
           : { rollback: 'not-needed' as const }),
       };
     }
@@ -1694,6 +1701,7 @@ async function activateCloudflareVersionWithSecretsFile(
     return {
       ok: false,
       reason: 'uploader-changed',
+      beforeActivation: true,
       versionId,
       previousVersionId: previous.versionId,
       ...(stagedVersionOverride
@@ -1702,6 +1710,7 @@ async function activateCloudflareVersionWithSecretsFile(
             previous.versionId,
             'uploader verification failed',
             [stagedVersionPercentages(previous.versionId, versionId)],
+            stagedVersionOverride.deploymentId,
           )
         : { rollback: 'not-needed' as const }),
     };
@@ -1709,15 +1718,45 @@ async function activateCloudflareVersionWithSecretsFile(
 
   // Readiness can take long enough for another deploy or rollback to finish. Never flatten that
   // newer operation using the stale `previous` snapshot captured before this upload began.
-  const ownerBeforeActivation = await readCurrentProductionVersion(options);
-  if (ownerBeforeActivation.kind === 'failed') {
-    return {
-      ok: false,
-      reason: 'status-failed',
-      status: ownerBeforeActivation.status,
-      versionId,
-      previousVersionId: previous.versionId,
-    };
+  const previousTraffic = previous.versionId
+    ? [{ versionId: previous.versionId, percentage: 100 }]
+    : [];
+  const stagedTraffic = stagedVersionOverride
+    ? stagedVersionPercentages(previous.versionId, versionId)
+    : undefined;
+  let ownerBeforeActivation = await readCurrentProductionVersion(options);
+  let laggingStagingStatus = false;
+  if (stagedVersionOverride?.previousDeploymentId) {
+    const { previousDeploymentId } = stagedVersionOverride;
+    const isLaggingStagingStatus = (owner: CurrentProductionVersion) =>
+      owner.kind === 'ok' &&
+      owner.deploymentId === previousDeploymentId &&
+      productionVersionPercentagesEqual(owner.versions, previousTraffic);
+    const statusDelays = options.versionHistoryRetryDelaysMs ?? STALE_VERSION_HISTORY_DELAYS_MS;
+    for (
+      let attempt = 0;
+      attempt < statusDelays.length && isLaggingStagingStatus(ownerBeforeActivation);
+      attempt++
+    ) {
+      if (attempt === 0) {
+        options.onProgress?.(
+          "Waiting for Cloudflare's deployment status to show the staged version...",
+        );
+      }
+      await (options.sleep ?? delay)(statusDelays[attempt]);
+      if (!options.verifyUploader()) {
+        return {
+          ok: false,
+          reason: 'uploader-changed',
+          beforeActivation: true,
+          versionId,
+          previousVersionId: previous.versionId,
+          rollback: 'unsafe',
+        };
+      }
+      ownerBeforeActivation = await readCurrentProductionVersion(options);
+    }
+    laggingStagingStatus = isLaggingStagingStatus(ownerBeforeActivation);
   }
   if (ownerBeforeActivation.kind === 'split') {
     return {
@@ -1727,26 +1766,45 @@ async function activateCloudflareVersionWithSecretsFile(
       previousVersionId: previous.versionId,
     };
   }
-  const expectedTrafficBeforeActivation = stagedVersionOverride
-    ? stagedVersionPercentages(previous.versionId, versionId)
-    : previous.versionId
-      ? [{ versionId: previous.versionId, percentage: 100 }]
-      : [];
   if (
+    ownerBeforeActivation.kind === 'failed' ||
     ownerBeforeActivation.versionId !== previous.versionId ||
+    (stagedVersionOverride !== undefined &&
+      ownerBeforeActivation.deploymentId !== stagedVersionOverride.deploymentId) ||
     !productionVersionPercentagesEqual(
       ownerBeforeActivation.versions,
-      expectedTrafficBeforeActivation,
+      stagedTraffic ?? previousTraffic,
     )
   ) {
+    const failure =
+      ownerBeforeActivation.kind === 'failed'
+        ? { reason: 'status-failed' as const, status: ownerBeforeActivation.status }
+        : { reason: 'deployment-changed' as const };
+    const restore =
+      stagedVersionOverride &&
+      stagedTraffic?.length &&
+      (ownerBeforeActivation.kind === 'failed' || laggingStagingStatus)
+        ? await restorePreviousVersion(
+            options,
+            previous.versionId,
+            'pre-activation status check failed',
+            [stagedTraffic],
+            stagedVersionOverride.deploymentId,
+          )
+        : ownerBeforeActivation.kind === 'ok'
+          ? {
+              activeVersionId: ownerBeforeActivation.versionId,
+              rollback: 'not-needed' as const,
+              ...(stagedTraffic === undefined ? { triggerRepair: 'succeeded' as const } : {}),
+            }
+          : {};
     return {
       ok: false,
-      reason: 'deployment-changed',
+      ...failure,
+      beforeActivation: true,
       versionId,
       previousVersionId: previous.versionId,
-      activeVersionId: ownerBeforeActivation.versionId,
-      rollback: 'not-needed',
-      triggerRepair: 'succeeded',
+      ...restore,
       ...cloudflareStagingPairGuidance(ownerBeforeActivation.deployment, options),
     };
   }
@@ -2845,6 +2903,7 @@ async function readCurrentProductionVersion(
       versionId: active?.versionId ?? null,
       versions,
       deployment,
+      deploymentId: typeof deployment.id === 'string' ? deployment.id : undefined,
     };
   } catch {
     return { kind: 'failed', status: result.status };
@@ -2878,13 +2937,17 @@ function stagedVersionPercentages(
     : [];
 }
 
+type ReadinessStagingResult =
+  | { ok: true; previousDeploymentId: string | undefined; deploymentId: string }
+  | Extract<CloudflareVersionActivation, { ok: false }>;
+
 /** Stage the candidate at 0% beside the unchanged previous version so readiness can select it. */
 async function stageCandidateForReadiness(
   options: CloudflareVersionActivationOptions,
   previousVersionId: string | null,
   versionId: string,
   message: string,
-): Promise<Extract<CloudflareVersionActivation, { ok: false }> | null> {
+): Promise<ReadinessStagingResult> {
   if (!options.verifyUploader()) {
     return {
       ok: false,
@@ -2894,9 +2957,9 @@ async function stageCandidateForReadiness(
       rollback: 'not-needed',
     };
   }
-  const ownerFailure = await verifyReadinessStagingOwner(options, previousVersionId, versionId);
-  if (ownerFailure) {
-    return ownerFailure;
+  const owner = await verifyReadinessStagingOwner(options, previousVersionId, versionId);
+  if (!owner.ok) {
+    return owner;
   }
   const staged = await deployVersionPercentages(
     options,
@@ -2916,7 +2979,19 @@ async function stageCandidateForReadiness(
       rollback: 'not-needed',
     };
   }
-  return null;
+  const deploymentId = isRecord(staged.data) ? staged.data.id : undefined;
+  if (typeof deploymentId !== 'string' || !deploymentId.trim()) {
+    return {
+      ok: false,
+      reason: 'status-failed',
+      beforeActivation: true,
+      diagnostic: 'Cloudflare did not return the 0% staging deployment ID.',
+      versionId,
+      previousVersionId,
+      rollback: 'unsafe',
+    };
+  }
+  return { ...owner, deploymentId };
 }
 
 async function verifyReadinessStagingOwner(
@@ -2926,7 +3001,10 @@ async function verifyReadinessStagingOwner(
   >,
   previousVersionId: string | null,
   versionId: string,
-): Promise<Extract<CloudflareVersionActivation, { ok: false }> | null> {
+): Promise<
+  | { ok: true; previousDeploymentId: string | undefined }
+  | Extract<CloudflareVersionActivation, { ok: false }>
+> {
   const owner = await readCurrentProductionVersion(options);
   if (owner.kind === 'failed') {
     return {
@@ -2962,7 +3040,7 @@ async function verifyReadinessStagingOwner(
       ...cloudflareStagingPairGuidance(owner.deployment, options),
     };
   }
-  return null;
+  return { ok: true, previousDeploymentId: owner.deploymentId };
 }
 
 async function probeReadiness(
@@ -3227,6 +3305,7 @@ async function restorePreviousVersion(
   previousVersionId: string | null,
   cause: string,
   expectedOwnedTraffic: ReadonlyArray<ReadonlyArray<ProductionVersionPercentage>>,
+  expectedDeploymentId?: string,
 ): Promise<PreviousVersionRestore> {
   if (!previousVersionId) {
     return { rollback: 'unavailable' };
@@ -3239,6 +3318,7 @@ async function restorePreviousVersion(
     return {
       owns:
         owner.kind === 'ok' &&
+        (expectedDeploymentId === undefined || owner.deploymentId === expectedDeploymentId) &&
         expectedOwnedTraffic.some((expected) =>
           productionVersionPercentagesEqual(owner.versions, expected),
         ),
