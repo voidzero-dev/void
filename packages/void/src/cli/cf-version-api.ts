@@ -1308,7 +1308,10 @@ export async function uploadPinnedCloudflareVersion(options: {
       modules,
       compatibility_date: config.compatibilityDate,
       compatibility_flags: config.compatibilityFlags,
-      package_dependencies: await readPackageDependencies(options.output.directory),
+      package_dependencies:
+        process.env.CLOUDFLARE_DEPENDENCIES_INSTRUMENTATION?.toLowerCase() === 'false'
+          ? undefined
+          : await readPackageDependencies(options.output.directory),
       bindings,
       ...(config.limits
         ? { limits: { cpu_ms: config.limits.cpuMs, subrequests: config.limits.subrequests } }
