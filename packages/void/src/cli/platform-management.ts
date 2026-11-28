@@ -352,6 +352,7 @@ export async function runInstalledPlatformCommand(
   let progress: ReturnType<typeof createPlatformProgress> | undefined;
   let reportResult: (() => void) | undefined;
   let upgradeWritten = false;
+  let interruptedUpgrade = false;
 
   const execute = async (
     manifest: PlatformInstallationManifest,
@@ -950,6 +951,9 @@ export async function runInstalledPlatformCommand(
       const authoritative = releaseDatabase.authoritativeManifest;
       const databaseCheckpointExists = authoritative !== null && authoritative !== undefined;
       const currentManifest = selectAuthoritativePlatformManifest(current, authoritative);
+      interruptedUpgrade =
+        currentManifest.operation?.action === 'upgrade' &&
+        currentManifest.operation.phase !== 'complete';
       if (authoritative && JSON.stringify(authoritative) !== JSON.stringify(current)) {
         writeInstallationManifest(authoritative);
       }
@@ -963,7 +967,8 @@ export async function runInstalledPlatformCommand(
     reportResult?.();
     markPhase('complete');
   } catch (error) {
-    const needsRecovery = args.subcommand === 'upgrade' ? upgradeWritten : progress !== undefined;
+    const needsRecovery =
+      args.subcommand === 'upgrade' ? upgradeWritten || interruptedUpgrade : progress !== undefined;
     if (needsRecovery) {
       progress?.error(`Platform ${args.subcommand} failed.`);
     } else {

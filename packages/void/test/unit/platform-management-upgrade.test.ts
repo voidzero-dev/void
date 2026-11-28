@@ -473,6 +473,34 @@ describe('installed platform upgrade', () => {
     delete process.env.VOID_PLATFORM_PROJECT_SECRET_KEYS_JSON;
   });
 
+  it('still tells the operator how to resume a paused upgrade when a retry is refused before writing', async () => {
+    const installed = state.manifest!;
+    state.manifest = {
+      ...installed,
+      status: 'verifying',
+      operation: {
+        id: 'interrupted-upgrade',
+        fromVersion: installed.platformVersion,
+        toVersion: state.runtime!.manifest.platformVersion,
+        action: 'upgrade',
+        phase: 'verifying',
+        startedAt: installed.updatedAt,
+        updatedAt: installed.updatedAt,
+      },
+    };
+    const refusal = new Error(
+      'platform: The PostgreSQL database is not at the exact forward-only schema required for runtime rollback.',
+    );
+    vi.mocked(installPlatform).mockRejectedValueOnce(refusal);
+
+    await expect(upgrade()).rejects.toBe(refusal);
+
+    expect(note).toHaveBeenCalledWith(
+      expect.stringContaining('void platform status ' + installed.id),
+      'Recovery',
+    );
+  });
+
   it.each([false, true])(
     'plans an upgrade with management authority instead of its runtime token (environment override: %s)',
     async (override) => {
