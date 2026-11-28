@@ -15,6 +15,7 @@ import { dirname, join } from 'pathslash';
 import type { CfBuildOutput } from './cf-build-output.ts';
 import {
   CF_VERSION_SOURCE_MAX_OUTPUT_BYTES,
+  readCfPreviewDeployOutput,
   readCfUploadOutput,
   safePositional,
 } from './cf-command-values.ts';
@@ -733,6 +734,25 @@ export function createCfVersionRunner(options: {
           command.capture,
         ),
       );
+    }
+
+    if (operation.type === 'previews.deploy') {
+      if (operation.workerName !== workerName) {
+        return failed('The Cloudflare preview target changed.');
+      }
+      const verified = await verifyResources(output.directory);
+      if (!isCleanCloudflareExit(verified)) {
+        return verified;
+      }
+      // One argv item, so a name that starts with "-" is never read as a flag.
+      const deployed = await run(
+        ['previews', 'deploy', '--prebuilt', `--preview-name=${operation.previewName}`],
+        command.capture,
+      );
+      if (!isCleanCloudflareExit(deployed)) {
+        return deployed;
+      }
+      return { ...deployed, data: readCfPreviewDeployOutput(deployed.data) };
     }
 
     if (operation.type === 'versions.deploy') {

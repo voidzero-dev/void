@@ -69,6 +69,7 @@ export async function runDeploy(root: string, options?: RunDeployOptions): Promi
     spa: options?.spa === true ? true : undefined,
     skipBuild: options?.skipBuild === true ? true : undefined,
     skipMigrations: options?.skipMigrations === true ? true : undefined,
+    preview: options?.preview,
     nodeVersion: process.version,
     platform: process.platform,
     arch: process.arch,

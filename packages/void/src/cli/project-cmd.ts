@@ -100,6 +100,16 @@ export async function runProjectCommand(root: string, args: ProjectArgs): Promis
     const { runRollbackCommand } = await import('./rollback.ts');
     return runRollbackCommand(root, args.deployId || undefined, args.platform);
   }
+  if (args.subcommand === 'preview') {
+    // A one-off `deploy --platform cloudflare` keeps the saved platform, as for rollback.
+    if (args.platform !== 'cloudflare' && !cloudflare) {
+      throw new Error(
+        'project: Previews from `void deploy --preview` exist only for direct Cloudflare deploys. Add --platform cloudflare.',
+      );
+    }
+    const { runCloudflarePreviewDelete } = await import('./cloudflare-preview.ts');
+    return runCloudflarePreviewDelete(root, { name: args.name });
+  }
   if (args.subcommand === 'cancel') {
     if (cloudflare) {
       throw new Error(

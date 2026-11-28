@@ -241,6 +241,19 @@ Pass `--platform cloudflare` to roll back a one-off Cloudflare deployment.
 
 Database recovery is separate from code rollback. Void asks for confirmation when the earlier code may be incompatible with the current schema. For D1 on Cloudflare, use [`void db restore`](./database.md#void-db-restore) with the restore point printed during deployment.
 
+## `void project preview delete <name>` {#void-project-preview-delete-name}
+
+```
+void project preview delete <name> [--platform cloudflare]
+```
+
+Delete a Cloudflare Preview made with [`void deploy --preview`](./deploy.md#void-deploy-preview), and all its deployments. Production is unchanged. It needs the Worker name and a pinned account (`cloudflare.name` and `cloudflare.account_id`, the matching keys in `wrangler.jsonc`, or `CLOUDFLARE_ACCOUNT_ID`), the same ones the preview deploy used.
+
+- Exit code 0: the preview was deleted, or it did not exist. A cleanup job can run more than once.
+- Exit code 1: the Worker was not found in the account, or Cloudflare returned another error.
+
+Pass `--platform cloudflare` unless the project's saved platform is Cloudflare.
+
 ## `void project cancel [deployId]` {#void-project-cancel-deployid}
 
 ```

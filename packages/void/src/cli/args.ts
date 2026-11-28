@@ -3,7 +3,7 @@ import type { RunDeployOptions } from './deploy-types.ts';
 
 export function parseDeployArgs(
   args: Array<string>,
-): Omit<RunDeployOptions, 'reuseExistingWorker'> {
+): Omit<RunDeployOptions, 'reuseExistingWorker' | 'writeResult'> {
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs({
@@ -19,6 +19,8 @@ export function parseDeployArgs(
         provision: { type: 'boolean' },
         'require-email': { type: 'boolean' },
         atomic: { type: 'boolean' },
+        preview: { type: 'string' },
+        json: { type: 'boolean' },
       },
       allowPositionals: true,
       strict: true,
@@ -31,6 +33,11 @@ export function parseDeployArgs(
       const optionMatch = message.match(/Option '(--[a-z-]+)/);
       if (optionMatch?.[1] === '--platform') {
         throw new Error("deploy: --platform requires a value ('cloudflare' or 'void').", {
+          cause: error,
+        });
+      }
+      if (optionMatch?.[1] === '--preview') {
+        throw new Error('deploy: --preview requires a name (for example --preview pr-64).', {
           cause: error,
         });
       }
@@ -108,7 +115,36 @@ export function parseDeployArgs(
     }
   }
 
+  if (tokens.filter((token) => token.kind === 'option' && token.name === 'preview').length > 1) {
+    throw new Error('deploy: --preview can only be specified once.');
+  }
+  const preview = typeof parsed.values.preview === 'string' ? parsed.values.preview : undefined;
+  const json = parsed.values.json === true ? true : undefined;
+  if (preview !== undefined) {
+    if (preview === '') {
+      throw new Error('deploy: --preview requires a name (for example --preview pr-64).');
+    }
+    if (platform !== 'cloudflare') {
+      throw new Error('deploy: --preview requires --platform cloudflare.');
+    }
+    // The name and the Worker it targets are checked before connecting to Cloudflare.
+    for (const [flag, set] of [
+      ['--atomic', atomic],
+      ['--provision', provision],
+      ['--require-email', requireEmail],
+    ] as const) {
+      if (set) {
+        throw new Error(`deploy: ${flag} cannot be combined with --preview.`);
+      }
+    }
+  }
+  if (json && preview === undefined) {
+    throw new Error('deploy: --json is available only with --preview.');
+  }
+
   return {
+    preview,
+    json,
     projectSlug,
     dir,
     spa,

@@ -11,6 +11,7 @@ import {
   writeCloudflareFrameworkDeployConfig,
   writeCloudflareStaticDeployConfig,
   assertExistingCloudflareConfig,
+  previewStaticWorkerConfig,
 } from '@void/deploy-cloudflare';
 import { dirname, join, relative } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
@@ -30,6 +31,7 @@ import type { CloudflareCandidateReceipt } from './cloudflare-candidate.ts';
 import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import { readCloudflareLink } from './cloudflare-link.ts';
 import type { CloudflareLink } from './cloudflare-link.ts';
+import { checkCloudflarePreviewRequest, runCloudflareStaticPreview } from './cloudflare-preview.ts';
 import { deduplicateGeneratedCompatibilityFlags } from './deploy-artifact-validation.ts';
 import { deployPointerPath } from './deploy-binding-snapshot.ts';
 import { prepareExistingCloudflareDeployWithAuth } from './deploy-cloudflare-auth.ts';
@@ -338,6 +340,17 @@ export async function runCloudflareStaticDeploy(
 ): Promise<void> {
   const exit = deps.exit ?? ((code: number): never => process.exit(code));
   const configPath = discoverRootWranglerConfig(root);
+  if (options.preview !== undefined) {
+    const problem = checkCloudflarePreviewRequest({
+      previewName: options.preview,
+      rootConfig: parseRootWranglerConfig(configPath),
+      configPath,
+    });
+    if (problem) {
+      log.error(problem);
+      return exit(1);
+    }
+  }
   const connection = await connectCloudflareDeployAccount({
     root,
     configPath,
@@ -380,7 +393,10 @@ export async function runCloudflareStaticDeploy(
   }
   const rootConfig = parseRootWranglerConfig(configPath);
   const workerName = readWranglerTopLevelString(rootConfig, 'name') ?? deriveWorkerName(root);
-  printDeployContext(workerName, 'Cloudflare');
+  printDeployContext(
+    workerName,
+    options.preview === undefined ? 'Cloudflare' : `Cloudflare Preview ${options.preview}`,
+  );
   const rootConfigBeforeBuild = existsSync(configPath) ? readFileSync(configPath, 'utf8') : null;
   if (preset.buildCommand && !options.skipBuild) {
     log.step('Building...');
@@ -432,7 +448,12 @@ export async function runCloudflareStaticDeploy(
   // Write the static config separately so the root config, with its Worker-only bindings and
   // comments, stays untouched for a later switch back to a Worker app.
   const staticConfigPath = join(dirname(entryPath), 'wrangler-static.json');
-  writeFileSync(staticConfigPath, `${JSON.stringify(rootConfig, null, 2)}\n`, { mode: 0o600 });
+  // A preview gets none of the Worker's bindings, vars or migrations.
+  writeFileSync(
+    staticConfigPath,
+    `${JSON.stringify(options.preview === undefined ? rootConfig : previewStaticWorkerConfig(rootConfig), null, 2)}\n`,
+    { mode: 0o600 },
+  );
   writeCloudflareStaticDeployConfig({
     configPath: staticConfigPath,
     name: workerName,
@@ -496,6 +517,7 @@ export async function runCloudflareStaticDeploy(
         configPath: staticConfigPath,
         assetsDirectory: stagedAssetsDirectory,
         accountId,
+        isPreview: options.preview !== undefined,
       })
     : null;
   if (!cfOutput && usesCf) {
@@ -513,6 +535,24 @@ export async function runCloudflareStaticDeploy(
     verifyCompatibilityRunner: assertUploaderStillPinned,
     reporter,
   });
+  const typeLabel = preset.appType === 'spa' ? 'Static SPA' : 'Static Site';
+  if (options.preview !== undefined) {
+    return runCloudflareStaticPreview({
+      runWrangler: activationRunner,
+      cfOutput,
+      workerName,
+      previewName: options.preview,
+      accountId,
+      configPath,
+      staticConfigPath,
+      verifyUploader: cfOutput ? cfUploaderIsPinned : assertUploaderStillPinned,
+      typeLabel,
+      writeResult: options.writeResult,
+      reporter,
+      cliLog,
+      exit,
+    });
+  }
   const execution = await activateCloudflareVersionWithProgress(
     deps.activateVersion ?? activateCloudflareVersion,
     {
@@ -565,12 +605,6 @@ export async function runCloudflareStaticDeploy(
     execution,
     cliLog,
   });
-  note(
-    formatDeploySummary({
-      workerName,
-      typeLabel: preset.appType === 'spa' ? 'Static SPA' : 'Static Site',
-    }),
-    execution.previewUrl,
-  );
+  note(formatDeploySummary({ workerName, typeLabel }), execution.previewUrl);
   printDeploySuccess();
 }

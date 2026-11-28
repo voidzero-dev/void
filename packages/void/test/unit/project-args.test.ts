@@ -405,3 +405,37 @@ describe('security', () => {
     );
   });
 });
+
+describe('parseProjectArgs preview', () => {
+  it('parses preview delete with an optional platform', () => {
+    expect(parseProjectArgs(['preview', 'delete', 'pr-64'])).toEqual({
+      subcommand: 'preview',
+      action: 'delete',
+      name: 'pr-64',
+    });
+    expect(parseProjectArgs(['preview', '--platform=cloudflare', 'delete', 'pr-64'])).toEqual({
+      subcommand: 'preview',
+      action: 'delete',
+      name: 'pr-64',
+      platform: 'cloudflare',
+    });
+  });
+
+  it.each([
+    [['preview', 'delete']],
+    [['preview', 'delete', '-x']],
+    [['preview', 'delete', 'pr-64', 'pr-65']],
+    [['preview', 'list']],
+    [['preview', 'delete pr-64']],
+  ])('refuses %j', (args) => {
+    expect(() => parseProjectArgs(args)).toThrow(
+      'project: Usage: void project preview delete <name> [--platform cloudflare].',
+    );
+  });
+
+  it('names the platform it does not accept', () => {
+    expect(() => parseProjectArgs(['preview', 'delete', 'pr-64', '--platform', 'void'])).toThrow(
+      "project: `preview --platform` accepts only 'cloudflare', got 'void'.",
+    );
+  });
+});

@@ -5,11 +5,15 @@ import { log } from '@voidzero-dev/vite-plus-prompts';
 import { formatCloudflareUserMessage } from './cloudflare-user-output.ts';
 import { Buffer } from './node-buffer.ts';
 
-const CHILD_COMMAND = '__void-db-execute-json__';
+const CHILD_COMMAND = '__void-json-command__';
 const RESULT_FD = 3;
 
-/** Keep config output on stderr, including writes to fd 1 and output from its children. */
-export async function runDbExecuteProcess(
+/**
+ * Run a `--json` command (`db execute` or `deploy`) in a child process whose stdout is our
+ * stderr, so config output, including writes to fd 1 and output from its children, never reaches
+ * stdout. Only the result the child writes to fd 3 is printed, and only on success.
+ */
+export async function runJsonCommandProcess(
   root: string,
   args: ReadonlyArray<string>,
 ): Promise<void> {
@@ -51,10 +55,18 @@ if (process.argv[2] === CHILD_COMMAND) {
   try {
     // Keep the CLI arguments visible to project config evaluated by this process.
     process.argv.splice(1, 2);
-    const { parseDbArgs } = await import('./db-args.ts');
-    const args = parseDbArgs(process.argv.slice(3));
-    const { runDbCommand } = await import('./db.ts');
-    await runDbCommand(process.cwd(), args, (text) => writeFileSync(RESULT_FD, text));
+    const writeResult = (text: string) => writeFileSync(RESULT_FD, text);
+    // `.at()`, as TypeScript still narrows `argv[2]` to the marker after the splice.
+    if (process.argv.at(2) === 'deploy') {
+      const { parseDeployArgs } = await import('./args.ts');
+      const { runDeploy } = await import('./deploy.ts');
+      await runDeploy(process.cwd(), { ...parseDeployArgs(process.argv.slice(3)), writeResult });
+    } else {
+      const { parseDbArgs } = await import('./db-args.ts');
+      const args = parseDbArgs(process.argv.slice(3));
+      const { runDbCommand } = await import('./db.ts');
+      await runDbCommand(process.cwd(), args, writeResult);
+    }
   } catch (error) {
     log.error(formatCloudflareUserMessage(error instanceof Error ? error.message : String(error)), {
       output: process.stderr,

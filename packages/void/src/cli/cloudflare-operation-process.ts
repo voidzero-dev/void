@@ -1524,6 +1524,22 @@ async function main(): Promise<Result> {
   if (operation.type.startsWith('email.')) {
     return email();
   }
+  if (operation.type === 'previews.delete') {
+    // cf does not read a positional after "--", so refuse a name it could read as a flag.
+    if (!safePositional(operation.previewName)) {
+      throw new Error('Cloudflare Preview name is invalid.');
+    }
+    return runCf([
+      'previews',
+      'delete',
+      operation.previewName,
+      `--worker=${workerName()}`,
+      '--force',
+    ]);
+  }
+  if (operation.type === 'previews.deploy') {
+    throw new Error('Cloudflare Previews deploy only from the prepared Build Output.');
+  }
   if (
     operation.type.startsWith('deployments.') ||
     (operation.type.startsWith('versions.') && operation.type !== 'versions.upload')

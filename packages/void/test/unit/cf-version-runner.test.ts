@@ -3380,3 +3380,64 @@ describe('settings credential before activation', () => {
     }
   });
 });
+
+it('deploys a named Preview from the prebuilt output without touching versions or traffic', async () => {
+  const prepared = await output();
+  try {
+    const calls: Array<{ args: Array<string>; cwd: string | undefined }> = [];
+    const verified: Array<string> = [];
+    const preview = {
+      type: 'preview',
+      preview_id: 'prv_1',
+      preview_name: 'pr-64',
+      preview_urls: ['https://pr-64-void-test.team.workers.dev'],
+      deployment_id: 'dep_1',
+      deployment_urls: ['https://dep1-void-test.team.workers.dev'],
+    };
+    const runner = createCfVersionRunner({
+      output: prepared,
+      workerName: 'void-test',
+      verifyResources: async (directory) => {
+        verified.push(directory);
+        return { status: 0, stdout: '', stderr: '' };
+      },
+      runCf: (args, run) => {
+        calls.push({ args, cwd: run.cwd });
+        return {
+          status: 0,
+          // cf prints the record as JSON on stdout and its progress on stderr.
+          stdout: `${JSON.stringify(preview, null, 2)}\n`,
+          stderr: 'Uploading assets\n',
+        };
+      },
+    });
+    const result = await runner(
+      { type: 'previews.deploy', workerName: 'void-test', previewName: 'pr-64' },
+      { capture: true },
+    );
+    expect(result.status).toBe(0);
+    expect(result.data).toEqual({
+      previewId: 'prv_1',
+      previewName: 'pr-64',
+      deploymentId: 'dep_1',
+      previewUrl: 'https://pr-64-void-test.team.workers.dev',
+      deploymentUrl: 'https://dep1-void-test.team.workers.dev',
+    });
+    expect(verified).toEqual([prepared.directory]);
+    expect(calls).toEqual([
+      {
+        args: ['previews', 'deploy', '--prebuilt', '--preview-name=pr-64'],
+        cwd: prepared.directory,
+      },
+    ]);
+
+    const moved = await runner(
+      { type: 'previews.deploy', workerName: 'other-worker', previewName: 'pr-64' },
+      { capture: true },
+    );
+    expect(moved.status).not.toBe(0);
+    expect(calls).toHaveLength(1);
+  } finally {
+    await prepared.dispose();
+  }
+});
