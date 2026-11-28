@@ -46,6 +46,18 @@ void auth login
 void deploy
 ```
 
+If you use React Router 8 and `react-router.config.ts` sets `prerender`, tell Void to build with React Router's CLI:
+
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  inference: { build: 'react-router build' },
+});
+```
+
+Otherwise `void deploy` runs `vite build` (or `vp build` with Vite+), which doesn't exit after React Router 8 prerenders ([remix-run/react-router#15427](https://github.com/remix-run/react-router/issues/15427)), so the deploy never reaches the upload.
+
 ## Using Void Features
 
 Most [Void platform features](../../guide/app-types.md#void-apps) work with React Router. Use them in loaders and actions:
