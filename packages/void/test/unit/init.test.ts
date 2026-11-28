@@ -2574,9 +2574,18 @@ describe('isScaffoldableEmptyProject', () => {
     }
   });
 
-  it('preserves an existing devEngines package manager policy', async () => {
+  it.each([
+    ['object with an explicit failure policy', { name: 'npm', version: '11.20.0', onFail: 'warn' }],
+    ['object with the default failure policy', { name: 'npm', version: '11.20.0' }],
+    [
+      'array',
+      [
+        { name: 'npm', version: '11.20.0', onFail: 'warn' },
+        { name: 'npm', version: '12.2.3', onFail: 'error' },
+      ],
+    ],
+  ] as const)('preserves the existing devEngines package manager $0', async (_, packageManager) => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-pinned-npm-'));
-    const packageManager = { name: 'npm', version: '11.20.0', onFail: 'warn' };
     try {
       writeFileSync(
         join(root, 'package.json'),
