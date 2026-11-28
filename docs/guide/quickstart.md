@@ -41,6 +41,8 @@ vpx void init
 
 :::
 
+If `pnpm add` stops with `ERR_PNPM_IGNORED_BUILDS`, run `pnpm void init` anyway. Setup writes the build permissions Void needs to `pnpm-workspace.yaml`.
+
 Choose your UI framework, a starter, and a deployment target. Vite+ is the default build tool. D1 is a good first database: it runs locally without a separate database server. Choose Cloudflare to deploy to your own account, or skip deployment setup for now.
 
 You do not need to install Vite+ globally. Setup preserves your existing package-manager versions and lockfiles.
@@ -128,5 +130,3 @@ For a meta framework such as TanStack Start, React Router, or SvelteKit, follow 
 - [Database](./database.md): queries and migrations
 - [Environment Variables](./env-vars.md): local values and production secrets
 - [Coding Agents](../integrations/agents.md): use Void's bundled docs and skills
-
-If a manual pnpm install reports blocked build scripts, run `pnpm approve-builds` for `esbuild`, `sharp`, and `workerd`. Set `better-sqlite3: false` in `pnpm-workspace.yaml`'s `allowBuilds`; Void uses its bundled binaries.
