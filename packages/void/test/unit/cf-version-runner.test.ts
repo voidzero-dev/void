@@ -57,8 +57,8 @@ import {
 // globals, and Vitest clears every mock's call history whenever another test starts.
 const it = serialIt.concurrent;
 
-it.each([false, true])(
-  'uploads the same package versions as real cf when preserving secrets (atomic=%s)',
+serialIt.each([false, true])(
+  'matches cf package versions and honors the opt-out when preserving secrets (atomic=%s)',
   async (atomic) => {
     const activeVersionId = '11111111-1111-4111-8111-111111111111';
     const root = mkdtempSync(join(tmpdir(), 'void-cf-package-context-'));
@@ -164,7 +164,9 @@ it.each([false, true])(
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(JSON.stringify({ success: true, errors: [], messages: [], result }));
     });
+    const instrumentationEnv = 'CLOUDFLARE_DEPENDENCIES_INSTRUMENTATION';
     try {
+      vi.stubEnv(instrumentationEnv, undefined);
       const apiBaseUrl = await listen(server);
       // The fake response need only acknowledge the upload, not cf's subsequent presentation.
       const result = await pinnedCf(apiBaseUrl)(['workers', 'versions', 'create', '--prebuilt'], {
@@ -188,7 +190,7 @@ it.each([false, true])(
           requiredNames: [],
         })!(activeVersionId, [{ name: 'AUTH_SECRET', type: 'secret_text' }]),
       ).toBe(true);
-      await uploadPinnedCloudflareVersion({
+      const uploadOptions = {
         output: prepared!,
         accountId: 'account-id',
         apiBaseUrl,
@@ -196,7 +198,8 @@ it.each([false, true])(
         token: 'synthetic-token',
         atomic,
         verifyUploader: () => true,
-      });
+      };
+      await uploadPinnedCloudflareVersion(uploadOptions);
       expect(uploads).toHaveLength(2);
       expect(uploads[1].package_dependencies).toEqual(uploads[0].package_dependencies);
       expect(uploads[1].bindings).toContainEqual({
@@ -205,7 +208,21 @@ it.each([false, true])(
         version_id: activeVersionId,
       });
       expect(uploads[1].modules).toEqual([expect.objectContaining({ name: 'index.js' })]);
+
+      vi.stubEnv(instrumentationEnv, atomic ? 'FaLsE' : 'false');
+      await uploadPinnedCloudflareVersion(uploadOptions);
+      expect(uploads).toHaveLength(3);
+      expect(uploads[2]).not.toHaveProperty('package_dependencies');
+      const optOutBody = { ...uploads[1] };
+      delete optOutBody.package_dependencies;
+      expect(uploads[2]).toEqual(optOutBody);
+
+      vi.stubEnv(instrumentationEnv, 'TrUe');
+      await uploadPinnedCloudflareVersion(uploadOptions);
+      expect(uploads).toHaveLength(4);
+      expect(uploads[3]).toEqual(uploads[1]);
     } finally {
+      vi.unstubAllEnvs();
       await prepared!.dispose();
     }
   },
