@@ -38,7 +38,7 @@ function stylesheetHrefs(html: string): Array<string> {
 export function buildIslandApp(app: Omit<IslandCssApp, 'expectedCss' | 'check' | 'checkBuild'>): {
   root: string;
   page(file: string): { html: string; css: string };
-  /** The text of every built file under `dist/<dir>`, by path. */
+  /** The text of every built file under `dist/<dir>`, keyed by its URL-style relative path. */
   output(dir: 'client' | 'ssr'): Map<string, string>;
   cleanup(): void;
 } {
@@ -82,7 +82,7 @@ export default defineConfig({ output: 'static', worker: { compatibility_date: '2
       const files = new Map<string, string>();
       for (const file of readdirSync(out, { recursive: true, encoding: 'utf8' })) {
         if (file.endsWith('.js') || file.endsWith('.css') || file.endsWith('.html')) {
-          files.set(file, readFileSync(join(out, file), 'utf8'));
+          files.set(file.replaceAll('\\', '/'), readFileSync(join(out, file), 'utf8'));
         }
       }
       return files;
