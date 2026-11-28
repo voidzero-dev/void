@@ -779,15 +779,18 @@ it.each(
       ],
       ['user-authored', authoredAssetHeaders],
       ['empty', ''],
-      ['custom ignore negation', authoredAssetHeaders],
+      ['framework redirects', authoredAssetHeaders],
+      ['plain Worker redirects', authoredAssetHeaders],
       ['missing', undefined],
     ] as const
   ).flatMap(([kind, headers]) =>
     [false, true].map((workerFirst) => ({ kind, headers, workerFirst })),
   ),
 )(
-  'uploads generated and user-authored _headers files with pinned secrets ($kind, worker-first=$workerFirst)',
+  'uploads asset routing files with pinned secrets ($kind, worker-first=$workerFirst)',
   async ({ kind, headers, workerFirst }) => {
+    const forwardAssetRedirects = kind === 'framework redirects';
+    const redirects = '/old /new 302\n';
     const runWorkerFirst = workerFirst ? ['/**', '!/assets/*'] : undefined;
     const prepared = await output({
       secrets: { required: ['AUTH_SECRET'] },
@@ -799,18 +802,18 @@ it.each(
       },
     });
     try {
+      if (forwardAssetRedirects) {
+        prepared.forwardAssetRedirects = true;
+      }
       if (headers !== undefined) {
         writeFileSync(join(getWorkerAssetsDir(prepared.directory), '_headers'), headers);
       }
-      if (kind === 'custom ignore negation') {
+      if (forwardAssetRedirects || kind === 'plain Worker redirects') {
         writeFileSync(
           join(getWorkerAssetsDir(prepared.directory), '.assetsignore'),
           'private.txt\n!/_headers\n!/_redirects\n!/.assetsignore\n',
         );
-        writeFileSync(
-          join(getWorkerAssetsDir(prepared.directory), '_redirects'),
-          '/old /new 302\n',
-        );
+        writeFileSync(join(getWorkerAssetsDir(prepared.directory), '_redirects'), redirects);
       }
       await pinActiveWorkerSecrets({
         output: prepared,
@@ -863,20 +866,23 @@ it.each(
           ...(runWorkerFirst === undefined ? {} : { run_worker_first: runWorkerFirst }),
         },
       });
-      const modules = (body.modules as Array<{ name: string }>).filter(({ name }) =>
-        ['_headers', '_redirects', '.assetsignore'].includes(name),
-      );
-      expect(modules).toEqual(
-        headers !== undefined
-          ? [
-              {
-                name: '_headers',
-                content_type: 'text/plain',
-                content_base64: Buffer.from(headers).toString('base64'),
-              },
-            ]
-          : [],
-      );
+      const modules = (
+        body.modules as Array<{ name: string; content_type: string; content_base64: string }>
+      )
+        .filter(({ name }) => ['_headers', '_redirects', '.assetsignore'].includes(name))
+        .map(({ name, content_type, content_base64 }) => ({
+          name,
+          content_type,
+          content: Buffer.from(content_base64, 'base64').toString('utf8'),
+        }));
+      expect(modules).toEqual([
+        ...(headers === undefined
+          ? []
+          : [{ name: '_headers', content_type: 'text/plain', content: headers }]),
+        ...(forwardAssetRedirects
+          ? [{ name: '_redirects', content_type: 'text/plain', content: redirects }]
+          : []),
+      ]);
     } finally {
       await prepared.dispose();
     }

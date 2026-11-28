@@ -1005,12 +1005,15 @@ async function ensureContainerApplications(options: {
   }
 }
 
-function readAssetHeaders(output: CfBuildOutput): string | undefined {
+function readAssetRuleFile(
+  output: CfBuildOutput,
+  name: '_headers' | '_redirects',
+): string | undefined {
   if (!output.assetsDirectory) {
     return undefined;
   }
   try {
-    return readFileSync(join(getWorkerAssetsDir(output.directory), '_headers'), 'utf8');
+    return readFileSync(join(getWorkerAssetsDir(output.directory), name), 'utf8');
   } catch (cause) {
     if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
       return undefined;
@@ -1251,12 +1254,18 @@ export async function uploadPinnedCloudflareVersion(options: {
       ).toString('base64'),
     });
   }
-  const assetHeaders = readAssetHeaders(options.output);
-  if (assetHeaders !== undefined) {
+  for (const name of ['_headers', '_redirects'] as const) {
+    if (name === '_redirects' && !options.output.forwardAssetRedirects) {
+      continue;
+    }
+    const content = readAssetRuleFile(options.output, name);
+    if (content === undefined) {
+      continue;
+    }
     modules.push({
-      name: '_headers',
+      name,
       content_type: 'text/plain',
-      content_base64: Buffer.from(assetHeaders).toString('base64'),
+      content_base64: Buffer.from(content).toString('base64'),
     });
   }
   await preflightWorkflowExports({
