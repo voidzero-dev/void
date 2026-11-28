@@ -303,3 +303,47 @@ it('reports a render error to the setup error handler and renders the page bound
   expect(html).toContain('<p id="setup-error">Error: setup error probe</p>');
   expect(html).toContain(`<p id="setup-error-state">${VALUE}</p>`);
 });
+
+it('preserves explicit HTTP responses when an app error handler is installed without custom boundaries', async () => {
+  const workspace = join(import.meta.dirname, '../../../..');
+  const app = createIsolatedPlayground(workspace, 'playground/vue-pages');
+  try {
+    const config = join(app.root, 'vite.config.ts');
+    writeFileSync(
+      config,
+      readFileSync(config, 'utf8').replace('voidVue()', "voidVue({ appSetup: './app-setup.ts' })"),
+    );
+    writeFileSync(
+      join(app.root, 'app-setup.ts'),
+      `import type { App } from 'vue';
+export default function setup(app: App) {
+  app.config.errorHandler = (error) => { console.error('App observed', error); };
+}`,
+    );
+    for (const filename of ['status-page.vue', 'status-island.island.vue']) {
+      writeFileSync(
+        join(app.root, 'pages', filename),
+        `<script setup>
+import { HTTPException } from 'hono/http-exception';
+if (import.meta.env.SSR) throw new HTTPException(503, { message: 'Service paused' });
+</script>
+<template><p>Unexpected success page</p></template>`,
+      );
+    }
+    const appServer = await startServer(
+      (port) => spawnFixtureServer(app.root, 'dev', port),
+      20_000,
+    );
+    try {
+      for (const path of ['/status-page', '/status-island']) {
+        const response = await fetch(appServer.base + path);
+        expect.soft(response.status, path).toBe(503);
+        expect.soft(await response.text(), path).not.toContain('Unexpected success page');
+      }
+    } finally {
+      await killChild(appServer.child);
+    }
+  } finally {
+    app.cleanup();
+  }
+}, 45_000);

@@ -30,7 +30,7 @@ export function generateSsrRender(appSetup: AppSetupModule | undefined): string 
   const handler = appSetup
     ? `const setupErrorHandler = app.config.errorHandler;
   const boundary = boundaryManifest.pages[pageObj.component];
-  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = (error, ...args) => {
+  if (setupErrorHandler || Object.keys(boundaryManifest.plans).length) app.config.errorHandler = (error, ...args) => {
     if (!setupErrorHandler || isPageResponseError(error) || boundary?.errors.length ||
         boundaryManifest.plans[pageObj.component]) {
       renderFailure ??= { error };
