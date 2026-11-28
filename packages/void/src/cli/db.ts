@@ -25,6 +25,7 @@ import type { DatabaseProviderAdapter } from '../database-provider.ts';
 import { resolveLocalD1Target } from '../local-d1.ts';
 import type { LocalD1Target } from '../local-d1.ts';
 import {
+  assertFlatMigrationLayout,
   collectMigrations,
   readJournal,
   stripSqlExt,
@@ -34,7 +35,7 @@ import type { MySqlClient } from '../migrations/runner-mysql.ts';
 import type { SqliteDatabase, SqliteStatement } from '../migrations/runner.ts';
 import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
 import { detectFramework } from '../plugin-inference.ts';
-import { readProjectPaths } from '../project-paths.ts';
+import { readProjectPaths, resolveProjectPaths } from '../project-paths.ts';
 import type { SeedFn } from '../runtime/db/seed.ts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { loadLocalEnv } from '../shared/env.ts';
@@ -220,7 +221,16 @@ export async function runDbCommand(
     console.log();
   }
 
-  const dialect = getDatabaseDialect(readConfig(root));
+  const config = readConfig(root);
+  const dialect = getDatabaseDialect(config);
+  if (
+    args.action === 'migrate' ||
+    args.action === 'status' ||
+    args.action === 'reset' ||
+    args.action === 'seed'
+  ) {
+    assertFlatMigrationLayout(resolveProjectPaths(root, config).migrationsDir);
+  }
 
   if (args.action === 'push') {
     await runPush(root, dialect);

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { toSlash } from 'pathslash';
 import { describe, it, expect } from 'vite-plus/test';
 import { packageFixturePath } from '../../../../test/fixture-dir.ts';
-import { collectMigrations } from '../../src/migrations/collect.ts';
+import { assertFlatMigrationLayout, collectMigrations } from '../../src/migrations/collect.ts';
 
 const TMP_DIR = packageFixturePath(import.meta.dirname, '.tmp-collect-test');
 
@@ -58,14 +58,15 @@ describe('collectMigrations', () => {
     cleanup();
   });
 
-  it('rejects a nested migration folder in a mixed history', () => {
+  it('checks for nested folders separately from collecting flat migrations', () => {
     setup({ '001_create.sql': 'CREATE TABLE a;' });
     try {
       const folder = join(TMP_DIR, '20261127010000_nested');
       mkdirSync(folder);
       writeFileSync(join(folder, 'migration.sql'), 'CREATE TABLE b;');
 
-      expect(() => collectMigrations(TMP_DIR)).toThrow(
+      expect(collectMigrations(TMP_DIR).map(({ name }) => name)).toEqual(['001_create.sql']);
+      expect(() => assertFlatMigrationLayout(TMP_DIR)).toThrow(
         "Unsupported nested migration folder '" + toSlash(folder) + "'",
       );
     } finally {
