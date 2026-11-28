@@ -27,6 +27,23 @@ import { projectSubcommands, parseProjectArgs } from './project-args.ts';
 import { secretSubcommands, parseSecretArgs } from './secret-args.ts';
 import type { SubcommandDef, SubcommandResult } from './subcommand-prompt.ts';
 
+function runCommand(name: string, run: () => Promise<void>) {
+  let closedInputDrains = 0;
+  const onBeforeExit = () => {
+    if ((process.exitCode ?? 0) === 0 && (process.stdin.readableEnded || process.stdin.destroyed)) {
+      if (++closedInputDrains === 1) {
+        return void setImmediate(() => {});
+      }
+      const message = `void ${name}: Command did not finish. Standard input is closed.`;
+      const json = args.includes('--json');
+      console.error(json ? JSON.stringify({ error: 'invalid_command', message }) : message);
+      process.exitCode = 1;
+    }
+  };
+  process.on('beforeExit', onBeforeExit);
+  return run().finally(() => process.off('beforeExit', onBeforeExit));
+}
+
 function buildArgs(result: SubcommandResult, trailingArgs: Array<string>): Array<string> {
   const out = [result.subcommand];
   if (result.arg) {
@@ -240,7 +257,7 @@ if (helpPath) {
   }
 
   const { runDeploy } = await import('./deploy.ts');
-  await runDeploy(root, deployArgs).catch((err: unknown) => {
+  await runCommand('deploy', () => runDeploy(root, deployArgs)).catch((err: unknown) => {
     logCloudflareUserError(err instanceof Error ? err.message : String(err));
     process.exit(1);
   });
@@ -254,7 +271,7 @@ if (helpPath) {
     process.exit(1);
   });
 } else if (command && hasOwnKey(subcommandGroups, command)) {
-  void subcommandGroups[command]();
+  void runCommand(command, subcommandGroups[command]);
 } else if (command === 'info') {
   await import('./info.ts').then(async ({ runInfoCommand }) => {
     try {
@@ -293,7 +310,7 @@ if (helpPath) {
       log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exit(1);
     }
-    await runInitCommand(root, initArgs).catch((err: unknown) => {
+    await runCommand('init', () => runInitCommand(root, initArgs)).catch((err: unknown) => {
       log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exitCode = 1;
     });
