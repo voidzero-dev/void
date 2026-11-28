@@ -1,6 +1,24 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'pathslash';
 
+export function assertFlatMigrationLayout(migrationsDir: string): void {
+  if (!existsSync(migrationsDir)) {
+    return;
+  }
+
+  const entries = readdirSync(migrationsDir, { withFileTypes: true });
+  const nested = entries.find(
+    (entry) =>
+      (entry.isDirectory() || entry.isSymbolicLink()) &&
+      existsSync(join(migrationsDir, entry.name, 'migration.sql')),
+  );
+  if (nested) {
+    throw new Error(
+      `db: Unsupported nested migration folder '${join(migrationsDir, nested.name)}'. Void migrations use flat .sql files from drizzle-kit 0.x.`,
+    );
+  }
+}
+
 /**
  * Collect all .sql migration files from the migrations directory,
  * sorted by filename (lexicographic order).

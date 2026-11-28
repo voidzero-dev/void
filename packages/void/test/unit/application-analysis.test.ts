@@ -124,6 +124,20 @@ describe('shared application analysis', () => {
     ]);
   });
 
+  it('ignores nested migrations managed by external tools', () => {
+    const applicationRoot = root();
+    source(
+      applicationRoot,
+      'db/migrations/20261127010000_init/migration.sql',
+      'CREATE TABLE events (id TEXT);',
+    );
+
+    const analysis = analyzeApplicationSync(applicationRoot, { config: {} });
+
+    expect(analysis.needsDatabase).toBe(false);
+    expect(analysis.migrations).toEqual([]);
+  });
+
   it('includes migration-only database requirements without inventing source inference', () => {
     const applicationRoot = root();
     source(applicationRoot, 'db/migrations/001.sql', 'CREATE TABLE events (id TEXT);');

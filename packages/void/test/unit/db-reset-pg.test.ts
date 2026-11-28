@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { citext } from '@electric-sql/pglite/contrib/citext';
+import { toSlash } from 'pathslash';
 import {
   afterAll,
   afterEach,
@@ -74,6 +75,21 @@ function project(statements: Array<string>): string {
 }
 
 describe('void db reset on PostgreSQL', () => {
+  it('refuses a nested migration folder before migrating or resetting PostgreSQL', async () => {
+    const root = project(['CREATE TABLE new_flat (id integer PRIMARY KEY);']);
+    const folder = join(root, 'db', 'migrations', '20261127010000_create_users');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'migration.sql'), 'CREATE TABLE users (id integer PRIMARY KEY);');
+    await state.pg!.exec('CREATE TABLE keep_on_refusal (id integer PRIMARY KEY)');
+
+    const message = "Unsupported nested migration folder '" + toSlash(folder) + "'";
+    await expect(runDbCommand(root, { action: 'migrate' })).rejects.toThrow(message);
+    await expect(runDbCommand(root, { action: 'reset', yes: true })).rejects.toThrow(message);
+    expect(
+      (await state.pg!.query("SELECT to_regclass('public.keep_on_refusal') AS name")).rows,
+    ).toEqual([{ name: 'keep_on_refusal' }]);
+  });
+
   it('drops types, sequences and views so the migrations apply again, and keeps extensions', async () => {
     const pg = state.pg!;
     // Installed by hand, outside the migrations.

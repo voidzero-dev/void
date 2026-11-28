@@ -285,6 +285,22 @@ describe('void db migrate', () => {
     expect(mockLog.error).not.toHaveBeenCalled();
   });
 
+  it('rejects Drizzle Kit 1.0 folders for D1', async () => {
+    const root = createProjectRoot({});
+    const folder = join(root, 'db', 'migrations', '20261127010000_create_users');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'migration.sql'), 'CREATE TABLE users (id integer PRIMARY KEY);');
+    writeFileSync(join(folder, 'snapshot.json'), '{}');
+
+    await expect(runDbCommand(root, { action: 'migrate' })).rejects.toThrow(
+      "db: Unsupported nested migration folder '" +
+        toSlash(folder) +
+        "'. Void migrations use flat .sql files from drizzle-kit 0.x.",
+    );
+    expect(mockGetAppliedMigrations).not.toHaveBeenCalled();
+    expect(mockRunMigrations).not.toHaveBeenCalled();
+  });
+
   it('rejects remote migrate for PostgreSQL before falling through to the D1 endpoint', async () => {
     const root = createPgProjectRoot({
       '001_create_users.sql': 'CREATE TABLE users (id text primary key);',
