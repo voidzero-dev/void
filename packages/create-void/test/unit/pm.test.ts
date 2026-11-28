@@ -30,6 +30,22 @@ describe('create-void package manager delegation', () => {
     ]);
   });
 
+  it('allows the required Void dependency builds in the pnpm 12 dlx cache', () => {
+    vi.stubEnv('npm_config_user_agent', 'pnpm/12.21.0 npm/? node/v24.22.1');
+    expect(pmDlx('pnpm', '1.2.3')).toEqual([
+      'pnpm',
+      'dlx',
+      '--allow-build=esbuild',
+      '--allow-build=workerd',
+      'void@1.2.3',
+    ]);
+  });
+
+  it('keeps the existing dlx command on older pnpm versions', () => {
+    vi.stubEnv('npm_config_user_agent', 'pnpm/9.15.9 npm/? node/v24.22.1');
+    expect(pmDlx('pnpm', '1.2.3')).toEqual(['pnpm', 'dlx', 'void@1.2.3']);
+  });
+
   it.each([
     ['npm', ['npm', 'exec', '--yes', '--package=void@1.2.3', '--', 'void', 'init']],
     ['pnpm', ['pnpm', 'dlx', 'void@1.2.3', 'init']],

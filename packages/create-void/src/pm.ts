@@ -47,8 +47,15 @@ export function pmDlx(pm: PM, version: string): ReadonlyArray<string> {
   switch (isYarnClassic() ? 'npm' : pm) {
     case 'npm':
       return ['npm', 'exec', '--yes', `--package=${pkg}`, '--', 'void'];
-    case 'pnpm':
-      return ['pnpm', 'dlx', pkg];
+    case 'pnpm': {
+      const userAgent = process.env.npm_config_user_agent ?? '';
+      const major = Number(/^pnpm\/(\d+)\./.exec(userAgent)?.[1]);
+      // pnpm 12 asks about transitive builds before running Void. Apply the
+      // existing approvals for these CLI dependencies only in the dlx cache.
+      return major >= 12
+        ? ['pnpm', 'dlx', '--allow-build=esbuild', '--allow-build=workerd', pkg]
+        : ['pnpm', 'dlx', pkg];
+    }
     case 'yarn':
       return ['yarn', 'dlx', pkg];
     case 'bun':
