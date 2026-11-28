@@ -373,9 +373,15 @@ export function activatePlatformAccessCredentials(
   encoded: string | undefined,
   origins: ReadonlyArray<string>,
 ): void {
-  if (!encoded) {
-    return;
+  if (encoded) {
+    process.env.VOID_ACCESS_CREDENTIALS = mergePlatformAccessCredentials(encoded, origins);
   }
+}
+
+export function mergePlatformAccessCredentials(
+  encoded: string,
+  origins: ReadonlyArray<string>,
+): string {
   const entries: unknown = JSON.parse(encoded);
   if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
     throw new Error('platform: Invalid saved Access credentials.');
@@ -401,7 +407,7 @@ export function activatePlatformAccessCredentials(
   if (!current || typeof current !== 'object' || Array.isArray(current)) {
     throw new Error('platform: VOID_ACCESS_CREDENTIALS must contain an origin-keyed object.');
   }
-  process.env.VOID_ACCESS_CREDENTIALS = JSON.stringify({ ...current, ...entries });
+  return JSON.stringify({ ...current, ...entries });
 }
 
 export async function preparePlatformAccessSetup(input: {

@@ -6133,6 +6133,51 @@ describe('platform installer', () => {
     expect(upgradeKvWrites).toEqual([]);
   });
 
+  it('refuses invalid Access credentials before checkpointing an upgrade', async () => {
+    const { directory, sourceManifest, upgradedPlan, secrets, upgradeClient, upgradeKvWrites } =
+      await installedPlatform();
+    writeInstallationManifest(sourceManifest);
+    process.env.VOID_ACCESS_CREDENTIALS = '[]';
+    const pendingBefore = readPendingInstallationSecrets(sourceManifest);
+    const checkpoint = vi.fn(async (_manifest: PlatformInstallationManifest) => {});
+    const lock = Object.assign(async () => {}, {
+      authoritativeManifest: sourceManifest,
+      checkpoint,
+      readAuthenticationState: async () => null,
+    });
+    const claim = vi.fn(claimDatabase);
+
+    await expect(
+      installPlatform(
+        upgradedPlan,
+        {
+          ...secrets,
+          accessCredentialsJson: JSON.stringify({
+            [upgradedPlan.apiUrl]: {
+              CF_ACCESS_CLIENT_ID: 'access-client',
+              CF_ACCESS_CLIENT_SECRET: 'test-secret',
+            },
+          }),
+        },
+        sourceManifest,
+        {
+          acquireDatabaseLifecycleLock: async () => lock,
+          upgradePreflightLock: lock,
+          claimDatabase: claim,
+          client: upgradeClient,
+          operation: 'upgrade',
+          revalidateBeforeWorkerDeploy: async () => {},
+        },
+      ),
+    ).rejects.toThrow('VOID_ACCESS_CREDENTIALS must contain an origin-keyed object');
+
+    expect(listInstallationManifests(directory)[0]).toEqual(sourceManifest);
+    expect(readPendingInstallationSecrets(sourceManifest)).toEqual(pendingBefore);
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+    expect(upgradeKvWrites).toEqual([]);
+  });
+
   it('keeps the source version when upgrade health fails', async () => {
     const { directory, secrets, upgradedPlan, upgradeClient, sourceManifest } =
       await installedPlatform();

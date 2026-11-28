@@ -10,7 +10,7 @@ import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { ensurePlatformAccessHealthChecks } from './platform-access-health.ts';
 import { verifyInstalledPlatformAccessProtection } from './platform-access-preflight.ts';
 import {
-  activatePlatformAccessCredentials,
+  mergePlatformAccessCredentials,
   isPlatformAuthenticationPreparationKey,
 } from './platform-access-setup.ts';
 import { PlatformAppAccessCredentialError } from './platform-app-access.ts';
@@ -127,6 +127,27 @@ async function verifyInstallationAccessSetup(
   });
 }
 
+function installationAccessCredentials(state: PlatformInstallRunState): string | undefined {
+  if (!state.secrets.accessCredentialsJson) {
+    return undefined;
+  }
+  const credentials: unknown = JSON.parse(state.secrets.accessCredentialsJson);
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+    throw new Error('platform: Invalid saved Access credentials.');
+  }
+  // Lifecycle HTTP calls use API/proxy origins. Retain optional dashboard credentials
+  // in recovery storage without activating them, including after protection removal.
+  const origins = [state.plan.apiUrl, state.plan.proxyUrl];
+  return mergePlatformAccessCredentials(
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(credentials).filter(([origin]) => origins.includes(origin)),
+      ),
+    ),
+    origins,
+  );
+}
+
 export async function preflightInstallationAuthentication(
   input: InstallationAuthenticationInput,
   lock: Pick<PlatformDatabaseLifecycleLock, 'readAuthenticationState'>,
@@ -135,6 +156,12 @@ export async function preflightInstallationAuthentication(
   // Use the same deployment decisions as preparation while keeping the current checkpoint.
   const preview = { ...input, state: { ...input.state } };
   applyInstallationAuthentication(preview, liveAuthentication);
+  installationAccessCredentials(preview.state);
+  checkpointAuthenticationResources(
+    preview.state.manifest,
+    preview.state.secrets,
+    preview.state.manifest.updatedAt,
+  );
   if (preview.state.plan.deployment.authentication.accessProtection) {
     await verifyInstallationAccessSetup(preview, liveAuthentication);
   }
@@ -158,24 +185,10 @@ export async function prepareInstallationAuthentication(
       : checkedAuthentication;
   applyInstallationAuthentication(input, liveAuthentication);
   const activateAccessCredentials = () => {
-    if (!state.secrets.accessCredentialsJson) {
-      return;
+    const credentials = installationAccessCredentials(state);
+    if (credentials !== undefined) {
+      process.env.VOID_ACCESS_CREDENTIALS = credentials;
     }
-    const credentials: unknown = JSON.parse(state.secrets.accessCredentialsJson);
-    if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
-      throw new Error('platform: Invalid saved Access credentials.');
-    }
-    // Lifecycle HTTP calls use API/proxy origins. Retain optional dashboard credentials
-    // in recovery storage without activating them, including after protection removal.
-    const origins = [state.plan.apiUrl, state.plan.proxyUrl];
-    activatePlatformAccessCredentials(
-      JSON.stringify(
-        Object.fromEntries(
-          Object.entries(credentials).filter(([origin]) => origins.includes(origin)),
-        ),
-      ),
-      origins,
-    );
   };
   activateAccessCredentials();
   state.manifest = checkpointAuthenticationResources(state.manifest, state.secrets, now());
