@@ -809,6 +809,10 @@ export function voidPlugin(options?: {
         auxiliaryWorkers: options?.auxiliaryWorkers,
         viteEnvironment,
         config: mergeBindings,
+        localQueueProducers: () => ({
+          queues: application.queues,
+          reserved: envSchemaFacts?.serverKeys ?? [],
+        }),
       }),
       implicitDeployGuard,
     ];

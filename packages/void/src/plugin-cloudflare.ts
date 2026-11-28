@@ -10,13 +10,19 @@ import type { PluginConfig } from '@cloudflare/vite-plugin';
 import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import type { BuildEnvironment, Plugin } from 'vite';
 import { readGeneratedWranglerConfigFile } from './cli/generated-wrangler-config.ts';
+import { voidWarn } from './log.ts';
 import {
+  addLocalQueueProducers,
   mergeCloudflareConfig,
   nativeAuxiliaryWorkers,
   restoreLocalContainerBindings,
   toNativeCloudflareConfig,
 } from './plugin-cloudflare-config.ts';
-import type { AuxiliaryWorkerConfig, WorkerConfig } from './plugin-cloudflare-config.ts';
+import type {
+  AuxiliaryWorkerConfig,
+  LocalQueueProducers,
+  WorkerConfig,
+} from './plugin-cloudflare-config.ts';
 import { withLocalPreviewBindings } from './plugin-cloudflare-preview.ts';
 import { isVitestServer } from './plugin-dev-config.ts';
 import { writeFileAtomic } from './shared/atomic-write.ts';
@@ -55,16 +61,21 @@ export function cloudflare(options: {
   inspectorPort?: PluginConfig['inspectorPort'];
   persistState?: PluginConfig['persistState'];
   viteEnvironment: NonNullable<PluginConfig['viteEnvironment']>;
+  localQueueProducers?: LocalQueueProducers;
   finalizeAssets?: (clientDir: string, environment: BuildEnvironment | undefined) => void;
 }): Array<Plugin> {
   const root = process.cwd();
   let workerConfig: WorkerConfig;
   let native: ReturnType<typeof toNativeCloudflareConfig>;
   let pluginNative: ReturnType<typeof toNativeCloudflareConfig>;
+  let localQueueBindings: Array<string> | undefined;
+  let localQueueWarnings: Array<string> | undefined;
   const outputDirectories = new Map<string, string>();
   const bridge: Plugin = {
     name: 'void:cloudflare-config',
     config(_userConfig, environment) {
+      localQueueBindings = undefined;
+      localQueueWarnings = undefined;
       if (environment.isPreview) {
         return;
       }
@@ -101,7 +112,15 @@ export function cloudflare(options: {
         }
       } else if (environment.command === 'serve') {
         restoreLocalContainerBindings(pluginNative.worker);
+        localQueueBindings = addLocalQueueProducers(
+          pluginNative.worker,
+          options.localQueueProducers,
+          (message) => (localQueueWarnings ??= []).push(message),
+        );
       }
+    },
+    configureServer() {
+      localQueueWarnings?.forEach(voidWarn);
     },
   };
   const directories: Plugin = {
@@ -271,7 +290,11 @@ export function cloudflare(options: {
         inspectorPort: options.inspectorPort,
         persistState: options.persistState,
         viteEnvironment: options.viteEnvironment,
-        auxiliaryWorkers: nativeAuxiliaryWorkers(options.auxiliaryWorkers, root),
+        auxiliaryWorkers: nativeAuxiliaryWorkers(
+          options.auxiliaryWorkers,
+          root,
+          () => localQueueBindings,
+        ),
         types: { generate: false },
         config() {
           // Replace the complete parsed configuration, including account settings
@@ -280,6 +303,7 @@ export function cloudflare(options: {
         },
       }),
       root,
+      options.localQueueProducers,
     ),
     output,
   ]);
