@@ -130,6 +130,7 @@ const HELP_TREE = {
     usage: ['void init [options]'],
     options: [
       { command: '--tsconfig', description: 'Update tsconfig.json and set up coding agents' },
+      { command: '--no-install', description: 'Skip installing dependencies after setup' },
       { command: '--git', description: 'Initialize a Git repository without prompting' },
       { command: '--no-git', description: 'Skip Git repository initialization' },
       { command: '--toolchain <name>', description: 'Scaffold with vite-plus or vite' },

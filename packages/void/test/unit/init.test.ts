@@ -127,6 +127,7 @@ describe('init Git arguments', () => {
     expect(parseInitArgs(['--git', '--no-git']).git).toBe(false);
     expect(parseInitArgs(['--no-git', '--git']).git).toBe(true);
     expect(parseInitArgs(['--tsconfig', '--git'])).toMatchObject({ tsconfig: true, git: true });
+    expect(() => parseInitArgs(['--vp-create'])).toThrow('Unknown option');
     expect(() => parseInitArgs(['--agents'])).toThrow('Unknown option');
   });
 
@@ -193,6 +194,72 @@ describe('init scaffold arguments', () => {
     expect(() => parseInitArgs(['--framework', 'angular'])).toThrow(
       'init: --framework must be one of react, vue, svelte, solid.',
     );
+    expect(parseInitArgs(['--no-install', '--no-git'])).toMatchObject({
+      install: false,
+      git: false,
+    });
+    expect(() => parseInitArgs(['--package-manager', 'pnpm'])).toThrow('Unknown option');
+    vi.stubEnv('VOID_PACKAGE_MANAGER', 'pnpm');
+    expect(parseInitArgs([])).not.toHaveProperty('packageManager');
+    expect(() => parseInitArgs(['--vp-create'])).toThrow('Unknown option');
+  });
+
+  it('scaffolds with --no-install without running the package manager install', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-no-install-'));
+    try {
+      await runInitCommand(
+        root,
+        parseInitArgs([
+          '--toolchain',
+          'vite',
+          '--framework',
+          'react',
+          '--starter',
+          'static',
+          '--deploy',
+          'none',
+          '--no-install',
+        ]),
+      );
+
+      expect(existsSync(join(root, 'pages', 'index.tsx'))).toBe(true);
+      expect(
+        mockSpawnSync.mock.calls.filter(([, args]) => Array.isArray(args) && args[0] === 'install'),
+      ).toEqual([]);
+      expect(summaryMessages('→').join('\n')).toContain('npm install');
+      expect(
+        summaryMessages('✓').some(
+          (message) => typeof message === 'string' && message.startsWith('Installed dependencies'),
+        ),
+      ).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the delegated package manager for a plain Vite starter', async () => {
+    vi.stubEnv('VOID_PACKAGE_MANAGER', 'pnpm');
+    const root = mkdtempSync(join(tmpdir(), 'void-init-delegated-pm-'));
+    try {
+      await runInitCommand(
+        root,
+        parseInitArgs([
+          '--toolchain',
+          'vite',
+          '--framework',
+          'react',
+          '--starter',
+          'static',
+          '--deploy',
+          'none',
+          '--no-install',
+        ]),
+      );
+
+      expect(summaryMessages('→').join('\n')).toContain('pnpm install --no-frozen-lockfile');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('scaffolds from flags without prompting when stdin is not a terminal', async () => {
@@ -1475,6 +1542,7 @@ function restoreInteractiveTerminal(): void {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   restoreInteractiveTerminal();
   delete process.env.VOID_PLATFORM_REGISTRY_DIR;
   rmSync(platformRegistryDirectory, { recursive: true, force: true });
@@ -1499,6 +1567,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  vi.stubEnv('VOID_PACKAGE_MANAGER', '');
   previousCI = process.env.CI;
   process.env.CI = 'true';
   Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => true });
@@ -2488,6 +2557,7 @@ describe('isScaffoldableEmptyProject', () => {
       );
       expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
       expect(pkg.packageManager).toBeUndefined();
+      expect(pkg.devEngines.packageManager).toEqual({ name: 'pnpm', onFail: 'download' });
       expectPnpmAllowBuilds(root);
       expect(detectProjectState(root).packageManager).toBe('pnpm');
       expect(installCalls()[0][0]).toBe('vp');
@@ -2521,6 +2591,63 @@ describe('isScaffoldableEmptyProject', () => {
     }
   });
 
+  it.each([
+    ['object with an explicit failure policy', { name: 'npm', version: '11.20.0', onFail: 'warn' }],
+    ['object with the default failure policy', { name: 'npm', version: '11.20.0' }],
+    [
+      'array',
+      [
+        { name: 'npm', version: '11.20.0', onFail: 'warn' },
+        { name: 'npm', version: '12.2.3', onFail: 'error' },
+      ],
+    ],
+  ] as const)('preserves the existing devEngines package manager $0', async (_, packageManager) => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-pinned-npm-'));
+    try {
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({ private: true, devEngines: { packageManager } }),
+      );
+      await runInitCommand(
+        root,
+        parseInitArgs([
+          '--toolchain',
+          'vite',
+          '--framework',
+          'react',
+          '--starter',
+          'static',
+          '--deploy',
+          'none',
+        ]),
+      );
+
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      expect(pkg.devEngines.packageManager).toEqual(packageManager);
+      expect(installCalls()[0][0]).toBe('npm');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes devEngines package manager for a Vite starter', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-vite-toolchain-'));
+    try {
+      mockSelect
+        .mockResolvedValueOnce('vite')
+        .mockResolvedValueOnce('react')
+        .mockResolvedValueOnce('static');
+      mockConfirm.mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      expect(pkg.devEngines.packageManager).toEqual({ name: 'npm', onFail: 'download' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each(['npm@11.20.0', 'pnpm@10.34.4', 'yarn@4.5.3', 'bun@1.1.42'])(
     'preserves %s when scaffolding with Vite+',
     async (packageManager) => {
@@ -2548,6 +2675,10 @@ describe('isScaffoldableEmptyProject', () => {
         expect(installCalls()[0][0]).toBe('vp');
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
         expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
+        expect(pkg.devEngines.packageManager).toEqual({
+          name: packageManager.split('@')[0],
+          onFail: 'download',
+        });
         if (packageManager.startsWith('npm@')) {
           expect(pkg.overrides.vite).toBe('$vite');
         } else if (packageManager.startsWith('bun@')) {
@@ -4463,6 +4594,26 @@ export default config;
     }
   });
 
+  it('reports the migration after scaffolding a demo with --no-install and existing dependencies', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeExistingViteApp(root, { void: '^0.0.1' });
+      writeInstalledVoid(root);
+      mockSelect.mockResolvedValueOnce('none');
+      mockConfirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+      await runInitCommand(root, parseInitArgs(['--no-install']));
+
+      expect(drizzleGenerateCalls()).toHaveLength(0);
+      expect(summaryMessages('→').join('\n')).toContain('db generate` to finish setup');
+      expect(String(mockOutro.mock.calls.at(-1)?.[0])).toContain(
+        'Follow the next steps to finish setup.',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('skips install after demo scaffold when void is hoisted at the workspace root (ancestor node_modules)', async () => {
     const wsroot = mkdtempSync(join(tmpdir(), 'void-init-'));
     try {
@@ -4781,6 +4932,9 @@ export default config;
         expect(readFileSync(join(wsroot, 'pnpm-workspace.yaml'), 'utf8')).toContain(
           '"vite@*": "npm:@voidzero-dev/vite-plus-core@1.6.0"',
         );
+        expect(
+          JSON.parse(readFileSync(join(member, 'package.json'), 'utf8')).devEngines,
+        ).toBeUndefined();
         expect(installCalls()).toHaveLength(0);
       } finally {
         rmSync(wsroot, { recursive: true, force: true });
@@ -5098,6 +5252,37 @@ export default config;
 
 describe('detectProjectState', () => {
   // Without a lockfile, an npm fallback would reject `workspace:` specs or write the wrong lockfile.
+  it.each(['npm', 'pnpm', 'yarn', 'bun'] as const)(
+    'detects %s from devEngines.packageManager when no lockfile is present',
+    (packageManager) => {
+      withTempDir((root) => {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({ devEngines: { packageManager: { name: packageManager } } }, null, 2) +
+            '\n',
+        );
+        expect(detectProjectState(root).packageManager).toBe(packageManager);
+      });
+    },
+  );
+
+  it('prefers package.json#packageManager over devEngines.packageManager', () => {
+    withTempDir((root) => {
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify(
+          {
+            packageManager: 'yarn@4.0.0',
+            devEngines: { packageManager: { name: 'npm' } },
+          },
+          null,
+          2,
+        ) + '\n',
+      );
+      expect(detectProjectState(root).packageManager).toBe('yarn');
+    });
+  });
+
   it('prefers package.json#packageManager when no lockfile is present (pnpm)', () => {
     withTempDir((root) => {
       writeFileSync(

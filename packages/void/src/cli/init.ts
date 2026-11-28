@@ -81,6 +81,7 @@ import {
 export type InitArgs = {
   tsconfig: boolean;
   github: boolean;
+  install?: boolean;
   git?: boolean;
   toolchain?: ScaffoldToolchain;
   framework?: ScaffoldFramework;
@@ -110,6 +111,26 @@ function parseChoice<T extends string>(
   return value as T;
 }
 
+function readDelegatedPackageManager(): ProjectState['packageManager'] | undefined {
+  const packageManager = process.env.VOID_PACKAGE_MANAGER;
+  if (!packageManager) {
+    return undefined;
+  }
+
+  const supportedPackageManagers: ReadonlyArray<ProjectState['packageManager']> = [
+    'npm',
+    'pnpm',
+    'yarn',
+    'bun',
+  ];
+  if (!supportedPackageManagers.includes(packageManager as ProjectState['packageManager'])) {
+    throw new Error(
+      `init: VOID_PACKAGE_MANAGER must be one of ${supportedPackageManagers.join(', ')}.`,
+    );
+  }
+  return packageManager as ProjectState['packageManager'];
+}
+
 export function parseInitArgs(args: Array<string>): InitArgs {
   let parsed: ReturnType<typeof parseArgs>;
   try {
@@ -118,6 +139,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
       options: {
         tsconfig: { type: 'boolean' },
         github: { type: 'boolean' },
+        install: { type: 'boolean' },
         git: { type: 'boolean' },
         toolchain: { type: 'string' },
         framework: { type: 'string' },
@@ -135,6 +157,7 @@ export function parseInitArgs(args: Array<string>): InitArgs {
   return {
     tsconfig: parsed.values.tsconfig === true,
     github: parsed.values.github === true,
+    install: parsed.values.install as boolean | undefined,
     git: parsed.values.git as boolean | undefined,
     toolchain: parseChoice(
       'toolchain',
@@ -810,7 +833,10 @@ function resolveWorkspaceDeferral(
   return { workspaceRoot };
 }
 
-export function detectProjectState(root: string): ProjectState {
+export function detectProjectState(
+  root: string,
+  fallbackPackageManager?: ProjectState['packageManager'],
+): ProjectState {
   let hasTypescript = false;
   let pkg: unknown;
   try {
@@ -841,7 +867,7 @@ export function detectProjectState(root: string): ProjectState {
     if (field === 'pnpm' || field === 'yarn' || field === 'bun') {
       packageManager = field;
     } else {
-      packageManager = 'npm';
+      packageManager = fallbackPackageManager ?? 'npm';
     }
   }
 
@@ -1979,6 +2005,7 @@ function scaffoldPagesApp(
   starterMode: ScaffoldStarterMode,
   toolchain: ScaffoldToolchain,
   report: InitReport,
+  writeDevEnginesPackageManager: boolean,
 ): boolean {
   const packageJsonPath = join(root, 'package.json');
   const packageJsonExisted = existsSync(packageJsonPath);
@@ -2087,6 +2114,12 @@ function scaffoldPagesApp(
       packageManager,
       pkg,
     );
+  }
+
+  if (writeDevEnginesPackageManager) {
+    const devEngines = asRecord(pkg.devEngines) ?? {};
+    devEngines.packageManager ??= { name: packageManager, onFail: 'download' };
+    pkg.devEngines = devEngines;
   }
 
   writeFileSync(packageJsonPath, JSON.stringify(pkg, null, 2) + '\n');
@@ -2531,6 +2564,7 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
 }
 
 async function runInitSteps(root: string, report: InitReport, initArgs?: InitArgs): Promise<void> {
+  const delegatedPackageManager = readDelegatedPackageManager();
   const targeted = Boolean(initArgs && (initArgs.tsconfig || initArgs.github));
   const requestedRoot = root;
   if (!targeted) {
@@ -2584,7 +2618,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     !workspaceSubpackage && (!targeted || initArgs?.git !== undefined)
       ? await setupGit(root, initArgs?.git)
       : false;
-  const preScaffoldState = detectProjectState(root);
+  const preScaffoldState = detectProjectState(root, delegatedPackageManager);
   const detectedPagesFramework = detectPagesFramework(root);
   let scaffoldedPagesFramework: ScaffoldFramework | undefined;
   let scaffoldedStarterMode: Exclude<ScaffoldStarterMode, 'static'> | undefined;
@@ -2614,7 +2648,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       parsePackageManagerField(existingPackageJson) !== undefined ||
       resolveWorkspaceDeferral(root, existingPackageJson) !== undefined;
     const scaffoldPackageManager =
-      scaffoldToolchain === 'vite-plus' && !hasPackageManager
+      scaffoldToolchain === 'vite-plus' && !hasPackageManager && !delegatedPackageManager
         ? 'pnpm'
         : preScaffoldState.packageManager;
     const scaffoldWroteDeps = scaffoldPagesApp(
@@ -2624,6 +2658,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       starterMode,
       scaffoldToolchain,
       report,
+      !workspaceSubpackage,
     );
     report.setStarter(describeStarter(scaffoldedPagesFramework, starterMode, subfolder));
 
@@ -2654,7 +2689,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     didScaffoldStarter = true;
   }
 
-  const state = detectProjectState(root);
+  const state = detectProjectState(root, delegatedPackageManager);
   const pagesFramework = scaffoldedPagesFramework ?? detectPagesFramework(root);
 
   if (!targeted && !didScaffoldStarter) {
@@ -2858,7 +2893,11 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
         : './node_modules/.bin/void'
       : projectVoidRunner[state.packageManager];
   const manualMigration = `${voidRunner} db generate`;
-  if (scaffoldAddedDependencies) {
+  if (scaffoldAddedDependencies && initArgs?.install === false) {
+    const install = resolveProjectInstall(root, state.packageManager);
+    const manualInstall = commandInProject(root, install.manualCommand);
+    report.next(`Run \`${manualInstall}\` to install dependencies`);
+  } else if (scaffoldAddedDependencies) {
     const install = resolveProjectInstall(root, state.packageManager);
     const manualInstall = commandInProject(root, install.manualCommand);
     report.unfinished = migrationMode
@@ -2872,7 +2911,10 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     const manualInstall = commandInProject(root, `${installer} install`);
     report.next(`Run \`${manualInstall}\` to update your lockfile`);
   }
-  if (migrationMode) {
+  if (migrationMode && initArgs?.install === false) {
+    report.next(`Run \`${commandInProject(root, manualMigration)}\` to finish setup`);
+  }
+  if (migrationMode && initArgs?.install !== false) {
     report.unfinished = `Run \`${commandInProject(root, manualMigration)}\` to finish setup`;
     await generateStarterMigration(root, migrationMode);
     report.done('Generated the initial database migration');
@@ -2903,6 +2945,10 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     }
   } else {
     const devCommand = commandInProject(root, getDevCommand(root, framework));
-    printSuccess(`Project initialized. Run \`${devCommand}\` to start developing.`);
+    printSuccess(
+      initArgs?.install === false && (scaffoldAddedDependencies || migrationMode)
+        ? 'Project initialized. Follow the next steps to finish setup.'
+        : `Project initialized. Run \`${devCommand}\` to start developing.`,
+    );
   }
 }
