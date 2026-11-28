@@ -1,10 +1,10 @@
 import type { Snippet } from 'svelte';
-import type { BaseLinkProps } from 'void/pages-client';
+import type { BaseLinkProps, LinkStatus } from 'void/pages-client';
 
 type EventHandler<T extends Event> = (event: T) => void;
 
 export type LinkProps = BaseLinkProps & {
-  children?: Snippet;
+  children?: Snippet<[LinkStatus]>;
   onclick?: EventHandler<MouseEvent>;
   onmouseenter?: EventHandler<MouseEvent>;
   onmouseleave?: EventHandler<MouseEvent>;

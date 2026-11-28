@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createSsrRouter } from 'void/pages-client';
 import type { NavigationMethod, NavigationState } from 'void/pages-client';
 import { NavigationContext, RouterContext } from '../../src/runtime/context.ts';
-import { Link } from '../../src/runtime/link.tsx';
+import { Link, useLinkStatus } from '../../src/runtime/link.tsx';
 import type { LinkProps } from '../../src/runtime/link.tsx';
 
 function renderAt(url: string | null, props: LinkProps): string {
@@ -42,6 +42,44 @@ function renderVisiting(
 }
 
 describe('Link', () => {
+  it('gives the wrapper and link children the same status during a visit', () => {
+    const props = { href: '/users', activeMatch: 'prefix', data: { page: 2 } } as const;
+    function Item() {
+      const status = useLinkStatus(props.href, props);
+      expect(status).toEqual({ current: false, active: true, pending: true });
+      const linkProps: LinkProps = {
+        ...props,
+        children: (childStatus) => {
+          expect(childStatus).toEqual(status);
+          return childStatus.pending ? 'Loading' : 'Users';
+        },
+      };
+      return createElement(Link, linkProps);
+    }
+    const router = createSsrRouter('/users/1');
+    const markup = renderToStaticMarkup(
+      createElement(
+        RouterContext.Provider,
+        { value: router },
+        createElement(
+          NavigationContext.Provider,
+          {
+            value: {
+              state: 'loading',
+              method: 'GET',
+              location: new URL('/users?page=2', router.url),
+            },
+          },
+          createElement(Item),
+        ),
+      ),
+    );
+    expect(markup).toContain('data-void-active=""');
+    expect(markup).toContain('data-void-pending=""');
+    expect(markup).not.toContain('aria-current');
+    expect(markup).toContain('>Loading</a>');
+  });
+
   it('marks the link to the current page', () => {
     const current = renderAt('/users', { href: '/users' });
     expect(current).toContain('aria-current="page"');

@@ -1,4 +1,4 @@
-import { Link, useNavigation, useRouter } from '@void/react';
+import { Link, useLinkStatus, useNavigation, useRouter } from '@void/react';
 import { useEffect, useRef, useState } from 'react';
 import type { Props } from './link-behavior.server.ts';
 
@@ -22,6 +22,7 @@ export default function LinkBehaviorPage({ title, absoluteUrl, protocolRelativeU
   }, []);
 
   const router = useRouter();
+  const postStatus = useLinkStatus('/link-behavior', { method: 'post' });
   const navigation = useNavigation();
   const previousNavigationState = useRef(navigation.state);
   const abortTestCleanupRef = useRef<() => void>(() => {});
@@ -154,9 +155,9 @@ export default function LinkBehaviorPage({ title, absoluteUrl, protocolRelativeU
         </Link>
       </p>
 
-      <p>
+      <p aria-busy={postStatus.pending}>
         <Link href="/link-behavior" method="post" data-testid="post-link">
-          Post to this page
+          {({ pending }) => (pending ? 'Submitting…' : 'Post to this page')}
         </Link>
       </p>
 

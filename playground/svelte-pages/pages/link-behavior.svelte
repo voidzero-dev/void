@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Link, useRouter } from "@void/svelte";
+  import { Link, useLinkStatus, useRouter } from "@void/svelte";
   import type { Props } from "./link-behavior.server.ts";
 
   type LinkBehaviorWindow = Window & {
@@ -10,6 +10,7 @@
 
   let { title, absoluteUrl, protocolRelativeUrl }: Props = $props();
   const router = useRouter();
+  const postStatus = useLinkStatus('/link-behavior', { method: 'post' });
 
   function setClicked() {
     (window as LinkBehaviorWindow).__linkOnClick = true;
@@ -77,8 +78,12 @@
     <Link href="/users" data-testid="replace-link" replace>Replace with users</Link>
   </p>
 
-  <p>
-    <Link href="/link-behavior" method="post" data-testid="post-link">Post to this page</Link>
+  <p aria-busy={postStatus.pending}>
+    <Link href="/link-behavior" method="post" data-testid="post-link">
+      {#snippet children({ pending })}
+        {pending ? "Submitting…" : "Post to this page"}
+      {/snippet}
+    </Link>
   </p>
 
   <p>

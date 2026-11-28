@@ -4,6 +4,8 @@ export { useRouter } from './use-router.ts';
 export { useParams } from './use-params.ts';
 export { useShared } from './use-shared.ts';
 export { useForm } from './use-form.svelte.ts';
+export { useLinkStatus } from './use-link-status.svelte.ts';
+export type { LinkStatus, LinkStatusOptions } from 'void/pages-client';
 export { useNavigation } from './use-navigation.ts';
 export { useIslandForm } from './use-island-form.svelte.ts';
 export { action, setActionRouter } from './action.ts';

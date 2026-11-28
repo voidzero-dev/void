@@ -494,6 +494,36 @@ A pending link matches the destination's path, query, and hash. A link to `/user
 
 A `data-void-pending` you pass to `Link` replaces the computed value. For a loading indicator that covers the whole page, use [`useNavigation()`](../../reference/api/pages.md).
 
+### Reading link status
+
+Use `useLinkStatus(href, options?)` when a surrounding component needs a link’s state, such as a sidebar button that accepts an `isActive` prop. For content inside a `Link`, read the same state from its children.
+
+::: code-group
+
+```tsx [React]
+<Link href="/users">{({ pending }) => (pending ? 'Loading users…' : 'Users')}</Link>
+```
+
+```vue [Vue]
+<Link href="/users" v-slot="{ pending }">{{ pending ? 'Loading users…' : 'Users' }}</Link>
+```
+
+```svelte [Svelte]
+<Link href="/users">
+  {#snippet children({ pending })}
+    {pending ? 'Loading users…' : 'Users'}
+  {/snippet}
+</Link>
+```
+
+```tsx [Solid]
+<Link href="/users">{({ pending }) => (pending ? 'Loading users…' : 'Users')}</Link>
+```
+
+:::
+
+See [Link status](../../reference/api/pages.md#link-status) for reactive inputs and how to match a list of destinations.
+
 ### Prefetching
 
 Add `prefetch` to a `Link` to load its page before the user clicks. This markup works in all four adapters:

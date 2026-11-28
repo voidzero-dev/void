@@ -1,5 +1,5 @@
 export { Form } from './form.tsx';
-export { Link, type LinkProps } from './link.tsx';
+export { useLinkStatus, Link, type LinkProps } from './link.tsx';
 export { useRouter } from './use-router.ts';
 export { useParams } from './use-params.ts';
 export { useShared } from './use-shared.ts';
@@ -24,4 +24,4 @@ export {
 } from './context.ts';
 export type { DeferredState as Deferred, InferProps } from 'void';
 
-export type { PageError, ErrorPageProps } from 'void/pages-client';
+export type { PageError, ErrorPageProps, LinkStatus, LinkStatusOptions } from 'void/pages-client';

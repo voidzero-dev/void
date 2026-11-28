@@ -1,7 +1,8 @@
 import {
   handleLinkClick,
-  linkActiveAttributes,
-  linkPendingAttributes,
+  linkStatusAttributes,
+  linkStatusEquals,
+  resolvedLinkStatus,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
@@ -12,6 +13,7 @@ import type {
   LinkActiveMatch,
   LinkNavigateEvent,
   LinkPrefetchValue,
+  LinkStatus,
   NavigationState,
   VoidRouter,
 } from 'void/pages-client';
@@ -23,6 +25,7 @@ import type {
   DefineSetupFnComponent,
   ExtractPublicPropTypes,
   PropType,
+  SlotsType,
 } from 'vue';
 
 type LinkMethod = NonNullable<BaseLinkProps['method']>;
@@ -86,6 +89,7 @@ function callHandler(handler: unknown, event: Event): void {
 const LinkComponent = defineComponent({
   name: 'Link',
   props: linkPropOptions,
+  slots: Object as SlotsType<{ default: LinkStatus }>,
   setup(props, { slots, attrs }) {
     const router = inject<VoidRouter | null>('__void_router', null);
     const navigation = inject<NavigationState | null>('__void_navigation', null);
@@ -94,12 +98,11 @@ const LinkComponent = defineComponent({
     const strategies = computed(() =>
       linkPrefetchStrategies(props, link.value, router?._prefetchDefaultStrategy),
     );
-    // Reading router.url tracks the route URL, so this follows navigations.
-    const activeAttributes = computed(() =>
-      linkActiveAttributes(router, link.value, props.activeMatch),
-    );
-    // The injected navigation state is reactive, so this follows visits as they start and end.
-    const pendingAttributes = computed(() => linkPendingAttributes(router, navigation, link.value));
+    // Keep the previous object for an equal status so the render skips unchanged updates.
+    const status = computed<LinkStatus>((previous) => {
+      const next = resolvedLinkStatus(router, navigation, link.value, props.activeMatch);
+      return previous && linkStatusEquals(previous, next) ? previous : next;
+    });
 
     function doPrefetch() {
       prefetchLink(router, link.value.href, props.cacheFor);
@@ -190,15 +193,14 @@ const LinkComponent = defineComponent({
       return h(
         tag,
         {
-          ...activeAttributes.value,
-          ...pendingAttributes.value,
+          ...linkStatusAttributes(status.value),
           ...attrs,
           ref: elRef,
           ...(isGet ? { href } : { type: 'button' }),
           style: [{ touchAction: 'manipulation' }, (attrs as { style?: unknown }).style],
           ...eventHandlers,
         },
-        slots.default?.(),
+        slots.default?.(status.value),
       );
     };
   },
@@ -208,5 +210,9 @@ const LinkComponent = defineComponent({
 // treat LinkProps as runtime prop options and widen `href` to an optional `any`.
 // The options component is not assignable to it, so cast; the check above keeps
 // the runtime props in step with BaseLinkProps.
-export const Link: DefineSetupFnComponent<LinkProps> =
-  LinkComponent as DefineSetupFnComponent<LinkProps>;
+type PublicLink = DefineSetupFnComponent<
+  LinkProps,
+  Record<never, never>,
+  SlotsType<{ default: LinkStatus }>
+>;
+export const Link: PublicLink = LinkComponent as PublicLink;

@@ -26,13 +26,19 @@ import { isSameOrigin } from './url.ts';
 
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 export {
+  getLinkStatus,
   handleLinkClick,
+  isLinkActive,
+  isLinkPending,
   linkActiveAttributes,
   linkPendingAttributes,
   linkPrefetchStrategies,
+  linkStatusAttributes,
+  linkStatusEquals,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
+  resolvedLinkStatus,
   type BaseLinkProps,
   type LinkActiveAttributes,
   type LinkActiveMatch,
@@ -40,6 +46,8 @@ export {
   type LinkPendingAttributes,
   type LinkPrefetchValue,
   type LinkPrefetchStrategy,
+  type LinkStatus,
+  type LinkStatusOptions,
   type ResolvedLink,
 } from './link.ts';
 export {
