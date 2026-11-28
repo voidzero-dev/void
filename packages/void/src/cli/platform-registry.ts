@@ -460,6 +460,7 @@ export function writePendingInstallationSecrets(
   manifest: PlatformInstallationManifest,
   secrets: Record<string, string>,
   directory: string = platformRegistryDirectory(),
+  onWritten?: () => void,
 ): void {
   const manifestPath = installationManifestPath(manifest.account.id, manifest.id, directory);
   writeEncryptedRecoveryMaterial(
@@ -469,6 +470,8 @@ export function writePendingInstallationSecrets(
     secrets,
     directory,
   );
+  // The encrypted checkpoint remains on disk if legacy cleanup fails.
+  onWritten?.();
   rmSync(manifestPath.replace(/\.json$/, '.secrets'), { force: true });
 }
 

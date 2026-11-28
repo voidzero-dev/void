@@ -46,6 +46,7 @@ const state = vi.hoisted(() => ({
   events: [] as Array<string>,
   manifest: undefined as PlatformInstallationManifest | undefined,
   prepareDatabase: vi.fn(),
+  preflightDatabaseUpgrade: vi.fn(),
   publishAiLogging: vi.fn(),
   readAdministratorSetup: vi.fn(),
   readAuthenticationState: vi.fn(),
@@ -192,6 +193,7 @@ vi.mock('../../src/cli/platform-installer.ts', async (importOriginal) => {
           authoritativeManifest: state.manifest,
           checkpoint: vi.fn(),
           prepareDatabase: state.prepareDatabase,
+          preflightDatabaseUpgrade: state.preflightDatabaseUpgrade,
           publishAiLogging: state.publishAiLogging,
           readAdministratorSetup: state.readAdministratorSetup,
           readAuthenticationState: state.readAuthenticationState,
@@ -216,6 +218,7 @@ vi.mock('../../src/cli/platform-installer.ts', async (importOriginal) => {
       expect(borrowed.publishAiLogging).toBe(state.publishAiLogging);
       expect(borrowed.readAuthenticationState).toBe(state.readAuthenticationState);
       await borrowed.readAuthenticationState!();
+      dependencies.onFirstWrite?.();
       state.events.push('installer-start');
       dependencies.onProgress?.('Deploying the api service');
       await borrowed.prepareDatabase!(
@@ -405,6 +408,7 @@ describe('installed platform upgrade', () => {
     state.releaseDatabase.mockReset().mockResolvedValue(undefined);
     state.createSecrets.mockReset().mockReturnValue({});
     state.events.length = 0;
+    state.preflightDatabaseUpgrade.mockReset().mockResolvedValue(undefined);
     state.prepareDatabase.mockReset().mockImplementation(async (_directory, database) => {
       state.events.push(`prepare:${database.schemaDigest}`);
       return {
@@ -468,6 +472,41 @@ describe('installed platform upgrade', () => {
     delete process.env.VOID_PLATFORM_PROJECT_SECRET_ACTIVE_KEY_VERSION;
     delete process.env.VOID_PLATFORM_PROJECT_SECRET_KEYS_JSON;
   });
+
+  it.each([
+    { action: 'upgrade', sameRuntime: true, canResume: true },
+    { action: 'upgrade', sameRuntime: false, canResume: false },
+    { action: 'repair', sameRuntime: true, canResume: false },
+  ] as const)(
+    'reports saved $action state when upgrade is refused before writing (same runtime: $sameRuntime)',
+    async ({ action, sameRuntime, canResume }) => {
+      const installed = state.manifest!;
+      state.manifest = {
+        ...installed,
+        status: 'verifying',
+        operation: {
+          id: 'interrupted-operation',
+          fromVersion: installed.platformVersion,
+          toVersion: state.runtime!.manifest.platformVersion,
+          runtimeManifestSha256: sameRuntime ? state.runtime!.manifestSha256 : '0'.repeat(64),
+          action,
+          phase: 'verifying',
+          startedAt: installed.updatedAt,
+          updatedAt: installed.updatedAt,
+        },
+      };
+      const refusal = new Error(
+        'platform: The PostgreSQL database is not at the exact forward-only schema required for runtime rollback.',
+      );
+      vi.mocked(installPlatform).mockRejectedValueOnce(refusal);
+
+      await expect(upgrade()).rejects.toBe(refusal);
+
+      const recovery = vi.mocked(note).mock.calls.find(([, title]) => title === 'Recovery');
+      expect(recovery?.[0]).toContain('void platform status ' + installed.id);
+      expect(recovery?.[0]?.includes('void platform upgrade ' + installed.id)).toBe(canResume);
+    },
+  );
 
   it.each([false, true])(
     'plans an upgrade with management authority instead of its runtime token (environment override: %s)',
@@ -854,6 +893,172 @@ describe('installed platform upgrade', () => {
         existingEmailEnabled: true,
       }),
     );
+  });
+
+  it('reports a refused upgrade preflight directly and releases both locks', async () => {
+    const refusal = new Error('platform: PostgreSQL migration history is not an exact prefix.');
+    state.preflightDatabaseUpgrade.mockImplementationOnce(async () => {
+      state.events.push('preflight-refused');
+      state.progress.clear.mockClear();
+      throw refusal;
+    });
+    vi.mocked(installPlatform).mockImplementationOnce(async (_plan, _secrets, manifest, deps) => {
+      const preflight = deps.upgradePreflightLock?.preflightDatabaseUpgrade;
+      expect(preflight).toBe(state.preflightDatabaseUpgrade);
+      await preflight?.(
+        state.runtime!.directory,
+        state.runtime!.manifest.database,
+        manifest!,
+        true,
+      );
+      return expectedRejection();
+    });
+
+    await expect(upgrade()).rejects.toBe(refusal);
+
+    expect(state.events).toEqual(['preflight-refused', 'outer-release', 'local-release']);
+    expect(writeInstallationManifest).not.toHaveBeenCalled();
+    expect(writePendingInstallationSecrets).not.toHaveBeenCalled();
+    expect(state.progress.clear).toHaveBeenCalledOnce();
+    expect(state.progress.error).not.toHaveBeenCalled();
+    expect(note).not.toHaveBeenCalledWith(expect.any(String), 'Recovery');
+  });
+
+  it('keeps enable recovery after an old Sandbox runtime is refused', async () => {
+    const actual = await vi.importActual<typeof import('../../src/cli/platform-installer.ts')>(
+      '../../src/cli/platform-installer.ts',
+    );
+    const manifest = state.manifest!;
+    const disabled = {
+      ...recordInstallationStep(
+        manifest,
+        { key: 'bootstrap-access:v1', completedAt: manifest.updatedAt, resultHash: 'bootstrap' },
+        manifest.updatedAt,
+      ),
+      status: 'disabled' as const,
+      desiredState: 'disabled' as const,
+      safetyProtocols: { sandboxDrain: 3 as const },
+    };
+    state.manifest = disabled;
+    state.runtime = {
+      ...state.runtime!,
+      manifest: { ...state.runtime!.manifest, safetyProtocols: { sandboxDrain: 0 } },
+    };
+    state.createSecrets.mockReturnValue({ databaseUrl: 'postgres://database' });
+    const checkpoint = vi.fn(async (_manifest: PlatformInstallationManifest) => {});
+    const claimDatabase = vi.fn(async () => {});
+    vi.mocked(acquirePlatformDatabaseLifecycleLock).mockResolvedValueOnce(
+      Object.assign(state.releaseDatabase, {
+        authoritativeManifest: disabled,
+        checkpoint,
+        readAuthenticationState: state.readAuthenticationState,
+      }),
+    );
+    vi.mocked(installPlatform).mockImplementationOnce((plan, secrets, existing, dependencies) =>
+      actual.installPlatform(plan, secrets, existing, { ...dependencies, claimDatabase }),
+    );
+
+    await expect(
+      runInstalledPlatformCommand({
+        subcommand: 'enable',
+        selector: disabled.id,
+        plan: false,
+        runtime: '',
+        yes: true,
+      }),
+    ).rejects.toThrow('predates the required sandbox-drain safety protocol');
+
+    expect(claimDatabase).toHaveBeenCalledOnce();
+    expect(
+      vi
+        .mocked(writePendingInstallationSecrets)
+        .mock.calls.map(([, values]) => values.databaseClaimState),
+    ).toEqual(['claiming', 'claimed']);
+    expect(
+      vi
+        .mocked(writeInstallationManifest)
+        .mock.calls.map(([value]) => [value.status, value.desiredState]),
+    ).toEqual([
+      ['disabled', 'enabled'],
+      ['failed', 'enabled'],
+    ]);
+    expect(checkpoint).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ status: 'failed', desiredState: 'enabled' }),
+    );
+    expect(state.progress.error).toHaveBeenCalledWith('Platform enable failed.');
+    expect(note).toHaveBeenCalledWith(expect.stringContaining('void platform enable'), 'Recovery');
+    expect(state.releaseDatabase).toHaveBeenCalledOnce();
+    expect(state.events.at(-1)).toBe('local-release');
+  });
+
+  it('shows upgrade recovery after a database re-claim fails with a saved credential update', async () => {
+    const actual = await vi.importActual<typeof import('../../src/cli/platform-installer.ts')>(
+      '../../src/cli/platform-installer.ts',
+    );
+    const { createPlatformInstallationSecrets } =
+      await import('../../src/cli/platform-installer-secrets.ts');
+    const registry = await vi.importActual<typeof import('../../src/cli/platform-registry.ts')>(
+      '../../src/cli/platform-registry.ts',
+    );
+    const directory = await mkdtemp(join(tmpdir(), 'void-upgrade-claim-refusal-'));
+    vi.stubEnv('VOID_PLATFORM_RECOVERY_KEY', Buffer.alloc(32, 7).toString('base64'));
+    vi.stubEnv('VOID_PLATFORM_REGISTRY_DIR', directory);
+    const manifest = state.manifest!;
+    const installation = recordInstallationStep(
+      manifest,
+      { key: 'bootstrap-access:v1', completedAt: manifest.updatedAt, resultHash: 'bootstrap' },
+      manifest.updatedAt,
+    );
+    state.manifest = installation;
+    registry.writeInstallationManifest(installation, directory);
+    const createSecretsInput = vi.fn<CreateSecrets>((input) =>
+      createPlatformInstallationSecrets({ ...input, githubClientSecret: 'replacement' }),
+    );
+    state.createSecrets.mockImplementationOnce(createSecretsInput);
+    vi.mocked(writePendingInstallationSecrets).mockImplementation(
+      (saved, values, _dir, onWritten) => {
+        registry.writePendingInstallationSecrets(saved, values, directory, onWritten);
+      },
+    );
+    const refusal = new Error('too many clients already');
+    const claimDatabase = vi.fn(async () => {
+      throw refusal;
+    });
+    vi.mocked(installPlatform).mockImplementationOnce((plan, secrets, existing, dependencies) =>
+      actual.installPlatform(plan, secrets, existing, { ...dependencies, claimDatabase }),
+    );
+
+    try {
+      await expect(upgrade()).rejects.toBe(refusal);
+      expect(claimDatabase).toHaveBeenCalledOnce();
+      const pending = registry.readInstallationRecoverySecrets(installation, directory)!;
+      expect(pending.databaseClaimState).toBe('failed');
+      const retry = createPlatformInstallationSecrets({
+        ...createSecretsInput.mock.calls[0][0],
+        checkpoint: pending,
+        githubClientSecret: '',
+      });
+      expect(retry.workerSecretUpdates).toEqual({});
+      expect(retry.pendingWorkerSecretUpdateIntent?.updates).toEqual({
+        GITHUB_CLIENT_SECRET: 'replacement',
+      });
+      expect(
+        registry.platformWorkerSecretUpdateIntentState(
+          installation,
+          retry.pendingWorkerSecretUpdateIntent!,
+        ),
+      ).toBe('active');
+      expect(writeInstallationManifest).not.toHaveBeenCalled();
+      expect(state.progress.error).toHaveBeenCalledWith('Platform upgrade failed.');
+      expect(note).toHaveBeenCalledWith(
+        expect.stringContaining('void platform upgrade'),
+        'Recovery',
+      );
+      expect(state.events).toEqual(['outer-release', 'local-release']);
+    } finally {
+      vi.mocked(writePendingInstallationSecrets).mockReset();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('releases the held lifecycle lock when database preparation fails', async () => {
@@ -1971,6 +2176,7 @@ describe('installed platform upgrade', () => {
         const installer = vi.mocked(installPlatform).getMockImplementation()!;
         vi.mocked(installPlatform).mockImplementation(
           async (plan, _secrets, existing, dependencies) => {
+            dependencies.onFirstWrite?.();
             state.events.push('installer-start', 'create:isr-cache-kv');
             await dependencies.uploadOutsideChanges!([
               {

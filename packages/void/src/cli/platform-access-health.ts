@@ -68,14 +68,28 @@ async function verifyHealthException(
   }
 }
 
-/** Keep the same path-only exception used by project Zero Trust available during bootstrap. */
-export async function ensurePlatformAccessHealthChecks(input: {
+type AccessHealthInput = {
   plan: PlatformInstallPlan;
   manifest: PlatformInstallationManifest;
   client: Partial<Pick<PlatformCloudflareClient, 'request' | 'apiBaseUrl'>>;
   checkpoint: Readonly<Record<string, string>>;
-  save: (encoded: string) => void;
-}): Promise<void> {
+};
+
+export function verifyPlatformAccessHealthChecks(input: AccessHealthInput): Promise<void> {
+  return reconcilePlatformAccessHealthChecks(input);
+}
+
+/** Keep the same path-only exception used by project Zero Trust available during bootstrap. */
+export function ensurePlatformAccessHealthChecks(
+  input: AccessHealthInput & { save: (encoded: string) => void },
+): Promise<void> {
+  return reconcilePlatformAccessHealthChecks(input, input.save);
+}
+
+async function reconcilePlatformAccessHealthChecks(
+  input: AccessHealthInput,
+  writeCheckpoint?: (encoded: string) => void,
+): Promise<void> {
   // The server owns ongoing app access after setup. Its token may have been
   // rotated or its settings changed by an administrator since installation.
   const appAccess =
@@ -131,7 +145,7 @@ export async function ensurePlatformAccessHealthChecks(input: {
   ) {
     throw new Error('platform: Access health recovery data belongs to a different installation.');
   }
-  const save = () => input.save(JSON.stringify(state));
+  const save = () => writeCheckpoint?.(JSON.stringify(state));
   const inventory = await access.list('apps');
   for (const { key, destination } of platformAccessHealthTargets(input.plan)) {
     const expected = {
@@ -189,6 +203,9 @@ export async function ensurePlatformAccessHealthChecks(input: {
         throw new Error(
           'platform: An Access health application with this installation identity already exists. Inspect it before resuming.',
         );
+      }
+      if (!writeCheckpoint) {
+        continue;
       }
       recorded = { name, fingerprint, pending: true };
       state.resources[key] = recorded;

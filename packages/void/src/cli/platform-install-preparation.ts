@@ -7,10 +7,13 @@ import {
 } from '@void/platform';
 import type { PlatformDeploymentManifest } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
-import { ensurePlatformAccessHealthChecks } from './platform-access-health.ts';
+import {
+  ensurePlatformAccessHealthChecks,
+  verifyPlatformAccessHealthChecks,
+} from './platform-access-health.ts';
 import { verifyInstalledPlatformAccessProtection } from './platform-access-preflight.ts';
 import {
-  activatePlatformAccessCredentials,
+  mergePlatformAccessCredentials,
   isPlatformAuthenticationPreparationKey,
 } from './platform-access-setup.ts';
 import { PlatformAppAccessCredentialError } from './platform-app-access.ts';
@@ -27,6 +30,7 @@ import type {
   PlatformDatabaseLifecycleLock,
   PlatformInstallerDependencies,
   PlatformInstallRunState,
+  PlatformLiveAuthenticationState,
 } from './platform-installer-types.ts';
 import {
   readPendingInstallationSecrets,
@@ -49,25 +53,17 @@ function withAuthentication(
   });
 }
 
-export async function prepareInstallationAuthentication(input: {
-  readonly state: PlatformInstallRunState;
-  readonly releaseDatabaseLock: PlatformDatabaseLifecycleLock;
-  readonly runtime: PlatformRuntimeManifest;
-  readonly authenticationProtocolTransition: boolean;
-  readonly now: () => string;
-  readonly dependencies: PlatformInstallerDependencies;
-}): Promise<void> {
-  const {
-    state,
-    releaseDatabaseLock,
-    runtime,
-    authenticationProtocolTransition,
-    now,
-    dependencies,
-  } = input;
-  const { workerSecretUpdateIntent } = state;
+type InstallationAuthenticationInput = Readonly<{
+  state: PlatformInstallRunState;
+  runtime: PlatformRuntimeManifest;
+  authenticationProtocolTransition: boolean;
+  dependencies: PlatformInstallerDependencies;
+}>;
 
-  const liveAuthentication = await releaseDatabaseLock.readAuthenticationState?.();
+function applyInstallationAuthentication(
+  { state, runtime, authenticationProtocolTransition }: InstallationAuthenticationInput,
+  liveAuthentication: PlatformLiveAuthenticationState | null | undefined,
+): void {
   if (liveAuthentication) {
     state.authenticationEnforcementActive = liveAuthentication.sessionsRequired;
     if (liveAuthentication.sessionsRequired && runtime.authenticationProtocolVersion !== 1) {
@@ -106,25 +102,104 @@ export async function prepareInstallationAuthentication(input: {
       }),
     };
   }
-  const activateAccessCredentials = () => {
-    if (!state.secrets.accessCredentialsJson) {
-      return;
-    }
-    const credentials: unknown = JSON.parse(state.secrets.accessCredentialsJson);
-    if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
-      throw new Error('platform: Invalid saved Access credentials.');
-    }
-    // Lifecycle HTTP calls use API/proxy origins. Retain optional dashboard credentials
-    // in recovery storage without activating them, including after protection removal.
-    const origins = [state.plan.apiUrl, state.plan.proxyUrl];
-    activatePlatformAccessCredentials(
-      JSON.stringify(
-        Object.fromEntries(
-          Object.entries(credentials).filter(([origin]) => origins.includes(origin)),
-        ),
-      ),
-      origins,
+}
+
+async function verifyInstallationAccessSetup(
+  { state, dependencies }: InstallationAuthenticationInput,
+  liveAuthentication: PlatformLiveAuthenticationState | null | undefined,
+): Promise<void> {
+  const protection = liveAuthentication
+    ? liveAuthentication.protection
+    : state.secrets.authenticationSetupJson
+      ? parsePlatformAuthenticationSetup(JSON.parse(state.secrets.authenticationSetupJson))
+          .protection
+      : null;
+  if (!protection) {
+    throw new Error(
+      'platform: The active Access protection configuration is unavailable. Restore its database and encrypted setup checkpoint before maintenance.',
     );
+  }
+  dependencies.onProgress?.('Verifying current Access policies and protected origins');
+  await (dependencies.verifyAccessProtection ?? verifyInstalledPlatformAccessProtection)({
+    client: dependencies.client,
+    manifest: state.manifest,
+    plan: state.plan,
+    dashboardUrl: platformDashboardUrl(state.plan.deployment),
+    protection,
+    checkpoint: secretCheckpoint(state.secrets, state.workerSecretUpdateIntent),
+  });
+}
+
+function installationAccessCredentials(state: PlatformInstallRunState): string | undefined {
+  if (!state.secrets.accessCredentialsJson) {
+    return undefined;
+  }
+  const credentials: unknown = JSON.parse(state.secrets.accessCredentialsJson);
+  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+    throw new Error('platform: Invalid saved Access credentials.');
+  }
+  // Lifecycle HTTP calls use API/proxy origins. Retain optional dashboard credentials
+  // in recovery storage without activating them, including after protection removal.
+  const origins = [state.plan.apiUrl, state.plan.proxyUrl];
+  return mergePlatformAccessCredentials(
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(credentials).filter(([origin]) => origins.includes(origin)),
+      ),
+    ),
+    origins,
+  );
+}
+
+export async function preflightInstallationAuthentication(
+  input: InstallationAuthenticationInput,
+  lock: Pick<PlatformDatabaseLifecycleLock, 'readAuthenticationState'>,
+): Promise<PlatformLiveAuthenticationState | null> {
+  const liveAuthentication = (await lock.readAuthenticationState?.()) ?? null;
+  // Use the same deployment decisions as preparation while keeping the current checkpoint.
+  const preview = { ...input, state: { ...input.state } };
+  applyInstallationAuthentication(preview, liveAuthentication);
+  installationAccessCredentials(preview.state);
+  checkpointAuthenticationResources(
+    preview.state.manifest,
+    preview.state.secrets,
+    preview.state.manifest.updatedAt,
+  );
+  if (preview.state.plan.deployment.authentication.accessProtection) {
+    await verifyInstallationAccessSetup(preview, liveAuthentication);
+    if (!input.dependencies.prepareHealthAccess) {
+      await verifyPlatformAccessHealthChecks({
+        client: preview.dependencies.client,
+        manifest: preview.state.manifest,
+        plan: preview.state.plan,
+        checkpoint: secretCheckpoint(preview.state.secrets, preview.state.workerSecretUpdateIntent),
+      });
+    }
+  }
+  return liveAuthentication;
+}
+
+export async function prepareInstallationAuthentication(
+  input: InstallationAuthenticationInput &
+    Readonly<{
+      releaseDatabaseLock: PlatformDatabaseLifecycleLock;
+      now: () => string;
+      checkedAuthentication?: PlatformLiveAuthenticationState | null;
+    }>,
+): Promise<void> {
+  const { state, releaseDatabaseLock, runtime, now, dependencies, checkedAuthentication } = input;
+  const { authenticationProtocolTransition } = input;
+  const { workerSecretUpdateIntent } = state;
+  const liveAuthentication =
+    checkedAuthentication === undefined
+      ? await releaseDatabaseLock.readAuthenticationState?.()
+      : checkedAuthentication;
+  applyInstallationAuthentication(input, liveAuthentication);
+  const activateAccessCredentials = () => {
+    const credentials = installationAccessCredentials(state);
+    if (credentials !== undefined) {
+      process.env.VOID_ACCESS_CREDENTIALS = credentials;
+    }
   };
   activateAccessCredentials();
   state.manifest = checkpointAuthenticationResources(state.manifest, state.secrets, now());
@@ -282,27 +357,11 @@ export async function prepareInstallationAuthentication(input: {
       });
     }
   }
-  if (state.plan.deployment.authentication.accessProtection) {
-    const protection = liveAuthentication
-      ? liveAuthentication.protection
-      : state.secrets.authenticationSetupJson
-        ? parsePlatformAuthenticationSetup(JSON.parse(state.secrets.authenticationSetupJson))
-            .protection
-        : null;
-    if (!protection) {
-      throw new Error(
-        'platform: The active Access protection configuration is unavailable. Restore its database and encrypted setup checkpoint before maintenance.',
-      );
-    }
-    dependencies.onProgress?.('Verifying current Access policies and protected origins');
-    await (dependencies.verifyAccessProtection ?? verifyInstalledPlatformAccessProtection)({
-      client: dependencies.client,
-      manifest: state.manifest,
-      plan: state.plan,
-      dashboardUrl: platformDashboardUrl(state.plan.deployment),
-      protection,
-      checkpoint: secretCheckpoint(state.secrets, workerSecretUpdateIntent),
-    });
+  if (
+    checkedAuthentication === undefined &&
+    state.plan.deployment.authentication.accessProtection
+  ) {
+    await verifyInstallationAccessSetup(input, liveAuthentication);
   }
   if (
     state.plan.deployment.authentication.accessProtection ||

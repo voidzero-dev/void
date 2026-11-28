@@ -37,6 +37,10 @@ import type {
   QueryConnection,
 } from './platform-zero-trust-uninstall.ts';
 
+function platformDatabaseSchemaStep(database: PlatformRuntimeDatabaseManifest): string {
+  return `database-schema:${database.schemaDigest}`;
+}
+
 // onManifestChange keeps migration checkpoints visible to the outer failure handler.
 export async function preparePlatformDatabaseSchema(
   manifest: PlatformInstallationManifest,
@@ -53,7 +57,7 @@ export async function preparePlatformDatabaseSchema(
 ): Promise<PlatformInstallationManifest> {
   dependencies.onProgress?.('Checking the platform database schema');
   const rollbackDatabase = dependencies.databaseRollbackSource;
-  const migrationStep = `database-schema:${runtime.database.schemaDigest}`;
+  const migrationStep = platformDatabaseSchemaStep(runtime.database);
   if (rollbackDatabase) {
     const verifyDatabase = releaseDatabaseLock.verifyDatabase;
     if (!verifyDatabase) {
@@ -460,26 +464,18 @@ export async function inspectPlatformDatabaseStateConnection(
   };
 }
 
-export async function preparePlatformDatabaseConnection(
+async function inspectPlatformDatabaseUpgrade(
   client: QueryConnection,
-  runtimeDirectory: string,
   database: PlatformRuntimeDatabaseManifest,
   sourcePlatformVersion: string | null,
   hasPriorWorkers: boolean,
-): Promise<PlatformDatabaseMigrationResult> {
-  verifyPlatformDatabaseArtifacts(runtimeDirectory, database);
+): Promise<PlatformDatabaseState> {
   const before = await inspectPlatformDatabaseStateConnection(client, database);
   if (before.pendingMigrations.length === 0) {
     if (before.schemaDigest !== database.schemaDigest) {
       throw new Error('platform: PostgreSQL schema digest does not match the packaged runtime.');
     }
-    return {
-      appliedMigrations: 0,
-      previousSchemaDigest: before.schemaDigest,
-      schemaDigest: before.schemaDigest,
-    };
-  }
-  if (
+  } else if (
     hasPriorWorkers &&
     !database.rollbackSafeFrom.some(
       (entry) =>
@@ -490,6 +486,31 @@ export async function preparePlatformDatabaseConnection(
     throw new Error(
       `platform: Void Platform ${sourcePlatformVersion ?? 'unknown'} cannot safely roll back after migrating database schema ${before.schemaDigest} to this release. Upgrade through a supported intermediate version or install into a fresh database.`,
     );
+  }
+
+  return before;
+}
+
+export async function preparePlatformDatabaseConnection(
+  client: QueryConnection,
+  runtimeDirectory: string,
+  database: PlatformRuntimeDatabaseManifest,
+  sourcePlatformVersion: string | null,
+  hasPriorWorkers: boolean,
+): Promise<PlatformDatabaseMigrationResult> {
+  verifyPlatformDatabaseArtifacts(runtimeDirectory, database);
+  const before = await inspectPlatformDatabaseUpgrade(
+    client,
+    database,
+    sourcePlatformVersion,
+    hasPriorWorkers,
+  );
+  if (before.pendingMigrations.length === 0) {
+    return {
+      appliedMigrations: 0,
+      previousSchemaDigest: before.schemaDigest,
+      schemaDigest: before.schemaDigest,
+    };
   }
 
   await client.query('BEGIN');
@@ -715,6 +736,24 @@ export async function acquirePlatformDatabaseLifecycleLockConnection(
       throw new Error('platform: The PostgreSQL database ownership claim changed unexpectedly.');
     }
     release.authoritativeManifest = manifest;
+  };
+  release.preflightDatabaseUpgrade = async (
+    runtimeDirectory,
+    database,
+    manifest,
+    hasPriorWorkers,
+  ) => {
+    const schemaStep = platformDatabaseSchemaStep(database);
+    if (manifest.steps.some((step) => step.key === schemaStep)) {
+      await verifyPlatformDatabaseConnection(client, runtimeDirectory, database);
+    } else {
+      await inspectPlatformDatabaseUpgrade(
+        client,
+        database,
+        manifest.platformVersion,
+        hasPriorWorkers,
+      );
+    }
   };
   release.prepareDatabase = (runtimeDirectory, database, sourcePlatformVersion, hasPriorWorkers) =>
     preparePlatformDatabaseConnection(

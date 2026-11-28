@@ -21,6 +21,7 @@ import {
   setInstallationDesiredState,
   transitionInstallation,
 } from '@void/platform';
+import type { PlatformInstallationManifest } from '@void/platform';
 import {
   getPlatformRuntimeDirectory,
   platformDatabaseSchemaDigest,
@@ -31,6 +32,7 @@ import type { PlatformRuntimeDatabaseManifest } from '@void/platform/installer';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { Buffer } from '../../src/cli/node-buffer.ts';
+import { platformAccessHealthTargets } from '../../src/cli/platform-access-health.ts';
 import type { AiLoggingProjectionKv } from '../../src/cli/platform-ai-logging-projection.ts';
 import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts';
 import {
@@ -5923,16 +5925,344 @@ describe('platform installer', () => {
     ]);
   });
 
+  it.each([
+    { reason: 'missing rollback compatibility', error: 'cannot safely roll back' },
+    { reason: 'divergent migration history', error: 'not an exact prefix' },
+    { reason: 'target schema step already saved', error: 'not at the exact forward-only schema' },
+    {
+      reason: 'unsupported Sandbox protocol',
+      error: 'predates the required sandbox-drain safety protocol',
+    },
+  ])(
+    'preserves the checkpoint when upgrade preflight refuses $reason',
+    async ({ reason, error }) => {
+      const { directory, secrets, upgradedPlan, sourceManifest, upgradeClient, upgradeKvWrites } =
+        await installedPlatform();
+      const runtime = resolvePlatformRuntime(getPlatformRuntimeDirectory());
+      const database = runtime.manifest.database;
+      const before0065 = database.migrations.findIndex(({ tag }) => tag.startsWith('0065_'));
+      expect(before0065).toBeGreaterThan(0);
+      const migrations = database.migrations.slice(0, before0065);
+      const schemaDigest = platformDatabaseSchemaDigest(database.lineage, migrations);
+      const savedStep = reason === 'target schema step already saved';
+      const installed = parsePlatformInstallationManifest({
+        ...sourceManifest,
+        platformVersion: '1.11.0',
+        databaseSchemaDigest: savedStep ? database.schemaDigest : schemaDigest,
+        ...(savedStep
+          ? {
+              status: 'verifying',
+              operation: { ...sourceManifest.operation, action: 'upgrade', phase: 'verifying' },
+            }
+          : {
+              steps: sourceManifest.steps.filter(
+                (step) => !step.key.startsWith('database-schema:'),
+              ),
+            }),
+      });
+      writeInstallationManifest(installed);
+      if (savedStep) {
+        writePendingInstallationSecrets(installed, {
+          databaseUrl: secrets.databaseUrl,
+          databaseClaimState: 'claimed',
+        });
+      }
+      const pendingBefore = readPendingInstallationSecrets(installed);
+      const connection = migrationConnection(
+        migrations.map((migration, index) => ({
+          created_at: migration.timestampMillis,
+          hash:
+            index === 0 && reason === 'divergent migration history'
+              ? '0'.repeat(64)
+              : migration.sha256,
+          id: index + 1,
+        })),
+      );
+      const checkpoints: Array<string> = [];
+      const lock = await acquirePlatformDatabaseLifecycleLockConnection(
+        {
+          async query<Row extends Record<string, unknown>>(
+            sql: string,
+            values?: ReadonlyArray<unknown>,
+          ) {
+            const rows = (values: ReadonlyArray<unknown>) => ({
+              rows: values as ReadonlyArray<Row>,
+            });
+            if (sql.includes('FROM "__void_platform_installation"')) {
+              return rows([
+                {
+                  installation_id: installed.id,
+                  ownership_nonce: installed.ownershipNonce,
+                  lifecycle_manifest: installed,
+                },
+              ]);
+            }
+            if (sql.includes('pg_try_advisory_lock')) {
+              return rows([{ acquired: true }]);
+            }
+            if (sql.includes("current_setting('max_connections')")) {
+              return rows([{ max: 100, superuser: 3, reserved: 0 }]);
+            }
+            if (sql.includes('UPDATE "__void_platform_installation"')) {
+              const manifest = parsePlatformInstallationManifest(JSON.parse(String(values?.[0])));
+              checkpoints.push(manifest.status);
+              return rows([{ singleton: true }]);
+            }
+            return connection.query<Row>(sql, values);
+          },
+        },
+        installed.id,
+        installed.ownershipNonce,
+      );
+      const deployWorker = vi.fn(async () => {});
+      const claim = vi.fn(claimDatabase);
+      const onFirstWrite = vi.fn();
+      try {
+        await expect(
+          installPlatform(upgradedPlan, secrets, installed, {
+            acquireDatabaseLifecycleLock: async () => lock,
+            upgradePreflightLock: lock,
+            claimDatabase: claim,
+            client: upgradeClient,
+            deployWorker,
+            operation: 'upgrade',
+            onFirstWrite,
+            revalidateBeforeWorkerDeploy: async () => {},
+            runtime: {
+              ...runtime,
+              manifest: {
+                ...runtime.manifest,
+                database:
+                  reason === 'missing rollback compatibility'
+                    ? {
+                        ...database,
+                        rollbackSafeFrom: database.rollbackSafeFrom.filter(
+                          ({ platformVersion }) => platformVersion !== installed.platformVersion,
+                        ),
+                      }
+                    : database,
+                safetyProtocols:
+                  reason === 'unsupported Sandbox protocol'
+                    ? { sandboxDrain: 0 }
+                    : runtime.manifest.safetyProtocols,
+              },
+            },
+            verifyHealth: async () => {},
+          }),
+        ).rejects.toThrow(error);
+
+        expect(connection.queries).not.toContain('BEGIN');
+        expect(deployWorker).not.toHaveBeenCalled();
+        expect(upgradeKvWrites).toEqual([]);
+        expect(checkpoints).toEqual([]);
+        expect(lock.authoritativeManifest).toEqual(installed);
+        expect(listInstallationManifests(directory)[0]).toEqual(installed);
+        expect(readPendingInstallationSecrets(installed)).toEqual(pendingBefore);
+        expect(claim).not.toHaveBeenCalled();
+        expect(onFirstWrite).not.toHaveBeenCalled();
+      } finally {
+        await lock();
+      }
+    },
+  );
+
+  it('preserves deployment admission when the upgrade Access checkpoint is missing', async () => {
+    const { directory, sourceManifest, upgradedPlan, secrets, upgradeClient, upgradeKvWrites } =
+      await installedPlatform();
+    const deployment = createPlatformDeploymentManifest({
+      ...sourceManifest.deployment,
+      capabilities: { ...sourceManifest.deployment.capabilities, githubOAuth: false },
+      authentication: {
+        providers: ['cloudflare-access'],
+        configurable: true,
+        accessProtection: true,
+      },
+    });
+    const installation = parsePlatformInstallationManifest({ ...sourceManifest, deployment });
+    writeInstallationManifest(installation);
+    const pendingBefore = readPendingInstallationSecrets(installation);
+    const checkpoint = vi.fn(async (_manifest: PlatformInstallationManifest) => {});
+    const preflightDatabaseUpgrade = vi.fn(async () => {});
+    const readAuthenticationState = vi.fn(async () => ({
+      enabledProviders: ['cloudflare-access'] as const,
+      sessionsRequired: true,
+      protectedByAccess: true,
+      protection: {
+        teamDomain: 'https://company.cloudflareaccess.com',
+        applications: [
+          { origin: upgradedPlan.apiUrl, audience: 'api-audience' },
+          { origin: upgradedPlan.proxyUrl, audience: 'proxy-audience' },
+        ],
+      },
+    }));
+    const lock = Object.assign(async () => {}, {
+      authoritativeManifest: installation,
+      checkpoint,
+      preflightDatabaseUpgrade,
+      readAuthenticationState,
+    });
+    const claim = vi.fn(claimDatabase);
+    const deployWorker = vi.fn(async () => {});
+    const prepareHealthAccess = vi.fn(async () => {});
+
+    await expect(
+      installPlatform(
+        { ...upgradedPlan, deployment },
+        { ...secrets, accessProvisioningJson: undefined, authenticationPreparation: {} },
+        installation,
+        {
+          acquireDatabaseLifecycleLock: async () => lock,
+          upgradePreflightLock: lock,
+          claimDatabase: claim,
+          client: upgradeClient,
+          deployWorker,
+          operation: 'upgrade',
+          prepareHealthAccess,
+          revalidateBeforeWorkerDeploy: async () => {},
+        },
+      ),
+    ).rejects.toThrow('Restore the current encrypted Access setup checkpoint');
+
+    expect(preflightDatabaseUpgrade).toHaveBeenCalledOnce();
+    expect(readAuthenticationState).toHaveBeenCalledOnce();
+    expect(listInstallationManifests(directory)[0]).toEqual(installation);
+    expect(readPendingInstallationSecrets(installation)).toEqual(pendingBefore);
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+    expect(prepareHealthAccess).not.toHaveBeenCalled();
+    expect(deployWorker).not.toHaveBeenCalled();
+    expect(upgradeKvWrites).toEqual([]);
+  });
+
+  it('preserves deployment admission when the reserved Access health policy has changed', async () => {
+    const { directory, sourceManifest, upgradedPlan, secrets, upgradeClient, upgradeKvWrites } =
+      await installedPlatform();
+    const deployment = createPlatformDeploymentManifest({
+      ...sourceManifest.deployment,
+      capabilities: { ...sourceManifest.deployment.capabilities, githubOAuth: false },
+      authentication: {
+        providers: ['cloudflare-access'],
+        configurable: true,
+        accessProtection: true,
+      },
+    });
+    const installation = { ...sourceManifest, deployment };
+    const plan = { ...upgradedPlan, deployment };
+    writeInstallationManifest(installation);
+    const checkpoint = vi.fn(async (_manifest: PlatformInstallationManifest) => {});
+    const lock = Object.assign(async () => {}, {
+      authoritativeManifest: installation,
+      checkpoint,
+      readAuthenticationState: async () => ({
+        enabledProviders: ['cloudflare-access'] as const,
+        sessionsRequired: true,
+        protectedByAccess: true,
+        protection: { teamDomain: 'https://company.cloudflareaccess.com', applications: [] },
+      }),
+    });
+    const claim = vi.fn(claimDatabase);
+    const destination = platformAccessHealthTargets(plan)[0].destination;
+    const request = vi.fn(async (path: string, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      if (path.includes('/apps?')) {
+        return [
+          {
+            id: 'health-app',
+            name: 'Project health',
+            type: 'self_hosted',
+            domain: destination,
+            destinations: [{ type: 'public', uri: destination }],
+          },
+        ];
+      }
+      expect(path).toContain('/apps/health-app/policies');
+      return [{ decision: 'allow', include: [{ everyone: {} }] }];
+    });
+    await expect(
+      installPlatform(
+        plan,
+        { ...secrets, authenticationPreparation: { accessSetupSpecJson: '{"mode":"create"}' } },
+        installation,
+        {
+          acquireDatabaseLifecycleLock: async () => lock,
+          upgradePreflightLock: lock,
+          claimDatabase: claim,
+          client: {
+            ...upgradeClient,
+            request: async <T>(path: string, init?: RequestInit) =>
+              (await request(path, init)) as T,
+          },
+          operation: 'upgrade',
+          revalidateBeforeWorkerDeploy: async () => {},
+          verifyAccessProtection: async () => {},
+        },
+      ),
+    ).rejects.toThrow('does not match the reserved health-check exception');
+
+    expect(listInstallationManifests(directory)[0]).toEqual(installation);
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+    expect(upgradeKvWrites).toEqual([]);
+  });
+
+  it('refuses invalid Access credentials before checkpointing an upgrade', async () => {
+    const { directory, sourceManifest, upgradedPlan, secrets, upgradeClient, upgradeKvWrites } =
+      await installedPlatform();
+    writeInstallationManifest(sourceManifest);
+    process.env.VOID_ACCESS_CREDENTIALS = '[]';
+    const pendingBefore = readPendingInstallationSecrets(sourceManifest);
+    const checkpoint = vi.fn(async (_manifest: PlatformInstallationManifest) => {});
+    const lock = Object.assign(async () => {}, {
+      authoritativeManifest: sourceManifest,
+      checkpoint,
+      readAuthenticationState: async () => null,
+    });
+    const claim = vi.fn(claimDatabase);
+
+    await expect(
+      installPlatform(
+        upgradedPlan,
+        {
+          ...secrets,
+          accessCredentialsJson: JSON.stringify({
+            [upgradedPlan.apiUrl]: {
+              CF_ACCESS_CLIENT_ID: 'access-client',
+              CF_ACCESS_CLIENT_SECRET: 'test-secret',
+            },
+          }),
+        },
+        sourceManifest,
+        {
+          acquireDatabaseLifecycleLock: async () => lock,
+          upgradePreflightLock: lock,
+          claimDatabase: claim,
+          client: upgradeClient,
+          operation: 'upgrade',
+          revalidateBeforeWorkerDeploy: async () => {},
+        },
+      ),
+    ).rejects.toThrow('VOID_ACCESS_CREDENTIALS must contain an origin-keyed object');
+
+    expect(listInstallationManifests(directory)[0]).toEqual(sourceManifest);
+    expect(readPendingInstallationSecrets(sourceManifest)).toEqual(pendingBefore);
+    expect(checkpoint).not.toHaveBeenCalled();
+    expect(claim).not.toHaveBeenCalled();
+    expect(upgradeKvWrites).toEqual([]);
+  });
+
   it('keeps the source version when upgrade health fails', async () => {
     const { directory, secrets, upgradedPlan, upgradeClient, sourceManifest } =
       await installedPlatform();
     let verifiedTargetVersion = '';
+    const checkpoint = vi.fn(async (_manifest: PlatformInstallationManifest) => {});
+    const deployWorker = vi.fn(async () => async () => {});
     await expect(
       installPlatform(upgradedPlan, secrets, sourceManifest, {
-        acquireDatabaseLifecycleLock,
+        acquireDatabaseLifecycleLock: async () =>
+          Object.assign(await acquireDatabaseLifecycleLock(), { checkpoint }),
         claimDatabase,
         client: upgradeClient,
-        deployWorker: async () => async () => {},
+        deployWorker,
         prepareDatabase,
         revalidateBeforeWorkerDeploy: async () => {},
         verifyHealth: async (_api, _id, _proxy, _domain, platformVersion) => {
@@ -5942,11 +6272,14 @@ describe('platform installer', () => {
       }),
     ).rejects.toThrow('upgrade health failed');
     expect(verifiedTargetVersion).toBe(readPlatformRuntimeManifest().platformVersion);
-    expect(listInstallationManifests(directory)[0]?.platformVersion).toBe('0.10.13');
-    expect(listInstallationManifests(directory)[0]?.operation).toMatchObject({
-      action: 'upgrade',
-      phase: 'failed',
+    expect(deployWorker).toHaveBeenCalled();
+    const failed = listInstallationManifests(directory)[0];
+    expect(failed).toMatchObject({
+      platformVersion: '0.10.13',
+      status: 'failed',
+      operation: { action: 'upgrade', phase: 'failed' },
     });
+    expect(checkpoint).toHaveBeenLastCalledWith(failed);
   });
 
   it('rolls the database schema back and forward from recorded manifests', async () => {
