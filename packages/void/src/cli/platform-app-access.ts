@@ -10,8 +10,8 @@ import type {
   PlatformAppAccessSetup,
   PlatformDeploymentManifest,
 } from '@void/platform';
-import { confirm, log, multiselect, password, select } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
+import { confirm, log, multiselect, password, select } from './interactive-prompts.ts';
 import {
   PlatformAccessClient,
   platformAccessIdentityProvider,

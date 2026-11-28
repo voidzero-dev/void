@@ -19,8 +19,8 @@ import {
   readStoredPlanSecurityCap,
 } from '@void/platform/security-policy';
 import type { PlanSecurityCaps, SecurityPlanCap } from '@void/platform/security-policy';
-import { confirm, isCancel, select, text } from '@voidzero-dev/vite-plus-prompts';
 import type { CANCEL_SYMBOL } from '@voidzero-dev/vite-plus-prompts';
+import { confirm, isCancel, select, text } from './interactive-prompts.ts';
 import { utcTime } from './operator-ai-logging.ts';
 import { readOperatorToken, resolveOperatorOrigin } from './operator-auth.ts';
 import { OperatorClient, OperatorClientError } from './operator-client.ts';

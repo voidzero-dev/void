@@ -1,9 +1,9 @@
 import type { PlatformDiscoveryDocument } from '@void/platform';
-import { isCancel, log, select } from '@voidzero-dev/vite-plus-prompts';
 import { readPlatformToken } from './auth.ts';
 import { isExpiredTokenError, PlatformClient } from './client.ts';
 import { connectCloudflare } from './cloudflare-connect.ts';
 import type { ConnectArgs } from './connect-args.ts';
+import { isCancel, log, select } from './interactive-prompts.ts';
 import { promptForLoginToken } from './login.ts';
 import { printSuccess } from './output.ts';
 import { discoverPlatform, promptPlatformUrl, saveDiscoveredPlatform } from './platform-cmd.ts';

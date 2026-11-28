@@ -6,8 +6,8 @@ import {
   PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
 } from '@void/platform';
 import type { PlatformApplication, PlatformInstallationManifest } from '@void/platform';
-import { confirm, isCancel, text } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
+import { confirm, isCancel, text } from './interactive-prompts.ts';
 import { printSuccess, note } from './output.ts';
 import type { PlatformArgs } from './platform-args.ts';
 import {

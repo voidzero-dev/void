@@ -10,7 +10,6 @@ import type {
   ExistingCloudflareWorker,
   ApprovedCloudflareKvBinding,
 } from '@void/deploy-cloudflare';
-import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
 import { basename, dirname, relative } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
 import type { ApplicationAnalysis } from '../application-analysis.ts';
@@ -67,6 +66,7 @@ import { createNodeEmailDns, SEND_EMAIL_BINDING } from './email-cloudflare.ts';
 import type { EnvSchemaProbeResult } from './env-schema-probe.ts';
 import { selfHostSchemaFailureMessage } from './env-validation.ts';
 import type { SelfHostSchemaFacts } from './env-validation.ts';
+import { confirm, isCancel } from './interactive-prompts.ts';
 import type { CliLogger } from './log-file.ts';
 import { getErrorMessage } from './output.ts';
 import { checkCloudflareProvisionDrift, provisionCloudflareResources } from './provision.ts';

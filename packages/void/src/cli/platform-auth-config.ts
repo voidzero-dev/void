@@ -7,8 +7,8 @@ import type {
   PlatformLoginKind,
   PlatformAdmissionPolicy,
 } from '@void/platform';
-import { confirm, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { openBrowser } from './auth.ts';
+import { confirm, multiselect, password, select, text } from './interactive-prompts.ts';
 import { readOperatorToken, resolveOperatorOrigin } from './operator-auth.ts';
 import { OperatorClient } from './operator-client.ts';
 import { humanLines } from './operator-cmd.ts';

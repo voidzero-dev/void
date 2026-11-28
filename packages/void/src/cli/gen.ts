@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { log, select, isCancel, cancel } from '@voidzero-dev/vite-plus-prompts';
 import { join, dirname, relative } from 'pathslash';
 import { readConfig, getDatabaseDialect } from '../config.ts';
 import type { DatabaseDialect } from '../config.ts';
@@ -11,6 +10,7 @@ import { assertJournalCoherence } from '../migrations/validate.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { hasOwnKey } from '../shared/has-own-key.ts';
 import type { GenArgs } from './gen-args.ts';
+import { log, select, isCancel, cancel } from './interactive-prompts.ts';
 import { printSuccess } from './output.ts';
 import { buildDrizzleKitSpawnEnv, drizzleKitBin } from './yarn-pnp.ts';
 

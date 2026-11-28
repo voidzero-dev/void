@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import { cancel, confirm, isCancel, log, select, text } from '@voidzero-dev/vite-plus-prompts';
 import {
   awaitBrowserCallback,
   createCodeChallenge,
@@ -11,6 +10,7 @@ import { PlatformApiError, PlatformClient, parsePlatformErrorBody } from './clie
 import type { GithubConnection, GithubInstallation } from './client.ts';
 import { collectGitDeployMetadata } from './git-metadata.ts';
 import type { GithubArgs } from './github-args.ts';
+import { cancel, confirm, isCancel, log, select, text } from './interactive-prompts.ts';
 import { printSuccess, formatUrl, pc } from './output.ts';
 import { platformErrorMessage } from './platform-errors.ts';
 import { readProjectConfig } from './project.ts';

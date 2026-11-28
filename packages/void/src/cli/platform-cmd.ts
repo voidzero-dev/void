@@ -1,7 +1,7 @@
 import type { PlatformDiscoveryDocument, PlatformInstallationManifest } from '@void/platform';
-import { isCancel, log, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { ensurePlatformAccessToken, isCloudflareAccessChallenge } from './cf-access.ts';
+import { isCancel, log, select, text } from './interactive-prompts.ts';
 import { printSuccess, formatUrl, pc } from './output.ts';
 import type { PlatformArgs } from './platform-args.ts';
 import { PlatformDisabledError, readPlatformDiscoveryResponse } from './platform-discovery.ts';

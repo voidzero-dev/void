@@ -5,16 +5,8 @@ import {
   normalizeInstallationSlug,
 } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
-import {
-  confirm,
-  isCancel,
-  log,
-  outro,
-  password,
-  select,
-  text,
-} from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
+import { confirm, isCancel, log, outro, password, select, text } from './interactive-prompts.ts';
 import { Buffer } from './node-buffer.ts';
 import { printSuccess, cliCommandName, formatUrl, note, pc } from './output.ts';
 import {

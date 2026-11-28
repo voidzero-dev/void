@@ -18,6 +18,7 @@ import { genSubcommands, parseGenArgs } from './gen-args.ts';
 import { githubSubcommands, parseGithubArgs } from './github-args.ts';
 import { getHelpPath, printGlobalHelp, printHelpPage, printVoidHeader } from './help.ts';
 import { parseInfoArgs } from './info-args.ts';
+import { PromptInputClosedError } from './interactive-prompts.ts';
 import { operatorGroups } from './operator-args.ts';
 import { OperatorClientError } from './operator-client.ts';
 import { formatUrl, pc } from './output.ts';
@@ -26,23 +27,6 @@ import { parsePrepareArgs } from './prepare-args.ts';
 import { projectSubcommands, parseProjectArgs } from './project-args.ts';
 import { secretSubcommands, parseSecretArgs } from './secret-args.ts';
 import type { SubcommandDef, SubcommandResult } from './subcommand-prompt.ts';
-
-function runCommand(name: string, run: () => Promise<void>) {
-  let closedInputDrains = 0;
-  const onBeforeExit = () => {
-    if ((process.exitCode ?? 0) === 0 && (process.stdin.readableEnded || process.stdin.destroyed)) {
-      if (++closedInputDrains === 1) {
-        return void setImmediate(() => {});
-      }
-      const message = `void ${name}: Command did not finish. Standard input is closed.`;
-      const json = args.includes('--json');
-      console.error(json ? JSON.stringify({ error: 'invalid_command', message }) : message);
-      process.exitCode = 1;
-    }
-  };
-  process.on('beforeExit', onBeforeExit);
-  return run().finally(() => process.off('beforeExit', onBeforeExit));
-}
 
 function buildArgs(result: SubcommandResult, trailingArgs: Array<string>): Array<string> {
   const out = [result.subcommand];
@@ -105,7 +89,10 @@ async function runSubcommandGroup<T>(
       await run(root, parsed);
     }
   } catch (err) {
-    if (command === 'platform' && args.includes('--json')) {
+    if (
+      (command === 'platform' || err instanceof PromptInputClosedError) &&
+      args.includes('--json')
+    ) {
       console.error(
         JSON.stringify(
           err instanceof OperatorClientError
@@ -147,6 +134,8 @@ async function runSubcommandGroup<T>(
           ? `${platformMessage}\n${isPartialResult(err) ? 'Partial result' : 'Details'}:\n${JSON.stringify(err.details, null, 2)}`
           : platformMessage,
       );
+    } else if (err instanceof PromptInputClosedError) {
+      console.error(message);
     } else {
       // A command printing JSON keeps stdout for its result.
       log.error(message, args.includes('--json') ? { output: process.stderr } : undefined);
@@ -257,7 +246,7 @@ if (helpPath) {
   }
 
   const { runDeploy } = await import('./deploy.ts');
-  await runCommand('deploy', () => runDeploy(root, deployArgs)).catch((err: unknown) => {
+  await runDeploy(root, deployArgs).catch((err: unknown) => {
     logCloudflareUserError(err instanceof Error ? err.message : String(err));
     process.exit(1);
   });
@@ -271,7 +260,7 @@ if (helpPath) {
     process.exit(1);
   });
 } else if (command && hasOwnKey(subcommandGroups, command)) {
-  void runCommand(command, subcommandGroups[command]);
+  void subcommandGroups[command]();
 } else if (command === 'info') {
   await import('./info.ts').then(async ({ runInfoCommand }) => {
     try {
@@ -310,7 +299,7 @@ if (helpPath) {
       log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exit(1);
     }
-    await runCommand('init', () => runInitCommand(root, initArgs)).catch((err: unknown) => {
+    await runInitCommand(root, initArgs).catch((err: unknown) => {
       log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exitCode = 1;
     });

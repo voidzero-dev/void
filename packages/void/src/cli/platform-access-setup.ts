@@ -1,8 +1,8 @@
 import { stripVTControlCharacters } from 'node:util';
 import { isPlatformAccessEmailDomain } from '@void/platform';
 import type { PlatformInstallationManifest } from '@void/platform';
-import { confirm, log, multiselect, password, select, text } from '@voidzero-dev/vite-plus-prompts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
+import { confirm, log, multiselect, password, select, text } from './interactive-prompts.ts';
 import { note, pc } from './output.ts';
 import {
   PlatformAccessClient,

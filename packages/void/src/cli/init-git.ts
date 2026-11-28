@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cancel, confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
 import { dirname, join, resolve } from 'pathslash';
 import { projectPathFromShell } from './init-shell.ts';
+import { cancel, confirm, isCancel, log } from './interactive-prompts.ts';
 
 export async function setupGit(root: string, git?: boolean): Promise<boolean> {
   if (git === false) {

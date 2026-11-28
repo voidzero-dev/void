@@ -172,6 +172,8 @@ export default async function ({ db }) {
   for await (const chunk of process.stdin) text += chunk;
   db.$client.prepare('INSERT INTO messages (text) VALUES (?)').run(text.trim());
   await once(process, 'beforeExit');
+  setImmediate(() => {});
+  await once(process, 'beforeExit');
 }
 `,
       },
